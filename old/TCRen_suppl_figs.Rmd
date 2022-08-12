@@ -1,0 +1,1153 @@
+---
+title: "TCRen ms: supplementary figures"
+author: "Vadim Karnaukhov"
+date: "03 09 2021"
+output: html_document
+---
+
+---
+title: "Statistical potential for CDR:antigen contacts (VK)"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(data.table)
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(forcats)
+library(ggrepel)
+library(broom)
+library(rstatix)
+library(ggpubr)
+library(ggbeeswarm)
+```
+
+```{r}
+calc_TCRen.a.cf() %>% 
+  mutate(potential = "TCRen") %>% 
+  rename(value = TCRen) %>% 
+  fwrite("TCRen.csv")
+
+TCRen <- fread("TCRen.csv")
+```
+
+
+```{r}
+aa.levels <- c("L","I","M","V","F","W","Y","C","H","A","G","P","T","S","Q","N","D","E","R","K")
+
+plot_potential <- function(.potential, title, limits, df = TCRen) {
+  df %>% 
+    filter(potential == .potential) %>% 
+    ggplot(aes(x = factor(residue.aa.from, levels = aa.levels), 
+               y = factor(residue.aa.to, levels = aa.levels), fill = value)) +
+    geom_tile() +
+    scale_fill_distiller("", palette = "RdBu", limits = limits, 
+                         direction = 1) +
+    xlab("") + ylab("") +
+    ggtitle(title) +
+    theme_minimal() +
+    theme(plot.title = element_text(hjust = 0.5),
+          legend.position = "bottom", aspect = 1,
+          legend.key.width = unit(1,"cm"),
+          legend.key.height = unit(.3, "cm"))
+}
+
+pfig5a <- plot_potential(.potential = "TCRen.a.cf", title = "TCRen", limits = c(-1.7, 1.7), df = TCRen) +
+  xlab("TCR residue") + ylab("peptide residue")
+
+MJ <- fread("MJ.csv")
+
+pfig5b <- 
+  plot_potential(.potential = "MJ", title = "MJ", limits = c(-7.5, 0), df = MJ) +
+  theme(legend.margin=margin(0,0,0,0),
+        legend.box.margin=margin(-10,-10,-10,-10))
+
+pfig5c <- 
+  plot_potential(.potential = "Keskin", title = "Keskin", limits = c(-7.5, 0), df = MJ) +
+  theme(legend.margin=margin(0,0,0,0),
+        legend.box.margin=margin(-10,-10,-10,-10))
+
+pfig5a
+pfig5b
+pfig5c
+```
+
+
+```{r}
+aa.classes <- tibble (  
+  aa = c("A","I","L","V","M","G","P",
+         "R","K",
+         "C","H","S","T","N","Q",
+         "D","E",
+         "F","W","Y"),
+  cls = c("nonpolar","nonpolar","nonpolar","nonpolar","nonpolar","nonpolar","nonpolar",
+          "+ charged","+ charged",
+          "polar","polar","polar","polar", "polar","polar",
+          "- charged","- charged",
+          "nonpolar","nonpolar","polar"))
+
+class.levels <- c("nonpolar & nonpolar", "nonpolar & polar","charged & nonpolar","polar & polar","charged & polar", "charged & charged")
+
+TCRen.class <- TCRen %>%
+  rbind(MJ) %>% 
+  group_by(potential) %>% 
+  mutate(value.norm = (value - min(value)) / (max(value) - min(value)),
+         potential = factor(potential, levels = c("TCRen", "MJ", "Keskin"))) %>% 
+  merge(aa.classes %>% select(residue.aa.to = aa, class.to = cls)) %>%
+  merge(aa.classes %>% select(residue.aa.from = aa, class.from = cls)) 
+
+pfig5d <- TCRen.class %>%
+  mutate(class.to = ifelse(endsWith(class.to, "charged"), "charged", class.to),
+         class.from = ifelse(endsWith(class.from, "charged"), "charged", class.from)) %>%
+  rowwise() %>%
+  mutate(class = paste(min(class.to, class.from), max(class.to, class.from), sep = " & ")) %>% 
+  ggplot(aes(x = factor(class, levels = class.levels), y = value.norm, fill = potential)) + 
+  geom_boxplot(outlier.shape=NA) +
+  geom_quasirandom(size = .4, position = position_jitterdodge(jitter.width = .1),  dodge.width = 0.75) +
+  scale_fill_manual(values = c("red", "blue", "purple")) + 
+  theme_pubclean() +
+  theme(axis.text.x = element_text(angle=30, hjust = 1),
+        legend.position = "right",
+        #text=element_text(size=15)
+        ) +
+  labs(x = '', y = 'Normalized value') 
+
+pfig5e <- 
+  TCRen.class %>%
+  filter(endsWith(class.to, "charged") & endsWith(class.from, "charged")) %>%
+  rowwise() %>%
+  mutate(class = paste(min(class.to, class.from), max(class.to, class.from), sep = " & ")) %>% 
+  ggplot(aes(x = factor(class, levels = c("- charged & + charged", "+ charged & + charged", "- charged & - charged")), 
+             y = value.norm, color = potential, group = potential)) + 
+  geom_beeswarm(dodge.width = 0.5, shape = 21, 
+                size = 1) +
+  scale_color_manual(values = c("red", "blue", "purple")) + 
+  stat_summary(fun.y="median", geom='point', shape = 95, size = 10, 
+               position = position_dodge(width = 0.5)) +
+  stat_summary(geom = "errorbar", width = 0.8, 
+               position = position_dodge(width = 0.5)
+               ) +
+  theme_pubclean() +
+  theme(axis.text.x = element_text(angle=30, hjust = 1),
+        #text=element_text(size=15),
+        aspect = 2,
+        legend.position = "none") +
+  labs(x = '', y = 'Normalized value') +
+  ylim(0, 1)
+
+```
+
+
+```{r, fig.width=7, fig.height=6}
+library(ComplexHeatmap)
+TCRen.matrix <- TCRen %>% 
+          #filter(residue.aa.to != "C") %>% 
+          dcast(residue.aa.from ~ residue.aa.to) %>% 
+          column_to_rownames("residue.aa.from") %>% 
+          as.matrix()
+
+pSN2a <- Heatmap(TCRen.matrix, #clustering_distance_rows = "euclidean",#clustering_distance_columns = "euclidian",
+        name = "TCRen", #title of legend
+        column_title = "peptide residues", row_title = "TCR residues",
+        col = circlize::colorRamp2(c(-2, 0, 2), c("red", "white", "blue")),
+        column_names_rot = 0
+        #row_names_gp = gpar(fontsize = 7) # Text size for row names
+        )
+
+pSN2a
+```
+
+```{r, fig.width=7, fig.height=6}
+pSN2b <- Heatmap(MJ %>% filter(potential == "MJ") %>% 
+          filter(residue.aa.from %in% aa.levels, residue.aa.to %in% aa.levels) %>% 
+          dcast(residue.aa.from ~ residue.aa.to, fill = "value") %>% 
+          column_to_rownames("residue.aa.from") %>% as.matrix(),
+        name = "MJ", 
+        col = circlize::colorRamp2(c(-7, -3.5, 0), c("red", "white", "blue")),
+        column_names_rot = 0
+        )
+
+pSN2c <- Heatmap(MJ %>% filter(potential == "Keskin") %>% 
+          filter(residue.aa.from %in% aa.levels, residue.aa.to %in% aa.levels) %>% 
+          dcast(residue.aa.from ~ residue.aa.to, fill = "value") %>% 
+          column_to_rownames("residue.aa.from") %>% as.matrix(),
+        name = "Keskin", 
+        col = circlize::colorRamp2(c(-7, -3.5, 0), c("red", "white", "blue")),
+        column_names_rot = 0
+        )
+
+pSN2b
+pSN2c
+```
+
+
+# Correlation with Atchley factors
+
+Atchley factors properties explanation
+```{r}
+tibble(`Atchley factor` = paste0("AF", c(1:5)), 
+       Property = c("Polarity/hydrophobicity", "Secondary structure", "Molecular volume", "Codon diversity", "Electrostatic charge"),
+       `Heigher values` = c("Hydrophilicity", "Bends, coils, turns", "Small size", "Higher amino acid usage", "Positively charged"),
+       `Lower values` = c("Hydrophobicity", "alpha-helical", "Large size", "Heat capacity, refractivity", "Negatively charged"))
+```
+
+
+```{r}
+library(HDMD)
+data(AAMetric.Atchley)
+#AAMetric.Atchley
+descriptors.atchley <- AAMetric.Atchley %>% 
+  set_colnames(paste0("AF", 1:5)) %>% 
+  as.data.frame() %>% 
+  rownames_to_column("residue.aa") %>% 
+  melt(id = "residue.aa", variable.name = "atchley.factor")
+
+descriptors.atchley
+
+descriptors.atchley.a <- TCRen   %>%
+  rbind(MJ) %>% 
+  filter(residue.aa.from != "C") %>% 
+  dcast(residue.aa.from + residue.aa.to ~ potential) %>% 
+  merge(descriptors.atchley %>% 
+          rename(residue.aa.from = residue.aa) %>% 
+          mutate(atchley.factor = paste0(atchley.factor, ".TCR")) %>% 
+          dcast(residue.aa.from ~ atchley.factor)) %>%
+  merge(descriptors.atchley %>% 
+          rename(residue.aa.to = residue.aa) %>% 
+          mutate(atchley.factor = paste0(atchley.factor, ".peptide")) %>% 
+          dcast(residue.aa.to ~ atchley.factor)) 
+
+atchley <- descriptors.atchley.a %>% 
+  select(starts_with("A")) %>% 
+  model.matrix( ~.^2, data = .)
+   
+
+levels.atchley.TCR <- c("linear term", paste0("AF", 1:10, ".TCR"))
+levels.atchley.peptide <- c("linear term", paste0("AF", 1:10, ".peptide"))
+
+
+atchley.cor <- cor(descriptors.atchley.a$MJ, atchley) %>%
+  rbind(cor(descriptors.atchley.a$Keskin, atchley)) %>%
+  rbind(cor(descriptors.atchley.a$TCRen, atchley)) %>%
+  t() %>%
+  magrittr::set_colnames(c("MJ", "Keskin", "TCRen")) %>%
+  cbind(term = rownames(.)) %>%
+  as.tibble() %>%
+  filter(term != '(Intercept)') %>%
+  separate("term", into = c("term.1", "term.2"), sep = ":") %>%
+  replace(is.na(.), "linear term") %>%
+  as.data.table() %>%
+  melt(id = c("term.1","term.2"), variable.name = "Potential")
+```
+
+```{r}
+atchley.cor <- atchley.cor %>% 
+  filter(term.1 %in% levels.atchley.TCR, 
+         term.2 %in% levels.atchley.peptide) %>% 
+  rbind(atchley.cor %>% 
+          filter(term.1 %in% levels.atchley.peptide, 
+                 term.2 == "linear term") %>% 
+          rename(term.1 = term.2, term.2 = term.1))
+```
+
+```{r}
+plot_cor <- function(df, potential, levels.TCR, levels.peptide, text) {
+  .limit <- max(abs(as.numeric(unlist(df[df$Potential == potential, "value"]))))
+  df %>%
+  filter(Potential == potential) %>%
+  ggplot(aes(x = factor(term.2, levels = levels.peptide), y = factor(term.1, levels = levels.TCR),  fill = as.double(value))) +
+  geom_tile(aes(width=1, height=1)) +
+  xlab("") + ylab("") +
+  theme_minimal() +
+  theme(aspect = 1,
+        axis.text.x = element_text(angle = 90, hjust = 1),
+        plot.title = element_text(hjust = 0.5),
+        legend.position = "bottom",
+        legend.key.width = unit(.6,"cm"),
+        legend.key.height = unit(.3, "cm")) +
+  scale_fill_distiller("PCC", palette = "RdBu", 
+                       limits = c(-1,1)*.limit) +
+  ggtitle(text) +
+  guides(fill = guide_colourbar(label.theme = element_text(angle = 45, size = 7)))
+}
+
+```
+
+```{r}
+pfig5f_1 <- plot_cor(atchley.cor, "TCRen", levels.atchley.TCR, levels.atchley.peptide, "TCRen") +
+  geom_rect(size=.5, fill=NA, colour="black", linetype = "dashed",
+            aes(xmin=1.5, xmax=6.5, ymin=1.5, ymax=6.5)) 
+pfig5f_2 <- plot_cor(atchley.cor, "MJ", levels.atchley.TCR, levels.atchley.peptide, "MJ") +
+  geom_rect(size=.5, fill=NA, colour="black", linetype = "dashed",
+            aes(xmin=1.5, xmax=6.5, ymin=1.5, ymax=6.5)) 
+pfig5f_3 <- plot_cor(atchley.cor, "Keskin", levels.atchley.TCR, levels.atchley.peptide, "Keskin") +
+  geom_rect(size=.5, fill=NA, colour="black", linetype = "dashed",
+            aes(xmin=1.5, xmax=6.5, ymin=1.5, ymax=6.5)) 
+```
+
+
+```{r, fig.height=12, fig.width=10}
+library(cowplot)
+ggdraw() +
+  draw_plot(pfig5a, x = 0, y = .66, width = .33, height = .33) +
+  draw_plot(pfig5b, x = .33, y = .68, width = .33, height = .31) +
+  draw_plot(pfig5c, x = .66, y = .68, width = .33, height = .31) +
+  draw_plot(pfig5d, x = 0, y = .32, width = .66, height = .33) +
+  draw_plot(pfig5e, x = .66, y = .32, width = .33, height = .33) +
+  draw_plot(pfig5f_1, x = 0, y = 0, width = .33, height = .33) +
+  draw_plot(pfig5f_2, x = .33, y = 0, width = .33, height = .33) +
+  draw_plot(pfig5f_3, x = .66, y = 0, width = .33, height = .33) +
+  draw_plot_label(label = c("A", "B", "C", "D", "E", "F"), size = 12,
+                  x = c(0, .33, .66, 0, .66, 0), y = c(1, 1, 1, .66, .66, .33))
+
+```
+
+MJ matrix eigenvectors' correlation with KF
+```{r}
+library(corrplot)
+library(bio3d)
+library(latex2exp)
+```
+ 
+```{r}
+#TCRen.norm <-
+
+plot_eigenvalues <- function(.potential, title, df = TCRen.norm, output_eigen_values = 0, value_var = "value") {
+  .eigen <- df %>% 
+    filter(potential == .potential) %>% 
+    dcast(residue.aa.from ~ residue.aa.to, value.var = value_var) %>% 
+    column_to_rownames("residue.aa.from") %>% 
+    eigen()
+  
+  if (output_eigen_values != 0) {return(.eigen)}
+    
+  ggplot(data.frame(.eigen$values),
+       aes(x = seq_along(.eigen$values), y = .eigen$values)) + 
+  geom_bar(stat="identity") +
+  coord_flip() + 
+  xlab(TeX("$\\alpha$ (eigenvector)")) +
+  ylab(TeX("$\\lambda_{\\alpha}$ (eigenvalue)")) +
+  scale_x_reverse(position = "top") +
+  theme_pubclean() +
+  theme(axis.text.y = element_blank())
+  
+}
+pfig6g <- plot_eigenvalues(df = TCRen.norm, .potential = "MJ", title = "MJ", 
+                           value_var = "value.norm") + theme(axis.text.y = element_blank())
+pfig6i <- plot_eigenvalues(df = TCRen.norm %>% mutate(value = value.norm), .potential = "Keskin", title = "Keskin") + theme(axis.text.y = element_blank())
+pfig6e <- plot_eigenvalues(df = TCRen.norm, "TCRen.s.cf", "TCRen.s.cf", 
+                           TCRen %>% 
+                             select(residue.aa.from, residue.aa.to, value = cdrps.70) %>% 
+                             mutate(potential = "TCRen.s.cf")) + theme(axis.text.y = element_blank())
+
+#pfig6e <- plot_eigenvalues("TCRen.a.cf", "TCRen.a.cf", TCRen.a.m %>% 
+#                   mutate(potential = "TCRen.a.cf") %>% rename(value = TCRen.a.cf))
+
+TCRen.a.m.1 <- TCRen.a.m %>% 
+    dcast(residue.aa.from ~ residue.aa.to) %>% 
+    column_to_rownames("residue.aa.from") 
+
+TCRen.ei.v <- TCRen.a.m.1 %>% 
+  eigen() %>% 
+  .$vectors
+
+plot_eigenvalues("mj.norm", "MJ") +
+  scale_x_reverse(position = "top") +
+  theme(axis.text.y = element_blank())
+
+```
+
+```{r}
+plot_eigenvalues("TCRen.s.cf", "TCRen.s.cf", 
+                           TCRen %>% 
+                             select(residue.aa.from, residue.aa.to, value = cdrps.70) %>% 
+                             mutate(potential = "TCRen.s.cf"), .out = 1) %>% 
+  .$values %>% 
+  as.data.frame() %>% 
+  set_colnames("eigenvalue") %>% 
+  mutate(n = c(1:20),
+         abs = abs(eigenvalue)) %>% 
+  arrange(-abs) %>% 
+  mutate(cs = cumsum(abs) / sum(abs))
+```
+
+
+```{r, fig.width=20, fig.height=10}
+plot_eigenvalues("mj.norm", "MJ", .out = 1) %>% 
+  .$vector %>% 
+  cor(AA54) %>% 
+  corrplot()
+
+
+plot_eigenvalues("mj2.norm", "K-MJ", .out = 1) %>% 
+  .$vector %>% 
+  cor(AA54) %>% 
+  corrplot()
+
+border_lines <- function(.borders, .max = 20.5)  {
+  lines(c(.5, 5.5), c(.max, .max), lwd=3, lty=2)
+  lines(c(.5, 5.5), c(.5, .5), lwd=3, lty=2)
+  lines(c(.5, .5), c(.max - .borders[1], .max), lwd=3, lty=2)
+  lines(c(5.5, 5.5), c(.max - .borders[1], .max), lwd=3, lty=2)
+  lines(c(.5, .5), c(.5, .5 + .borders[2]), lwd=3, lty=2)
+  lines(c(5.5, 5.5), c(.5, .5 + .borders[2]), lwd=3, lty=2)
+  lines(c(.5, .5), c(.5, .5 + .borders[2]), lwd=3, lty=2)
+  lines(c(5.5, 5.5), c(.5, .5 + .borders[2]), lwd=3, lty=2)
+  lines(c(.5, 5.5), c(.max - .borders[1], .max - .borders[1]), lwd=3, lty=2)
+  lines(c(.5, 5.5), c(.5 + .borders[2], .5 + .borders[2]), lwd=3, lty=2)
+}
+
+png(file = "~/struct2020/fig6_eigenTCRen_s.png")
+plot_eigenvalues("TCRen.s.cf", "TCRen.s.cf", 
+                           TCRen %>% 
+                             select(residue.aa.from, residue.aa.to, value = cdrps.70) %>% 
+                             mutate(potential = "TCRen.s.cf"), 
+                 .out = 1) %>% 
+  .$vector %>% 
+  cor(AF) %>% 
+  corrplot()
+border_lines(.borders = c(4, 8))
+dev.off()
+
+png(file = "~/struct2020/fig6_eigenMJ.png")
+plot_eigenvalues("mj.norm", "MJ", .out = 1) %>% 
+  .$vector %>% 
+  cor(AF) %>% 
+  corrplot()
+border_lines(.borders = c(2, 2))
+dev.off()
+
+png(file = "~/struct2020/fig6_eigenMJ2.png")
+plot_eigenvalues("mj2.norm", "K-MJ", .out = 1) %>% 
+  .$vector %>% 
+  cor(AF) %>% 
+  corrplot()
+border_lines(.borders = c(6, 3))
+dev.off()
+
+```
+
+```{r}
+plot_eigenvalues("mj.norm", "MJ", .out = 1) %>% 
+  .$values %>% 
+  as.data.frame() %>% 
+  magrittr::set_colnames("eigenvalue") %>% 
+  mutate(eigen = c(1:nrow(.)),
+         percentage = abs(eigenvalue) / sum(abs(eigenvalue))) %>% 
+  arrange(-percentage) %>% 
+  mutate(cumsum = cumsum(percentage))
+
+plot_eigenvalues("mj2.norm", "K-MJ", .out = 1) %>% 
+  .$values %>% 
+  as.data.frame() %>% 
+  magrittr::set_colnames("eigenvalue") %>% 
+  mutate(eigen = c(1:nrow(.)),
+         percentage = abs(eigenvalue) / sum(abs(eigenvalue))) %>% 
+  arrange(-percentage) %>% 
+  mutate(cumsum = cumsum(percentage))
+
+
+TCRen.a.m.1 %>% 
+  eigen() %>% 
+  .$values %>% 
+  as.data.frame() %>% 
+  magrittr::set_colnames("eigenvalue") %>% 
+  mutate(eigen = c(1:nrow(.)),
+         percentage = abs(eigenvalue) / sum(abs(eigenvalue))) %>% 
+  arrange(-percentage) %>% 
+  mutate(cumsum = cumsum(percentage))
+```
+
+
+```{r, fig.width=3, fig.height=10}
+#TCRen.ei.v %>% 
+#  .[1:19,] %>% 
+#  cor(AA54[-2,]) %>% 
+#  corrplot()
+
+#TCRen.ei.v %>% 
+#  .[-c(1:19),]  %>% 
+#  cor(AA54[-2,]) %>% 
+#  corrplot()
+
+AF <- AAMetric.Atchley
+colnames(AF) <- paste0("AF", 1:5)
+
+png(file = "~/struct2020/fig6_eigenTCRen_TCR.png")
+TCRen.ei.v  %>% 
+  .[1:19,] %>% 
+  cor(AF[-2,]) %>% 
+  corrplot()
+border_lines(.borders = c(11, 11), .max = 38.5)
+dev.off()
+
+png(file = "~/struct2020/fig6_eigenTCRen_peptide.png")
+TCRen.ei.v  %>% 
+  .[-c(1:19),] %>% 
+  cor(AF[-2,]) %>% 
+  corrplot()
+border_lines(.borders = c(11, 11), .max = 38.5)
+dev.off()
+
+#TCRen.ei.v %>% 
+#  cor(rbind(AA54[-2,], AA54[-2,])) %>% 
+#  corrplot()
+
+#TCRen.ei.v  %>% 
+#  cor(rbind(AAMetric.Atchley[-2,], AAMetric.Atchley[-2,])) %>% 
+#  corrplot()
+```
+
+```{r, fig.width=18}
+#convert fig6_eigenTCRen_TCR.png -trim -bordercolor White +repage fig6_eigenTCRen_TCR_tr.png
+#convert fig6_eigenTCRen_peptide.png -trim -bordercolor White +repage fig6_eigenTCRen_peptide_tr.png
+#convert fig6_eigenMJ.png -trim -bordercolor White +repage fig6_eigenMJ_tr.png
+#convert fig6_eigenMJ2.png -trim -bordercolor White +repage fig6_eigenMJ2_tr.png
+
+ggdraw() +
+  draw_plot(pfig6e, x = 0, y = 0, width = .15, height = 1) +
+  draw_image("~/struct2020/fig6_eigenTCRen_TCR_tr.png", x = -.06, y = .08, width = .55, height = .9) +
+  draw_image("~/struct2020/fig6_eigenTCRen_peptide_tr.png", x = .1, y = .08, width = .55, height = .9) +
+  draw_plot(pfig6h, x = .45, y = .5, width = .15, height = .5) +
+  draw_image("~/struct2020/fig6_eigenMJ_tr.png", x = .39, y = .55, width = .55, height = .43) +
+  draw_plot(pfig6j, x = .45, y = 0, width = .15, height = .5) +
+  draw_image("~/struct2020/fig6_eigenMJ2_tr.png", x = .39, y = .05, width = .55, height = .43) +
+  draw_plot_label(label = c("E", "F", "G", "H", "I", "J", "K"), size = 10,
+                  x = c(0, .15, .3, .45, .6, .45, .6), y = c(1, 1, 1, 1, 1, .5, .5)) +
+  cowplot::draw_text("TCR residues", x = .22, y = .992) +
+  cowplot::draw_text("peptide residues", x = .38, y = .992)
+
+```
+
+
+```{r, fig.width=12}
+#convert fig6_eigenTCRen_TCR.png -trim -bordercolor White +repage fig6_eigenTCRen_TCR_tr.png
+#convert fig6_eigenTCRen_peptide.png -trim -bordercolor White +repage fig6_eigenTCRen_peptide_tr.png
+#convert fig6_eigenMJ.png -trim -bordercolor White +repage fig6_eigenMJ_tr.png
+#convert fig6_eigenMJ2.png -trim -bordercolor White +repage fig6_eigenMJ2_tr.png
+
+ggdraw() +
+  draw_plot(pfig6e + ggtitle("TCRen.s.cf"), x = 0, y = -0.01, width = .17, height = .99) +
+  draw_image("~/struct2020/fig6_eigenTCRen_s_tr.png", x = -0.02, y = .09, width = .55, height = .89) +
+  draw_plot(pfig6g + ggtitle("MJ"), x = .34, y = -0.01, width = .17, height = .99) +
+  draw_image("~/struct2020/fig6_eigenMJ_tr.png", x = .32, y = .09, width = .55, height = .89) +
+  draw_plot(pfig6i + ggtitle("Keskin"), x = .67, y = -0.01, width = .17, height = .99) +
+  draw_image("~/struct2020/fig6_eigenMJ2_tr.png", x = .65, y = .09, width = .55, height = .89) 
+  #draw_plot_label(label = c("E", "F", "G"#, 
+  #                          #"H", "I", "J"
+  #                          ), size = 10,
+  #                x = c(0, #.17, 
+  #                      .35, #.5, 
+  #                      .7#, #.85
+  #                      ), y = c(1, #1, 
+  #                                      1, #1, 
+  #                                      1#, #1
+  #                               ))
+```
+
+```{r, fig.width=18}
+#convert fig6_eigenTCRen_TCR.png -trim -bordercolor White +repage fig6_eigenTCRen_TCR_tr.png
+#convert fig6_eigenTCRen_peptide.png -trim -bordercolor White +repage fig6_eigenTCRen_peptide_tr.png
+#convert fig6_eigenMJ.png -trim -bordercolor White +repage fig6_eigenMJ_tr.png
+#convert fig6_eigenMJ2.png -trim -bordercolor White +repage fig6_eigenMJ2_tr.png
+
+ggdraw() +
+  draw_plot(pfig6e, x = 0, y = 0, width = .15, height = 1) +
+  draw_image("~/struct2020/fig6_eigenTCRen_TCR_tr.png", x = -.06, y = .08, width = .55, height = .9) +
+  draw_image("~/struct2020/fig6_eigenTCRen_peptide_tr.png", x = .1, y = .08, width = .55, height = .9) +
+  draw_plot_label(label = c("A", "B", "C"), size = 10,
+                  x = c(0, .15, .3), y = c(1, 1, 1)) +
+  cowplot::draw_text("TCR residues", x = .22, y = .992) +
+  cowplot::draw_text("peptide residues", x = .38, y = .992)
+
+```
+
+
+# Figs for brief version
+
+```{r}
+pdf("~/struct2020/Fig1_contmap.pdf")
+contacts.302TIL %>% 
+  filter(pdb.id == "6uk4.pdb") %>% 
+  mutate(res.TCR = paste0(chain.type.from, " ", residue.index.from),
+         res.pep = residue.index.to + 1) %>% 
+  select(res.TCR, res.pep) %>% 
+  mutate(contact = 1) %>% 
+  merge(expand.grid(res.TCR = .$res.TCR %>% unique(),
+                    res.pep = c(1:9)),
+        all = T)  %>% 
+  mutate(contact = replace_na(contact, 0)) %>% 
+  ggplot(aes(x = factor(res.pep), y = res.TCR, fill = factor(contact))) +
+  geom_tile(color = "black") +
+  theme_bw() +
+  xlab("peptide residue") + ylab("TCR residue") +
+  scale_fill_manual("Contact", values = c("white", "black"), labels = c("No", "Yes")) +
+  theme(#legend.position = NaN,
+        aspect.ratio = 1.6,
+        rect = element_rect(fill = "transparent"))
+dev.off() 
+```
+
+```{r}
+neoepitope.candidates <- energy.302TIL  %>% 
+  ungroup %>% 
+  filter(pdb.id == "6uk4.pdb", potential == "LOO.TCRen") %>% 
+  mutate(rank = rank(value.s)) %>% 
+  filter(rank <= 5 | rank >= 16)
+  #fread("~/shared-with-me/struct2020/benchmark/final_version/neoepitope/candidates_A0206.tsv")
+
+levels.neo.cand <- neoepitope.candidates$peptide
+
+neoepitope.candidates %>% 
+  mutate(peptide = factor(peptide, levels = levels.neo.cand)) %>% 
+  ggplot(aes(x = "", y = peptide, color = peptide)) +
+  geom_text(label = levels.neo.cand, family = "mono") +
+  theme_void() +
+  theme(legend.position = NaN) +
+  scale_y_discrete(limits=rev)
+
+neoepitope.candidates.energy <- energy.302TIL  %>% 
+  filter(pdb.id == "6uk4.pdb", potential == "LOO.TCRen") %>% 
+  ungroup() %>% 
+  select(peptide, value.s) %>% 
+  arrange(value.s) %>% 
+  mutate(value.rank = rank(value.s)) %>% 
+  mutate(value.s = format(round(value.s, 1), nsmall = 1),
+         peptide = factor(peptide, levels = levels.neo.cand)) 
+
+neoepitope.candidates.energy
+
+neoepitope.candidates.energy %>% 
+  ggplot(aes(x = "", y = -value.rank, color = peptide)) +
+  geom_text(label = neoepitope.candidates.energy$peptide, family = "mono") +
+  theme_void() +
+  theme(legend.position = NaN)
+
+neoepitope.candidates.energy %>% 
+  ggplot(aes(x = "", y = -value.rank)) +
+  geom_text(label = neoepitope.candidates.energy$value.s, family = "mono") +
+  theme_void() +
+  theme(legend.position = NaN)
+```
+
+```{r}
+counts.asym %>% 
+  arrange(-count)
+```
+
+```{r}
+scale_fill_distiller("", palette = "RdBu", limits = limits, 
+                         direction = 1) +
+    xlab("") + ylab("") +
+    ggtitle(title) +
+    theme_minimal() +
+    theme(plot.title = element_text(hjust = 0.5),
+          legend.position = "bottom", aspect = 1,
+          legend.key.width = unit(1,"cm"),
+          legend.key.height = unit(.3, "cm"))
+}
+
+
+```
+
+```{r}
+pdf("~/struct2020/Fig1_TCRen.pdf") 
+plot_potential(.potential = "TCRen", title = "", limits = c(-1.7, 1.7), df = TCRen) +
+  xlab("TCR residue") + ylab("peptide residue") +
+  scale_fill_distiller("TCRen", palette = "RdBu", limits = c(-1.7, 1.7), 
+                         direction = 1) +
+  theme(rect = element_rect(fill = "transparent"))
+dev.off() 
+```
+
+
+```{r}
+levels.potential <- c("TCRen", "MOOG","KESO","MIYS","BRYS","MICC","THOP","TOBD")
+cols <- c("red", "grey80", "grey75", "grey70", "grey65", "grey60", "grey55", "grey50", "grey45")
+
+p1a <- bench.peptides.aaindex.ranks %>% 
+  filter(potential != "VENM") %>% 
+  mutate(potential = str_split_fixed(potential, "\\.", 2)[,1] %>% factor(levels = levels.potential)) %>%
+  filter(pdb.id %in% pdb_nonred) %>% 
+  ggplot(aes(x = potential, y = value.rank, fill = potential)) +
+  geom_violin() +
+  geom_boxplot(color = 'black', alpha = 0, width = .1) +
+  scale_x_discrete(guide = guide_axis(angle = 0)) +
+  scale_fill_manual(values = cols) +
+  xlab("") + ylab("Cognate epitope rank") +
+  guides(fill=FALSE) +
+  geom_text(data = bench.peptides.aaindex.ranks.med %>% 
+              filter(potential != "VENM")%>% 
+              mutate(potential = str_split_fixed(potential, "\\.", 2)[,1]), 
+            aes(y = rank.median, label = paste0(rank.median, "%")),
+            size = 4, vjust = .3, hjust = -.25) +
+  theme_pubclean()
+
+p1a
+```
+
+```{r}
+p1b <- bench.peptides.aaindex %>% 
+  filter(potential != "VENM") %>% 
+  mutate(potential = str_split_fixed(potential, "\\.", 2)[,1] %>% factor(levels = levels.potential)) %>%
+  ggplot(aes(d = real, m = -value.s, color = potential)) +
+  theme_roc +
+  xlab("FPR") + ylab("TPR") +
+  scale_color_manual("ROC AUC", 
+                     labels = auc_pep_aaindex %>% 
+                       mutate(potential = str_split_fixed(potential, "\\.", 2)[,1],
+                              label = paste0(potential, " : ", auc)) %>% 
+                       .$label, values = cols) +
+  theme(legend.text.align = 1,
+        legend.title.align = 1)
+
+p1b
+```
+
+```{r, fig.width=8, fig.height=3}
+p2ab <- ggdraw() +
+  draw_plot(p1a, x = 0, y = 0, width = .66, height = 1) +
+  draw_plot(p1b + theme(legend.position = c(.79,.24),
+                        legend.key.size = unit(.2, "cm"),
+                        legend.title = element_text(size=7),
+                        legend.text=element_text(size=7)), x = .66, y = 0, width = .33, height = 1)
+
+p2ab
+```
+
+
+```{r, fig.width=8, fig.height=3}
+theme_no_y <- theme(axis.title.y=element_blank(),
+        axis.text.y=element_blank(),
+        axis.ticks.y=element_blank())
+
+ggdraw() +
+  draw_plot(p.2b4.logo + theme_no_y, x = .05, y = .65, width = .28, height = .35) +
+  draw_plot(p.226.logo + theme_no_y, x = .38, y = .65, width = .28, height = .35) +
+  draw_plot(p.5cc7.logo + theme_no_y, x = .71, y = .65, width = .28, height = .35) +
+  draw_plot(p.2b4.roc + theme(legend.position = c(.78,.29),
+                        legend.key.size = unit(.2, "cm"),
+                        legend.title = element_text(size=7),
+                        legend.text=element_text(size=7)), x = 0, y = 0, width = .33, height = .8) +
+  draw_plot(p.226.roc + theme(legend.position = c(.78,.29),
+                        legend.key.size = unit(.2, "cm"),
+                        legend.title = element_text(size=7),
+                        legend.text=element_text(size=7)), x = .33, y = 0, width = .33, height = .8) +
+  draw_plot(p.5cc7.roc + theme(legend.position = c(.78,.29),
+                        legend.key.size = unit(.2, "cm"),
+                        legend.title = element_text(size=7),
+                        legend.text=element_text(size=7)), x = .66, y = 0, width = .33, height = .8)
+
+
+```
+
+# MD / Rosetta / MMPBSA
+
+```{r}
+frame_min <- 0
+frame_max <- 1000
+
+DMF5.TCRen <- md.mir.a %>% 
+  filter(!(motif == "DRG" & peptide == "6amu" & replica == 1),
+         peptide != "RLLIKKLPRV") %>% 
+  group_by(pdb.id, peptide, motif, replica, chain.id.from, chain.id.to, 
+           residue.index.from, residue.index.to, residue.aa.from, residue.aa.to) %>% 
+  mutate(frame = as.numeric(frame)) %>% 
+  filter(frame >= frame_min, frame <= frame_max) %>% 
+  summarise(freq = n() / (max(frame) - min(frame) + 1)) %>% 
+  mutate(recognised = ifelse((pdb.id == "6am5_al2.pdb" & motif == "GIG") | 
+                               (pdb.id == "6amu_al2.pdb" & motif == "DRG"), motif, "unrelated")) %>% 
+  filter((pdb.id == "6am5_al2.pdb" & motif %in% c("GIG", "no_motif")) | 
+           (pdb.id == "6amu_al2.pdb" & motif %in% c("DRG", "no_motif"))) 
+
+DMF5.TCRen.e <- DMF5.TCRen %>% 
+  merge(calc_TCRen.a.cf(.pdb_list = pdb_nonred, pseudocount = 1) %>% 
+          mutate(potential = "TCRen") %>% 
+          rename(value = TCRen)) %>% 
+  group_by(pdb.id, peptide, motif, replica, potential, recognised) %>% 
+  summarise(value.replica = sum(value)) %>%  
+  group_by(pdb.id, peptide, motif, potential, recognised) %>% 
+  summarise(value.s = mean(value.replica))
+```
+
+```{r}
+DMF5.rosetta <- fread("~/shared-with-me/struct2020/DMF5_dG_rosetta.csv") %>% 
+  filter(peptide != "RLLIKKLPRV") %>% 
+  mutate(recognised = ifelse((template == "6am5" & motif == "GIG") | 
+                               (template == "6amu" & motif == "DRG"), motif, "unrelated")) %>% 
+  filter((template == "6am5" & motif %in% c("GIG", "no_motif")) | 
+           (template == "6amu" & motif %in% c("DRG", "no_motif"))) 
+
+
+DMF5.mmpbsa <- fread("~/shared-with-me/struct2020/benchmark/summary_mmpbsa_DMF5.csv") %>% 
+  filter(term == "Binding energy") %>% 
+  filter(!(motif == "DRG" & peptide == "6amu" & replica == 1),
+         peptide != "RLLIKKLPRV") %>% 
+  mutate(recognised = ifelse((template == "6am5" & motif == "GIG") | 
+                               (template == "6amu" & motif == "DRG"), motif, "unrelated")) %>% 
+  group_by(term,template,motif,peptide,recognised) %>% 
+  summarise(value.s = mean(value)) %>% 
+  filter((template == "6am5" & motif %in% c("GIG", "no_motif")) | 
+           (template == "6amu" & motif %in% c("DRG", "no_motif"))) 
+```
+
+```{r}
+DMF5.com <- rbind(
+  DMF5.TCRen.e %>%
+    ungroup() %>% 
+    mutate(template = substr(pdb.id, 1, 4)) %>% 
+    select(template, motif, peptide, recognised, value.s) %>% 
+    mutate(potential = "TCRen"),
+  DMF5.rosetta %>% 
+    select(template, motif, peptide, recognised, value.s = dG.rosetta) %>% 
+    mutate(potential = "Rosetta"),
+  DMF5.mmpbsa %>%
+    ungroup() %>% 
+    select(template, motif, peptide, recognised, value.s) %>% 
+    mutate(potential = "MMPBSA"))
+```
+
+```{r}
+DMF5.com %>% group_by(potential, template, motif) %>% 
+  summarise(n = n())
+
+DMF5.com %>% group_by(potential, template, recognised) %>% 
+  summarise(n = n())
+```
+
+```{r}
+DMF5.GIG.logo <- DMF5.com %>% 
+  filter(potential == "Rosetta", motif == "GIG") %>% 
+  .$peptide %>% 
+  unique() %>% 
+  ggseqlogo() +
+  theme_no_y +
+  theme(legend.position = "", plot.title = element_text(hjust = 0.5)) +
+  ggtitle("GIGI motif")
+  
+
+DMF5.DRG.logo <- DMF5.com %>% 
+  filter(potential == "Rosetta", motif == "DRG") %>% 
+  .$peptide %>% 
+  unique() %>% 
+  ggseqlogo() +
+  theme_no_y +
+  theme(legend.position = "", plot.title = element_text(hjust = 0.5)) +
+  ggtitle("DRG motif")
+
+DMF5.com %>% 
+  filter(potential == "Rosetta", motif == "no_motif") %>% 
+  .$peptide %>% 
+  unique() %>% 
+  ggseqlogo()
+```
+
+
+```{r}
+#DMF5.com <- fread("~/struct2020/DMF5_com.txt")
+
+stat.test <- DMF5.com %>%
+  mutate(potential = factor(potential, levels = c("TCRen", "Rosetta", "MMPBSA")),
+         recognised = ifelse(recognised == "GIG", "GIGI", recognised),
+         recognised = factor(recognised, levels = c("GIGI", "DRG", "unrelated"))) %>% 
+  group_by(potential) %>% 
+  wilcox_test(value.s ~ recognised) %>%
+  adjust_pvalue(method = "none") %>%
+  add_significance() %>% 
+  filter(group2 == "unrelated") %>% 
+  mutate(label = ifelse(p.adj > 0.05, "ns", paste0("p=", p.adj)))
+
+stat.test <- stat.test %>% #add_y_position()
+  #add_xy_position(x = "template", dodge = 0.8, scales = "free")
+  add_xy_position(x = "recognised", scales = "free_y", step.increase = 0.12) 
+
+stat.test$y.position <- c(stat.test$y.position[1:5], 1450)
+
+p2d_plot <- DMF5.com %>% 
+  mutate(recognised = ifelse(recognised == "GIG", "GIGI", recognised),
+         recognised = factor(recognised, levels = c("GIGI", "DRG", "unrelated")),
+         potential = factor(potential, levels = c("TCRen", "Rosetta", "MMPBSA")),
+         type = ifelse(recognised != "unrelated", "Recognized", "unrelated")) %>% 
+  #ggplot(aes(x = recognised, y = value.s, color = type)) +
+  ggplot(aes(x = recognised, y = value.s, color = recognised)) +
+  geom_quasirandom(dodge.width = .8, width = .1) +
+  facet_wrap(~potential, scales = "free") +
+  theme_pubclean() +
+  #scale_color_manual("", values = c("#66CC99", "black")) +
+  scale_color_manual("", values = c("#66CC99", "blue", "black")) +
+  stat_summary(aes(fill = motif), fun.y="median", geom='point', shape = 95, size = 15, color = 'red',
+               position = position_dodge(width = 0.8)) +
+  guides(fill = F, color = F) +
+  stat_pvalue_manual(stat.test, label = "label", tip.length = 0.01, size = 3) +
+  xlab("") + ylab("Energy")
+
+#fwrite(DMF5.com, "~/struct2020/DMF5_com.txt")
+```
+
+```{r}
+DMF5.com %>% 
+  group_by(type) %>% 
+  filter(value.s == max(value.s))
+```
+
+```{r, fig.width=8, fig.height=2.5}
+p2d <- ggdraw() +
+  draw_plot(DMF5.GIG.logo, x = 0, y = .5, width = .25, height = .5) +
+  draw_plot(DMF5.DRG.logo, x = 0, y = 0, width = .25, height = .5) +
+  draw_plot(p2d_plot + scale_y_continuous(expand = expansion(mult = c(0, 0.1))), x = .25, y = 0, width = .75, height = 1) 
+
+p2d
+```
+
+
+# New figs for Birnbaum
+
+```{r}
+separate_peptide <- function(df) {
+  df %>% 
+    separate(peptide, into = as.character(0:(max.pep.len - 1)), 
+                     sep = 1:max.pep.len, remove = F) %>% 
+    as.data.table() %>% 
+            melt(id = c(colnames(bench.peptides), c("peptide.pdb")), 
+                 variable.name = "residue.index.to", value.name = "residue.aa.to") %>% 
+            filter(residue.aa.to != "") %>% 
+            mutate(residue.index.to = as.integer(as.character(residue.index.to)))
+}
+
+pdb_birnbaum <- birnbaum$pdb.id
+
+birnbaum.aaindex <- bench.peptides %>% 
+  ungroup() %>% 
+  mutate(peptide.pdb = real == T) %>% 
+  rbind(birnbaum %>% 
+          mutate(real = T,
+                 peptide.pdb = F)) %>% 
+  filter(pdb.id %in% pdb_birnbaum) %>% 
+  select(pdb.id, peptide, real, peptide.pdb) %>% 
+  separate_peptide() %>% 
+  merge(contacts.pTCR %>% 
+          select(pdb.id, chain.type.from, region.type.from, residue.index.from, residue.index.to, residue.aa.from)) %>% 
+  merge(#TCRen %>% 
+          #merge(tibble(pdb.id = pdb_birnbaum)) %>% 
+          #rbind(
+            TCRen.LOO %>% 
+                  filter(pdb.id %in% pdb_birnbaum) %>% 
+                  mutate(potential = "TCRen") %>% 
+                  select(residue.aa.from, residue.aa.to, potential, value = TCRen.LOO, pdb.id) %>% 
+          rbind(aaindex.pot.sel %>% 
+                  merge(tibble(pdb.id = pdb_birnbaum))))
+```
+
+```{r}
+birnbaum.aaindex.s <- birnbaum.aaindex %>%  
+  filter(!potential %in% c("TCRen", "VENM")) %>% 
+  mutate(potential = ifelse(potential == "LOO.TCRen", "TCRen", potential),
+         potential = factor(potential, levels = levels.potential)) %>% 
+  group_by(pdb.id, peptide, real, peptide.pdb, potential) %>% 
+  summarise(value.s = sum(value)) %>% 
+  group_by(pdb.id, potential) 
+
+birnbaum.aaindex.s %>% 
+  mutate(rank = rank(value.s) / n()) %>% 
+  filter(real) %>% 
+  ggplot(aes(x = pdb.id, y = rank)) +
+  geom_boxplot() +
+  geom_beeswarm() +
+  facet_wrap(~potential)
+  arrange(pdb.id, rank)
+
+```
+
+```{r, fig.width=3, fig.height=3}
+library(pROC)
+
+auc_birnbaum.aaindex <- birnbaum.aaindex.s %>% 
+  filter(pdb.id %in% c("3qib", "3qiu", "4p2r")) %>% 
+  #filter(potential %in% c("LOO.TCRen")) %>% 
+  group_by(pdb.id, potential) %>% 
+  summarise(auc = round(auc(roc(real, value.s, direction = ">", levels = c(F,T))), 2)) %>% 
+  merge(birnbaum.pdb) %>% 
+  mutate(label = paste0(potential, " : ", as.character(sprintf("%.2f", round(auc,2)))))
+
+plot_birnbaum.aaindex <- function(.TCR) {
+  .pdb.id <- auc_birnbaum.aaindex %>% 
+    filter(TCR == .TCR) %>% 
+    .$pdb.id
+  
+  .label <- auc_birnbaum.aaindex %>% 
+    filter(TCR == .TCR) %>% 
+    .$label
+  
+  birnbaum.aaindex.s %>% 
+    filter(#potential == "LOO.TCRen",
+           pdb.id == .pdb.id) %>% 
+    ggplot(aes(d = real, m = -value.s, color = potential)) +
+    theme_roc +
+    scale_color_manual("ROC AUC", labels = .label, values = cols) 
+}
+
+p.2b4.roc <- plot_birnbaum.aaindex("2b4")
+p.226.roc <- plot_birnbaum.aaindex("226")
+p.5cc7.roc <- plot_birnbaum.aaindex("5cc7")
+```
+
+```{r, fig.width=8, fig.height=3}
+theme_birnbaum_legend <- theme(legend.position = c(.76,.27),
+                        legend.key.size = unit(.2, "cm"),
+                        legend.text = element_text(size=7),
+                        legend.background = element_rect(fill=alpha('white', 0.75), 
+                                                         color=alpha('white', 0.75),size = 0),
+                        legend.title = element_text(size=7),
+                        legend.margin=margin(t=0.2, r=0, b=0, l=0.2, unit="cm"),
+                        legend.text.align = 1,
+                        legend.title.align = 1) 
+
+p2c <- ggdraw() +
+  draw_plot(p.2b4.logo + theme_no_y, x = .05, y = .65, width = .28, height = .35) +
+  draw_plot(p.226.logo + theme_no_y, x = .38, y = .65, width = .28, height = .35) +
+  draw_plot(p.5cc7.logo + theme_no_y, x = .71, y = .65, width = .28, height = .35) +
+  draw_plot(p.2b4.roc+theme_birnbaum_legend+xlab("FPR")+ylab("TPR"), x = 0, y = 0, width = .33, height = .8) +
+  draw_plot(p.226.roc+theme_birnbaum_legend+xlab("FPR")+ylab("TPR"), x = .33, y = 0, width = .33, height = .8) +
+  draw_plot(p.5cc7.roc+theme_birnbaum_legend+xlab("FPR")+ylab("TPR"), x = .66, y = 0, width = .33, height = .8)
+
+p2c
+```
+
+# Neoepitope
+
+```{r}
+energy.302TIL.f <- energy.302TIL %>% 
+  filter(potential == "LOO.TCRen") %>% 
+  group_by(type) %>% 
+  mutate(rank = rank(value.s)) %>% 
+  arrange(type, rank)
+
+energy.302TIL.f %>% 
+  select(type, peptide, value.s) %>% 
+  dcast(peptide ~ type) %>% 
+  ggplot(aes(x = model, y = PDB)) +
+  geom_point() +
+  geom_smooth(method = "lm")
+
+energy.302TIL.f %>% 
+  select(type, peptide, rank) %>% 
+  dcast(peptide ~ type) %>% 
+  ggplot(aes(x = model, y = PDB)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  geom_abline(intercept = 0, slope = 1)
+```
+
+```{r}
+plot_302TIL <- function(.type) {
+  energy.302TIL %>% 
+  ungroup() %>% 
+  filter(potential == "LOO.TCRen", type == .type) %>% 
+  mutate(rank = rank(value.s),
+         label = ifelse(rank <= 7 | rank == 20, peptide, "")) %>% 
+  ggplot(aes(x = "", y = value.s, fill = real, color = real)) +
+  geom_beeswarm(pch = 21, cex = 3) +
+  xlab("") + ylab("TCRen score") + 
+  ggtitle(paste0("302TIL (", .type, ")")) +
+  geom_text_repel(aes(label = label), box.padding = .15, max.overlaps = Inf, min.segment.length = 0,
+    direction         = "y",
+    hjust             = -8,
+    position = position_beeswarm(),
+    size = 2) +
+  theme_pubclean() +
+  scale_fill_manual(values = c("white", "red")) +
+  scale_color_manual(values = c("black", "red")) +
+  theme(legend.position = "none",
+        axis.ticks = element_blank(),
+        plot.title = element_text(hjust = 0.5),
+        aspect = 2)
+}
+
+p2f <- plot_302TIL("model")
+p2g <- plot_302TIL("PDB")
+```
+
+```{r, fig.width=12, fig.height=9}
+pdf("~/struct2020/Fig2_ABCDFG.pdf", width = 12, height = 9)
+ggdraw() +
+  draw_plot(p2ab, x = 0, y = .66, width = .66, height = .33) +
+  draw_plot(p2c, x = 0, y = .33, width = .66, height = .33) +
+  draw_plot(p2d, x = 0, y = 0, width = .66, height = .3) +
+  draw_plot(p2f, x = .66, y = -.05, width = .17, height = .45) +
+  draw_plot(p2g, x = .83, y = -.03, width = .17, height = .41) +
+  #draw_image("~/struct2020/Fig2E.svg", x = .65, y = 0.45, width = .33, height = .55) +
+  draw_plot_label(label = c("A", "B", "C", "D", "E", "F", "G"), size = 12,
+                  x = c(0, .43, 0, 0, 0.67, 0.67, 0.83), y = c(1, 1, 0.66, 0.31, 1, 0.4, 0.4))
+dev.off()
+```
+
+```{r}
+candidates
+```
+
+
+# Check all AAindex potentials in cognate/unrelated benchmark
+
+```{r}
+bench.peptides.aaindex.all <- bench.peptides.contacts %>% 
+  merge(TCRen %>% 
+          filter(potential == "TCRen.a.cf") %>% 
+          rbind(aaindex.pot)) %>% 
+  group_by(pdb.id, peptide, real, potential) %>% 
+  summarise(value.s = sum(value))
+```
+
+```{r}
+bench.peptides.aaindex.all %>% 
+  #mutate(potential = factor(potential, levels = aaindex.levels)) %>% 
+  group_by(pdb.id, potential) %>% 
+  mutate(value.rank = rank(value.s) / n() * 100) %>% 
+  filter(real) %>% 
+  group_by(potential) %>% 
+  summarise(rank.median = round(median(value.rank), 0))
+```
+
+```{r}
+iedb
+```
+
+```{r}
+iedb %>% 
+  filter(Assay.1 == "cellular MHC/mass spectrometry",
+         Epitope.1 == "Linear peptide",
+         Assay.5 == "Positive") %>% 
+  select(Epitope.2, MHC) %>% 
+  distinct() %>% 
+  mutate(pep.len = nchar(Epitope.2)) %>% 
+  filter(pep.len == 9) %>% 
+  group_by(MHC) %>% 
+  #summarise(n.lig = n()) %>% 
+  #filter(n.lig > 1000) %>% 
+  mutate(n.lig = n()) %>%  
+  filter(n.lig > 1000) %>% 
+  select(-n.lig) %>% 
+  filter(substr(MHC, 1, 6) %in% c("HLA-A*", "HLA-B*", "HLA-C*")) %>% 
+  separate(Epitope.2, into = paste0("p", 1:9), sep = 1:9, remove = F) %>% 
+  select(-p2, -p9) %>% 
+  select(-pep.len) %>% 
+  as.data.table() %>% 
+  melt(id = c("Epitope.2", "MHC")) %>% 
+  group_by(MHC, value) %>% 
+  summarise(n = n()) %>% 
+  filter(value != "") %>% 
+  mutate(fraction = n / sum(n)) %>% 
+  ggplot(aes(x = factor(value, levels = aa.levels), y = fraction)) +
+  geom_boxplot() +
+  geom_line(data = aa.freq.interface, aes(x = factor(aminoacid, levels = aa.levels), y = freq, color = type, group = type)) +
+  #theme_pubclean() +
+  xlab("") + ylab("fraction")
+  #ggplot(aes(x = factor(value, levels = aa.levels), y = fraction, color = MHC, group = MHC)) +
+  #geom_line()
+```
+
+```{r}
+pfig5a + theme(rect = element_rect(fill = "transparent"))
+```
+

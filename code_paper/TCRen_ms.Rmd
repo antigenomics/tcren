@@ -1,0 +1,2721 @@
+---
+title: "Untitled"
+author: "Vadim Karnaukhov"
+date: "17 06 2021"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(data.table)
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(forcats)
+library(ggrepel)
+library(broom)
+library(rstatix)
+library(ggpubr)
+library(ggbeeswarm)
+```
+
+
+```{r}
+aa.levels <- c("L","F","I","M","V","W","Y","C","H","A","G","P","T","S","Q","N","D","E","R","K")
+```
+
+# All PDB structures of TCR-peptide-MHC complexes
+```{r}
+pdb_dir <- "PDB_structures/"
+pdb_list <- dir(pdb_dir)
+```
+
+
+#Annotation of structures and contacts by MIR
+```{r}
+MEMORY <- "20G"
+
+run_mir <- function(pdb_dir,
+                     mir_path = "mir-1.0-SNAPSHOT.jar", 
+                     .output_dir = "mir_output",
+                     arg, #"annotate-structures", "compute-pdb-geom", "compute-pdb-contacts"
+                     print_log = T) {
+  pdb_list <- dir(pdb_dir)
+  .pdb_list <- paste0(pdb_dir, pdb_list) %>% paste(collapse = " ")
+  output_dir <- paste0(pdb_dir, "/../", .output_dir)
+  dir.create(output_dir, showWarnings = FALSE)
+  cmd <- str_glue("java -Xmx{MEMORY} -cp {mir_path} com.milaboratory.mir.scripts.Examples {arg} -I {.pdb_list} -O ./{output_dir}/")
+  code <- system(cmd,
+                 ignore.stdout = !print_log, 
+                 ignore.stderr = !print_log)
+  if(code != 0) {
+    stop(str_glue("Failed to execute '{cmd}'"))
+  }
+}
+system("java -version")
+```
+
+```{r}
+run_mir(pdb_dir = "PDB_structures/", arg = "annotate-structures")
+run_mir(pdb_dir = "PDB_structures/", arg = "compute-pdb-contacts")
+```
+
+# Extract all TCR:peptide contacts from PDB structures
+
+```{r}
+contacts.1 <- fread("mir_output/atomdist.txt") %>% 
+  mutate(pdb.id = substr(pdb.id, 1, 4)) %>%
+  filter(dist <= 5, chain.id.from != chain.id.to) %>%
+  select(-atom.from, -atom.to, -dist) %>%
+  unique
+
+contacts.2 <- contacts.1 %>%
+  select(pdb.id, chain.id.from = chain.id.to, chain.id.to = chain.id.from,
+         residue.index.from = residue.index.to, residue.index.to = residue.index.from)
+  
+contacts <- contacts.1 %>%
+  rbind(contacts.2)
+```
+
+```{r}
+resmarkup <- fread("mir_output/resmarkup.txt", blank.lines.skip = T) %>% 
+  mutate(pdb.id = substr(pdb.id, 1, 4)) 
+  
+
+general <- fread("mir_output/general.txt") %>% 
+  mutate(pdb.id = substr(pdb.id, 1, 4))
+
+resmarkup.a <- resmarkup %>%
+  merge(general)
+
+contacts.a <- contacts %>%
+  merge(resmarkup.a %>% select(pdb.id,
+                               chain.id.from = chain.id,
+                               chain.type.from = chain.type,
+                               chain.supertype.from = chain.supertype,
+                               complex.species,
+                               region.type.from = region.type,
+                               residue.index.from = residue.index,
+                               residue.aa.from = residue.aa)) %>%
+  merge(resmarkup.a %>% select(pdb.id,
+                               chain.id.to = chain.id,
+                               chain.type.to = chain.type,
+                               chain.supertype.to = chain.supertype,
+                               region.type.to = region.type,
+                               residue.index.to = residue.index,
+                               residue.aa.to = residue.aa)
+        #, by = c("pdb.id", "chain.id.to", "residue.index.to") 
+  )
+```
+
+```{r}
+contacts.pTCR <- contacts.a %>% 
+  filter(chain.supertype.from == "TRAB",
+         chain.supertype.to == "PEPTIDE")
+```
+
+# Cluster PDB structures 
+
+## Based on sequence similarity
+```{r}
+markup <- fread("mir_output/markup.txt") %>% 
+  mutate(pdb.id = substr(pdb.id, 1, 4))
+
+markup.seq <- markup %>% 
+  merge(general) %>% 
+  filter(chain.supertype == "PEPTIDE" | 
+           chain.supertype == "TRAB" & region.type == "CDR3") %>% 
+  mutate(region.type = ifelse(chain.type == "TRA", "cdr3a",
+                              ifelse(chain.type == "TRB", "cdr3b", region.type %>% tolower()))) %>% 
+  select(pdb.id, region.type, region.sequence) %>% 
+  dcast(pdb.id ~ region.type) %>% 
+  mutate(cdr3a.len = nchar(cdr3a),
+         cdr3b.len = nchar(cdr3b),
+         peptide.len = nchar(peptide))
+
+dist.seq <- expand.grid(pdb.id.1 = markup.seq$pdb.id, pdb.id.2 = markup.seq$pdb.id) %>%
+  merge(markup.seq %>% select(pdb.id.1 = pdb.id, cdr3a.1 = cdr3a, cdr3b.1 = cdr3b, peptide.1 = peptide)) %>%
+  merge(markup.seq %>% select(pdb.id.2 = pdb.id, cdr3a.2 = cdr3a, cdr3b.2 = cdr3b, peptide.2 = peptide)) %>%
+  mutate(dist.cdr3a = stringdist(cdr3a.1, cdr3a.2, method = 'dl'),
+         dist.cdr3b = stringdist(cdr3b.1, cdr3b.2, method = 'dl'),
+         dist.peptide = stringdist(peptide.1, peptide.2, method = 'dl')) %>% 
+  rowwise() %>% 
+  mutate(dist.sum = sum(dist.cdr3a + dist.cdr3b + dist.peptide))
+```
+
+```{r}
+clusters.seq <- dist.seq %>% 
+  select(pdb.id.1, pdb.id.2, dist.sum) %>%
+  spread(pdb.id.2, dist.sum) %>%
+  column_to_rownames("pdb.id.1") %>%
+  as.dist() %>%
+  hclust() %>%
+  cutree(h = 6)
+```
+
+## Based on interface contact similarity
+
+```{r}
+contacts.pdb <- contacts.pTCR %>% 
+  group_by(pdb.id, residue.aa.from, residue.aa.to) %>% 
+  summarise(n = n()) %>% 
+  merge(expand.grid(pdb.id = unique(contacts.pTCR$pdb.id), 
+                    residue.aa.to = aa.levels,
+                    residue.aa.from = aa.levels), 
+        all.y = T) %>% 
+  mutate(n = replace_na(n, 0),
+         contact = paste0(residue.aa.from, residue.aa.to)) 
+
+contacts.pdb.s <- contacts.pTCR %>% 
+  group_by(pdb.id) %>% 
+  summarise(n = n()) %>% 
+  arrange(-n)
+
+dist.cont <- contacts.pdb %>% 
+  select(pdb.id, contact, n) %>% 
+  dcast(pdb.id ~ contact) %>% 
+  column_to_rownames("pdb.id") %>% 
+  dist(method = "manhattan") %>% 
+  as.matrix() %>% 
+  melt(value.name = "dist.manh") %>% 
+  rename(pdb.id.1 = Var1, pdb.id.2 = Var2) %>% 
+  merge(contacts.pdb.s %>% select(pdb.id.1 = pdb.id, n.1 = n)) %>% 
+  merge(contacts.pdb.s %>% select(pdb.id.2 = pdb.id, n.2 = n)) %>% 
+  mutate(dist = dist.manh / (n.1 + n.2))
+```
+
+```{r}
+clusters.cont <- dist.cont %>% 
+  select(pdb.id.1, pdb.id.2, dist) %>% 
+  dcast(pdb.id.1 ~ pdb.id.2) %>% 
+  column_to_rownames("pdb.id.1") %>% 
+  as.dist(.) %>% 
+  hclust() %>% 
+  cutree(., h = 0.7)
+```
+
+## Combine sequnce- and contact-based clustering results
+
+```{r}
+vector_to_df <- function(vector, col_name1, col_name2) {
+  vector %>% 
+    as.data.frame() %>% 
+    rownames_to_column() %>% 
+    set_colnames(c(col_name1, col_name2))
+}
+
+clusters.merged <- merge(
+  vector_to_df(clusters.seq, "pdb.id", "cluster.seq"),
+  vector_to_df(clusters.cont, "pdb.id", "cluster.cont")
+  ) %>% 
+  #group_by(cluster.seq) %>% 
+  #mutate(n = n_distinct(cluster.cont)) %>% 
+  #arrange(cluster.seq, cluster.cont) %>% 
+  group_by(cluster.seq, cluster.cont) %>% 
+  arrange(cluster.seq, cluster.cont, pdb.id)
+
+pdb_nonred  <- clusters.merged %>% 
+  slice(1) %>% 
+  .$pdb.id
+```
+
+```{r}
+table.s1 <- markup.seq %>% 
+  filter(pdb.id %in% pdb_nonred) %>% 
+  merge(fread("mir_output/general.txt") %>% 
+          mutate(pdb.id = substr(pdb.id, 1, 4)) %>% 
+          filter(chain.type == "MHCb") %>% 
+          select(pdb.id, complex.species, mhc.class = chain.supertype)) %>% 
+  select(pdb.id, complex.species, mhc.class, peptide, cdr3a, cdr3b) %>% 
+  mutate(pdb.id = toupper(pdb.id)) %>% 
+  magrittr::set_colnames(c("PDB ID", "Species", "MHC class", "peptide", "CDR3a", "CDR3b"))
+
+table.s2 <- fread("mir_output/general.txt") %>% 
+  mutate(pdb.id = toupper(substr(pdb.id, 1, 4))) %>% 
+  select(pdb.id) %>% 
+  distinct() %>% 
+  arrange(pdb.id)
+```
+
+
+# TCRen computation
+
+## Summarise counts
+```{r}
+#Compute asymmetric counts
+counts.asym <- contacts.pTCR %>% 
+  filter(pdb.id %in% pdb_nonred) %>% 
+  group_by(residue.aa.from, residue.aa.to) %>% 
+  summarise(count = n()) %>% 
+  merge(expand.grid(residue.aa.from = aa.levels,
+                    residue.aa.to = aa.levels),
+        all = T) %>% 
+  mutate(count = replace_na(count, 0))
+
+#Compute symmetric counts
+counts.sym <- counts.asym %>% 
+  rbind(counts.asym %>% 
+          select(residue.aa.from = residue.aa.to,
+                 residue.aa.to = residue.aa.from,
+                 count)) %>% 
+  group_by(residue.aa.from, residue.aa.to) %>% 
+  summarise(count = sum(count)) %>% 
+  ungroup()
+
+# Add pseudocounts
+
+counts.asym.p <- counts.asym %>% 
+  mutate(count = count + 1/20,
+         freq.obs = count / sum(count))
+
+counts.sym.p <- counts.sym %>% 
+  mutate(count = count + 1/20,
+         freq.obs = count / sum(count))
+```
+
+## "Contact fraction" reference state
+
+```{r}
+rs.cf <- rbind(
+  counts.asym.p %>% mutate(potential = "TCRen.a.cf"),
+  counts.sym.p %>% mutate(potential = "TCRen.s.cf")
+) %>% 
+  group_by(potential, residue.aa.from) %>% 
+  mutate(total.from = sum(count)) %>% 
+  group_by(potential, residue.aa.to) %>% 
+  mutate(total.to = sum(count)) %>% 
+  filter(residue.aa.from == residue.aa.to) %>% 
+  group_by(potential) %>% 
+  mutate(freq.from = total.from / sum(total.from),
+         freq.to = total.to / sum(total.to)) %>% 
+  ungroup %>% 
+  select(residue.aa = residue.aa.from, potential, freq.from, freq.to)
+```
+
+
+## "Mole-fraction" reference state
+
+```{r}
+library(protr)
+
+rs.mf.peptide <- markup.seq %>% 
+  filter(pdb.id %in% pdb_nonred) %>% 
+  .$peptide %>% 
+  paste0(collapse = "") %>%
+  gsub(pattern = "[XU]", replacement = "") %>% #delete non-standard amino acids
+  extractAAC()
+  
+rs.mf.tcr <- markup.seq %>% 
+  filter(pdb.id %in% pdb_nonred) %>%
+  mutate(cdr3.trim = paste0(substr(cdr3a, 5, nchar(cdr3a) - 4), substr(cdr3b, 5, nchar(cdr3b) - 4))) %>% 
+  .$cdr3.trim %>% 
+  paste0(collapse = "") %>%
+  gsub(pattern = "[XU]", replacement = "") %>% #delete non-standard amino acids
+  extractAAC()
+
+rs.mf.sym <- markup.seq %>% 
+  filter(pdb.id %in% pdb_nonred) %>%
+  mutate(interface = paste0(peptide, 
+                            substr(cdr3a, 5, nchar(cdr3a) - 4), substr(cdr3b, 5, nchar(cdr3b) - 4))) %>% 
+  .$interface %>% 
+  paste0(collapse = "") %>%
+  gsub(pattern = "[XU]", replacement = "") %>% #delete non-standard amino acids
+  extractAAC()
+
+rs.mf <- merge(
+  vector_to_df(rs.mf.tcr, "residue.aa", "freq.from"),
+  vector_to_df(rs.mf.peptide, "residue.aa", "freq.to")
+) %>% 
+  mutate(potential = "TCRen.a.mf") %>% 
+  rbind(vector_to_df(rs.mf.sym, "residue.aa", "freq.from") %>% 
+          merge(vector_to_df(rs.mf.sym, "residue.aa", "freq.to")) %>% 
+          mutate(potential = "TCRen.s.mf"))
+```
+
+## "Normalized mole-fraction" reference state
+
+```{r}
+contacts.pTCR.a <- contacts.pTCR %>% 
+  filter(pdb.id %in% pdb_nonred) %>% 
+  merge(markup %>% select(pdb.id, chain.id.from = chain.id, region.type.from = region.type,
+                          region.start.from = region.start)) %>% 
+  mutate(pos.from = residue.index.from - region.start.from) 
+
+mhc_classes <- general %>% 
+  filter(chain.supertype %in% c("MHCI", "MHCII")) %>% 
+  select(pdb.id, mhc.class = chain.supertype) %>% 
+  distinct()
+
+cdr3_seq <- markup %>% 
+  merge(general) %>% 
+  filter(region.type == "CDR3") %>% 
+  select(pdb.id, chain.type.from = chain.type, region.sequence) %>% 
+  mutate(cdr3.len = nchar(region.sequence))
+
+rs.nmf.prob.peptide <- contacts.pTCR.a %>% 
+  merge(markup.seq %>% select(pdb.id, peptide.len)) %>%  
+  merge(mhc_classes) %>% 
+  group_by(pdb.id, residue.index.to, peptide.len, mhc.class) %>% 
+  summarise(n.cont = n()) %>% 
+  group_by(peptide.len, mhc.class) %>% 
+  mutate(n.pdb = n_distinct(pdb.id)) %>% 
+  ungroup() %>% 
+  group_by(mhc.class, peptide.len, residue.index.to) %>% 
+  summarise(freq = sum(n.cont) / n.pdb) %>% 
+  distinct()
+
+rs.nmf.prob.tcr <- contacts.pTCR.a %>%
+  merge(cdr3_seq %>% select(-region.sequence)) %>% 
+  filter(region.type.from == "CDR3") %>% 
+  group_by(pdb.id, chain.type.from, pos.from, cdr3.len) %>% 
+  summarise(n.cont = n()) %>% 
+  group_by(chain.type.from, cdr3.len) %>% 
+  mutate(n.pdb = n_distinct(pdb.id)) %>% 
+  ungroup() %>% 
+  group_by(chain.type.from, pos.from, cdr3.len) %>% 
+  summarise(freq = sum(n.cont) / n.pdb) %>% 
+  distinct()
+
+#contacts.pTCR.a %>%
+#  merge(cdr3_seq %>% select(-region.sequence)) %>% 
+#  filter(region.type.from == "CDR3") %>% 
+#  filter(pos.from == cdr3.len)
+```
+
+```{r}
+rs.nmf.peptide <- contacts.pTCR.a %>% 
+  merge(markup.seq %>% select(pdb.id, peptide.len)) %>% 
+  select(pdb.id, residue.index.to, residue.aa.to, peptide.len) %>% 
+  merge(rs.nmf.prob.peptide) %>% 
+  #mutate(total = sum(1 * freq)) %>% 
+  group_by(residue.aa.to) %>% 
+  #summarise(total.to = sum(1 * freq) / total) %>% 
+  summarise(total.to = sum(1 * freq)) %>%
+  distinct() 
+
+rs.nmf.tcr <- contacts.pTCR.a %>% 
+  filter(region.type.from == "CDR3") %>% 
+  merge(cdr3_seq %>% select(-region.sequence)) %>%
+  select(pdb.id, chain.type.from, pos.from, residue.aa.from, cdr3.len) %>% 
+  merge(rs.nmf.prob.tcr) %>% 
+  #mutate(total = sum(1 * freq)) %>% 
+  group_by(residue.aa.from) %>% 
+  #summarise(total.from = sum(1 * freq) / total) %>% 
+  summarise(total.from = sum(1 * freq)) %>%
+  distinct() 
+
+rs.nmf.a <- rs.nmf.peptide %>% rename(residue.aa = residue.aa.to) %>% 
+  merge(rs.nmf.tcr %>% rename(residue.aa = residue.aa.from), all = T) %>% 
+  mutate(total.from = replace_na(total.from, 0)) %>% 
+  mutate(potential = "TCRen.a.nmf")
+
+rs.nmf.s <- rs.nmf.a %>% 
+  mutate(total = total.to + total.from) %>% 
+  select(residue.aa, total.to = total, total.from = total) %>% 
+  mutate(potential = "TCRen.s.nmf")
+
+rs.nmf <- rs.nmf.a %>% 
+  rbind(rs.nmf.s) %>% 
+  group_by(potential) %>% 
+  mutate(freq.from = total.from / sum(total.from),
+         freq.to = total.to / sum(total.to)) %>% 
+  ungroup %>% 
+  select(residue.aa, potential, freq.from, freq.to)
+
+```
+
+## TCRen calculation with different reference states
+
+```{r}
+prepare_rs <- function(rs) {
+  expand.grid(residue.aa.from = aa.levels %>% as.character(),
+              residue.aa.to = aa.levels %>% as.character()) %>% 
+    merge(rs %>% select(residue.aa.from = residue.aa, freq.from, potential), all = T) %>% 
+    merge(rs %>% select(residue.aa.to = residue.aa, freq.to, potential), all = T)
+}
+
+rs.cf.p <- prepare_rs(rs.cf)
+rs.mf.p <- prepare_rs(rs.mf)
+rs.nmf.p <- prepare_rs(rs.nmf)
+
+
+counts.rs <- rbind(
+  rbind(
+    counts.asym.p %>% mutate(potential = "TCRen.a.cf"),
+    counts.sym.p %>% mutate(potential = "TCRen.s.cf")
+  ) %>% merge(rs.cf.p),
+  rbind(
+    counts.asym.p %>% mutate(potential = "TCRen.a.mf"),
+    counts.sym.p %>% mutate(potential = "TCRen.s.mf")
+  ) %>% merge(rs.mf.p, all = T),
+  rbind(
+    counts.asym.p %>% mutate(potential = "TCRen.a.nmf"),
+    counts.sym.p %>% mutate(potential = "TCRen.s.nmf")
+  ) %>% merge(rs.nmf.p, all = T) 
+)
+  
+TCRen <- counts.rs %>%   
+  mutate(freq.exp = freq.from * freq.to,
+         odds = log(freq.obs / freq.exp),
+         value = -odds) %>% 
+  filter(residue.aa.from != "C") %>%  # C is never occured in CDR3 regions according to TCR repertoire sequencing
+  select(residue.aa.from, residue.aa.to, potential, value)
+```
+
+
+# Potentials from AAindex
+
+```{r, fig.width=8, fig.height=8}
+aaindex_list <- c("MOOG990101","KESO980101","MIYS990106","BRYS930101", "MICC010101","THOP960101","TOBD000102") #,"VENM980101"
+
+plot_aaindex_pot_cor <- function(aaindex) {
+  aaindex %>% 
+  .[,-c(2:6)] %>% 
+  column_to_rownames("AAIndexID") %>% 
+  t() %>% 
+  cor() 
+}
+
+plot_aaindex_pot_cor(fread("aaindex_potentials.csv")) %>% 
+  corrplot()
+plot_aaindex_pot_cor(fread("aaindex_potentials.csv") %>% filter(AAIndexID %in% aaindex_list)) %>% 
+  corrplot.mixed(tl.cex = .75)
+```
+
+```{r}
+aaindex.a <- fread("aaindex_potentials.csv") %>% 
+  .[,-c(2:6)] %>% 
+  melt(id = c("AAIndexID"), variable.name = "contact_pair") %>% 
+  separate(contact_pair, into = c("residue.aa.from", "residue.aa.to"), sep = 1:2) %>% 
+  rename(potential = AAIndexID) 
+
+aaindex.pot <- aaindex.a %>% 
+  rbind(aaindex.a %>% rename(residue.aa.from = residue.aa.to, residue.aa.to = residue.aa.from)) %>%
+  distinct()
+
+aaindex.pot.sel <- aaindex.pot %>% 
+  filter(potential %in% aaindex_list) %>% 
+  mutate(potential = substr(potential, 1, 4))
+```
+
+```{r}
+library(hablar)
+aaindex_list
+
+aaindex.pot.sel %>% select(residue.aa.to, residue.aa.from, potential, value) %>% 
+  rbind(TCRen %>% select(residue.aa.to, residue.aa.from, potential, value)) %>% 
+  mutate(potential = factor(potential, levels = c("TCRen.a.cf", "TCRen.a.mf","TCRen.a.nmf","TCRen.s.cf","TCRen.s.mf","TCRen.s.nmf", "MOOG","KESO","MIYS","BRYS","MICC","THOP","TOBD"))) %>% 
+  rationalize() %>% 
+  mutate(pair = paste0(residue.aa.to, residue.aa.from)) %>% 
+  select(pair, potential, value) %>%
+  mutate(value = as.numeric(replace_na(value, 0))) %>% 
+  dcast(pair ~ potential) %>% 
+  drop_na() %>% 
+  column_to_rownames("pair") %>% 
+  cor() %>% corrplot()
+```
+
+
+
+
+
+# PDB shuffling benchmark
+
+```{r}
+bench.shuffle <- expand.grid(pdb.id.1 = pdb_nonred,
+            pdb.id.2 = pdb_nonred) %>% 
+  merge(markup.seq %>% 
+          select(pdb.id.1 = pdb.id, 
+                 cdr3a.len.1 = cdr3a.len, cdr3b.len.1 = cdr3b.len, peptide.len.1 = peptide.len)) %>% 
+  merge(markup.seq %>% 
+          select(pdb.id.2 = pdb.id, 
+                 cdr3a.len.2 = cdr3a.len, cdr3b.len.2 = cdr3b.len, peptide.len.2 = peptide.len)) %>% 
+  filter(cdr3a.len.1 == cdr3a.len.2, cdr3b.len.1 == cdr3b.len.2, peptide.len.1 == peptide.len.2) %>% 
+  mutate(real = ifelse(pdb.id.1 == pdb.id.2, T, F)) %>% 
+  select(pdb.id.1, pdb.id.2, real)
+```
+
+```{r}
+bench.shuffle.contacts <- contacts.pTCR.a %>% 
+  filter(region.type.from == "CDR3") %>% 
+  select(pdb.id.1 = pdb.id, chain.type.from, residue.index.to, residue.aa.to, pos.from) %>% 
+  merge(bench.shuffle) %>% 
+  merge(resmarkup.a %>% 
+          filter(region.type == "CDR3") %>% 
+          merge(markup) %>% 
+          mutate(pos.from = residue.index - region.start) %>% 
+          select(pdb.id.2 = pdb.id, chain.type.from = chain.type, pos.from, residue.aa.from = residue.aa))
+
+bench.shuffle.energy <- bench.shuffle.contacts %>% 
+  merge(TCRen) %>% 
+  group_by(pdb.id.1, pdb.id.2, real, potential) %>% 
+  summarise(value.s = sum(value))
+
+bench.shuffle.energy.chain <- bench.shuffle.contacts %>% 
+  merge(TCRen) %>% 
+  group_by(pdb.id.1, pdb.id.2, real, chain.type.from, potential) %>% 
+  summarise(value.s = sum(value)) %>% 
+  rbind(bench.shuffle.energy %>% mutate(chain.type.from = "TRA+TRB")) %>% 
+  mutate(chain.type.from = factor(chain.type.from, levels = c("TRA+TRB", "TRA", "TRB")))
+
+```
+
+```{r}
+library(plotROC)
+library(PRROC)
+library(pROC)
+
+theme_roc <- list( 
+    geom_vline(xintercept = 1, size = 1),
+    geom_abline(intercept = 1, slope = 0, size = 1),
+    geom_roc(n.cuts = 0, size = .5),
+    style_roc(major.breaks = c(0, 0.25, 0.5, 0.75, 1), minor.breaks = F, theme = theme_classic),
+    geom_abline(intercept = 0, slope = 1, linetype="dashed"),
+    labs(#color = "Potential : AUC", 
+         color = "",
+         x = 'FPR', y = 'TPR'),
+    scale_x_continuous(expand = c(0, 0)), scale_y_continuous(expand = c(0, 0)),
+    theme(aspect.ratio = 1, 
+          legend.position = c(.8,.25),
+          legend.background = element_blank(),
+          legend.text=element_text(size=9),
+          legend.key.size = unit(.7, 'lines'),
+          )
+)
+```
+
+```{r}
+auc_TCRen <- bench.shuffle.energy %>% 
+  group_by(potential) %>% 
+  summarise(auc = round(auc(roc(real, value.s, direction = ">", levels = c(F,T))), 2)) %>% 
+  mutate(label = paste0(potential, " : ", auc))
+
+pfig3a <- bench.shuffle.energy %>% 
+  ggplot(aes(d = real, m = -value.s, color = potential)) +
+  theme_roc +
+  scale_color_discrete(labels = auc_TCRen$label)
+
+pfig3a
+```
+
+```{r}
+aaindex.levels <- c("TCRen.a.cf","MOOG","KESO","MIYS","BRYS","MICC","THOP","TOBD") 
+
+bench.shuffle.energy.aaindex <- bench.shuffle.contacts %>% 
+  merge(TCRen %>% 
+          filter(potential == "TCRen.a.cf") %>% 
+          rbind(aaindex.pot.sel)) %>% 
+  mutate(potential = factor(potential, levels = aaindex.levels)) %>% 
+  group_by(pdb.id.1, pdb.id.2, real, potential) %>% 
+  summarise(value.s = sum(value))
+
+auc_aaindex <- bench.shuffle.energy.aaindex %>% 
+  group_by(potential) %>% 
+  summarise(auc = round(auc(roc(real, value.s, direction = ">", levels = c(F,T))), 2)) %>% 
+  mutate(label = paste0(potential, " : ", auc))
+
+pfig3b <- bench.shuffle.energy.aaindex %>% 
+  ggplot(aes(d = real, m = -value.s, color = potential)) +
+  theme_roc +
+  scale_color_discrete(labels = auc_aaindex$label) +
+  scale_color_manual("ROC AUC", 
+                     labels = auc_aaindex %>% 
+                       mutate(potential = str_split_fixed(potential, "\\.", 2)[,1],
+                              label = paste0(potential, " : ", auc)) %>% 
+                       .$label, values = cols) +
+  theme(legend.text.align = 1,
+        legend.title.align = 1)
+
+pfig3b
+```
+
+
+```{r}
+auc_TCRen_chains <- bench.shuffle.energy.chain %>% 
+  filter(potential == "TCRen.a.cf") %>% 
+  group_by(chain.type.from) %>% 
+  summarise(auc = round(auc(roc(real, value.s, direction = ">", levels = c(F,T))), 2)) %>% 
+  mutate(label = paste0(chain.type.from, " : ", auc))
+
+pfig3c <- bench.shuffle.energy.chain %>% 
+  filter(potential == "TCRen.a.cf") %>%
+  ggplot(aes(d = real, m = -value.s, color = chain.type.from)) +
+  theme_roc +
+  scale_color_discrete(labels = auc_TCRen_chains$label) +
+  ggtitle("TCRen") +
+  theme(legend.position = c(.78,.15)) +
+  scale_color_manual("ROC AUC", 
+                     labels = auc_TCRen_chains %>% 
+                       mutate(label = paste0(chain.type.from, " : ", auc)) %>% 
+                       .$label, values = c("red", "blue", "deepskyblue")) +
+  theme(legend.text.align = 1,
+        legend.title.align = 1)
+
+pfig3c
+```
+
+```{r}
+library(ggpubr)
+
+pfig3d <- contacts.pTCR.a %>% 
+  merge(TCRen) %>% 
+  filter(potential == "TCRen.a.cf") %>% 
+  group_by(pdb.id, chain.type.from) %>% 
+  summarise(value.s = sum(value)) %>% 
+  dcast(pdb.id ~ chain.type.from) %>% 
+  ggplot(aes(x = TRA, y = TRB)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  theme_pubclean() +
+  ggtitle("TCRen")
+
+pfig3d
+```
+
+```{r, fig.width=11, fig.height=3.5}
+ggdraw() +
+  draw_plot(pfig3b, x = 0, y = 0, width = .33, height = .95) +
+  draw_plot(pfig3c, x = .33, y = 0, width = .33, height = 1) +
+  draw_plot(pfig3d, x = .66, y = 0, width = .33, height = 1) +
+  draw_plot_label(label = c("A", "B", "C"), size = 10,
+                  x = c(0, .33, .66), y = c(1, 1, 1))
+```
+
+```{r, fig.width=8, fig.height=8}
+ggdraw() +
+  draw_plot(pfig3a, x = 0, y = .52, width = .5, height = .45) +
+  draw_plot(pfig3b, x = .5, y = .52, width = .5, height = .45) +
+  draw_plot(pfig3c, x = 0, y = 0, width = .5, height = .48) +
+  draw_plot(pfig3d, x = .55, y = 0, width = .45, height = .48) +
+  draw_plot_label(label = c("A", "B", "C", "D"), size = 10,
+                  x = c(.02, .5, .02, .5), y = c(1, 1, .5, .5))
+```
+
+# Cognate/unrelated peptides benchmark
+
+```{r}
+library(stringi)
+
+aa.re <- "[LFIMVWYCHAGPTSQNDERK]"
+
+peptide_seq <- general %>% 
+  filter(#pdb.id %in% pdb_nonred,
+         chain.component == "PEPTIDE") %>% 
+  select(pdb.id, peptide.pdb = allele.info, peptide.len = seq.length)
+
+bench.peptides <- peptide_seq %>% 
+  slice(rep(1:n(), each = 1000)) %>% 
+  rowwise() %>% 
+  mutate(peptide = paste0(stri_rand_strings(1, 1, aa.re), substr(peptide.pdb, 2, 2), stri_rand_strings(1, peptide.len-3, aa.re), substr(peptide.pdb, peptide.len, peptide.len))) %>% 
+  select(pdb.id, peptide) %>% 
+  mutate(real = F) %>% 
+  rbind(peptide_seq %>% mutate(real = T) %>% select(pdb.id, peptide = peptide.pdb, real))
+```
+
+```{r}
+max.pep.len <- max(nchar(bench.peptides$peptide))
+
+bench.peptides.res <- bench.peptides %>% 
+  rowwise() %>% 
+  filter(pdb.id %in% pdb_nonred) %>% 
+  select(pdb.id, peptide, real) %>% 
+  separate(peptide, into = as.character(0:(max.pep.len - 1)), 
+                     sep = 1:max.pep.len, remove = F) %>% 
+            melt(id = colnames(bench.peptides), 
+                 variable.name = "residue.index.to", value.name = "residue.aa.to") %>% 
+            filter(residue.aa.to != "") %>% 
+            mutate(residue.index.to = as.integer(as.character(residue.index.to)))
+
+```
+
+```{r}
+bench.peptides.contacts <- contacts.pTCR %>%
+  filter(pdb.id %in% pdb_nonred) %>% 
+  select(pdb.id, chain.type.from, region.type.from, residue.index.from, residue.index.to, residue.aa.from) %>% 
+  merge(bench.peptides.res,
+          allow.cartesian=TRUE)
+
+bench.peptides.energy <- bench.peptides.contacts %>% 
+  merge.data.frame(TCRen) %>% 
+  group_by(pdb.id, peptide, real, potential) %>% 
+  summarise(value.s = sum(value))
+```
+
+```{r}
+bench.peptides.ranks <- bench.peptides.energy %>% 
+  group_by(pdb.id, potential) %>% 
+  mutate(value.rank = rank(value.s) / n() * 100) %>% 
+  filter(real)
+
+bench.peptides.ranks.med <- bench.peptides.ranks %>% 
+  filter(pdb.id %in% pdb_nonred[1:(length(pdb_nonred)-10)]) %>%
+  group_by(potential) %>% 
+  summarise(rank.median = round(median(value.rank), 0))
+```
+
+# Select which potential is the best
+
+```{r}
+pfig2a <- bench.peptides.ranks %>% 
+  filter(pdb.id %in% pdb_nonred) %>% 
+  ggplot(aes(x = potential, y = value.rank, fill = potential)) +
+  geom_violin() +
+  geom_boxplot(color = 'black', alpha = 0, width = .1) +
+  #scale_x_discrete(guide = guide_axis(angle = 30)) +
+  xlab("") + ylab("Cognate epitope rank") +
+  guides(fill=FALSE) +
+  geom_text(data = bench.peptides.ranks.med, 
+            aes(y = rank.median, label = paste0(rank.median, "%")),
+            size = 5, vjust = .3, hjust = -.3) +
+  theme_pubclean() 
+
+pfig2a
+```
+
+```{r, fig.width=7, fig.height=7}
+ggdraw() +
+  draw_plot(pfig2a, x = 0, y = .5, width = 1, height = .5) +
+  draw_plot(pfig2c + theme(legend.position = c(.74,.23)), 
+            x = 0, y = 0, width = .5, height = .5) +
+  draw_plot(pfig3a + theme(legend.position = c(.74,.23)) + xlab("FPR") + ylab("TPR"), 
+            x = .5, y = 0, width = .5, height = .5) +
+  draw_plot_label(label = c("B", "C", "D"), size = 11,
+                  x = c(0, 0, .5), y = c(1, .5, .5))
+```
+
+## Validation on a holdout set
+
+```{r}
+fread("PDB_date.csv") %>% 
+  merge(tibble(`PDB ID` = toupper(contacts.pTCR$pdb.id %>% unique())), all.y = T) %>% 
+  filter(is.na(`Entry ID`) == T)
+
+fread("PDB_date.csv") %>% 
+  merge(tibble(`PDB ID` = toupper(pdb_nonred), all.y = T)) %>% 
+  arrange(`Release Date`) %>% 
+  filter(`Release Date` > "2020-01-01")
+```
+
+
+```{r}
+count_contacts <- function(.pdb_list = pdb_nonred, exclude = NULL) {
+  contacts.pTCR %>% 
+    filter(pdb.id %in% .pdb_list,
+           !pdb.id %in% exclude) %>% 
+    group_by(residue.aa.from, residue.aa.to) %>% 
+    summarise(count = n()) %>% 
+    merge(expand.grid(residue.aa.from = aa.levels,
+                 residue.aa.to = aa.levels), all = T) %>% 
+    mutate(count = replace_na(count, 0))
+}
+
+#n.holdout <- round(length(pdb_nonred) / 4)
+
+#pdb_holdout <- pdb_nonred[(length(pdb_nonred)-n.holdout):length(pdb_nonred)]
+
+pdb_holdout <- fread("PDB_date.csv") %>% 
+  merge(tibble(`PDB ID` = toupper(pdb_nonred), all.y = T)) %>% 
+  arrange(`Release Date`) %>% 
+  filter(`Release Date` > "2019-01-01") %>%
+  mutate(pdb.id = tolower(`PDB ID`)) %>% 
+  .$pdb.id
+
+TCRen.holdout <- calc_TCRen.a.cf(.pdb_list = pdb_nonred, exclude = pdb_holdout, pseudocount = 5) %>% 
+  rename(TCRen.holdout = TCRen)
+
+bench.peptides.holdout <- bench.peptides.contacts %>% 
+  filter(pdb.id %in% pdb_holdout) %>% 
+  merge(TCRen.holdout) %>% 
+  group_by(pdb.id, peptide, real) %>% 
+  summarise(TCRen.holdout.s = sum(TCRen.holdout)) 
+
+bench.peptides.holdout.ranks <- bench.peptides.holdout %>% 
+  group_by(pdb.id) %>% 
+  mutate(rank = rank(TCRen.holdout.s) / n()) %>% 
+  filter(real == T) 
+
+bench.peptides.holdout.ranks %>% 
+  ggplot(aes(x = "TCRen.a.cf (holdout)", y = rank)) +
+  geom_quasirandom(width = .2, size = .5, color = "grey") +
+  geom_boxplot(alpha = 0, width = .2) +
+  theme_bw() +
+  theme(aspect.ratio = 2) +
+  xlab("") + ylab("Cognate epitope rank") +
+  ggtitle("Holdout set")
+
+bench.peptides.holdout.ranks %>% 
+  ungroup %>% 
+  summarise(median_rank = median(rank))
+
+pdb_covid <- c("7n1e", "7n1f", "7n6e")
+
+bench.peptides.holdout %>% 
+  group_by(pdb.id) %>% 
+  mutate(rank = rank(TCRen.holdout.s) / n()) %>% 
+  filter(real == T) %>% 
+  filter(pdb.id %in% pdb_covid)
+```
+
+```{r, fig.height=10, fig.width=10}
+holdout_labels <- bench.peptides.holdout.ranks %>% 
+  filter(!pdb.id %in% pdb_covid) %>% 
+  mutate(label = paste0(toupper(pdb.id), " (", round(rank*100), "%)")) %>% 
+  arrange(rank) %>% 
+  mutate(label = factor(label, levels = .$label)) %>% 
+  select(pdb.id, label)
+
+
+pfigs4a <- bench.peptides.holdout %>% 
+  merge(holdout_labels) %>% 
+  mutate(label = factor(label, levels = holdout_labels$label)) %>% 
+  ggplot(aes(x = "", y = TCRen.holdout.s)) +
+  geom_quasirandom(size = .1, color = "grey") +
+  geom_boxplot(alpha = 0) +
+  geom_point(data = bench.peptides.holdout %>% 
+               filter(pdb.id %in% holdout_labels$pdb.id, real) %>% 
+               merge(holdout_labels), color = "red") +
+  facet_wrap(~label, ncol = 8) +
+  theme_bw() +
+  #ylim(c(-5, 15)) +
+  xlab("") + ylab("TCRen")
+
+pfigs4a
+```
+
+```{r}
+bench.peptides.covid <- bench.peptides.holdout %>% 
+  filter(pdb.id %in% pdb_covid) %>% 
+  merge(markup.seq %>% select(pdb.id, peptide.pdb = peptide)) %>% 
+  mutate(label1 = toupper(pdb.id), 
+         label2 = paste0("\nSARS-CoV2, ", peptide.pdb))
+
+bench.7n6e.cdr3 <- bench.peptides.contacts %>% 
+  filter(pdb.id == "7n6e", 
+         region.type.from == "CDR3") %>% 
+  merge(TCRen.holdout) %>% 
+  group_by(pdb.id, peptide, real) %>% 
+  summarise(TCRen.holdout.s = sum(TCRen.holdout)) %>% 
+  ungroup %>% 
+  #mutate(rank = rank(TCRen.holdout.s)) %>% 
+  #filter(real) %>% 
+  mutate(label1 = "7N6E, CDR3 only",
+         label2 = "\nSARS-CoV2 YLQPRTFLL")
+
+bench.peptides.covid.2 <- bench.peptides.covid %>% 
+  select(-peptide.pdb) %>% 
+  rbind(bench.7n6e.cdr3) %>% 
+  group_by(pdb.id, label1, label2) %>% 
+  mutate(rank = rank(TCRen.holdout.s)/ n()) %>%  
+  filter(real) %>% 
+  mutate(label = paste0(label1, " (", round(rank*100), "%)", label2))
+
+pfigs4b <- bench.peptides.covid %>% 
+  select(-peptide.pdb) %>% 
+  rbind(bench.7n6e.cdr3) %>% 
+  merge(bench.peptides.covid.2 %>% select(pdb.id, label1, label2, label)) %>% 
+  ggplot(aes(x = "", y = TCRen.holdout.s)) +
+  geom_quasirandom(size = .5, color = "grey") +
+  geom_boxplot(alpha = 0) +
+  geom_point(data = bench.peptides.covid.2,
+             color = "red", size = 2) +
+  facet_wrap(~label, ncol = 9) +
+  theme_bw() +
+  ylim(c(-5, 15)) +
+  xlab("") + ylab("TCRen")
+
+pfigs4b
+```
+
+```{r, fig.width=10, fig.height=12}
+ggdraw() +
+  draw_plot(pfigs4a, x = 0, y = .3, width = 1, height = .7) +
+  draw_plot(pfigs4b, x = 0, y = 0, width = 1, height = .3) +
+  draw_plot_label(label = c("A", "B"), size = 10,
+                  x = c(0, 0), y = c(1, .3))
+```
+
+```{r}
+bench.peptides.holdout.ranks %>% 
+  rename(peptide.pdb = peptide) %>% 
+  merge(vdjdb %>% 
+          select(peptide.pdb = Epitope, Epitope.gene, Epitope.species) %>% 
+          distinct(peptide.pdb, .keep_all = T) %>% 
+          filter(Epitope.gene != ""), all.x = T) %>% 
+  merge(iedb %>% 
+          select(peptide.pdb = Epitope.2, Epitope.6, Epitope.10) %>% 
+          distinct(), all.x = T) %>% 
+  arrange(rank)
+```
+
+
+```{r}
+contacts_pdb <- function(.pdb.id) {
+  contacts.pTCR %>% 
+    filter(pdb.id %in% c(.pdb.id)) %>% 
+    merge(TCRen.holdout) %>% 
+    merge(count_contacts(exclude = pdb_holdout)) %>% 
+    mutate(pos.from = paste0(residue.index.from, " (", region.type.from, ")")) %>% 
+    select(`PDB ID` = pdb.id, `TCR aa` = residue.aa.from, `peptide aa` = residue.aa.to, 
+           `TCR residue` = pos.from, `peptide residue` = residue.index.to,
+           TCRen = TCRen.holdout, `count in database` = count) %>% 
+    arrange(-TCRen)
+}
+
+q <- rbind(
+  contacts_pdb("7n6e"),
+  contacts_pdb("6vrn"),
+  contacts_pdb("6py2"),
+  contacts_pdb("6rpa")
+)
+      
+```
+
+```{r}
+bench.peptides.contacts %>% 
+  filter(pdb.id == "7n6e", 
+         region.type.from == "CDR3") %>% 
+  merge(TCRen.holdout) %>% 
+  group_by(pdb.id, peptide, real) %>% 
+  summarise(TCRen.holdout.s = sum(TCRen.holdout)) %>% 
+  mutate(rank = rank(TCRen.holdout.s)) %>% 
+  ungroup() %>% 
+  filter(real)
+```
+
+
+```{r, fig.width=9}
+pfigs4 <- ggdraw() +
+  draw_plot(pfigs4a, x = 0, y = .5, width = .2, height = .5) +
+  draw_plot(pfigs4b, x = .25, y = 0, width = .75, height = 1) +
+  draw_plot(pfigs4c, x = 0, y = 0, width = .2, height = .5) +
+  draw_plot_label(label = c("A", "B", "C"), size = 10,
+                  x = c(0, .25, 0), y = c(1, 1, .5))
+
+pfigs4
+```
+
+
+## Performance comparison with AAindex pairwise potentials
+
+```{r}
+bench.peptides.aaindex <- bench.peptides.contacts %>% 
+  merge(TCRen %>% 
+          filter(potential == "TCRen.a.cf") %>% 
+          rbind(aaindex.pot.sel)) %>% 
+  group_by(pdb.id, peptide, real, potential) %>% 
+  summarise(value.s = sum(value))
+```
+
+```{r}
+bench.peptides.aaindex.ranks <- bench.peptides.aaindex %>% 
+  mutate(potential = factor(potential, levels = aaindex.levels)) %>% 
+  group_by(pdb.id, potential) %>% 
+  mutate(value.rank = rank(value.s) / n() * 100) %>% 
+  filter(real)
+
+bench.peptides.aaindex.ranks.med <- bench.peptides.aaindex.ranks %>% 
+  filter(pdb.id %in% pdb_nonred[1:(length(pdb_nonred)-10)]) %>%
+  group_by(potential) %>% 
+  summarise(rank.median = round(median(value.rank), 0))
+```
+
+```{r}
+pfig2b <- bench.peptides.aaindex.ranks %>% 
+  filter(pdb.id %in% pdb_nonred) %>% 
+  ggplot(aes(x = potential, y = value.rank, fill = potential)) +
+  geom_violin() +
+  geom_boxplot(color = 'black', alpha = 0, width = .1) +
+  scale_x_discrete(guide = guide_axis(angle = 30)) +
+  xlab("") + ylab("Cognate epitope rank") +
+  guides(fill=FALSE) +
+  geom_text(data = bench.peptides.aaindex.ranks.med, 
+            aes(y = rank.median, label = paste0(rank.median, "%")),
+            size = 5, vjust = .3, hjust = -.3) +
+  theme_pubclean()
+
+pfig2b
+```
+
+```{r}
+auc_pep_TCRen <- bench.peptides.energy %>% 
+  group_by(potential) %>% 
+  summarise(auc = round(auc(roc(real, value.s, direction = ">", levels = c(F,T))), 2)) %>% 
+  mutate(label = paste0(potential, " : ", auc))
+
+pfig2c <- bench.peptides.energy %>% 
+  ggplot(aes(d = real, m = -value.s, color = potential)) +
+  theme_roc +
+  scale_color_discrete(labels = auc_pep_TCRen$label)
+
+pfig2c
+```
+
+```{r}
+auc_pep_aaindex <- bench.peptides.aaindex %>% 
+  mutate(potential = factor(potential, levels = aaindex.levels)) %>% 
+  group_by(potential) %>% 
+  summarise(auc = round(auc(roc(real, value.s, direction = ">", levels = c(F,T))), 2)) %>% 
+  mutate(label = paste0(potential, " : ", auc))
+
+pfig2d <- bench.peptides.aaindex %>% 
+  mutate(potential = factor(potential, levels = aaindex.levels)) %>% 
+  ggplot(aes(d = real, m = -value.s, color = potential)) +
+  theme_roc +
+  scale_color_discrete(labels = auc_pep_aaindex$label)
+
+pfig2d
+```
+
+
+```{r, fig.width=8, fig.height=12}
+pfig2 <- ggdraw() +
+  draw_plot(pfig2a, x = 0, y = .66, width = 1, height = .33) +
+  draw_plot(pfig2b, x = 0, y = .33, width = 1, height = .33) +
+  draw_plot(pfig2c, x = 0, y = 0, width = .5, height = .33) +
+  draw_plot(pfig2d, x = .5, y = 0, width = .5, height = .33) +
+  draw_plot_label(label = c("A", "B", "C", "D"), size = 10,
+                  x = c(0, 0, 0, .5), y = c(1, .66, .33, .33))
+
+pfig2
+```
+
+# Prediction of neo-epitope recognized by TCR 302TIL
+
+```{r}
+run_mir(pdb_dir = "neoepitope/struct/", arg = "annotate-structures")
+run_mir(pdb_dir = "neoepitope/struct/", arg = "compute-pdb-contacts")
+```
+
+
+```{r}
+contacts.302TIL <- fread("~/shared-with-me/struct2020/benchmark/final_version/neoepitope/mir_output/atomdist.txt") %>% 
+  select(-atom.from, -atom.to, -dist) %>% 
+  rbind(fread("~/shared-with-me/struct2020/benchmark/final_version/neoepitope/mir_output/atomdist.txt") %>% 
+          select(pdb.id, chain.id.from = chain.id.to, chain.id.to = chain.id.from,
+                 residue.index.from = residue.index.to, residue.index.to = residue.index.from)) %>% 
+  merge(fread("~/shared-with-me/struct2020/benchmark/final_version/neoepitope/mir_output/general.txt") %>% 
+          select(pdb.id, chain.id.from = chain.id, chain.type.from = chain.type)) %>% 
+  merge(fread("~/shared-with-me/struct2020/benchmark/final_version/neoepitope/mir_output/general.txt") %>% 
+          select(pdb.id, chain.id.to = chain.id, chain.type.to = chain.type)) %>% 
+  merge(fread("~/shared-with-me/struct2020/benchmark/final_version/neoepitope/mir_output/resmarkup.txt", blank.lines.skip = T) %>% 
+          select(pdb.id, chain.id.from = chain.id, residue.index.from = residue.index,
+                 residue.aa.from = residue.aa)) %>% 
+  merge(fread("~/shared-with-me/struct2020/benchmark/final_version/neoepitope/mir_output/resmarkup.txt", blank.lines.skip = T) %>% 
+          select(pdb.id, chain.id.to = chain.id, residue.index.to = residue.index,
+                 residue.aa.to = residue.aa)) %>%
+  #filter(pdb.id == "6uk4_TCRpMHCmodels_polyV.pdb") %>% 
+  distinct() %>% 
+  filter(chain.type.from %in% c("TRA", "TRB"),
+         chain.type.to == "PEPTIDE") %>% 
+  mutate(type = ifelse(pdb.id == "6uk4.pdb", "PDB",
+                         ifelse(pdb.id == "6uk4_TCRpMHCmodels_polyV.pdb", "model", pdb.id)))
+
+neoepitope_real <- "KQWLVWLFL"
+
+candidates <- fread("~/shared-with-me/struct2020/benchmark/final_version/neoepitope/candidates_A0206.tsv") %>% 
+  mutate(real = peptide == neoepitope_real) %>% 
+  separate(peptide, into = as.character(0:8), 
+                     sep = 1:9, remove = F) %>% 
+  melt(id = c("peptide", "real"), 
+       variable.name = "residue.index.to", value.name = "residue.aa.to") %>%
+  mutate(residue.index.to = as.integer(as.character(residue.index.to)))
+
+energy.302TIL <- contacts.302TIL %>%
+  select(pdb.id, type, chain.id.from, residue.index.from, residue.index.to, residue.aa.from) %>% 
+  merge(candidates,
+          allow.cartesian=TRUE) %>% 
+  merge.data.frame(TCRen %>% 
+                     rbind(calc_TCRen.a.cf(pdb_nonred[pdb_nonred != "6p64"]) %>% 
+                             mutate(potential = "LOO.TCRen") %>% 
+                             rename(value = TCRen))) %>% 
+  #merge(tcren.mean.flat %>% 
+  #        mutate(potential = "TCRen.005") %>% 
+  #        select(residue.aa.from, residue.aa.to, potential, value = TCRen.005)) %>% 
+  group_by(pdb.id, type, peptide, real, potential) %>% 
+  summarise(value.s = sum(value))
+
+energy.302TIL %>% 
+  ggplot(aes(x = type, y = value.s, color = real)) +
+  geom_quasirandom(width = .1) +
+  xlab("") + ylab("TCRen") +
+  #geom_text_repel(aes(label = ifelse(real == T, "cognate neo-epitope", "")), nudge_x = 1) +
+  theme_pubclean() +
+  scale_color_manual(values = c("black", "red")) +
+  theme(legend.position = "none") +
+  theme(axis.ticks = element_blank()) +
+  facet_wrap(~potential, scales = "free")
+
+```
+
+```{r}
+energy.302TIL %>% 
+  filter(potential == "LOO.TCRen", type == "model") %>% 
+  ggplot(aes(x = "", y = value.s, color = real)) +
+  geom_quasirandom(width = .1) +
+  xlab("") + ylab("TCRen") +
+  #geom_text_repel(aes(label = ifelse(real == T, "cognate neo-epitope", "")), nudge_x = 1) +
+  geom_text_repel(aes(label = ifelse(real == T, "cognate \nneo-epitope", "")), color = "red", box.padding = 0.5, max.overlaps = Inf) +
+  theme_pubclean() +
+  scale_color_manual(values = c("black", "red")) +
+  theme(legend.position = "none") +
+  theme(axis.ticks = element_blank()) +
+  theme(aspect = 1.6)
+```
+
+```{r}
+energy.302TIL %>% 
+  filter(potential == "LOO.TCRen", type == "model") %>% 
+  mutate(value.s = round(value.s, 3)) %>% 
+  arrange(value.s)
+```
+
+
+```{r}
+resmarkup.302TIL <- fread("~/shared-with-me/struct2020/benchmark/final_version/neoepitope/mir_output/resmarkup.txt", blank.lines.skip = T) %>% 
+  merge(fread("~/shared-with-me/struct2020/benchmark/final_version/neoepitope/mir_output/general.txt")) %>% 
+  merge(fread("~/shared-with-me/struct2020/benchmark/final_version/neoepitope/mir_output/markup.txt")) %>% 
+  mutate(pos = residue.index - region.start)
+
+contacts.302TIL.pos <- contacts.302TIL %>% 
+  merge(resmarkup.302TIL %>% 
+          select(pdb.id, chain.id.from = chain.id, region.type.from = region.type,
+                 residue.index.from = residue.index, pos.from = pos)) %>% 
+  merge(resmarkup.302TIL %>% 
+          select(pdb.id, chain.id.to = chain.id, region.type.to = region.type, 
+                 residue.index.to = residue.index, pos.to = pos))
+  
+contacts.302TIL.pos %>% 
+  group_by(pdb.id) %>% 
+  summarise(n = n())
+```
+### Compare contacts in PDB and in the model
+```{r}
+contacts.302TIL.comp <- contacts.302TIL.pos %>% 
+  mutate(contact = paste0(region.type.from, substr(chain.type.from, 3, 3), "_", pos.from, "_", pos.to)) %>% 
+  merge(resmarkup.302TIL %>% 
+          filter(pdb.id == "6uk4.pdb", chain.type == "PEPTIDE") %>% 
+          select(residue.index.to = residue.index, residue.aa.to.PDB = residue.aa)) %>% 
+  select(type, contact, residue.aa.to.PDB, residue.aa.from) %>%
+  mutate(in.model = type == "model",
+         in.PDB = type == "PDB") %>% 
+  group_by(contact, residue.aa.to.PDB, residue.aa.from) %>% 
+  summarise(in.model.s = sum(in.model),
+            in.PDB.s = sum(in.PDB)) %>% 
+  rowwise() %>% 
+  mutate(in.both = (in.model.s == 1 && in.PDB.s == 1)) 
+
+contacts.302TIL.comp %>% 
+  ungroup %>% 
+  select(in.model.s, in.PDB.s, in.both) %>% 
+  colSums()
+
+contacts.302TIL.comp %>% 
+  rename(residue.aa.to = residue.aa.to.PDB) %>% 
+  merge(calc_TCRen.a.cf(exclude = "6p64")) %>% 
+  arrange(TCRen)
+```
+
+# Test systems with yeast display data
+
+## Birnbaum
+
+```{r}
+birnbaum.pdb <- tibble(TCR = c("2b4", "226", "5cc7"),
+       pdb.id = c("3qib", "3qiu", "4p2r"))
+
+birnbaum <- birnbaum.pdb %>% 
+  merge(fread("yeast_display/Birnbaum.tsv") %>% 
+          select(peptide, round_5, TCR) %>% 
+          group_by(TCR) %>% 
+          slice(1:20)) %>% 
+  select(pdb.id, peptide)
+
+clusters.merged %>% 
+  filter(pdb.id %in% birnbaum$pdb.id) 
+
+clusters.merged %>% 
+  filter(cluster.seq %in% c(43,44,72,73,74) | cluster.cont %in% c(39,60,61,62))
+```
+
+```{r}
+separate_peptide <- function(df) {
+  df %>% 
+    separate(peptide, into = as.character(0:(max.pep.len - 1)), 
+                     sep = 1:max.pep.len, remove = F) %>% 
+            melt(id = c(colnames(bench.peptides), c("peptide.pdb")), 
+                 variable.name = "residue.index.to", value.name = "residue.aa.to") %>% 
+            filter(residue.aa.to != "") %>% 
+            mutate(residue.index.to = as.integer(as.character(residue.index.to)))
+}
+```
+
+
+```{r}
+pdb_birnbaum <- birnbaum$pdb.id
+
+birnbaum.energy <- bench.peptides %>% 
+  ungroup() %>% 
+  mutate(peptide.pdb = real == T) %>% 
+  rbind(birnbaum %>% 
+          mutate(real = T,
+                 peptide.pdb = F)) %>% 
+  filter(pdb.id %in% pdb_birnbaum) %>% 
+  select(pdb.id, peptide, real, peptide.pdb) %>% 
+  separate_peptide() %>% 
+  merge(contacts.pTCR %>% 
+          select(pdb.id, chain.type.from, region.type.from, residue.index.from, residue.index.to, residue.aa.from)) %>% 
+  merge(TCRen %>% 
+          merge(tibble(pdb.id = pdb_birnbaum)) %>% 
+          rbind(TCRen.LOO %>% 
+                  filter(pdb.id %in% pdb_birnbaum) %>% 
+                  mutate(potential = "LOO.TCRen") %>% 
+                  select(residue.aa.from, residue.aa.to, potential, value = TCRen.LOO, pdb.id)))
+```
+
+```{r}
+birnbaum.energy.s <- birnbaum.energy %>%   
+  group_by(pdb.id, peptide, real, peptide.pdb, potential) %>% 
+  summarise(value.s = sum(value)) %>% 
+  group_by(pdb.id, potential) 
+
+birnbaum.energy.s %>% 
+  mutate(rank = rank(value.s) / n()) %>% 
+  filter(real) %>% 
+  ggplot(aes(x = pdb.id, y = rank)) +
+  geom_boxplot() +
+  geom_beeswarm() +
+  facet_wrap(~potential)
+  arrange(pdb.id, rank)
+
+```
+
+```{r, fig.width=3, fig.height=3}
+auc_birnbaum <- birnbaum.energy.s %>% 
+  filter(pdb.id %in% c("3qib", "3qiu", "4p2r")) %>% 
+  filter(potential %in% c("LOO.TCRen")) %>% 
+  group_by(pdb.id, potential) %>% 
+  summarise(auc = round(auc(roc(real, value.s, direction = ">", levels = c(F,T))), 2)) %>% 
+  merge(birnbaum.pdb) %>% 
+  mutate(label = paste0("AUC = ", auc))
+
+plot_birnbaum <- function(.TCR) {
+  .pdb.id <- auc_birnbaum %>% 
+    filter(TCR == .TCR) %>% 
+    .$pdb.id
+  
+  .label <- auc_birnbaum %>% 
+    filter(TCR == .TCR) %>% 
+    .$label
+  
+  birnbaum.energy.s %>% 
+    filter(potential == "LOO.TCRen",
+           pdb.id == .pdb.id) %>% 
+    ggplot(aes(d = real, m = -value.s, color = pdb.id)) +
+    theme_roc +
+    scale_color_discrete(labels = .label) 
+}
+
+p.2b4.roc <- plot_birnbaum("2b4")
+p.226.roc <- plot_birnbaum("226")
+p.5cc7.roc <- plot_birnbaum("5cc7")
+```
+
+```{r}
+library(ggseqlogo)
+
+logo_birnbaum <- function(.TCR) {
+  fread("~/shared-with-me/struct2020/benchmark/final_version/yeast_display/Birnbaum.tsv") %>% 
+    filter(TCR == .TCR) %>% 
+    arrange(-round_5) %>% 
+    head(20) %>% 
+    .$peptide %>% 
+    ggseqlogo() +
+    theme(legend.position = "") +
+    ggtitle(.TCR) +
+    theme(plot.title = element_text(hjust = 0.5))}
+
+p.2b4.logo <- logo_birnbaum("2b4")
+p.226.logo <- logo_birnbaum("226")
+p.5cc7.logo <- logo_birnbaum("5cc7")
+
+```
+
+```{r, fig.width=9, fig.height=4}
+ggdraw() +
+  draw_plot(p.2b4.logo, x = 0, y = .6, width = .33, height = .4) +
+  draw_plot(p.226.logo, x = .33, y = .6, width = .33, height = .4) +
+  draw_plot(p.5cc7.logo, x = .66, y = .6, width = .33, height = .4) +
+  draw_plot(p.2b4.roc, x = 0, y = 0, width = .33, height = .65) +
+  draw_plot(p.226.roc, x = .33, y = 0, width = .33, height = .65) +
+  draw_plot(p.5cc7.roc, x = .66, y = 0, width = .33, height = .65) +
+  draw_plot_label(label = c("E"), size = 10,
+                  x = c(0), y = c(1))
+
+```
+```{r, fig.width=12, fig.height=12}
+ggdraw() +
+  draw_plot(pfig2a, x = 0, y = .68, width = .66, height = .32) +
+  draw_plot(pfig2c, x = .66, y = .68, width = .33, height = .32) +
+  draw_plot(pfig2b, x = 0, y = .36, width = .66, height = .32) +
+  draw_plot(pfig2d, x = .66, y = .36, width = .33, height = .32) +
+  draw_plot(p.2b4.logo, x = 0, y = .22, width = .33, height = .12) +
+  draw_plot(p.226.logo, x = .33, y = .22, width = .33, height = .12) +
+  draw_plot(p.5cc7.logo, x = .66, y = .22, width = .33, height = .12) +
+  draw_plot(p.2b4.roc, x = 0, y = 0, width = .33, height = .23) +
+  draw_plot(p.226.roc, x = .33, y = 0, width = .33, height = .23) +
+  draw_plot(p.5cc7.roc, x = .66, y = 0, width = .33, height = .23) +
+  draw_plot_label(label = c("A", "B", "C", "D", "E"), size = 12,
+                  x = c(0, 0, .66, .66, 0), y = c(1, .68, 1, .68, .35))
+
+```
+
+
+# MD
+
+```{r}
+md.mir.cont <- md.mir.a %>% 
+  group_by(pdb.id, peptide, motif, replica, chain.id.from, chain.id.to, 
+           residue.index.from, residue.index.to, residue.aa.from, residue.aa.to) %>% 
+  mutate(frame = as.numeric(frame)) %>% 
+  summarise(freq = n() / (max(frame) - min(frame) + 1))
+```
+
+```{r}
+md.mir.cont.e <- md.mir.cont  %>% 
+  filter((pdb.id == "6am5_al2.pdb" & motif %in% c("GIG", "no_motif")) | 
+           (pdb.id == "6amu_al2.pdb" & motif %in% c("DRG", "no_motif"))) %>% 
+  merge(calc_TCRen.a.cf.2(.pdb_list = pdb_nonred, pseudocount = 2) %>% 
+          mutate(potential = "TCRen") %>% 
+          rename(value = TCRen)) %>% 
+  group_by(pdb.id, peptide, motif, replica, potential) %>% 
+  summarise(value.replica = sum(value)) %>%  
+  group_by(pdb.id, peptide, motif, potential) %>% 
+  summarise(value.s = mean(value.replica)) 
+
+md.mir.cont.e %>% 
+  ggplot(aes(x = motif, y = value.s)) +
+  facet_wrap(~ pdb.id + potential, scales = 'free') +
+  geom_quasirandom(size = .1) +
+  geom_boxplot(alpha = 0) +
+  theme_bw()
+
+ 
+stat.test <- md.mir.cont.e %>%
+    group_by(pdb.id) %>%
+    wilcox_test(value.s ~ motif) %>%
+    adjust_pvalue(method = "bonferroni") %>%
+    add_significance()
+
+#stat.test <- stat.test %>% add_y_position()
+stat.test
+```
+
+```{r}
+TCRen.2 <- #calc_TCRen.a.cf(.pdb_list = pdb_nonred, pseudocount = .05) %>% 
+  calc_TCRen.a.cf(.pdb_list = pdb_nonred, exclude = pdb_holdout, pseudocount = 2) %>% 
+          mutate(potential = "TCRen") %>% 
+          rename(value = TCRen)
+
+md.mir.cont.e <- md.mir.cont  %>% 
+  filter((pdb.id == "6am5_al2.pdb" & motif %in% c("GIG", "no_motif")) | 
+           (pdb.id == "6amu_al2.pdb" & motif %in% c("DRG", "no_motif"))) %>% 
+  merge(TCRen.2) %>% 
+  group_by(pdb.id, peptide, motif, replica, potential) %>% 
+  summarise(value.replica = sum(value)) %>%  
+  group_by(pdb.id, peptide, motif, potential) %>% 
+  summarise(value.s = mean(value.replica)) 
+
+md.mir.cont.e %>% 
+  ggplot(aes(x = motif, y = value.s)) +
+  facet_wrap(~ pdb.id + potential, scales = 'free') +
+  geom_quasirandom(size = .1) +
+  geom_boxplot(alpha = 0) +
+  theme_bw()
+
+ 
+stat.test <- md.mir.cont.e %>%
+    group_by(pdb.id) %>%
+    wilcox_test(value.s ~ motif) %>%
+    adjust_pvalue(method = "bonferroni") %>%
+    add_significance()
+
+#stat.test <- stat.test %>% add_y_position()
+stat.test
+```
+
+```{r}
+md.mir.frame0 <- md.mir.a  %>% 
+  filter(frame == 0) %>% 
+  merge(calc_TCRen.a.cf.2(.pdb_list = pdb_nonred, pseudocount = 2) %>% 
+          mutate(potential = "TCRen") %>% 
+          rename(value = TCRen)) %>% 
+  group_by(pdb.id, peptide, motif, replica, potential) %>% 
+  summarise(value.replica = sum(value)) %>%  
+  group_by(pdb.id, peptide, motif, potential) %>% 
+  summarise(value.s = mean(value.replica),
+            n.replica = n())
+
+md.mir.cont.e %>% 
+  rename(MD = value.s) %>% 
+  merge(md.mir.frame0 %>% rename(frame0 = value.s)) %>% 
+  ggplot(aes(x = frame0, y = MD)) +
+  geom_point() +
+  geom_smooth(method = "lm")
+
+md.mir.a
+
+```
+
+# Amino acid composition of IEDB epitopes
+
+```{r}
+iedb <- read.csv("~/MHC_epitopes/mhc_ligand_full.csv")
+```
+
+```{r}
+iedb %>% 
+  filter(Epitope.1 == "Linear peptide") %>% 
+  select()
+```
+
+```{r, fig.width=10, fig.height=5}
+iedb %>% 
+  filter(Epitope.1 == "Linear peptide",
+         Assay.5 == "Positive") %>% 
+  select(Epitope.2, MHC) %>% 
+  distinct() %>% 
+  mutate(pep.len = nchar(Epitope.2)) %>% 
+  filter(pep.len < 15) %>% 
+  group_by(MHC) %>% 
+  #summarise(n.lig = n()) %>% 
+  #filter(n.lig > 1000) %>% 
+  mutate(n.lig = n()) %>%  
+  filter(n.lig > 1000) %>% 
+  select(-n.lig) %>% 
+  filter(substr(MHC, 1, 6) %in% c("HLA-A*", "HLA-B*", "HLA-C*")) %>% 
+  separate(Epitope.2, into = paste0("p", 1:15), sep = 1:15, remove = F) %>% 
+  select(-pep.len) %>% 
+  melt(id = c("Epitope.2", "MHC")) %>% 
+  group_by(MHC, value) %>% 
+  summarise(n = n()) %>% 
+  filter(value != "") %>% 
+  mutate(fraction = n / sum(n)) %>% 
+  ggplot(aes(x = factor(value, levels = aa.levels), y = fraction)) +
+  geom_boxplot() +
+  geom_line(data = aa.freq.interface, aes(x = factor(aminoacid, levels = aa.levels), y = freq, color = type, group = type)) +
+  theme_pubclean() +
+  xlab("") + ylab("fraction")
+  #ggplot(aes(x = factor(value, levels = aa.levels), y = fraction, color = MHC, group = MHC)) +
+  #geom_line()
+```
+
+```{r, fig.width=10, fig.height=5}
+iedb %>% 
+  filter(Epitope.1 == "Linear peptide",
+         Assay.5 == "Positive") %>% 
+  select(Epitope.2, MHC) %>% 
+  distinct() %>% 
+  mutate(pep.len = nchar(Epitope.2)) %>% 
+  filter(pep.len == 9) %>% 
+  group_by(MHC) %>% 
+  #summarise(n.lig = n()) %>% 
+  #filter(n.lig > 1000) %>% 
+  mutate(n.lig = n()) %>%  
+  filter(n.lig > 1000) %>% 
+  select(-n.lig) %>% 
+  filter(substr(MHC, 1, 6) %in% c("HLA-A*", "HLA-B*", "HLA-C*")) %>% 
+  separate(Epitope.2, into = paste0("p", 1:9), sep = 1:9, remove = F) %>% 
+  select(-pep.len) %>% 
+  melt(id = c("Epitope.2", "MHC")) %>% 
+  filter(variable != "p2", variable != "p9") %>% 
+  group_by(MHC, value) %>% 
+  summarise(n = n()) %>% 
+  filter(value != "") %>% 
+  mutate(fraction = n / sum(n)) %>% 
+  ggplot(aes(x = factor(value, levels = aa.levels), y = fraction)) +
+  geom_boxplot() +
+  geom_line(data = aa.freq.interface, aes(x = factor(aminoacid, levels = aa.levels), y = freq, color = type, group = type)) +
+  theme_pubclean() +
+  xlab("") + ylab("fraction")
+  #ggplot(aes(x = factor(value, levels = aa.levels), y = fraction, color = MHC, group = MHC)) +
+  #geom_line()
+```
+
+
+# New code
+
+```{r}
+TCRen.summary <- fread("mir_output/markup.txt") %>% 
+  filter(region.type == "CDR3" | region.type == "PEPTIDE") %>% 
+  merge(fread("mir_output/general.txt")) %>% 
+  merge(fread("mir_output/general.txt") %>% 
+          filter(chain.type == "MHCa") %>% 
+          select(pdb.id, mhc.class = chain.supertype)) %>% 
+  mutate(region = ifelse(region.type == "CDR3", paste0(region.type, substr(chain.type, 3, 3)), region.type),
+         pdb.id = substr(pdb.id, 1, 4)) %>% 
+  select(pdb.id, complex.species, mhc.class, region, region.sequence) %>% 
+  dcast(pdb.id + complex.species + mhc.class ~ region) %>% 
+  mutate(nonred = pdb.id %in% pdb_nonred) %>% 
+  merge(bench.peptides.ranks %>% 
+          filter(potential == "TCRen.a.cf") %>% 
+          ungroup %>% 
+          select(pdb.id, TCRen.rank = value.rank),
+        all = T) 
+
+#TCRen.summary %>% fwrite("~/struct2020/TCRen_summary.tsv")
+
+TCRen.summary.TCRex <- fread("mir_output/general.txt") %>% 
+  filter(chain.type == "TRB") %>% 
+  mutate(pdb.id = substr(pdb.id, 1, 4)) %>% 
+  select(pdb.id, allele.info) %>% 
+  mutate(TRBV_gene = str_split_fixed(allele.info, ":", 2)[,1],
+         TRBV_gene = str_split_fixed(TRBV_gene, "\\*", 2)[,1],
+         TRBJ_gene = str_split_fixed(allele.info, ":", 2)[,2],
+         TRBJ_gene = str_split_fixed(TRBJ_gene, "\\*", 2)[,1]) %>% 
+  select(-allele.info) %>% 
+  merge(TCRen.summary) %>% 
+  rename(CDR3_beta = CDR3B)
+
+TCRen.summary.TCRex %>% fwrite("~/struct2020/TCRen_summary_TCRex.tsv")
+
+```
+
+```{r}
+TCRen.summary %>% 
+  ggplot(aes(x = complex.species, y = TCRen.rank)) +
+  geom_boxplot() +
+  geom_quasirandom() +
+  facet_wrap(~mhc.class) +
+  theme_bw()
+```
+
+```{r}
+TCRen.summary %>% 
+  group_by(PEPTIDE) %>% 
+  mutate(n = n()) %>% 
+  ggplot(aes(x = factor(n), y = TCRen.rank)) +
+  geom_boxplot() +
+  geom_quasirandom()
+```
+
+```{r}
+TCRen.summary$CDR3A %>% unique() %>% length()
+TCRen.summary$CDR3B %>% unique() %>% length()
+TCRen.summary$PEPTIDE %>% unique() %>% length()
+```
+
+```{r}
+TCRex <- fread("grep -v '^#' other_tools/TCRex_results.tsv") 
+
+TCRex %>% 
+  distinct(TRBV_gene, CDR3_beta, TRBJ_gene)
+
+TCRex %>% 
+  distinct(CDR3_beta)
+
+TCRex.val <- TCRen.summary.TCRex %>% 
+  merge(TCRex %>% 
+          select(-TRBV_gene, -TRBJ_gene) %>% 
+          group_by(CDR3_beta) %>% 
+          mutate(rank = rank(-score),
+                 n.pred = n()), all = T) %>% 
+  mutate(levenstein = stringdist(PEPTIDE, epitope, method = "lv"),
+         real = (PEPTIDE == epitope),
+         #real = (levenstein <= 2),
+         n.pred = replace_na(n.pred, 0)) 
+```
+
+```{r}
+TCRex.val %>% 
+  filter(nonred) %>% 
+  distinct(pdb.id, n.pred) %>% 
+  group_by(n.pred) %>% 
+  summarise(n.TCRs = n())
+
+TCRex.val %>% 
+  filter(nonred) %>% 
+  distinct(pdb.id, n.pred) %>% 
+  merge(TCRex.val %>% 
+          filter(real) %>% 
+          group_by(pdb.id) %>% 
+          filter(rank == min(rank)) %>% 
+          select(pdb.id, rank.real = rank), all = T)
+
+TCRex.val.groups <- TCRex.val %>% 
+  filter(nonred) %>%
+  select(pdb.id, PEPTIDE, epitope, rank, real, n.pred) %>% 
+  group_by(pdb.id) %>% 
+  merge(TCRex.val %>% 
+          filter(nonred) %>% 
+          filter(real) %>% 
+          group_by(pdb.id) %>% 
+          summarise(rank.real = min(rank)), all.x = T) %>% 
+  mutate(rank.real = round(rank.real) %>% factor(),
+         group = ifelse(!is.na(rank.real), rank.real, 
+                        ifelse(n.pred == 0, "No pred", "Out of top"))) 
+
+TCRex.val.groups %>% 
+  distinct(pdb.id, group) %>% 
+  group_by(group) %>% 
+  summarise(n = n()) %>% 
+  ggplot(aes(x = group, y = n, fill = group)) +
+  geom_bar(stat = "identity") +
+  theme_bw() +
+  xlab("Ranking of the cognate epitope") +
+  ylab("Benchmark cases")
+
+q <- TCRex.val %>% 
+  filter(nonred) %>% 
+  filter(real) %>% 
+  select(CDR3_beta, PEPTIDE, pathology, score)
+
+
+
+```
+
+# ERGO
+```{r}
+summary <- fread("mir_output/general.txt") %>% 
+  filter(chain.type %in% c("TRB", "TRA")) %>% 
+  mutate(pdb.id = substr(pdb.id, 1, 4)) %>% 
+  select(pdb.id, chain.type, allele.info) %>% 
+  dcast(pdb.id ~ chain.type) %>% 
+  mutate(TRAV = str_split_fixed(TRA, ":", 2)[,1],
+         TRAV = str_split_fixed(TRAV, "\\*", 2)[,1],
+         TRAJ = str_split_fixed(TRA, ":", 2)[,2],
+         TRAJ = str_split_fixed(TRAJ, "\\*", 2)[,1],
+         TRBV = str_split_fixed(TRB, ":", 2)[,1],
+         TRBV = str_split_fixed(TRBV, "\\*", 2)[,1],
+         TRBJ = str_split_fixed(TRB, ":", 2)[,2],
+         TRBJ = str_split_fixed(TRBJ, "\\*", 2)[,1]) %>% 
+  select(-TRA, -TRB) %>% 
+  merge(TCRen.summary %>% 
+          filter(nonred) %>% 
+          mutate(TCellType = ifelse(mhc.class == "MHCI", "CD8", "CD4")) %>% 
+          select(pdb.id, TCellType, TRA = CDR3A, TRB = CDR3B, Peptide = PEPTIDE)) %>% 
+  mutate(Peptide = gsub("X", "", Peptide))
+
+ERGO.input <- merge(
+  summary %>% 
+    select(TRA,TRB,TRAV,TRAJ,TRBV,TRBJ) %>% 
+    distinct(),
+  summary %>% 
+    select(TCellType,Peptide) %>% 
+    distinct()
+) %>% 
+  mutate(MHC = NaN) %>% 
+  rename(`T-Cell-Type` = TCellType)
+
+#ERGO.input %>% fwrite("~/shared-with-me/struct2020/benchmark/final_version/other_tools/ERGO_input.csv")
+```
+
+```{r}
+ERGO.ranks <- fread("other_tools/ERGO_output/ERGO_AE_VDJdb.csv") %>% 
+  group_by(TRA,TRB,TRAV,TRAJ,TRBV,TRBJ) %>% 
+  mutate(rank = rank(-Score),
+         rank.perc = rank(-Score) / n() * 100) %>% 
+  merge(summary %>% 
+          mutate(real = T), all = T) %>% 
+  filter(real) 
+
+ERGO.ranks %>% 
+  .$rank %>% 
+  qplot(binwidth = 1)
+
+ERGO.ranks %>% 
+  ggplot(aes(x = "ERGO",  y = rank.perc)) +
+  geom_violin(alpha = 0) +
+  geom_quasirandom(color = "grey") +
+  geom_boxplot(width = .3, alpha = 0) +
+  xlab("") + ylab("Cognate epitope rank") +
+  theme_pubclean() +
+  theme(aspect.ratio = 5)
+```
+
+# Plot against VDJdb freq
+```{r}
+vdjdb.n <- fread("~/vdjdb/vdjdb.slim.txt") %>% 
+  group_by(antigen.epitope) %>% 
+  summarise(n.vdjdb = n()) %>% 
+  arrange(-n.vdjdb)
+
+ERGO.ranks.vdjdb <- ERGO.ranks %>% 
+  merge(vdjdb.n %>% 
+          rename(Peptide = antigen.epitope), all.x = T
+        ) %>% 
+  mutate(n.vdjdb = replace_na(n.vdjdb, 0),
+         n.vdjdb.log = log10(n.vdjdb)) 
+
+ERGO.ranks.vdjdb %>% 
+  ggplot(aes(x = n.vdjdb, y = rank.perc)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  theme_pubclean() +
+  ylab("Cognate epitope rank") +
+  xlab("Number of VDJdb entries for the epitope") +
+  scale_x_log10()
+
+ERGO.ranks.vdjdb %>% 
+  mutate(group = ifelse(rank == 1, "top-1%",
+                        ifelse(rank.perc < .1, "top-10%",
+                               ifelse(rank.perc > .5, "fail", "medium")))) %>% 
+  ggplot(aes(x = group, y = n.vdjdb.log)) +
+  geom_boxplot() +
+  geom_point()
+
+ERGO.ranks.vdjdb
+```
+
+```{r}
+TCRen.summary %>% 
+  mutate(group = ifelse(TCRen.rank < 1, "top-1%",
+                        ifelse(TCRen.rank < 10, "top-10%",
+                               ifelse(TCRen.rank > 50, "fail", "medium"))),
+         group = factor(group, levels = c("top-1%", "top-10%", "medium", "fail")),
+         group = ifelse(TCRen.rank < 10, "top-10%", "other") %>% factor(levels = c("top-10%", "other"))) %>% 
+  filter(nonred) %>% 
+  merge(vdjdb.n %>% 
+          rename(PEPTIDE = antigen.epitope), all.x = T) %>% 
+  mutate(n.vdjdb = replace_na(n.vdjdb, 0)) %>% 
+  ggplot(aes(x = group, y = n.vdjdb)) +
+  geom_boxplot(width = .5, fill = "grey") +
+  geom_quasirandom() +
+  scale_y_log10() +
+  theme_pubclean() +
+  ylab("Number of VDJdb entries for the epitope") +
+  theme(aspect.ratio = 2)
+
+TCRex.val.groups %>% 
+  mutate(group = factor(group, levels = c(1, 2, "Out of top", "No pred"))) %>% 
+  merge(vdjdb.n %>% 
+          rename(PEPTIDE = antigen.epitope), all.x = T
+        ) %>% 
+  distinct(pdb.id, group, n.vdjdb) %>% 
+  mutate(n.vdjdb = replace_na(n.vdjdb, 0),
+         n.vdjdb.log = log10(n.vdjdb)) %>% 
+  ggplot(aes(x = group, y = n.vdjdb)) +
+  geom_boxplot(width = .5, fill = "grey") +
+  geom_quasirandom() +
+  xlab("Rank of cognate epitope") + ylab("Number of VDJdb entries for the epitope") +
+  theme_pubclean() +
+  scale_y_log10() +
+  ggtitle("TCRex")
+```
+
+```{r}
+merge.data.frame(
+  TCRen.summary %>% 
+    filter(nonred) %>% 
+    mutate(group.TCRen = ifelse(TCRen.rank < 1, "Top-1%",
+                                ifelse(TCRen.rank < 10, "Top-10%",
+                                       ifelse(TCRen.rank > 50, "Fail", "Other")))) %>% 
+    select(pdb.id, group.TCRen), 
+  TCRex.val.groups %>% 
+    distinct(pdb.id, group) %>% 
+    mutate(group.TCRex = ifelse(group == 1, "Top-1%", 
+                                ifelse(group == 2, "Top-10%", "Fail"))) %>% 
+    select(pdb.id, group.TCRex),
+  ERGO.ranks %>% 
+    mutate(group.ERGO = ifelse(rank.perc < 1, "Top-1%",
+                                ifelse(rank.perc < 10, "Top-10%",
+                                       ifelse(rank.perc > 50, "Fail", "Other")))) %>% 
+    select(pdb.id, group.ERGO), by = "pdb.id")
+
+TCRen.summary %>% 
+  filter(nonred) %>% 
+  mutate(group.TCRen = ifelse(TCRen.rank < 1, "Top-1%",
+                              ifelse(TCRen.rank < 10, "Top-10%",
+                                      ifelse(TCRen.rank > 50, "Fail", "Other")))) %>% 
+  select(pdb.id, group.TCRen) %>% 
+  merge(TCRex.val.groups %>%
+          distinct(pdb.id, group) %>% 
+          mutate(group.TCRex = ifelse(group == 1, "Top-1%", 
+                                      ifelse(group == 2, "Top-10%", "Fail"))) %>% 
+          select(pdb.id, group.TCRex)) %>% 
+  merge(ERGO.ranks %>% 
+          mutate(group.ERGO = ifelse(rank.perc < 1, "Top-1%",
+                                     ifelse(rank.perc < 10, "Top-10%",
+                                            ifelse(rank.perc > 50, "Fail", "Other")))) %>% 
+          select(pdb.id, group.ERGO), by = "pdb.id") %>% 
+  melt(id = "pdb.id", variable.name = "method", value.name = "group") %>% 
+  filter(group != "Other") %>% 
+  mutate(method = str_split_fixed(method, "\\.", 2)[,2],
+         group.large = ifelse(group == "Fail", group, "Top-10%") %>% factor(levels = c("Top-10%", "Fail")),
+         group = factor(group, levels = c("Top-1%", "Top-10%", "Fail"))) %>% 
+  mutate(method = factor(method, levels = c("TCRen", "ERGO", "TCRex"))) %>% 
+  group_by(method, group.large, group) %>% 
+  summarise(n = n()) %>% 
+  ggplot(aes(x = method, fill = group, y = n)) +
+  geom_bar(stat = "identity", position = position_stack(reverse = TRUE)) +
+  facet_wrap(~group.large) +
+  scale_fill_manual(values = c("chartreuse3", "darkgreen", "black")) +
+  theme_pubclean() +
+  ylab("Number of cases")
+```
+
+
+```{r}
+# для ERGO попробовать unseen mode
+
+# что подходит для МНС 2
+```
+
+#ImRex
+```{r}
+ImRex.input <- bench.peptides %>% 
+  #group_by(pdb.id, real) %>% 
+  #filter(row_number() <= 200) %>% 
+  #arrange(pdb.id) %>% 
+  rename(antigen.epitope = peptide) %>% 
+  merge(summary %>% 
+          select(pdb.id, cdr3 = TRB)) 
+
+#fwrite(ImRex.input %>% select(antigen.epitope, cdr3) %>% distinct(), 
+#       "~/git/ImRex/benchmark/ImRex_input.csv", sep = ";")
+```
+
+```{r}
+ImRex.input %>% select(antigen.epitope, cdr3) %>% distinct() %>% 
+  mutate(len.cdr3 = nchar(cdr3), len.pep = nchar(antigen.epitope)) %>% 
+  filter(len.cdr3 %in% c(10:20),
+         len.pep %in% c(8:11))
+
+ImRex.ranks <- fread("~/git/ImRex/benchmark/ImRex_output.csv") %>% 
+  merge(ImRex.input) %>% 
+  group_by(pdb.id) %>% 
+  mutate(rank = rank(-prediction_score) / n()) %>% 
+  filter(real) 
+
+ImRex.ranks %>% 
+  ggplot(aes(x = "ImRex",  y = rank)) +
+  geom_violin(alpha = 0) +
+  geom_quasirandom(color = "grey") +
+  geom_boxplot(width = .3, alpha = 0) +
+  xlab("") + ylab("Cognate epitope rank") +
+  theme_pubclean() +
+  theme(aspect.ratio = 5)
+
+ImRex.ranks %>% 
+  merge(vdjdb.n, all.x = T) %>% 
+  mutate(n.vdjdb = replace_na(n.vdjdb, 0)) %>% 
+  ggplot(aes(x = n.vdjdb, y = rank)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  theme_pubclean() +
+  ylab("Cognate epitope rank") +
+  xlab("Number of VDJdb entries for the epitope") +
+  scale_x_log10()
+
+TCRen.summary %>% 
+  filter(nonred) %>% 
+  select(pdb.id, antigen.epitope = PEPTIDE, TCRen.rank) %>% 
+  merge(vdjdb.n, all.x = T) %>% 
+  mutate(n.vdjdb = replace_na(n.vdjdb, 0)) %>% 
+  ggplot(aes(x = n.vdjdb, y = TCRen.rank)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  theme_pubclean() +
+  ylab("Cognate epitope rank") +
+  xlab("Number of VDJdb entries for the epitope") +
+  scale_x_log10() +
+  ylim(c(0,25))
+```
+
+# TITAN
+
+## Prepare input
+
+Prepare file with TRB segments
+```{r}
+#q <- fread("~/git/TITAN/out.csv")
+TITAN.input.segments <- fread("mir_output/general.txt") %>% 
+  filter(chain.type == "TRB") %>% 
+  mutate(pdb.id = substr(pdb.id, 1, 4)) %>% 
+  filter(pdb.id %in% pdb_nonred) %>% 
+  select(pdb.id, allele.info) %>% 
+  separate(allele.info, into = c("TRBV", "TRBJ"), sep = ":") %>% 
+  merge(summary %>% select(pdb.id, CDR3b = TRB))
+
+#TITAN.input.segments %>% fwrite("~/git/TITAN/benchmark/input_tcr_segments.csv")
+
+TITAN.input.segments %>% 
+  filter(pdb.id != "3gjf") %>% 
+  select(-pdb.id) %>% 
+  distinct() %>% 
+  fwrite("~/git/TITAN/benchmark/input_tcr_segments.csv")
+```
+
+Prepare IMGT files
+```{r}
+fasta2tibble <- function(fasta_data, col_names = c("id", "seq")) {
+  fasta_data %>% 
+    as.data.frame() %>% 
+    rownames_to_column() %>% 
+    magrittr::set_colnames(col_names)
+}
+
+imgt <- readAAStringSet("~/git/TITAN/benchmark/imgt/IMGT_GENE-DB.txt") %>% 
+  fasta2tibble() %>% 
+  mutate(segment = str_split_fixed(id, "\\|", 3)[,2]) %>% 
+  select(segment, seq) 
+
+imgt.trbv <- imgt %>% 
+  filter(substr(segment, 1, 4) == "TRBV") %>% 
+  distinct(segment, .keep_all = T)
+
+imgt.trbj <- imgt %>% 
+  filter(substr(segment, 1, 4) == "TRBJ") %>% 
+  distinct(segment, .keep_all = T)
+
+#write.fasta(as.list(imgt.trbv$seq), imgt.trbv$segment, "~/git/TITAN/benchmark/imgt/V_segment_sequences.fasta")
+#write.fasta(as.list(imgt.trbj$seq), imgt.trbj$segment, "~/git/TITAN/benchmark/imgt/J_segment_sequences.fasta")
+
+TITAN.input.segments %>% 
+  merge(imgt.trbv %>% select(TRBV = segment, seq)) %>% 
+  merge(imgt.trbj %>% select(TRBJ = segment, seq.1 = seq), all.x = T)
+```
+
+Prepare TCR input
+```{r}
+TITAN.input.tcr <- fread("~/git/TITAN/benchmark/input_tcr_fullseq.csv", header = T) %>% 
+  mutate(id = c(1:nrow(.))) 
+
+TITAN.input.tcr %>%   
+  select(full_seq, id) %>% 
+  fwrite("~/git/TITAN/benchmark/input_tcr.csv", sep = "\t", col.names=FALSE)
+
+#TITAN.input.tcr %>%   
+#  select(full_seq, id) %>% 
+#  filter(id <= 10) %>% 
+#  fwrite("~/git/TITAN/benchmark/input_tcr_short.csv", sep = "\t", col.names=FALSE)
+```
+
+Prepare epitope input
+```{r}
+library(Peptides)
+
+TITAN.input.smiles <- summary %>% 
+  select(Peptide) %>% 
+  distinct() %>% 
+  mutate(smiles = aaSMILES(Peptide),
+         id = c(1:nrow(.)))
+
+TITAN.input.smiles %>% 
+  select(smiles, id) %>% 
+  fwrite("~/git/TITAN/benchmark/input_epitopes.smi", sep = "\t", col.names=FALSE)
+
+#TITAN.input.smiles %>% 
+#  select(smiles, id) %>% 
+#  filter(id <= 10) %>% 
+#  fwrite("~/git/TITAN/benchmark/input_epitopes_short.smi", sep = "\t", col.names=FALSE)
+```
+
+Prepare test file
+```{r}
+TITAN.id <- TITAN.input.segments %>%
+  merge(summary %>% select(pdb.id, Peptide)) %>% 
+  merge(TITAN.input.tcr %>% select(TRBV, TRBJ, CDR3b, sequence_id = id)) %>% 
+  merge(TITAN.input.smiles %>% select(Peptide, ligand_name = id))
+
+TITAN.input.test <- expand.grid(ligand_name = TITAN.id$ligand_name %>% unique(),
+            sequence_id = TITAN.id$sequence_id %>% unique()) %>% 
+  merge(TITAN.id %>% 
+          select(sequence_id, ligand_name) %>% 
+          mutate(label = 1),
+        all.x = T) %>% 
+  mutate(label = replace_na(label, 0)) 
+
+TITAN.input.test %>% 
+  fwrite("~/git/TITAN/benchmark/input_test.csv", row.names = T)
+
+#Run
+#python3 scripts/flexible_model_eval.py benchmark/input_test.csv benchmark/input_tcr.csv benchmark/input_epitopes.smi data/trained_model bimodal_mca output_bench
+
+#>>> import numpy as np
+#>>> import pandas as pd
+#>>> a = np.load("output_bench.npy")
+#>>> pd.DataFrame(np.transpose(a)).to_csv("output_bench.csv")
+```
+
+```{r}
+TITAN.input.tcr %>%   
+  select(full_seq, id) %>% 
+  filter(id == 1) %>% 
+  fwrite("~/git/TITAN/benchmark/input_tcr_s.csv", sep = "\t", col.names=FALSE)
+
+TITAN.input.smiles %>% 
+  select(smiles, id) %>% 
+  #filter(id %in% c(1:3)) %>%
+  fwrite("~/git/TITAN/benchmark/input_epitopes_s.smi", sep = "\t", col.names=FALSE)
+
+TITAN.input.test %>% 
+  filter(#ligand_name %in% c(1:3),
+         sequence_id  == 1) %>% 
+  fwrite("~/git/TITAN/benchmark/input_test_s.csv", row.names = T)
+```
+
+
+
+```{r}
+q1 <- fread("~/git/TITAN/benchmark/input_test.csv") #%>% filter(label == 1)
+
+fread("~/git/TITAN/benchmark/input_test.csv") %>% 
+  filter(sequence_id != 120)
+
+q2 <- fread("~/git/TITAN/benchmark/output_bench.csv", header = T) #%>% filter(`1` == 1)
+
+fread("~/git/TITAN/benchmark/input_test.csv") %>%
+  select(-V1) %>% 
+  filter(ligand_name <=10, sequence_id <=10) %>% 
+  fwrite("~/git/TITAN/benchmark/input_test_short.csv", row.names = T)
+```
+
+```{r}
+TITAN.ranks <- fread("~/git/TITAN/benchmark/output_bench.csv", header = T) %>% 
+  magrittr::set_colnames(c("id", "score", "label")) %>% 
+  merge(TITAN.input.test %>%
+          rownames_to_column("id") %>% 
+          mutate(id = as.numeric(id) - 1)) %>% 
+  merge(TITAN.input.tcr %>% 
+          select(sequence_id = id, TRBV, TRBJ, CDR3b)) %>% 
+  merge(TITAN.input.smiles %>% 
+          select(ligand_name = id, Peptide)) %>% 
+  group_by(sequence_id) %>% 
+  mutate(rank = rank(-score) / n() * 100) %>% 
+  filter(label == 1) 
+
+TITAN.ranks %>% 
+  ggplot(aes(x = "TITAN",  y = rank)) +
+  geom_violin(alpha = 0) +
+  geom_quasirandom(color = "grey") +
+  geom_boxplot(width = .3, alpha = 0) +
+  xlab("") + ylab("Cognate epitope rank") +
+  theme_pubclean() +
+  theme(aspect.ratio = 5)
+```
+
+```{r}
+TITAN.ranks %>%
+  rename(peptide = Peptide) %>% 
+  merge(vdjdb.n, all.x = T) %>% 
+  mutate(n.vdjdb = replace_na(n.vdjdb, 0)) %>% 
+  ggplot(aes(x = n.vdjdb, y = rank)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  theme_pubclean() +
+  ylab("Cognate epitope rank") +
+  xlab("Number of VDJdb entries for the epitope") +
+  scale_x_log10()
+```
+
+
+
+# Check TITAN on random peptide dataset
+
+Prepare input
+```{r}
+#bench.peptides %>% 
+#  group_by(pdb.id, real) %>% 
+#  summarise(n = n())
+
+TITAN.random <- summary %>% 
+  mutate(peptide.len = nchar(Peptide)) %>% 
+  distinct(peptide.len) %>% 
+  arrange(peptide.len) %>% 
+  slice(rep(1:n(), each = 127)) %>% 
+  rowwise() %>% 
+  mutate(Peptide = stringi::stri_rand_strings(1, peptide.len, aa.re))
+
+TITAN.input.random.smiles <- TITAN.random %>% 
+  select(Peptide) %>% 
+  rbind(summary %>% select(Peptide) %>% distinct()) %>% 
+  distinct() %>% 
+  ungroup() %>% 
+  mutate(smiles = aaSMILES(Peptide),
+         id = row_number())
+
+TITAN.input.random.smiles %>% 
+  select(smiles, id) %>% 
+  fwrite("~/git/TITAN_new/benchmark/input_epitopes_random.smi", sep = "\t", col.names=FALSE)
+
+TITAN.input.random.test <- summary %>% 
+  mutate(peptide.len = nchar(Peptide)) %>% 
+  select(pdb.id, CDR3b = TRB, peptide.len) %>%   
+  merge(TITAN.random, all = T) %>% 
+  mutate(label = 0) %>% select(-peptide.len) %>% 
+  rbind(summary %>% 
+          select(pdb.id, CDR3b = TRB, Peptide) %>% 
+          mutate(label = 1)) %>% 
+  merge(TITAN.input.tcr %>% select(CDR3b, sequence_id = id)) %>% 
+  merge(TITAN.input.random.smiles %>% select(Peptide, ligand_name = id))
+
+TITAN.input.random.test %>% 
+  group_by(sequence_id) %>% 
+  summarise(n = n()) %>% 
+  arrange(-n)
+
+TITAN.input.random.test %>% 
+  select(ligand_name, sequence_id, label) %>% 
+  fwrite("~/git/TITAN_new/benchmark/input_test_random.csv", row.names = T)
+
+TITAN.input.random.test %>% 
+  head(256) %>% 
+  arrange(pdb.id, Peptide) %>% 
+  select(ligand_name, sequence_id, label) %>% 
+  fwrite("~/git/TITAN_new/benchmark/input_test_random_head256.csv", row.names = T)
+```
+
+Analyse output
+```{r}
+#fread("~/git/TITAN_new/benchmark/input_test_random.csv")
+
+TITAN.ranks.random <- fread("~/git/TITAN_new/benchmark/output_bench_random.csv", header = T) %>% 
+  magrittr::set_colnames(c("id", "score", "label")) %>% 
+  merge(TITAN.input.random.test %>% 
+          mutate(id = 0:(nrow(.)-1))) %>% 
+  group_by(pdb.id) %>% 
+  mutate(rank = rank(-score) / n() * 100) %>% 
+  filter(label == 1) 
+
+TITAN.ranks.random %>% 
+  ggplot(aes(x = "TITAN",  y = rank)) +
+  geom_violin(alpha = 0) +
+  geom_quasirandom(color = "grey") +
+  geom_boxplot(width = .3, alpha = 0) +
+  xlab("") + ylab("Cognate epitope rank") +
+  theme_pubclean() +
+  theme(aspect.ratio = 5)
+
+TITAN.ranks.random %>%
+  rename(peptide = Peptide) %>% 
+  merge(vdjdb.n, all.x = T) %>% 
+  mutate(n.vdjdb = replace_na(n.vdjdb, 0)) %>% 
+  ggplot(aes(x = n.vdjdb, y = rank)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  theme_pubclean() +
+  ylab("Cognate epitope rank") +
+  xlab("Number of VDJdb entries for the epitope") +
+  scale_x_log10()
+```
+
+```{r}
+TITAN.ranks %>% 
+  select(CDR3b, Peptide, score.1 = score) %>% 
+  merge(TITAN.ranks.random %>% 
+          select(CDR3b, Peptide, score.2 = score)) %>% 
+  .$score.1 %>% 
+  qplot()
+```
+
+
+Analyse DEMO TITAN output
+```{r}
+fread("~/git/TITAN/out.csv", header = T) %>% 
+  set_colnames(c("id", "score", "label")) %>% 
+  ggplot(aes(x = score, fill = label, group = label)) +
+  geom_density()
+
+fread("~/git/TITAN_new/data/trained_model_test.csv") %>% 
+  group_by(ligand_name, label) %>% 
+  summarise(n = n()) %>% 
+  dcast(ligand_name ~ label)
+
+fread("~/git/TITAN_new/data/trained_model_test.csv") %>% 
+  group_by(sequence_id, label) %>% 
+  summarise(n = n()) %>% 
+  dcast(sequence_id ~ label)
+
+
+fread("~/git/TITAN/out.csv", header = T)
+
+TITAN.demo <- fread("~/git/TITAN_new/data/trained_model_test.csv") %>% 
+  merge(fread("~/git/TITAN/out.csv", header = T)) %>% 
+  merge(fread("~/git/TITAN_new/data/epitopes.csv") %>% 
+          set_colnames(c("peptide", "ligand_name"))) %>% 
+  merge(fread("~/git/TITAN_new/data/tcr_full.csv") %>% 
+          set_colnames(c("tcr_seq", "sequence_id")))
+
+#TITAN.demo %>% 
+#  distinct(tcr_seq) %>% 
+#  mutate()
+#  fwrite("~/git/TITAN/benchmark/demo_tcr.csv")
+#  merge(fread("~/git/TITAN/benchmark/input_tcr_fullseq.csv", header = T) %>% 
+#          select(tcr_seq = full_seq))
+  
+seqinr::write.fasta(as.list(unique(TITAN.demo$tcr_seq)), unique(TITAN.demo$sequence_id),
+            "~/git/TITAN/benchmark/demo_tcr.fasta")
+```
+
+Test TITAN on VDJdb
+```{r}
+vdjdb.23 <- fread("~/vdjdb/vdjdb-2022-03-30/vdjdb.slim.txt") %>% 
+  filter(gene == "TRB") %>% 
+  filter(vdjdb.score %in% c(2,3)) %>% 
+  distinct(cdr3, .keep_all = T)
+
+vdjdb.23 %>% 
+  select(TRBV = v.segm, TRBJ = j.segm, CDR3b = cdr3) %>% 
+  filter(TRBV != "", TRBJ != "",
+         nchar(TRBV) < 15, nchar(TRBJ) < 15) %>% 
+  fwrite("~/git/TITAN_new/benchmark/input_tcr_segments_vdjdb.csv")
+
+fread("~/git/TITAN_new/benchmark/vdjdb/input_tcr_fullseq_vdjdb.csv", header = T) %>% 
+  select(full_seq) %>% 
+  merge(fread("~/git/TITAN_new/data/tcr_full.csv") %>% select(full_seq = V1)) %>% 
+  merge(TITAN.demo %>% rename(full_seq = tcr_seq))
+```
+
+Prepare input for TITAN VDJdb test
+```{r}
+TITAN.input.tcr.vdjdb <- fread("~/git/TITAN_new/benchmark/vdjdb/input_tcr_fullseq_vdjdb.csv", header = T) %>% 
+  mutate(id = c(1:nrow(.))) 
+
+TITAN.input.tcr.vdjdb %>%   
+  select(full_seq, id) %>% 
+  fwrite("~/git/TITAN_new/benchmark/vdjdb/input_tcr_vdjdb.csv", sep = "\t", col.names=FALSE)
+
+TITAN.input.smiles.vdjdb <- vdjdb.23 %>% 
+  select(antigen.epitope) %>% 
+  distinct() %>% 
+  mutate(smiles = aaSMILES(antigen.epitope),
+         id = c(1:nrow(.)))
+
+TITAN.input.smiles.vdjdb %>% 
+  select(smiles, id) %>% 
+  fwrite("~/git/TITAN_new/benchmark/vdjdb/input_epitopes_vdjdb.smi", sep = "\t", col.names=FALSE)
+
+
+TITAN.input.test.vdjdb <- vdjdb.23 %>% 
+  select(cdr3, antigen.epitope) %>% 
+  merge(TITAN.input.tcr.vdjdb %>% select(cdr3 = CDR3b, sequence_id = id)) %>% 
+  merge(TITAN.input.smiles.vdjdb %>% select(antigen.epitope, ligand_name = id))
+
+TITAN.input.test.vdjdb %>% 
+  mutate(label = sample(c(0,1), replace=TRUE, size = nrow(.))) %>% 
+  fwrite("~/git/TITAN_new/benchmark/vdjdb/input_test_vdjdb.csv", row.names = T)
+
+#Run
+#python3 scripts/flexible_model_eval.py benchmark/input_test.csv benchmark/input_tcr.csv benchmark/input_epitopes.smi data/trained_model bimodal_mca output_bench
+```
+
+```{r}
+fread("~/git/TITAN_new/data/trained_model/results/output_bench_vdjdb.csv", header = T) %>% 
+  .$`0` %>% 
+  qplot()
+```
+
+
+
+
+```{r}
+fread("~/git/tcrdist3/dash.csv") %>% 
+  group_by(epitope) %>% 
+  summarise(n = n())
+
+fread("~/vdjdb/vdjdb-2022-03-30/vdjdb.slim.txt")
+```
+Explore VDJdb
+```{r}
+fread("~/vdjdb/vdjdb-2022-03-30/vdjdb.slim.txt") %>% 
+  filter(gene == "TRB") %>% 
+  select(TRB = cdr3) %>% 
+  #select(TRB = cdr3, Peptide = antigen.epitope) %>% 
+  mutate(VDJdb = T) %>% 
+  distinct() %>% 
+  merge(summary, all.y = T)
+
+fread("~/vdjdb/vdjdb-2022-03-30/vdjdb.slim.txt") %>% 
+  filter(gene == "TRB") %>% 
+  distinct(cdr3, Peptide = antigen.epitope) %>% 
+  group_by(Peptide) %>% 
+  summarise(n = n()) %>% 
+  merge(summary %>% 
+          group_by(Peptide) %>% 
+          summarise(n.pdb = n()), all.y = T) %>% 
+  arrange(-n, -n.pdb)
+
+fread("~/vdjdb/vdjdb-2022-03-30/vdjdb.slim.txt") %>% 
+  filter(gene == "TRB",
+         complex.id != 0) %>% 
+  distinct(cdr3, Peptide = antigen.epitope) %>% 
+  group_by(Peptide) %>% 
+  summarise(n = n()) %>% 
+  merge(summary %>% 
+          group_by(Peptide) %>% 
+          summarise(n.pdb = n()), all.y = T) %>% 
+  arrange(-n, -n.pdb)
+
+fread("~/vdjdb/vdjdb-2022-03-30/vdjdb.txt")
+```
+
+Prepare TRB VDJdb
+```{r}
+vdjdb.trb <- fread("~/vdjdb/vdjdb-2022-03-30/vdjdb.slim.txt") %>% 
+  filter(gene == "TRB") %>% 
+  select(species, epitope = antigen.epitope, v_b_gene = v.segm, j_b_gene = j.segm, cdr3_b_aa = cdr3) %>% 
+  distinct()
+
+# Find TCRs with multiple specificity
+vdjdb.trb %>% 
+  group_by(cdr3_b_aa) %>% 
+  mutate(n.cdr3 = n()) %>% 
+  group_by(v_b_gene, j_b_gene, cdr3_b_aa) %>% 
+  mutate(n.all_seq = n()) %>% 
+  arrange(-n.cdr3, cdr3_b_aa)
+
+# Find TCRs with multiple specificity
+vdjdb.trb %>% 
+  filter(nchar(v_b_gene) < 17) %>% 
+  group_by(cdr3_b_aa) %>% 
+  mutate(n.cdr3 = n()) %>% 
+  group_by(v_b_gene, j_b_gene, cdr3_b_aa) %>% 
+  mutate(n.all_seq = n()) %>% 
+  filter(n.cdr3 != n.all_seq) %>% 
+  arrange(-n.cdr3, cdr3_b_aa)
+
+# Check that (almost) all CDR3s from our benchmark are in VDJdb
+vdjdb.trb %>% 
+  merge(summary %>% 
+          select(pdb.id, cdr3_b_aa = TRB), all.y = T) %>% 
+  filter(is.na(j_b_gene))
+
+fread("mir_output/general.txt") %>% 
+  mutate(pdb.id = substr(pdb.id, 1, 4)) %>% 
+  filter(pdb.id %in% c("6v0y", "6v13"))
+```
+
+Prepare tcrdist3 input for vdjdb_tcrb
+```{r}
+# Remove TCRs with multiple specificity
+tcrdist.vdjdb <- vdjdb.trb %>% 
+  filter(!grepl('\\,', v_b_gene),
+         !grepl('\\,', j_b_gene)) %>% 
+  group_by(cdr3_b_aa) %>% 
+  mutate(n = n()) %>% 
+  filter(n == 1,
+         !cdr3_b_aa %in% summary$TRB,
+         species %in% c("HomoSapiens", "MusMusculus")) %>% 
+  select(-n)
+
+#tcrdist.vdjdb %>% filter(species == "HomoSapiens") %>% fwrite("~/git/tcrdist3/benchmark/vdjdb_trb_human.csv")
+#tcrdist.vdjdb %>% filter(species == "MusMusculus") %>% fwrite("~/git/tcrdist3/benchmark/vdjdb_trb_mouse.csv")
+
+# Species for benchmark cases
+bench.species <- fread("mir_output/general.txt") %>% 
+  mutate(pdb.id = substr(pdb.id, 1, 4)) %>% 
+  select(pdb.id, species = complex.species) %>% 
+  distinct()
+
+# Number of VDJdb entries for epitopes from the benchmark
+tcrdist.vdjdb %>% 
+  group_by(epitope, species) %>% 
+  summarise(n = n()) %>% 
+  merge(summary %>% 
+          rename(epitope = Peptide) %>% 
+          group_by(epitope) %>% 
+          summarise(n.pdb = n()), all.y = T) %>% 
+  #merge(bench.species) %>% 
+  arrange(-n, -n.pdb)
+```
+
+Prepare tcrdist3 input for bench_trb
+```{r}
+tcrdist.bench <- TITAN.input.segments %>%
+  merge(summary %>% select(pdb.id, epitope = Peptide)) %>% 
+  merge(bench.species) %>% 
+  select(species, epitope, v_b_gene = TRBV, j_b_gene = TRBJ, cdr3_b_aa = CDR3b)
+
+#tcrdist.bench %>% filter(species == "Human") %>% fwrite("~/git/tcrdist3/benchmark/bench_trb_human.csv")
+#tcrdist.bench %>% filter(species == "Mouse") %>% fwrite("~/git/tcrdist3/benchmark/bench_trb_mouse.csv")
+```
+
+Check with VDJdb records were ignored by tcrdist3
+```{r}
+fread("~/git/tcrdist3/benchmark/vdjdb_trb_human.csv") %>% 
+  merge(fread("~/git/tcrdist3/benchmark/output_vdjdb_trv_human.csv"), all = T) %>% 
+  filter(is.na(count))
+```
+
+Process tcrdist3 output
+```{r}
+library(magrittr)
+tcrdist <- fread("~/git/tcrdist3/benchmark/output_dist_trv_human.csv", header = T) %>% 
+  melt(id = "V1") %>% 
+  set_colnames(c("id_vdjdb", "id_bench",  "tcrdist")) %>% 
+  merge(fread("~/git/tcrdist3/benchmark/output_bench_trv_human.csv") %>% 
+          select(id_bench = V1, cdr3_bench = cdr3_b_aa, v_bench = v_b_gene, epitope_bench = epitope)) %>% 
+  merge(fread("~/git/tcrdist3/benchmark/output_vdjdb_trv_human.csv") %>% 
+          select(id_vdjdb = V1, cdr3_vdjdb = cdr3_b_aa, v_vdjdb = v_b_gene, epitope_vdjdb = epitope))
+```
+
+```{r}
+tcrdist.ranks <- tcrdist %>% 
+  arrange(id_bench, tcrdist) %>% 
+  group_by(id_bench, epitope_vdjdb) %>% 
+  filter(row_number() == 1) %>% 
+  group_by(id_bench) %>% 
+  mutate(rank = rank(tcrdist),
+         rank.perc = rank / n() * 100,
+         real = epitope_bench == epitope_vdjdb) %>% 
+  filter(real)
+
+tcrdist.ranks %>% 
+  ggplot(aes(x = "tcrdist",  y = rank.perc)) +
+  geom_violin(alpha = 0) +
+  geom_quasirandom(color = "grey") +
+  geom_boxplot(width = .3, alpha = 0) +
+  xlab("") + ylab("Cognate epitope rank") +
+  theme_pubclean() +
+  theme(aspect.ratio = 5)
+```
+
+```{r}
+tcrdist.head <- tcrdist %>% 
+  arrange(tcrdist) %>% 
+  head(10000) %>% 
+  rowwise() %>% 
+  mutate(levenstein.cdr3 = stringDist(c(cdr3_bench, cdr3_vdjdb))) %>% 
+  arrange(levenstein.cdr3)
+
+tcrdist.ranks.nonred <- tcrdist.head %>% 
+  filter(levenstein.cdr3 <= 3) %>% 
+  mutate(redundant = T) %>% 
+  merge(tcrdist, all = T) %>% 
+  filter(is.na(redundant)) %>% 
+  select(-levenstein.cdr3, -redundant) %>% 
+  filter(epitope_vdjdb %in% tcrdist.bench$epitope) %>% 
+  arrange(id_bench, tcrdist) %>% 
+  group_by(id_bench, epitope_vdjdb) %>% 
+  filter(row_number() == 1) %>% 
+  group_by(id_bench) %>% 
+  mutate(rank = rank(tcrdist),
+         rank.perc = rank / n() * 100,
+         real = epitope_bench == epitope_vdjdb) %>% 
+  filter(real)
+
+tcrdist.ranks.nonred %>% 
+  ggplot(aes(x = "tcrdist.nonred",  y = rank.perc)) +
+  geom_violin(alpha = 0) +
+  geom_quasirandom(color = "grey") +
+  geom_boxplot(width = .3, alpha = 0) +
+  xlab("") + ylab("Cognate epitope rank") +
+  theme_pubclean() +
+  theme(aspect.ratio = 5)
+```
+
+```{r}
+tcrdist.ranks %>% 
+  merge(vdjdb.n %>% rename(epitope_bench = peptide)) %>% 
+  ggplot(aes(x = n.vdjdb, y = rank)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  theme_pubclean() +
+  ylab("Cognate epitope rank") +
+  xlab("Number of VDJdb entries for the epitope") +
+  scale_x_log10()
+```
+
+```{r}
+tcrdist.ranks.sel <- tcrdist %>% 
+  filter(epitope_vdjdb %in% tcrdist.bench$epitope) %>% 
+  arrange(id_bench, tcrdist) %>% 
+  group_by(id_bench, epitope_vdjdb) %>% 
+  filter(row_number() == 1) %>% 
+  group_by(id_bench) %>% 
+  mutate(rank = rank(tcrdist),
+         rank.perc = rank / n() * 100,
+         real = epitope_bench == epitope_vdjdb) %>% 
+  filter(real) 
+
+tcrdist.ranks.sel %>% 
+  ggplot(aes(x = "tcrdist",  y = rank.perc)) +
+  geom_violin(alpha = 0) +
+  geom_quasirandom(color = "grey") +
+  geom_boxplot(width = .3, alpha = 0) +
+  xlab("") + ylab("Cognate epitope rank") +
+  theme_pubclean() +
+  theme(aspect.ratio = 5)
+```
+
+Downsample specificity data
+```{r}
+tcrdist.down <- tcrdist %>% 
+  filter(epitope_vdjdb %in% tcrdist.bench$epitope) %>% 
+  distinct(cdr3_vdjdb, epitope_vdjdb) %>% 
+  group_by(epitope_vdjdb) %>% 
+  slice_sample(n = 100)
+
+tcrdist.ranks.down <- tcrdist %>% 
+  merge(tcrdist.down) %>% 
+  filter(epitope_vdjdb %in% tcrdist.bench$epitope) %>% 
+  arrange(id_bench, tcrdist) %>% 
+  group_by(id_bench, epitope_vdjdb) %>% 
+  filter(row_number() == 1) %>% 
+  group_by(id_bench) %>% 
+  mutate(rank = rank(tcrdist),
+         rank.perc = rank / n() * 100,
+         real = epitope_bench == epitope_vdjdb) %>% 
+  filter(real)
+
+tcrdist.ranks.down %>% 
+  ggplot(aes(x = "tcrdist",  y = rank.perc)) +
+  geom_violin(alpha = 0) +
+  geom_quasirandom(color = "grey") +
+  geom_boxplot(width = .3, alpha = 0) +
+  xlab("") + ylab("Cognate epitope rank") +
+  theme_pubclean() +
+  theme(aspect.ratio = 5)
+```
+
+Prepare pair-seq VDJdb
+```{r}
+vdjdb.tcrdist_format <- fread("~/vdjdb/vdjdb-2022-03-30/vdjdb_full.txt") %>% 
+  filter(cdr3.alpha != "", cdr3.beta != "") %>% 
+  mutate(count = 1,
+         cdr3_a_nucseq = NaN,
+         cdr3_b_nucseq = NaN,
+         clone_id = c(1:nrow(.))) %>% 
+  select(subject = species, epitope = antigen.epitope, count, v_a_gene = v.alpha, j_a_gene = j.alpha, cdr3_a_aa = cdr3.alpha, cdr3_a_nucseq, v_b_gene = v.beta, j_b_gene = j.beta, cdr3_b_aa = cdr3.beta, cdr3_b_nucseq, clone_id)
+
+vdjdb.tcrdist_format %>% 
+  head() %>% 
+  fwrite("~/git/tcrdist3/vdjdb/vdjdb_head.csv")
+```
+
+
+
+
+
+
+# Make uniform output
+```{r}
+bench.TCRen <- fread("~/struct2020/TCRen_summary_TCRex.tsv") %>% 
+  filter(nonred) %>% 
+  mutate(method = "TCRen",
+         PEPTIDE = gsub("X", "", PEPTIDE)) %>% 
+  select(pdb.id, peptide = PEPTIDE, cdr3a = CDR3A, cdr3b = CDR3_beta, method, rank = TCRen.rank) %>% 
+  mutate(top.1 = (rank < 1),
+         top.10 = (rank < 10),
+         top.25 = (rank < 25),
+         fail = (rank > 50),
+         not_supported = FALSE)
+
+#bench.TCRen %>% fwrite("~/shared-with-me/struct2020/benchmark/final_version/other_tools/different_methods_benchmark/benchmark_TCRen.csv")
+
+bench.TCRex <- TCRex.val.groups %>% 
+  distinct(pdb.id, group) %>% 
+  merge(bench.TCRen %>% select(pdb.id, peptide, cdr3a, cdr3b)) %>% 
+  merge(fread("other_tools/TCRex_supported_peptides.csv") %>% 
+          mutate(not_supported = F), all.x = T) %>% 
+  mutate(method = "TCRex",
+         top.1 = (group == 1),
+         top.10 = (group <= 2),
+         top.25 = (group <= 2),
+         not_supported = replace_na(not_supported, T),
+         fail = (top.10 == F & not_supported == F)) %>% 
+  select(pdb.id, peptide, cdr3a, cdr3b, method, rank = group, top.1, top.10, top.25, fail, not_supported)
+  
+#bench.TCRex %>% fwrite("~/shared-with-me/struct2020/benchmark/final_version/other_tools/different_methods_benchmark/benchmark_TCRex.csv")
+
+bench.ERGO <- ERGO.ranks %>% 
+  mutate(method = "ERGO",
+         top.1 = (rank.perc < 1),
+         top.10 = (rank.perc < 10),
+         top.25 = (rank.perc < 25),
+         fail = (rank.perc > 50),
+         not_supported = FALSE) %>% 
+  select(pdb.id, peptide = Peptide, cdr3a = TRA, cdr3b = TRB, method, rank = rank.perc, top.1, top.10, top.25, fail, not_supported)
+
+#bench.ERGO %>% fwrite("~/shared-with-me/struct2020/benchmark/final_version/other_tools/different_methods_benchmark/benchmark_ERGO.csv")
+
+bench.ImRex <- ImRex.ranks %>% 
+  mutate(rank = rank * 100) %>% 
+  select(pdb.id, peptide = antigen.epitope, cdr3b = cdr3, rank) %>% 
+  merge(bench.TCRen %>% select(pdb.id, peptide, cdr3a, cdr3b), all.y = T) %>% 
+  mutate(method = "ImRex",
+         top.1 = (rank < 1),
+         top.10 = (rank < 10),
+         top.25 = (rank < 25),
+         fail = (rank > 50),
+         not_supported = is.na(rank))
+
+#bench.ImRex %>% fwrite("~/shared-with-me/struct2020/benchmark/final_version/other_tools/different_methods_benchmark/benchmark_ImRex.csv")
+
+tcrdist.ranks.comb <- tcrdist.ranks.down %>% mutate(method = "tcrdist.downs") %>% 
+  rbind(tcrdist.ranks.nonred %>% mutate(method = "tcrdist.f_lev")) %>% 
+  ungroup 
+
+bench.tcrdist <- tcrdist.ranks.comb %>% 
+  select(method, cdr3b = cdr3_bench, peptide = epitope_bench, rank = rank.perc) %>% 
+  merge(summary %>% 
+          select(pdb.id, cdr3a = TRA, cdr3b = TRB, peptide = Peptide) %>% 
+          merge.data.frame(tibble(method = (tcrdist.ranks.comb$method %>% unique()))), all.y = T) %>% 
+  mutate(top.1 = (rank == min(rank, na.rm = T)),
+         top.10 = (rank < 10),
+         top.25 = (rank < 25),
+         fail = (rank > 50),
+         not_supported = is.na(rank))
+
+#bench.tcrdist %>% fwrite("~/shared-with-me/struct2020/benchmark/final_version/other_tools/different_methods_benchmark/benchmark_tcrdist.csv")
+```
+
+```{r}
+bench.all <- rbind(bench.TCRen, bench.ImRex, bench.ERGO, bench.TCRex, bench.tcrdist) %>% 
+  mutate(method = factor(method, levels = c("TCRen", "ImRex", "ERGO", "TCRex", "tcrdist.downs", "tcrdist.f_lev"))) %>% 
+  replace(is.na(.), 0) %>% 
+  group_by(method) %>% 
+  summarise_at(.vars = c("top.1", "top.10", "top.25", "fail", "not_supported"),
+               .funs = "sum") %>% 
+  mutate(supported = nrow(bench.TCRen) - not_supported) %>% 
+  melt(id = c("method", "supported"), variable.name = "bin", value.name = "cases") %>% 
+  mutate(fraction = cases / supported)
+
+bench.all %>% 
+  filter(bin != "not_supported") %>% 
+  ggplot(aes(x = bin, y = fraction, fill = method)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  theme_pubclean()
+
+bench.all %>% 
+  ggplot(aes(x = bin, y = cases, fill = method)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  theme_pubclean()
+```
+
+
+```{r}
+
+#bench.all_methods %>% 
+  merge(vdjdb.n, all.x = T) %>% 
+  mutate(n.vdjdb = replace_na(n.vdjdb, 0)) %>% 
+  select(pdb.id, method, n.vdjdb, top.1, top.10, top.25, fail) %>% 
+  mutate(other = ((top.25 + fail) == F)) %>% 
+  melt(id = c("pdb.id", "method", "n.vdjdb")) %>% 
+  mutate(variable = factor(variable, levels = c("top.1", "top.10", "top.25", "other", "fail"))) %>% 
+  filter(value == T) %>% 
+  ggplot(aes(x = variable, y = n.vdjdb)) +
+  geom_boxplot() +
+  #geom_quasirandom() +
+  facet_wrap(~method) +
+  theme_pubclean() +
+  xlab("Success/fail cases") +
+  ylab("Number of VDJdb entries for the epitope") +
+  scale_y_log10() 
+
+rbind(bench.TCRen, bench.ImRex, bench.ERGO, bench.TCRex, bench.tcrdist) %>% 
+  mutate(method = factor(method, levels = c("TCRen", "ImRex", "ERGO", "TCRex", "tcrdist.downs", "tcrdist.f_lev"))) %>%
+  merge(vdjdb.n, all.x = T) %>% 
+  filter(method != "TCRex") %>% 
+  mutate(n.vdjdb = replace_na(n.vdjdb, 0),
+         rank = as.numeric(rank)) %>% 
+  ggplot(aes(x = n.vdjdb, y = rank)) +
+  geom_point() +
+  geom_smooth(method = "lm", scales = "free") +
+  facet_wrap(~method) +
+  theme_pubclean() +
+  ylab("Cognate epitope rank") +
+  xlab("Number of VDJdb entries for the epitope") +
+  scale_x_log10()
+```
