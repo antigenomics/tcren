@@ -1,0 +1,134 @@
+---
+title: "Test TCRen performance on models"
+author: "Vadim Karnaukhov"
+date: '2022-08-20'
+output: html_document
+---
+
+```{r}
+templates.identity <- dir("../data/TCRpMHCmodels/") %>% 
+  .[grepl("-complex-templates.csv", .)] %>% 
+  lapply(function(x) {
+    fread(paste0("~/struct2020/TCRpMHCmodels/PDB/all/", x)) %>% 
+      mutate(pdb.id = substr(x, 1, 4))
+  }) %>% 
+  rbindlist() %>% 
+  mutate(tcr_identity = (tcrA_identity + tcrB_identity) / 2) %>% 
+  group_by(pdb.id) %>% 
+  summarise(tcr_identity.max = max(tcr_identity))
+
+pdb_models <- templates.identity %>% 
+  filter(pdb.id %in% pdb_nonred) %>% 
+  arrange(tcr_identity.max) %>% 
+  filter(tcr_identity.max < 85) %>% 
+  .$pdb.id
+```
+
+
+```{r}
+models.ranks <- extract_contact_map("../data/TCRpMHCmodels/output_TCRen/") %>% 
+  mutate(pdb.id = substr(pdb.id, 1, 4)) %>% 
+  filter(pdb.id %in% pdb_models) %>% 
+  select(pdb.id, chain.type.from, region.type.from, residue.index.from, residue.index.to, residue.aa.from) %>%
+  merge(bench.peptides.res,
+        allow.cartesian=TRUE) %>% 
+  merge.data.frame(TCRen.LOO) %>% 
+  group_by(pdb.id, peptide, real) %>% 
+  summarise(TCRen.LOO.s = sum(TCRen.LOO)) %>%
+  group_by(pdb.id) %>% 
+  mutate(rank = rank(TCRen.LOO.s) / n() * 100) %>% 
+  ungroup()
+```
+
+```{r}
+pfigs_models.a <- models.ranks %>% 
+  filter(real) %>% 
+  select(pdb.id, rank) %>% 
+  mutate(type = "model") %>% 
+  rbind(bench.peptides.ranks %>% 
+          ungroup %>% 
+          filter(pdb.id %in% pdb_models,
+                 potential == "TCRen.LOO",
+                 real) %>% 
+          select(pdb.id, rank = value.rank) %>% 
+          mutate(type = "crystal")) %>% 
+  ggplot(aes(x = type, y = rank)) +
+  geom_boxplot(width = .5, fill = "grey90") +
+  geom_quasirandom(width = .1, size = .7) +
+  theme_pubclean() +
+  ylim(c(0,100)) +
+  geom_hline(yintercept = 50, linetype = "dashed") +
+  ylab("Cognate epitope rank") +
+  xlab("Type of input structure")
+```
+
+```{r}
+pfigs_models.b <- models.ranks %>% 
+  filter(real) %>% 
+  merge(templates.identity) %>% 
+  mutate(group = ifelse(tcr_identity.max < 50, "< 50%",
+                        ifelse(tcr_identity.max < 65, "50-65%", "65-81%"))) %>% 
+  #group_by(group) %>% 
+  #summarise(n = n())
+  ggplot(aes(x = group, y = rank)) +
+  geom_boxplot(width = .5, fill = "grey90") +
+  geom_quasirandom(width = .1, size = .7) +
+  theme_pubclean() +
+  ylim(c(0,100)) +
+  geom_hline(yintercept = 50, linetype = "dashed") +
+  ylab("Cognate epitope rank") +
+  xlab("TCR template identity")
+```
+
+```{r, fig.width=7, fig.height=3}
+ggdraw() +
+  draw_plot(pfigs_models.a, x = 0, y = 0, width = .4, height = 1) +
+  draw_plot(pfigs_models.b, x = .4, y = 0, width = .5, height = 1) +
+  draw_plot_label(label = c("A", "B"), size = 10,
+                  x = c(0, .4), y = c(1, 1))
+```
+
+# Neoepitopes from Bigot
+
+```{r}
+bigot.contacts <- extract_contact_map("../data/Bigot/output_TCRen/") %>% 
+  mutate(pdb.id = substr(pdb.id, 1, 5))
+
+bigot.ranks <- fread("../data/Bigot/Bigot_candidate_epitopes.txt") %>% 
+  merge(tibble(pdb.id = bigot.contacts$pdb.id %>% unique())) %>% 
+  separate(peptide, into = as.character(c(0:8)), sep = 1:9, remove = F) %>% 
+  as.data.table() %>% 
+  melt(id = c("pdb.id", "peptide"), variable.name = "pos.to", value.name = "residue.aa.to") %>%
+  mutate(pos.to = as.integer(as.character(pos.to))) %>% 
+  filter(residue.aa.to != "") %>% 
+  merge(bigot.contacts %>% 
+          select(-residue.aa.to), allow.cartesian=TRUE) %>% 
+  merge(TCRen) %>% 
+  group_by(pdb.id, peptide) %>% 
+  summarise(TCRen.s = sum(TCRen)) %>% 
+  group_by(pdb.id) %>% 
+  mutate(rank = rank(TCRen.s)) %>% 
+  merge(fread("../data/Bigot/Bigot_cognate_epitopes.csv"),
+        all = T) %>% 
+  mutate(real = (peptide == cognate.peptide)) 
+```
+```{r, fig.width=7, fig.height=4}
+bigot.labels <- bigot.ranks %>% 
+  filter(real) %>% 
+  mutate(label = paste0(pdb.id, " (", rank, "/44)")) %>% 
+  arrange(rank) %>% 
+  select(pdb.id, label)
+
+bigot.ranks %>% 
+  merge(bigot.labels) %>% 
+  ggplot(aes(x = "", y = TCRen.s)) +
+  geom_boxplot(width = .5, fill = "grey90") +
+  geom_quasirandom(aes(color = real), width = .1, size = .7) +
+  facet_wrap(~factor(label, levels = bigot.labels$label), scales = "free", ncol = 7) +
+  theme_pubclean() +
+  scale_color_manual("peptide", labels = c("unrelated", "cognate"), values = c("black", "red")) +
+  theme(legend.position = "bottom") +
+  xlab("") + ylab("TCRen score")
+```
+
+

@@ -1,6 +1,0 @@
-pdb.id	complex.species	chain.component	chain.supertype	chain.type	chain.id	allele.info	seq.length
-6am5_al2.pdb	Human	TCR	TRAB	TRA	D	TRAV12-2*01:TRAJ23*01	109
-6am5_al2.pdb	Human	TCR	TRAB	TRB	E	TRBV6-4*01:TRBJ1-1*01	112
-6am5_al2.pdb	Human	PEPTIDE	PEPTIDE	PEPTIDE	C	SMLGIGIVPV	10
-6am5_al2.pdb	Human	MHC	MHCI	MHCa	A	HLA-A2	275
-6am5_al2.pdb	Human	MHC	MHCI	MHCb	B	B2M	99

@@ -1,0 +1,53 @@
+---
+title: "Calculation of TCRen potential"
+author: "Vadim Karnaukhov"
+date: '2022-08-18'
+output: html_document
+---
+
+# TCRen computation
+
+## Summarise counts
+
+```{r}
+contacts.pTCR <- fread("../data/contacts_PDB.csv")
+
+pdb_nonred <- fread("../data/summary_PDB_structures.csv") %>% 
+  filter(nonred) %>% 
+  .$pdb.id
+```
+
+```{r}
+calc_TCRen <- function(include = pdb_nonred, exclude = NULL, pseudocount = 1) {
+  contacts.pTCR %>% 
+    filter(pdb.id %in% include,
+           !pdb.id %in% exclude) %>% 
+    group_by(residue.aa.from, residue.aa.to) %>% 
+    summarise(count = n(), .groups = 'drop') %>% 
+    merge(expand.grid(residue.aa.from = aa.levels, residue.aa.to = aa.levels), all = T) %>% 
+    mutate(count = replace_na(count, 0),
+           count = count + pseudocount) %>% 
+    group_by(residue.aa.from) %>% 
+    mutate(total.from = sum(count)) %>% 
+    group_by(residue.aa.to) %>% 
+    mutate(total.to = sum(count)) %>% 
+    ungroup() %>% 
+    mutate(total = sum(count)) %>% 
+    mutate(TCRen = -log(count * total / total.to / total.from)) %>% 
+    filter(residue.aa.from != "C") %>% 
+    select(residue.aa.from, residue.aa.to, TCRen)
+}
+```
+
+```{r}
+TCRen <- calc_TCRen()
+
+TCRen.LOO <- pdb_nonred %>% 
+  lapply(function(x) {
+    calc_TCRen(exclude = x) %>% 
+      mutate(pdb.id = x)
+  }) %>% 
+  rbindlist() %>% 
+  rename(TCRen.LOO = TCRen)
+```
+

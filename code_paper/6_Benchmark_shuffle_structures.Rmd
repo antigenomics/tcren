@@ -1,0 +1,123 @@
+---
+title: "Test TCRen performance in distinction between real and shuffled TCR-p-MHC structures"
+author: "Vadim Karnaukhov"
+date: '2022-08-18'
+output: html_document
+---
+
+
+# PDB shuffling benchmark
+
+```{r}
+bench.shuffle <- expand.grid(pdb.id.1 = pdb_nonred,
+            pdb.id.2 = pdb_nonred) %>% 
+  merge(markup.seq %>% 
+          select(pdb.id.1 = pdb.id, 
+                 cdr3a.len.1 = cdr3a.len, cdr3b.len.1 = cdr3b.len, peptide.len.1 = peptide.len)) %>% 
+  merge(markup.seq %>% 
+          select(pdb.id.2 = pdb.id, 
+                 cdr3a.len.2 = cdr3a.len, cdr3b.len.2 = cdr3b.len, peptide.len.2 = peptide.len)) %>% 
+  filter(cdr3a.len.1 == cdr3a.len.2, cdr3b.len.1 == cdr3b.len.2, peptide.len.1 == peptide.len.2) %>% 
+  mutate(real = ifelse(pdb.id.1 == pdb.id.2, T, F)) %>% 
+  select(pdb.id.1, pdb.id.2, real)
+```
+
+```{r}
+contacts.pTCR.pos <- contacts.pTCR %>% 
+  filter(pdb.id %in% pdb_nonred) %>% 
+  merge(markup %>% select(pdb.id, chain.id.from = chain.id, region.type.from = region.type,
+                          region.start.from = region.start)) %>% 
+  mutate(pos.from = residue.index.from - region.start.from)
+
+bench.shuffle.contacts <- contacts.pTCR.pos %>% 
+  filter(region.type.from == "CDR3") %>% 
+  select(pdb.id.1 = pdb.id, chain.type.from, residue.index.to, residue.aa.to, pos.from) %>% 
+  merge(bench.shuffle) %>% 
+  merge(resmarkup.a %>% 
+          filter(region.type == "CDR3") %>% 
+          merge(markup) %>% 
+          mutate(pos.from = residue.index - region.start) %>% 
+          select(pdb.id.2 = pdb.id, chain.type.from = chain.type, pos.from, residue.aa.from = residue.aa))
+
+bench.shuffle.energy <- bench.shuffle.contacts %>% 
+  merge(TCRen.mj_keskin) %>% 
+  group_by(pdb.id.1, pdb.id.2, real, potential) %>% 
+  summarise(value.s = sum(value))
+
+bench.shuffle.energy.chain <- bench.shuffle.contacts %>% 
+  merge(TCRen.mj_keskin) %>% 
+  group_by(pdb.id.1, pdb.id.2, real, chain.type.from, potential) %>% 
+  summarise(value.s = sum(value)) %>% 
+  rbind(bench.shuffle.energy %>% mutate(chain.type.from = "TRA+TRB")) %>% 
+  mutate(chain.type.from = factor(chain.type.from, levels = c("TRA+TRB", "TRA", "TRB")))
+
+```
+
+
+```{r}
+auc_TCRen <- bench.shuffle.energy %>% 
+  group_by(potential) %>% 
+  summarise(auc = round(auc(roc(real, value.s, direction = ">", levels = c(F,T))), 2)) %>% 
+  mutate(label = paste0(potential, " : ", auc))
+
+pfig3a <- bench.shuffle.energy %>% 
+  ggplot(aes(d = real, m = -value.s, color = potential)) +
+  theme_roc +
+  scale_color_discrete(labels = auc_TCRen$label)
+
+pfig3a
+```
+
+```{r}
+auc_TCRen_chains <- bench.shuffle.energy.chain %>% 
+  filter(potential == "TCRen") %>% 
+  group_by(chain.type.from) %>% 
+  summarise(auc = round(auc(roc(real, value.s, direction = ">", levels = c(F,T))), 2)) %>% 
+  mutate(label = paste0(chain.type.from, " : ", auc))
+
+pfig3c <- bench.shuffle.energy.chain %>% 
+  filter(potential == "TCRen") %>%
+  ggplot(aes(d = real, m = -value.s, color = chain.type.from)) +
+  theme_roc +
+  scale_color_discrete(labels = auc_TCRen_chains$label) +
+  ggtitle("TCRen") +
+  theme(legend.position = c(.78,.15)) +
+  scale_color_manual("ROC AUC", 
+                     labels = auc_TCRen_chains %>% 
+                       mutate(label = paste0(chain.type.from, " : ", auc)) %>% 
+                       .$label, values = c("red", "blue", "deepskyblue")) +
+  theme(legend.text.align = 1,
+        legend.title.align = 1)
+
+pfig3c
+```
+
+```{r}
+pfig3d <- contacts.pTCR.pos %>% 
+  merge(TCRen.mj_keskin) %>% 
+  filter(potential == "TCRen") %>% 
+  group_by(pdb.id, chain.type.from) %>% 
+  summarise(value.s = sum(value)) %>% 
+  as.data.table() %>% 
+  dcast(pdb.id ~ chain.type.from) %>% 
+  ggplot(aes(x = TRA, y = TRB)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  theme_pubclean() +
+  ggtitle("TCRen")
+
+pfig3d
+```
+
+```{r, fig.width=11, fig.height=3.5}
+ggdraw() +
+  draw_plot(pfig3a, x = 0, y = 0, width = .33, height = .95) +
+  draw_plot(pfig3c, x = .33, y = 0, width = .33, height = 1) +
+  draw_plot(pfig3d, x = .66, y = 0, width = .33, height = 1) +
+  draw_plot_label(label = c("A", "B", "C"), size = 10,
+                  x = c(0, .33, .66), y = c(1, 1, 1))
+```
+
+
+
+
