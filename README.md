@@ -49,7 +49,7 @@ A table with 4 columns: complex.id (corresponding to the name of an input struct
 3. Prepare a list of candidate epitopes (e.g. mutated peptides predicted as binders to host MHC for the task of prediction of neoepitope recognition). Format: “.txt” file with each candidate epitope in a separate line, with a header “peptide”. Note that only peptides with the same length as in the input structures would be considered for predictions.
 * Example in ```example/candidate_epitopes.csv```
 
-4. Run TCRen pipeline. 
+4. Run TCRen pipeline (typical runtime is within minutes for a standard laptop). 
 
 * The pipeline should be run the directory containing all the files necessary for TCRen launching: ```run_TCRen.R```, ```TCRen_potential.csv``` and ```mir-1.0-SNAPSHOT.jar``` (java script for annotation and extraction of contacts in TCR-peptide-MHC structures)
 
