@@ -80,8 +80,7 @@ Prepare annotation files
 ```{r}
 # Dataframe with assignment of chains
 general_resmarkup <- fread(file.path(out, "structures_annotation", "general.txt")) %>% 
-  merge(fread(file.path(out, "structures_annotation", "resmarkup.txt")),
-        skip.blank.lines = T) %>% 
+  merge(fread(file.path(out, "structures_annotation", "resmarkup.txt"), blank.lines.skip = T)) %>% 
   group_by(pdb.id, chain.id, region.type) %>% 
   mutate(region.start = min(residue.index)) %>% 
   ungroup 

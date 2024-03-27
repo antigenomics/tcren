@@ -61,8 +61,7 @@ contacts.full <- rbind(
 )
 
 general_resmarkup <- fread(file.path(opt$out, "structures_annotation", "general.txt")) %>% 
-  merge(fread(file.path(opt$out, "structures_annotation", "resmarkup.txt")),
-        skip.blank.lines = T) %>% 
+  merge(fread(file.path(opt$out, "structures_annotation", "resmarkup.txt"), blank.lines.skip = T)) %>%
   group_by(pdb.id, chain.id, region.type) %>% 
   mutate(region.start = min(residue.index)) %>% 
   ungroup 
