@@ -7,9 +7,7 @@ TCRen method starts from a structure of the peptide-MHC complex with the TCR of 
 ![preview](https://github.com/vadim-karnaukhov/tcren-new/blob/master/figures/Fig1.png)
 
 ## Dependencies
-R (tested on R version 4.2.0)
-
-R packages data.table, tidyverse, optparse, stringr, magrittr
+R with packages data.table, tidyverse, optparse, stringr, magrittr (tested on: R v4.0.5 with data.data.table v1.14.0, tidyverse v.1.3.1, optparse v1.7.3, stringr v1.4.0, magrittr v2.0.3; R v4.2.0 with data.data.table v1.13.0, tidyverse v.1.3.0, optparse v1.7.3, stringr v1.4.0, magrittr v1.5; we expect other package versions should also be compatible with the script)
 
 Java (tested on openjdk 11.0.16)
 
