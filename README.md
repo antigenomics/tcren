@@ -1,3 +1,5 @@
+> TCRen pipeline is free for acadimc and non-commercial use. Inquiries regarding commercial use can be e-mailed to the last author (PI) of [the study](https://www.nature.com/articles/s43588-024-00653-0).
+
 # TCRen
 
 TCRen is a method for prediction of TCR recognition of unseen epitopes based on residue-level pairwise statistical potential
