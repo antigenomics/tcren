@@ -99,12 +99,14 @@ pep_len_max <- nchar(peptide_mut$peptide) %>% max()
 
 contacts.mut.pep <- peptide_mut %>% 
   separate(peptide, into = as.character(c(0:(pep_len_max-1))), sep = 1:pep_len_max, remove = F) %>% 
+  as.data.table() %>%
   melt(id = c("peptide", "pdb.id"), variable.name = "pos.to", value.name = "residue.aa.to") %>%
   mutate(pos.to = as.integer(as.character(pos.to))) %>% 
   merge(contact.map %>% 
           select(-residue.aa.to), allow.cartesian=TRUE) 
 
 potential <- fread(file.path(opt$potential)) %>% 
+  as.data.table() %>%
   melt(id = c("residue.aa.from", "residue.aa.to"), variable.name = "potential")
 
 energy.mut.pep <- contacts.mut.pep %>% 
