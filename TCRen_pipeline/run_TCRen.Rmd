@@ -146,6 +146,7 @@ Read a file with TCRen energy potential
 ```{r}
 # Other potentials can also be used
 potential <- fread(file.path(potential)) %>% 
+  as.data.table() %>%
   melt(id = c("residue.aa.from", "residue.aa.to"), variable.name = "potential")
 ```
 
