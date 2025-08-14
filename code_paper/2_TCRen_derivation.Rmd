@@ -10,7 +10,7 @@ output: html_document
 ## Summarise counts
 
 ```{r}
-contacts.pTCR <- fread("../data/contacts_PDB.csv")
+contacts.pTCR <- fread("../data/contact_maps_PDB.csv")
 
 pdb_nonred <- fread("../data/summary_PDB_structures.csv") %>% 
   filter(nonred) %>% 
