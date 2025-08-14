@@ -81,9 +81,6 @@ in terms of the main code to ```run_TCRen.R```
 
 ```
 $ cd TCRen_pipeline
-```
-
-```
 $ Rscript --vanilla run_TCRen.R -s ../example/input_structures/ -c ../example/candidate_epitopes.txt -p TCRen_potential.csv -o ../example/output_TCRen/ -m 1G
 ```
 
