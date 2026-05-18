@@ -99,3 +99,7 @@ $ Rscript --vanilla run_TCRen.R -s ../example/input_structures/ -c ../example/ca
 ## Additional calculation
 
 See ``tcren_am/`` for derivation of alignment scoring matrices from TCRen and extended TCRen that includes Cys (``C``) and gap (``-``).
+
+## Cite as
+
+Karnaukhov, V.K., Shcherbinin, D.S., Chugunov, A.O. et al. Structure-based prediction of T cell receptor recognition of unseen epitopes using TCRen. Nat Comput Sci 4, 510–521 (2024). https://doi.org/10.1038/s43588-024-00653-0
