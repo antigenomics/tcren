@@ -1,0 +1,43 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tcren"
+version = "0.1.0"
+description = "Structure-based prediction of TCR recognition of epitopes via residue-level statistical potentials"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Antigenomics" }]
+dependencies = [
+    "biopython>=1.84",
+    "scipy>=1.11",
+    "numpy>=1.26",
+    "polars>=1.0",
+    "typer>=0.12",
+]
+
+[project.optional-dependencies]
+viz = ["matplotlib>=3.8"]
+flexpep = []
+docs = ["sphinx", "pydata-sphinx-theme", "nbsphinx"]
+test = ["pytest", "pytest-cov"]
+dev = ["ruff", "pytest", "pytest-cov"]
+
+[project.scripts]
+tcren = "tcren.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/tcren"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/tcren/data" = "tcren/data"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"

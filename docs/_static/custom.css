@@ -1,0 +1,14 @@
+/* tcren docs overrides — pydata-sphinx-theme */
+.proj-card-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1rem;
+}
+.proj-card {
+  border: 1px solid var(--pst-color-border);
+  border-radius: 12px;
+  padding: 1rem;
+}
+@media (max-width: 900px) {
+  .proj-card-grid { grid-template-columns: 1fr; }
+}
