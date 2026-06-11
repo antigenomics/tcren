@@ -20,7 +20,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-viz = ["matplotlib>=3.8"]
+viz = ["matplotlib>=3.8", "py3Dmol>=2.0"]
 flexpep = []
 docs = ["sphinx", "pydata-sphinx-theme", "nbsphinx"]
 test = ["pytest", "pytest-cov"]
