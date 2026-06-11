@@ -1,9 +1,22 @@
 """Sphinx configuration for the tcren documentation."""
 
 import os
+import shutil
 import sys
+from pathlib import Path
 
 sys.path.insert(0, os.path.abspath("../src"))
+
+# Tutorial notebooks live in the repo-root ``notebooks/`` directory; copy them into
+# ``docs/notebooks/`` (gitignored) at build time so nbsphinx resolves their extracted
+# images correctly (a symlink mis-resolves those paths).
+_HERE = Path(__file__).resolve().parent
+_NB_SRC = _HERE.parent / "notebooks"
+_NB_DST = _HERE / "notebooks"
+if _NB_SRC.is_dir():
+    _NB_DST.mkdir(exist_ok=True)
+    for _nb in _NB_SRC.glob("*.ipynb"):
+        shutil.copy2(_nb, _NB_DST / _nb.name)
 
 project = "tcren"
 author = "Antigenomics"
