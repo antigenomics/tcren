@@ -66,6 +66,22 @@ tcren.mhc.mapper module
    :undoc-members:
    :show-inheritance:
 
+tcren.mhc.domains module
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: tcren.mhc.domains
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+tcren.mhc.regions module
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: tcren.mhc.regions
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Contacts
 --------
 
