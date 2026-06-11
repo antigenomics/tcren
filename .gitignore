@@ -299,3 +299,5 @@ dist/
 .coverage
 htmlcov/
 docs/_build/
+data/mhc_cache/
+database/mhc/

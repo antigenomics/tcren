@@ -125,6 +125,48 @@ def derive_potential(
     typer.echo(f"wrote {out}")
 
 
+@app.command("build-mhc-ref")
+def build_mhc_ref(
+    species: str = typer.Option("human,mouse", "--species", help="comma-separated"),
+    force_download: bool = typer.Option(False, "--force-download"),
+) -> None:
+    """Download and curate the MHC allele reference (IMGT/HLA + UniProt mouse)."""
+    from .mhc import reference
+
+    fasta = reference.build(
+        species=tuple(s.strip() for s in species.split(",")), force_download=force_download
+    )
+    typer.echo(f"MHC reference written to {fasta}")
+
+
+@app.command()
+def mhc(
+    structures: Path = typer.Option(..., "-s", "--structures", help="PDB file or directory"),
+    out: Path = typer.Option("mhc_calls.csv", "-o", "--out"),
+    organism: str = typer.Option("human", "--organism"),
+) -> None:
+    """Map MHC chains to allele / class / role for input structures."""
+    from .mhc import map_mhc
+
+    rows = []
+    for fp in _structure_files(structures):
+        s = parse_structure(fp, pdb_id=fp.name)
+        classify_chains(s, organism=organism)
+        for call in map_mhc(s):
+            rows.append(
+                {
+                    "pdb.id": fp.name,
+                    "chain.id": call.chain_id,
+                    "chain.role": call.chain_role,
+                    "mhc.class": call.mhc_class,
+                    "allele": call.allele,
+                    "identity": call.identity,
+                }
+            )
+    pl.DataFrame(rows).write_csv(str(out))
+    typer.echo(f"wrote {out}")
+
+
 @app.command()
 def score(
     structures: Path = typer.Option(..., "-s", "--structures", help="PDB file or directory"),
