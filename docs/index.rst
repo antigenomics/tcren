@@ -14,6 +14,13 @@ and scores candidate epitopes.
    getting-started
    modules
 
+.. toctree::
+   :maxdepth: 1
+   :caption: Tutorials
+
+   notebooks/complementarity_map_2d
+   notebooks/pocket_cdr_3d
+
 Indices
 -------
 
