@@ -90,6 +90,14 @@ tcren.mhc.regions module
    :undoc-members:
    :show-inheritance:
 
+tcren.mhc.linker module
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: tcren.mhc.linker
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Contacts
 --------
 
