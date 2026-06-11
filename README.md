@@ -1,15 +1,12 @@
-> TCRen pipeline is free for acadimc and non-commercial use. Inquiries regarding commercial use can be e-mailed to the last author (PI) of [the study](https://www.nature.com/articles/s43588-024-00653-0).
+> The pipeline is free for acadimc and non-commercial use. Inquiries regarding commercial use can be e-mailed to the last author (PI) of [the study](https://www.nature.com/articles/s43588-024-00653-0) and dully ignored.
 
 ![logo](assets/tcren_dark.svg)
 
-# TCRen
+# The algorithm
 
-TCRen is a method for prediction of TCR recognition of unseen epitopes based on residue-level pairwise statistical potential
+This is a method for prediction of TCR recognition of unseen epitopes based on residue-level pairwise statistical potential scoring. While AI-guided prediction of TCR:pMHC structures is becoming routine now, and methods such as AlphaFold provide structure confidence that correlates with the probability of a complex coming from true binder, the following question still remains open: AlphaFold (or any other AI-based method) will always try to "please" the user and provide him with a "fancy" TCR:peptide:MHC structure, but is the binding physically possible and can this complex exist in nature in the first place?
 
-TCRen method starts from a structure of the peptide-MHC complex with the TCR of interest—either experimentally derived or based on
-a homology model—then extracts a TCR-peptide contact map and estimates the TCR-peptide energy of interaction for all candidate 
-epitopes using TCRen potential, which we derived from statistical analysis of amino acid contact preferences in TCR-peptide-MHC crystal
-structures.
+TCRen method starts from a structure of the peptide-MHC complex with the TCR of interest—either experimentally derived or based on a homology model—then extracts a TCR-peptide contact map and estimates the TCR-peptide energy of interaction for all candidate  epitopes using TCRen potential, which we derived from statistical analysis of amino acid contact preferences in TCR:pMHC crystal structures.
 
 ![preview](figures/Fig1.png)
 
