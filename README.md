@@ -62,6 +62,26 @@ cm = ContactMap.from_structure(s)              # 5 Å contacts + interface parti
 ranked = score_peptides(cm, ["KQWLVWLFL", "RLLHPHHPL"], tcren())
 ```
 
+### 2D complementarity maps & C-gene-aware import
+
+```python
+from tcren import import_structure                 # trims the TCR C-gene by default
+from tcren.annotation import classify_chains
+from tcren.mhc import annotate_mhc
+from tcren.project2d import project_structure, residue_markup_table, contacts_table
+from tcren.viz import render_complementarity_map, view_pocket_cdr
+
+s = import_structure("complex.cif")                # keep_c_gene=True for MD / FlexPepDock
+classify_chains(s, organism="human"); annotate_mhc(s)
+proj = project_structure(s)                        # canonical groove plane (TCR on top)
+markup = residue_markup_table(s, proj)             # tidy polars: chain/region/aa/x,y,z
+contacts = contacts_table(s, threshold=5.0)        # TCRen-compatible, classified by bond type
+svg = render_complementarity_map(markup, contacts=contacts)   # metadata-rich SVG
+view_pocket_cdr(s).show()                          # interactive 3D pocket + CDR overlay (py3Dmol)
+```
+
+See the tutorial notebooks under `docs/notebooks/` for full examples.
+
 Run the tests with `pytest tests/` (set `RUN_BENCHMARK=1` for the full-dataset sweeps).
 
 ---
