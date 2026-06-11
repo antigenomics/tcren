@@ -33,6 +33,12 @@ conda activate tcren
 # End-to-end scoring (drop-in replacement for run_TCRen.R)
 tcren score -s example/input_structures -c example/candidate_epitopes.txt -o out.csv
 
+# Native (TCR3D) database — versioned download + uses
+tcren native bootstrap              # fetch TCR3D CIFs + annotation tables -> data/native
+tcren native status --check-remote  # show local version; check if TCR3D updated it
+tcren native derive-potential -o TCRen_native.csv   # re-derive TCRen from native structures
+#   (a custom/previous TCR3D copy: pass --root DIR, or set TCREN_NATIVE_DIR)
+
 # MHC allele/class/role mapping (build the reference once)
 tcren build-mhc-ref                # downloads IMGT/HLA + mouse H-2 (cached, not committed)
 tcren mhc -s example/input_structures -o mhc_calls.csv
