@@ -39,6 +39,33 @@ tcren.annotation.chains module
    :undoc-members:
    :show-inheritance:
 
+MHC mapping
+-----------
+
+tcren.mhc.imgt module
+~~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: tcren.mhc.imgt
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+tcren.mhc.reference module
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: tcren.mhc.reference
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+tcren.mhc.mapper module
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: tcren.mhc.mapper
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Contacts
 --------
 
