@@ -1,5 +1,7 @@
 > TCRen pipeline is free for acadimc and non-commercial use. Inquiries regarding commercial use can be e-mailed to the last author (PI) of [the study](https://www.nature.com/articles/s43588-024-00653-0).
 
+![logo](assets/tcren_dark.svg)
+
 # TCRen
 
 TCRen is a method for prediction of TCR recognition of unseen epitopes based on residue-level pairwise statistical potential
@@ -9,7 +11,7 @@ a homology model—then extracts a TCR-peptide contact map and estimates the TCR
 epitopes using TCRen potential, which we derived from statistical analysis of amino acid contact preferences in TCR-peptide-MHC crystal
 structures.
 
-![preview](https://github.com/antigenomics/tcren-ms/blob/master/figures/Fig1.png)
+![preview](figures/Fig1.png)
 
 ## Python library (`tcren`)
 
