@@ -19,6 +19,8 @@ from tcren.annotation import classify_chains
 
 arda = pytest.importorskip("arda")
 
+pytestmark = pytest.mark.slow  # invokes arda / mmseqs per structure
+
 REPO = Path(__file__).resolve().parents[2]
 PDB_DIR = REPO / "data" / "PDB_structures"
 CONTACT_MAPS = REPO / "data" / "contact_maps_PDB.csv"

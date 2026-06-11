@@ -13,6 +13,8 @@ import pytest
 
 pytest.importorskip("arda")
 
+pytestmark = pytest.mark.slow  # invokes arda / mmseqs per structure
+
 from tcren import ContactMap, parse_structure
 from tcren.annotation import classify_chains
 from tcren.mhc import annotate_mhc
