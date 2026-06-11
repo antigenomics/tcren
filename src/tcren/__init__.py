@@ -10,7 +10,7 @@ from .contactmap import ContactMap
 from .contacts import all_atom_contacts, ca_distance_matrix
 from .potential import Potential, derive_tcren, derive_tcren_loo
 from .scoring import score_peptides, score_structures
-from .structure import Structure, parse_structure
+from .structure import Structure, import_structure, parse_structure
 
 __version__ = "0.1.0"
 
@@ -20,6 +20,7 @@ __all__ = [
     "derive_tcren",
     "derive_tcren_loo",
     "parse_structure",
+    "import_structure",
     "Structure",
     "all_atom_contacts",
     "ca_distance_matrix",

@@ -107,6 +107,7 @@ class Structure:
     pdb_id: str
     chains: list[Chain]
     complex_species: str | None = None
+    cell_type: str | None = None  # "ab" | "gd" | "unknown" (from the TCR constant region)
 
     def chain(self, chain_id: str) -> Chain:
         """Return the chain with the given id (raises ``KeyError`` if absent)."""
