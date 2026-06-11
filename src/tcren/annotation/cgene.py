@@ -80,6 +80,29 @@ def classify_chain_constant(
                         cell_type=cell_type, score=score)
 
 
+def constant_span(
+    sequence: str, min_score: float = MIN_CONSTANT_SCORE
+) -> tuple[int, int] | None:
+    """Return the ``(start, end)`` query span aligning to the best TCR constant region.
+
+    ``start``/``end`` are 0-based half-open indices into ``sequence``. Returns ``None`` if
+    no constant domain is present (score below ``min_score``). The constant region is
+    C-terminal, so callers trim residues with ``seq_index >= start``.
+    """
+    if not sequence:
+        return None
+    aligner = _aligner()
+    best = None
+    for _gene, _chain_class, _cell_type, ref_seq in _references():
+        alignment = aligner.align(sequence, ref_seq)[0]
+        if best is None or alignment.score > best[0]:
+            best = (alignment.score, alignment)
+    if best is None or best[0] < min_score:
+        return None
+    q_blocks = best[1].aligned[0]  # [(qs, qe), ...] on the query
+    return int(q_blocks[0][0]), int(q_blocks[-1][1])
+
+
 def classify_constants(structure, min_score: float = MIN_CONSTANT_SCORE) -> list[ConstantCall]:
     """Identify the constant region of every chain that has one."""
     calls = []
