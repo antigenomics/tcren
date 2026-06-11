@@ -24,6 +24,8 @@ from .scoring import score_peptides
 from .structure import parse_structure
 
 app = typer.Typer(add_completion=False, help="Structure-based TCR–epitope recognition scoring.")
+native_app = typer.Typer(add_completion=False, help="Manage the TCR3D native-structures database.")
+app.add_typer(native_app, name="native")
 
 _PDB_SUFFIXES = (".pdb", ".ent", ".cif", ".mmcif")
 
@@ -165,6 +167,74 @@ def mhc(
             )
     pl.DataFrame(rows).write_csv(str(out))
     typer.echo(f"wrote {out}")
+
+
+@native_app.command("bootstrap")
+def native_bootstrap(
+    root: Path | None = typer.Option(None, "--root", help="database dir (default: data/native)"),
+    force: bool = typer.Option(False, "--force", help="re-download even if present"),
+) -> None:
+    """Download + version the TCR3D native database (CIFs + annotation tables)."""
+    from .native import NativeDatabase, bootstrap
+
+    db = bootstrap(NativeDatabase(root), force=force)
+    v = db.version()
+    typer.echo(
+        f"native database ready at {db.root}: {v['n_cif']} CIFs, "
+        f"{v['n_complexes']} complexes, {v['n_chain_rows']} chain rows"
+    )
+
+
+@native_app.command("status")
+def native_status(
+    root: Path | None = typer.Option(None, "--root"),
+    check_remote: bool = typer.Option(False, "--check-remote", help="HEAD remote for updates"),
+) -> None:
+    """Show the local native-database version and (optionally) whether it is current."""
+    from .native import NativeDatabase, needs_update
+
+    db = NativeDatabase(root)
+    if not db.is_present():
+        typer.echo(f"native database not present at {db.root} (run `tcren native bootstrap`)")
+        raise typer.Exit(1)
+    v = db.version()
+    typer.echo(f"root: {db.root}")
+    typer.echo(f"downloaded_at: {v.get('downloaded_at', '?')}")
+    typer.echo(f"{v.get('n_cif', '?')} CIFs / {v.get('n_complexes', '?')} complexes")
+    if check_remote:
+        changed = needs_update(db)
+        typer.echo("up to date" if not changed else f"OUTDATED — changed: {changed}")
+
+
+@native_app.command("derive-potential")
+def native_derive_potential(
+    out: Path = typer.Option("TCRen_native.csv", "-o", "--out"),
+    root: Path | None = typer.Option(None, "--root"),
+    variant: str = typer.Option("classic", "--variant", help="classic|am"),
+    pseudocount: int = typer.Option(1, "--pseudocount"),
+    no_cache: bool = typer.Option(False, "--no-cache", help="recompute contacts, ignore cache"),
+) -> None:
+    """Re-derive a TCRen potential from the native (TCR3D) structures."""
+    from .native import NativeDatabase, derive_native_potential
+
+    db = NativeDatabase(root)
+    pot = derive_native_potential(
+        db, variant=variant, pseudocount=pseudocount, use_cache=not no_cache
+    )
+    pot.to_csv(out)
+    typer.echo(f"derived native potential ({variant}) -> {out}")
+
+
+@native_app.command("precompute")
+def native_precompute(
+    root: Path | None = typer.Option(None, "--root"),
+    cutoff: float = typer.Option(5.0, "--cutoff"),
+) -> None:
+    """Precompute and cache native TCR–peptide contact maps for fast re-derivation."""
+    from .native import NativeDatabase, precompute_contacts
+
+    out = precompute_contacts(NativeDatabase(root), cutoff=cutoff)
+    typer.echo(f"cached native contact maps -> {out}")
 
 
 @app.command()

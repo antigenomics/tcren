@@ -301,3 +301,6 @@ htmlcov/
 docs/_build/
 data/mhc_cache/
 database/mhc/
+
+# Native (tcr3d) database — downloaded artifacts
+data/native/
