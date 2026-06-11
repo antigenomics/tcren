@@ -33,6 +33,10 @@ conda activate tcren
 # End-to-end scoring (drop-in replacement for run_TCRen.R)
 tcren score -s example/input_structures -c example/candidate_epitopes.txt -o out.csv
 
+# MHC allele/class/role mapping (build the reference once)
+tcren build-mhc-ref                # downloads IMGT/HLA + mouse H-2 (cached, not committed)
+tcren mhc -s example/input_structures -o mhc_calls.csv
+
 # Other subcommands
 tcren annotate -s example/input_structures -o markup.csv
 tcren contacts -s example/input_structures -o contacts.csv --interface tcr_peptide

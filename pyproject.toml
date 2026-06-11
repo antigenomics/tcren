@@ -16,6 +16,7 @@ dependencies = [
     "numpy>=1.26",
     "polars>=1.0",
     "typer>=0.12",
+    "requests>=2.31",
 ]
 
 [project.optional-dependencies]
