@@ -67,6 +67,10 @@ def annotate_chain(chain, organism: str) -> dict | None:
         end = record.get(f"{arda_name}_end")
         if start is None or end is None:
             continue
+        try:
+            start, end = int(start), int(end)
+        except (TypeError, ValueError):
+            continue  # arda left this region's coordinates unset for this record
         residues = chain.residues[start - 1 : end]  # 1-based inclusive -> slice
         if not residues:
             continue
