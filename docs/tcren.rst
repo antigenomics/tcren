@@ -39,6 +39,14 @@ tcren.annotation.chains module
    :undoc-members:
    :show-inheritance:
 
+tcren.annotation.cgene module
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: tcren.annotation.cgene
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 MHC mapping
 -----------
 

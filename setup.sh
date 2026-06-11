@@ -49,11 +49,13 @@ if [[ "$USE_CONDA" -eq 1 ]]; then
 fi
 
 # --- 2. arda (TCR annotation backend) --------------------------------------
-if [[ -n "$ARDA_DIR" && -f "$ARDA_DIR/pyproject.toml" ]]; then
-  log "installing arda (editable) from $ARDA_DIR"
+# By default arda is installed from its dev branch via environment.yml (git+https).
+# For local co-development, set ARDA_DIR to a checkout to install it editable instead.
+if [[ -n "${ARDA_DIR:-}" && -f "$ARDA_DIR/pyproject.toml" ]]; then
+  log "installing arda (editable) from $ARDA_DIR (overrides the git@dev install)"
   pip install -e "$ARDA_DIR"
 else
-  log "WARNING: arda checkout not found (set ARDA_DIR); TCR annotation will be unavailable"
+  log "arda is installed from git@dev via environment.yml"
 fi
 
 # --- 3. tcren --------------------------------------------------------------
