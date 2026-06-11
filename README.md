@@ -11,6 +11,57 @@ structures.
 
 ![preview](https://github.com/antigenomics/tcren-ms/blob/master/figures/Fig1.png)
 
+## Python library (`tcren`)
+
+A Python re-implementation of the TCRen pipeline lives under `src/tcren/`. It replaces
+the legacy Java `mir` annotator with [`arda`](https://github.com/antigenomics/arda) for
+TCR chain mapping and reproduces the original contact maps, potential and scores
+numerically (validated against the committed CSV oracles to floating-point precision).
+
+### Install
+
+```fish
+bash setup.sh              # creates the `tcren` conda env, installs arda + tcren
+conda activate tcren
+```
+
+`setup.sh` expects the sibling `arda` checkout next to this repo (or set `ARDA_DIR`).
+
+### Command line
+
+```fish
+# End-to-end scoring (drop-in replacement for run_TCRen.R)
+tcren score -s example/input_structures -c example/candidate_epitopes.txt -o out.csv
+
+# Other subcommands
+tcren annotate -s example/input_structures -o markup.csv
+tcren contacts -s example/input_structures -o contacts.csv --interface tcr_peptide
+tcren derive-potential -i data/contact_maps_PDB.csv --summary data/summary_PDB_structures.csv --nonred -o TCRen_potential.csv
+tcren info
+```
+
+### Library
+
+```python
+from tcren import parse_structure, ContactMap, score_peptides
+from tcren.annotation import classify_chains
+from tcren.potential import tcren
+
+s = parse_structure("example/input_structures/6uk4_TCRpMHCmodels_polyV.pdb")
+classify_chains(s, organism="human")          # TRA/TRB via arda, peptide, MHC
+cm = ContactMap.from_structure(s)              # 5 Å contacts + interface partitioning
+ranked = score_peptides(cm, ["KQWLVWLFL", "RLLHPHHPL"], tcren())
+```
+
+Run the tests with `pytest tests/` (set `RUN_BENCHMARK=1` for the full-dataset sweeps).
+
+---
+
+# Legacy R pipeline
+
+The original R + Java pipeline is preserved below and remains the reference
+implementation; the Python library above reproduces its results.
+
 ## Dependencies
 R with packages data.table, tidyverse, optparse, stringr, magrittr (tested on: R v4.0.5 with data.table v1.14.0, 
 tidyverse v.1.3.1, optparse v1.7.3, stringr v1.4.0, magrittr v2.0.3; R v4.2.0 with data.data.table v1.13.0, 
