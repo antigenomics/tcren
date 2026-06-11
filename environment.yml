@@ -24,5 +24,9 @@ dependencies:
   - pip:
       - polars>=1.0
       - typer>=0.12
+      - requests>=2.31
+      # arda (TCR annotation backend) — installed from the dev branch. The C++ extension
+      # builds on install using the conda cxx-compiler/cmake above.
       - scikit-build-core>=0.10
       - pybind11>=2.12
+      - "arda @ git+https://github.com/antigenomics/arda.git@dev"
