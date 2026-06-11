@@ -304,3 +304,4 @@ database/mhc/
 
 # Native (tcr3d) database — downloaded artifacts
 data/native/
+docs/notebooks/
