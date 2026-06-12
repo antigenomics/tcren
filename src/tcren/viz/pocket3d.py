@@ -28,17 +28,33 @@ def _oriented_coords(structure: Structure, db, reference_id):
         return lambda c: c
 
 
+def _atom_name_field(name: str) -> str:
+    """PDB columns 13-16 for an atom name (the standard left/right justification rule)."""
+    return f"{name:<4}" if len(name) >= 4 else f" {name:<3}"
+
+
 def _pdb_block(structure: Structure, transform) -> str:
-    """Minimal PDB text of all atoms in the (oriented) frame for py3Dmol to load."""
+    """Well-formed PDB text of the heavy atoms in the (oriented) frame for py3Dmol.
+
+    One conformer per atom name per residue (drops duplicate altlocs) and hydrogens are
+    omitted, so 3Dmol.js parses clean backbone connectivity for cartoon/surface drawing.
+    """
     lines = []
     serial = 1
     for chain in structure.chains:
+        chain_id = (chain.chain_id or " ")[0]
         for res in chain.residues:
+            seen = set()
             for atom in res.atoms:
+                element = (atom.element or atom.name[:1]).strip().upper()
+                if element == "H" or atom.name in seen:
+                    continue
+                seen.add(atom.name)
                 x, y, z = transform(atom.coord)
                 lines.append(
-                    f"ATOM  {serial:>5} {atom.name:<4}{res.resname:>3} {chain.chain_id}"
-                    f"{res.pdb_index:>4}    {x:8.3f}{y:8.3f}{z:8.3f}  1.00  0.00"
+                    f"ATOM  {serial:>5} {_atom_name_field(atom.name)}{'':1}{res.resname:>3} "
+                    f"{chain_id}{res.pdb_index:>4}{'':1}   "
+                    f"{x:8.3f}{y:8.3f}{z:8.3f}  1.00  0.00          {element:>2}"
                 )
                 serial += 1
     lines.append("END")
