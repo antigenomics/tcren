@@ -46,6 +46,8 @@ def render_complementarity_map(
     contacts: pl.DataFrame | None = None,
     ca_contacts: pl.DataFrame | None = None,
     pockets: pl.DataFrame | None = None,
+    show_chains: "list[str] | None" = None,
+    draw_backbone: bool = True,
     width: int = 900,
     height: int = 700,
     margin: float = 60.0,
@@ -59,12 +61,19 @@ def render_complementarity_map(
         ca_contacts: Cα–Cα chain contacts (bold) with ``structure_chain_1/2``,
             ``aa_index_1/2``, ``ca_dist``.
         pockets: optional A–F pocket markers with ``pocket``, ``u``, ``v``.
+        show_chains: if given, only draw residues whose ``complex_chain`` is in this set
+            (e.g. ``["tra", "trb", "peptide"]`` to hide MHC). Contacts/edges are kept only
+            between shown residues.
+        draw_backbone: connect consecutive residues within each chain (sequence-adjacent
+            ``aa_index``) with a thin backbone trace.
         width, height, margin: canvas geometry.
 
     Returns:
         SVG markup (string).
     """
     drawn = markup.filter(pl.col("u").is_not_null() & pl.col("v").is_not_null())
+    if show_chains is not None:
+        drawn = drawn.filter(pl.col("complex_chain").is_in(list(show_chains)))
     if drawn.height == 0:
         raise ValueError("no residues with projected (u, v) to render")
 
@@ -119,6 +128,25 @@ def render_complementarity_map(
                 f'<title>Cα {_f(c["ca_dist"])} Å {_esc(c["structure_chain_1"])}:{c["aa_index_1"]}–'
                 f'{_esc(c["structure_chain_2"])}:{c["aa_index_2"]}</title></line>'
             )
+        parts.append("</g>")
+
+    # Layer 2b: backbone trace — connect sequence-adjacent residues within each chain.
+    if draw_backbone:
+        parts.append('<g class="backbone" fill="none" stroke-width="1.5" opacity="0.7">')
+        by_chain: dict[str, list] = {}
+        for r in drawn.iter_rows(named=True):
+            by_chain.setdefault(r["structure_chain"], []).append(r)
+        for chain_id, residues in by_chain.items():
+            residues.sort(key=lambda r: r["aa_index"])
+            for a, b in zip(residues, residues[1:]):
+                if b["aa_index"] - a["aa_index"] != 1:
+                    continue  # only true sequence-adjacent (backbone) bonds
+                p1, p2 = pos[(chain_id, a["aa_index"])], pos[(chain_id, b["aa_index"])]
+                parts.append(
+                    f'<line x1="{_f(p1[0])}" y1="{_f(p1[1])}" x2="{_f(p2[0])}" y2="{_f(p2[1])}" '
+                    f'stroke="{color_for(a["complex_chain"], a["complex_region"])}" '
+                    f'data-chain="{_esc(chain_id)}"/>'
+                )
         parts.append("</g>")
 
     # Layer 3: residue squares.

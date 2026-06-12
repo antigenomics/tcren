@@ -83,6 +83,8 @@ view_pocket_cdr(s).show()                          # interactive 3D pocket + CDR
 See the tutorial notebooks under `docs/notebooks/` for full examples.
 
 Run the tests with `pytest tests/` (set `RUN_BENCHMARK=1` for the full-dataset sweeps).
+Project status & open tasks: [STATUS.md](STATUS.md); achieved accuracy & performance:
+[BENCHMARKS.md](BENCHMARKS.md).
 
 ---
 

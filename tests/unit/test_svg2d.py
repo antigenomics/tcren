@@ -88,6 +88,30 @@ def test_residue_metadata_and_title():
     assert g0.find(f"{_NS}title") is not None
 
 
+def test_show_chains_filters_residues():
+    # Hide the MHC chain → only peptide + TCR residues remain.
+    svg = render_complementarity_map(_markup(), show_chains=["peptide", "tra"])
+    root = ET.fromstring(svg)
+    rects = root.findall(f".//{_NS}g[@class='residues']/{_NS}g/{_NS}rect")
+    assert len(rects) == 3  # 2 peptide + 1 tra (mhca dropped)
+    chains = {g.get("data-complex-chain")
+              for g in root.findall(f".//{_NS}g[@class='residues']/{_NS}g")}
+    assert "mhca" not in chains
+
+
+def test_backbone_connects_sequence_adjacent_residues():
+    # Peptide residues aa_index 0 and 1 are adjacent → one backbone line; the others are not.
+    svg = render_complementarity_map(_markup(), draw_backbone=True)
+    root = ET.fromstring(svg)
+    bb = root.findall(f".//{_NS}g[@class='backbone']/{_NS}line")
+    assert len(bb) == 1
+    assert bb[0].get("data-chain") == "P"
+
+    assert root.findall(f".//{_NS}g[@class='backbone']") and not ET.fromstring(
+        render_complementarity_map(_markup(), draw_backbone=False)
+    ).findall(f".//{_NS}g[@class='backbone']")
+
+
 def test_empty_projection_raises():
     empty = _markup().with_columns(pl.lit(None, dtype=pl.Float64).alias("u"))
     with pytest.raises(ValueError):
