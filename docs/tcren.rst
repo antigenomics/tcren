@@ -198,6 +198,17 @@ tcren.native.potential module
    :undoc-members:
    :show-inheritance:
 
+Analysis
+--------
+
+tcren.analysis module
+~~~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: tcren.analysis
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Command line
 ------------
 

@@ -20,6 +20,7 @@ and scores candidate epitopes.
 
    notebooks/complementarity_map_2d
    notebooks/pocket_cdr_3d
+   notebooks/tcren_analysis
 
 Indices
 -------
