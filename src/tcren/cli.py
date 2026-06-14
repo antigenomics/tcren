@@ -26,6 +26,23 @@ from .structure import parse_structure
 app = typer.Typer(add_completion=False, help="Structure-based TCR–epitope recognition scoring.")
 native_app = typer.Typer(add_completion=False, help="Manage the TCR3D native-structures database.")
 app.add_typer(native_app, name="native")
+paper_app = typer.Typer(add_completion=False, help="Nat Comput Sci 2022 reproduction.")
+app.add_typer(paper_app, name="paper")
+
+
+@paper_app.command("bootstrap")
+def paper_bootstrap(
+    structures: bool = typer.Option(True, "--structures/--no-structures"),
+    vdjdb: bool = typer.Option(True, "--vdjdb/--no-vdjdb"),
+    data: bool = typer.Option(True, "--data/--no-data"),
+    legacy: bool = typer.Option(True, "--legacy/--no-legacy"),
+) -> None:
+    """Fetch HF structures + vdjdb + paper data + legacy results into notebooks/natcompsci2022/."""
+    from .paper import bootstrap as run
+
+    summary = run(structures=structures, vdjdb=vdjdb, data=data, legacy=legacy)
+    for k, v in summary.items():
+        typer.echo(f"{k}: {v}")
 
 _PDB_SUFFIXES = (".pdb", ".ent", ".cif", ".mmcif")
 
@@ -204,6 +221,30 @@ def native_status(
     if check_remote:
         changed = needs_update(db)
         typer.echo("up to date" if not changed else f"OUTDATED — changed: {changed}")
+
+
+@native_app.command("build-matrix")
+def native_build_matrix(
+    out: Path = typer.Option("TCRen_tcr3d.csv", "-o", "--out"),
+    root: Path | None = typer.Option(None, "--root"),
+    verify: bool = typer.Option(True, "--verify/--no-verify", help="check annotation vs TCR3D tables"),
+    variant: str = typer.Option("classic", "--variant"),
+    limit: int | None = typer.Option(None, "--limit", help="cap structures (verification)"),
+) -> None:
+    """Recompute the TCRen matrix from TCR3D: bootstrap, verify annotation, derive, write."""
+    from .native import NativeDatabase, derive_native_potential, ensure
+    from .native.annotate import verify_against_tcr3d
+
+    db = ensure(NativeDatabase(root))
+    typer.echo(f"native database: {db.version().get('n_cif', '?')} CIFs at {db.root}")
+    if verify:
+        report = verify_against_tcr3d(db, limit=limit)
+        typer.echo(f"annotation concordance over {report['n']} complexes ({report['errors']} errors):")
+        for field, rate in report["concordance"].items():
+            typer.echo(f"  {field}: {rate:.3f}")
+    pot = derive_native_potential(db, variant=variant, use_cache=False)
+    pot.to_csv(out)
+    typer.echo(f"TCRen matrix (from TCR3D, {variant}) -> {out}")
 
 
 @native_app.command("derive-potential")
