@@ -109,6 +109,14 @@ tcren.contacts.geometry module
    :undoc-members:
    :show-inheritance:
 
+tcren.contacts.definitions module
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: tcren.contacts.definitions
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 tcren.contacts.table module
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -205,6 +213,41 @@ tcren.analysis module
 ~~~~~~~~~~~~~~~~~~~~~~~
 
 .. automodule:: tcren.analysis
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+Orientation
+-----------
+
+tcren.orient.frame module
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: tcren.orient.frame
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+tcren.orient.exceptions module
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: tcren.orient.exceptions
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+tcren.orient.chains module
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: tcren.orient.chains
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+tcren.orient.pipeline module
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: tcren.orient.pipeline
    :members:
    :undoc-members:
    :show-inheritance:
