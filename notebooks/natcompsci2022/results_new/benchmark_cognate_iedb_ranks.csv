@@ -1,0 +1,7 @@
+potential,n,median_rank_%,mean_rank_%,AUC
+TCRen 2026 (LOO),204,20,31,0.69
+TCRen 2026,204,5,13,0.87
+TCRen 2022,204,8,20,0.8
+Keskin,204,32,39,0.61
+MJ,204,26,34,0.66
+random,204,42,45,0.55
