@@ -1,0 +1,4 @@
+artifact,n_structures,exact,status
+contact geometry (2022 vs mir),235,226,226/235 exact
+TCRen 2022 (vs published),,,r=0.846 pass
+TCRen 2026 (vs published),,,r=0.918 pass
