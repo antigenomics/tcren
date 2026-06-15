@@ -127,6 +127,7 @@ def orient(
     reference_id: str = typer.Option(None, "--reference", help="force a reference complex id"),
     force_pca: bool = typer.Option(False, "--force-pca", help="skip native superposition"),
     native_root: Path = typer.Option(None, "--native-root", help="TCR3D native DB root"),
+    workers: int = typer.Option(1, "--workers", "-j", help="parallel worker processes"),
     push_to_hub: str = typer.Option(None, "--push-to-hub", help="HF dataset repo id to upload to"),
     hub_folder: str = typer.Option("Native2026", "--hub-folder"),
 ) -> None:
@@ -136,7 +137,7 @@ def orient(
 
     db = NativeDatabase(native_root) if native_root else None
     run_folder(structures, out, metadata=metadata, organism=organism,
-               reference_id=reference_id, force_pca=force_pca, db=db)
+               reference_id=reference_id, force_pca=force_pca, db=db, workers=workers)
     if push_to_hub:
         from .orient.hub import push_oriented
 
