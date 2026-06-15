@@ -7,7 +7,7 @@ from pathlib import Path
 
 import polars as pl
 
-from tcren.paper import compare, copy_paper_data
+from tcren.paper import compare, copy_external_inputs, copy_legacy_results
 from tcren.paper.helpers import _read_any
 
 
@@ -43,16 +43,25 @@ def test_read_any_handles_gzip_and_tsv(tmp_path):
     assert out.columns == ["a", "b"] and out["b"][0] == "x"
 
 
-def test_copy_paper_data_gzips(tmp_path):
+def test_copy_external_inputs_gzips(tmp_path):
+    # External published inputs (e.g. Birnbaum) go to the shared data dir, gzipped.
     repo_data = tmp_path / "data"
-    (repo_data).mkdir()
+    repo_data.mkdir()
     (repo_data / "Birnbaum.tsv").write_text("peptide\tx\nAAA\t1\n")
-    (repo_data / "source_data").mkdir()
-    (repo_data / "source_data" / "fig1.csv").write_text("a,b\n1,2\n")
     dest = tmp_path / "out"
-    n = copy_paper_data(dest, repo_data=repo_data)
-    assert n >= 2
+    n = copy_external_inputs(dest, repo_data=repo_data)
+    assert n >= 1
     assert (dest / "Birnbaum.tsv.gz").exists()
-    assert (dest / "source_data" / "fig1.csv.gz").exists()
-    # round-trips
-    assert _read_any(dest / "source_data" / "fig1.csv.gz")["a"][0] == 1
+
+
+def test_copy_legacy_results_routes_to_data_legacy(tmp_path):
+    # Legacy baselines (old TCRen matrix, source_data) go to data_legacy/, not the inputs.
+    repo_data = tmp_path / "data"
+    (repo_data / "source_data").mkdir(parents=True)
+    (repo_data / "TCRen_potential.csv").write_text("residue.aa.from,residue.aa.to,TCRen\nA,A,0.1\n")
+    (repo_data / "source_data" / "fig1.csv").write_text("a,b\n1,2\n")
+    paper_dir = tmp_path / "natcompsci2022"
+    copy_legacy_results(paper_dir=paper_dir, repo_data=repo_data)
+    assert (paper_dir / "data_legacy" / "TCRen_potential.csv.gz").exists()
+    assert (paper_dir / "data_legacy" / "source_data" / "fig1.csv.gz").exists()
+    assert _read_any(paper_dir / "data_legacy" / "source_data" / "fig1.csv.gz")["a"][0] == 1
