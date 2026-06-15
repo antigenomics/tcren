@@ -40,6 +40,101 @@ def contact_table(structure: Structure, cutoff: float = 5.0) -> pl.DataFrame:
     return tp.select(list(_CONTACT_RENAME)).unique()
 
 
+def annotate_structure_set(
+    struct_dir: str | Path, on_error: str = "skip"
+) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """Run the tcren pipeline over a folder of PDBs → ``(contacts, markup)`` tables.
+
+    Replaces the legacy mir batch annotation. ``contacts`` is the stacked TCR↔peptide
+    :func:`contact_table`; ``markup`` is one row per structure with the CDR3α/CDR3β/peptide
+    sequences + species (the inputs to non-redundancy clustering and the benchmarks).
+    Species is auto-detected per structure by alignment score (human vs mouse). All chains
+    across the whole folder are annotated in a single mmseqs call per organism (the
+    per-call process overhead dominates, so dataset-level batching is far faster than
+    per-structure annotation).
+    """
+    from ..annotation import classify_chains
+    from ..annotation.arda_adapter import _import_arda
+    from ..structure import parse_structure
+
+    struct_dir = Path(struct_dir)
+    paths = sorted(p for p in struct_dir.iterdir() if p.suffix in (".pdb", ".cif"))
+    structures: list[Structure] = []
+    for path in paths:
+        # TCR3D CIFs are named "<pdb>_renumbered.cif"; normalise to the 4-char PDB id.
+        pdb_id = path.stem.split("_")[0]
+        try:
+            structures.append(parse_structure(path, pdb_id=pdb_id))
+        except Exception:
+            if on_error == "raise":
+                raise
+
+    # One arda call per organism over every chain of every structure. Global ids
+    # (``"<struct_idx>|<chain_id>"``) keep chains unique across structures; the records
+    # are sliced back per structure and fed to classify_chains (no per-chain mmseqs).
+    records_by_struct = _batch_annotate(structures, _import_arda())
+
+    contacts, markup = [], []
+    for idx, s in enumerate(structures):
+        pdb_id = s.pdb_id
+        try:
+            classify_chains(s, organism="human", autodetect_species=True,
+                            precomputed_records=records_by_struct[idx])
+            ct = contact_table(s)
+            if ct.height:
+                contacts.append(ct)
+
+            def _region_seq(chain_type, region):
+                for c in s.chains:
+                    if c.chain_type == chain_type:
+                        for r in c.regions:
+                            if r.region_type == region:
+                                return r.sequence
+                return None
+
+            peptide = next((c.sequence() for c in s.chains if c.chain_type == "PEPTIDE"), None)
+            markup.append({
+                "pdb.id": pdb_id,
+                "cdr3a": _region_seq("TRA", "CDR3"),
+                "cdr3b": _region_seq("TRB", "CDR3"),
+                "peptide": peptide,
+                "species": s.complex_species,
+            })
+        except Exception:
+            if on_error == "raise":
+                raise
+    contacts_df = pl.concat(contacts) if contacts else pl.DataFrame()
+    markup_df = pl.DataFrame(markup) if markup else pl.DataFrame()
+    return contacts_df, markup_df
+
+
+def _batch_annotate(
+    structures, arda, organisms=("human", "mouse")
+) -> list[dict[str, dict[str, dict]]]:
+    """Annotate every chain of every structure with one mmseqs call per organism.
+
+    Returns ``records[struct_idx][organism][chain_id]`` — the per-structure slices fed to
+    :func:`~tcren.annotation.classify_chains` as ``precomputed_records``.
+    """
+    out: list[dict[str, dict[str, dict]]] = [
+        {org: {} for org in organisms} for _ in structures
+    ]
+    flat = [
+        (idx, c.chain_id, c.sequence())
+        for idx, s in enumerate(structures)
+        for c in s.chains
+        if c.sequence()
+    ]
+    if not flat:
+        return out
+    pairs = [(f"{idx}|{cid}", seq) for idx, cid, seq in flat]
+    for org in organisms:
+        records = arda.annotate_sequences(pairs, seqtype="aa", organism=org)
+        for (idx, cid, _seq), rec in zip(flat, records):
+            out[idx][org][cid] = rec
+    return out
+
+
 def _read_any(path: str | Path) -> pl.DataFrame:
     """Read a CSV/TSV, transparently handling ``.gz`` and tab vs comma."""
     path = Path(path)
