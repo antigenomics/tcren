@@ -118,6 +118,32 @@ def contacts(
     typer.echo(f"wrote {out}")
 
 
+@app.command()
+def orient(
+    structures: Path = typer.Option(..., "-s", "--structures", help="PDB/CIF file or directory"),
+    out: Path = typer.Option("oriented", "-o", "--out", help="output dir for oriented PDBs"),
+    metadata: Path = typer.Option("orient_metadata.csv", "--metadata"),
+    organism: str = typer.Option("human", "--organism"),
+    reference_id: str = typer.Option(None, "--reference", help="force a reference complex id"),
+    force_pca: bool = typer.Option(False, "--force-pca", help="skip native superposition"),
+    native_root: Path = typer.Option(None, "--native-root", help="TCR3D native DB root"),
+    push_to_hub: str = typer.Option(None, "--push-to-hub", help="HF dataset repo id to upload to"),
+    hub_folder: str = typer.Option("Native2026", "--hub-folder"),
+) -> None:
+    """Canonicalize TCR-pMHC structures into the common MHC frame (A-E chains)."""
+    from .native.database import NativeDatabase
+    from .orient import run_folder
+
+    db = NativeDatabase(native_root) if native_root else None
+    run_folder(structures, out, metadata=metadata, organism=organism,
+               reference_id=reference_id, force_pca=force_pca, db=db)
+    if push_to_hub:
+        from .orient.hub import push_oriented
+
+        push_oriented(out, push_to_hub, folder=hub_folder)
+        typer.echo(f"pushed {out} -> {push_to_hub}/{hub_folder}")
+
+
 @app.command("derive-potential")
 def derive_potential(
     contact_maps: Path = typer.Option(..., "-i", "--contact-maps", help="contact-map CSV"),
