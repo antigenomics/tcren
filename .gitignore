@@ -307,4 +307,4 @@ data/native/
 docs/notebooks/
 
 # natcompsci2022 reproduction — HF-bootstrapped structures
-notebooks/natcompsci2022/data/structures/
+notebooks/data/structures/
