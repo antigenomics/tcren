@@ -305,3 +305,6 @@ database/mhc/
 # Native (tcr3d) database — downloaded artifacts
 data/native/
 docs/notebooks/
+
+# natcompsci2022 reproduction — HF-bootstrapped structures
+notebooks/data/structures/
