@@ -60,6 +60,20 @@ class Residue:
                 return atom.coord
         return None
 
+    @property
+    def cb(self) -> np.ndarray | None:
+        """Cβ coordinate, or ``None`` if the residue has no Cβ atom (e.g. glycine)."""
+        for atom in self.atoms:
+            if atom.name == "CB":
+                return atom.coord
+        return None
+
+    @property
+    def cb_or_ca(self) -> np.ndarray | None:
+        """Cβ coordinate, falling back to Cα (glycine / missing Cβ); ``None`` if neither."""
+        cb = self.cb
+        return cb if cb is not None else self.ca
+
 
 @dataclass(slots=True)
 class Chain:

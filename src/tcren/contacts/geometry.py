@@ -114,6 +114,77 @@ def all_atom_contacts(structure: Structure, cutoff: float = 5.0) -> pl.DataFrame
     return df.select(list(schema.keys()))
 
 
+def _representative_arrays(structure: Structure, kind: str):
+    """Per-residue representative-atom arrays (one atom per residue).
+
+    ``kind`` is ``"ca"`` (Cα) or ``"cb"`` (Cβ, falling back to Cα for glycine / missing Cβ).
+    Residues with no representative atom are skipped.
+    """
+    coords, chain_ids, res_idx, res_aa = [], [], [], []
+    for chain in structure.chains:
+        for res in chain.residues:
+            rep = res.cb_or_ca if kind == "cb" else res.ca
+            if rep is None:
+                continue
+            coords.append(rep)
+            chain_ids.append(chain.chain_id)
+            res_idx.append(res.seq_index)
+            res_aa.append(res.aa)
+    if not coords:
+        return np.empty((0, 3)), np.array([]), np.array([]), np.array([])
+    return (
+        np.asarray(coords, dtype=np.float64),
+        np.asarray(chain_ids, dtype=object),
+        np.asarray(res_idx, dtype=np.int64),
+        np.asarray(res_aa, dtype=object),
+    )
+
+
+def representative_atom_contacts(
+    structure: Structure, kind: str = "ca", cutoff: float = 12.0
+) -> pl.DataFrame:
+    """Inter-chain residue contacts by a single representative atom per residue.
+
+    ``kind="ca"`` uses Cα (default cutoff 12 Å); ``kind="cb"`` uses Cβ with a glycine/
+    missing-Cβ fallback to Cα (default cutoff 8 Å). Mirrors :func:`all_atom_contacts`'
+    residue-pair schema (``atom.from``/``atom.to`` carry the representative atom kind).
+    """
+    coords, chain_ids, res_idx, res_aa = _representative_arrays(structure, kind)
+    rep = "CB" if kind == "cb" else "CA"
+    schema = {
+        "chain.id.from": pl.Utf8, "residue.index.from": pl.Int64,
+        "chain.id.to": pl.Utf8, "residue.index.to": pl.Int64,
+        "residue.aa.from": pl.Utf8, "residue.aa.to": pl.Utf8,
+        "atom.from": pl.Utf8, "atom.to": pl.Utf8, "dist": pl.Float64,
+    }
+    if len(coords) == 0:
+        return pl.DataFrame(schema=schema)
+    tree = cKDTree(coords)
+    pairs = tree.query_pairs(r=cutoff, output_type="ndarray")
+    if len(pairs) == 0:
+        return pl.DataFrame(schema=schema)
+    i, j = pairs[:, 0], pairs[:, 1]
+    inter = chain_ids[i] != chain_ids[j]
+    i, j = i[inter], j[inter]
+    if len(i) == 0:
+        return pl.DataFrame(schema=schema)
+    dist = np.linalg.norm(coords[i] - coords[j], axis=1)
+    ci, cj = chain_ids[i], chain_ids[j]
+    ri, rj = res_idx[i], res_idx[j]
+    swap = (ci > cj) | ((ci == cj) & (ri > rj))
+
+    def pick(a, b):
+        return np.where(swap, b, a)
+
+    return pl.DataFrame({
+        "chain.id.from": pick(ci, cj), "residue.index.from": pick(ri, rj),
+        "chain.id.to": pick(cj, ci), "residue.index.to": pick(rj, ri),
+        "residue.aa.from": pick(res_aa[i], res_aa[j]),
+        "residue.aa.to": pick(res_aa[j], res_aa[i]),
+        "atom.from": rep, "atom.to": rep, "dist": dist,
+    }).select(list(schema.keys()))
+
+
 def ca_distance_matrix(structure: Structure) -> tuple[np.ndarray, list[tuple[str, int]]]:
     """Pairwise Cα–Cα distance matrix over all residues with a Cα atom.
 
