@@ -168,3 +168,63 @@ def import_structure(
     if trim_c_gene and not keep_c_gene:
         _trim_constant_regions(structure, min_score=min_constant_score)
     return structure
+
+
+def _atom_name_field(name: str) -> str:
+    """PDB columns 13-16 for an atom name (the standard left/right justification rule)."""
+    return f"{name:<4}" if len(name) >= 4 else f" {name:<3}"
+
+
+def pdb_lines(structure: Structure, transform=None, keep_hydrogens: bool = True) -> list[str]:
+    """ATOM/TER/END record lines for ``structure`` (optionally coordinate-transformed).
+
+    One conformer per atom name per residue (drops duplicate altlocs). ``transform`` is an
+    optional ``coord -> coord`` callable (e.g. for an oriented frame); identity if ``None``.
+    Author residue numbers + insertion codes are preserved.
+    """
+    lines: list[str] = []
+    serial = 1
+    for chain in structure.chains:
+        chain_id = (chain.chain_id or " ")[0]
+        last = None
+        for res in chain.residues:
+            seen: set[str] = set()
+            icode = (res.insertion_code or " ")[:1] or " "
+            for atom in res.atoms:
+                element = (atom.element or atom.name[:1]).strip().upper()
+                if (not keep_hydrogens and element == "H") or atom.name in seen:
+                    continue
+                seen.add(atom.name)
+                x, y, z = transform(atom.coord) if transform else atom.coord
+                lines.append(
+                    f"ATOM  {serial % 100000:>5} {_atom_name_field(atom.name)} "
+                    f"{res.resname:>3} {chain_id}{res.pdb_index:>4}{icode}   "
+                    f"{x:8.3f}{y:8.3f}{z:8.3f}  1.00  0.00          {element:>2}"
+                )
+                serial += 1
+                last = res
+        if last is not None:
+            lines.append(
+                f"TER   {serial % 100000:>5}      {last.resname:>3} "
+                f"{chain_id}{last.pdb_index:>4}{(last.insertion_code or ' ')[:1] or ' '}"
+            )
+            serial += 1
+    lines.append("END")
+    return lines
+
+
+def write_pdb(structure: Structure, path: str | Path, transform=None,
+              keep_hydrogens: bool = True) -> Path:
+    """Write ``structure`` to a PDB file; return the path."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(pdb_lines(structure, transform, keep_hydrogens)) + "\n")
+    return path
+
+
+def write_structure(structure: Structure, path: str | Path, **kwargs) -> Path:
+    """Format-dispatch writer (``.pdb`` only for now; mmCIF deferred)."""
+    path = Path(path)
+    if path.suffix.lower() not in (".pdb", ".ent"):
+        raise ValueError(f"only PDB output is supported, got {path.suffix!r}")
+    return write_pdb(structure, path, **kwargs)

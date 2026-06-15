@@ -42,6 +42,10 @@ tcren native derive-potential -o TCRen_native.csv   # re-derive TCRen from nativ
 tcren build-mhc-ref                # downloads IMGT/HLA + mouse H-2 (cached, not committed)
 tcren mhc -s example/input_structures -o mhc_calls.csv
 
+# Canonical orientation — superpose TCR-pMHC into one MHC frame, rename chains A-E
+tcren orient -s example/input_structures -o oriented/ --metadata orient.csv
+#   z (PC1) = MHC->TCR, y (PC2) = peptide, x (PC3); chains: A=Va B=Vb C=peptide D=MHCa E=MHCb/b2m
+
 # Other subcommands
 tcren annotate -s example/input_structures -o markup.csv
 tcren contacts -s example/input_structures -o contacts.csv --interface tcr_peptide
@@ -61,6 +65,26 @@ classify_chains(s, organism="human")          # TRA/TRB via arda, peptide, MHC
 cm = ContactMap.from_structure(s)              # 5 Å contacts + interface partitioning
 ranked = score_peptides(cm, ["KQWLVWLFL", "RLLHPHHPL"], tcren())
 ```
+
+### Canonical orientation & flexible contacts
+
+```python
+from tcren.mhc import annotate_mhc
+from tcren.orient import canonicalize_structure, align_to_canonical
+from tcren.contacts import multi_contacts, ContactDefinition
+
+annotate_mhc(s)
+oriented, info = canonicalize_structure(s)     # PCA frame: z=MHC->TCR, y=peptide, chains A-E
+#   align a NEW structure onto the dataset frame: align_to_canonical(new_structure)
+
+# three nested contact layers: d1 heavy-atom (5 Å), d2 Cβ (8 Å, Cα for Gly), d3 Cα (12 Å)
+layers = multi_contacts(s, ContactDefinition(d1=5, d2=8, d3=12))
+```
+
+Structures come from the Hugging Face dataset
+[`isalgo/tcren_structures`](https://huggingface.co/datasets/isalgo/tcren_structures):
+`Native2022` (the 2022 paper set, oracle) and `Native2026` (the comprehensive 2026 TCR:pMHC
+set), both in the canonical orientation.
 
 ### 2D complementarity maps & C-gene-aware import
 

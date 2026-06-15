@@ -26,6 +26,23 @@ from .structure import parse_structure
 app = typer.Typer(add_completion=False, help="Structure-based TCR–epitope recognition scoring.")
 native_app = typer.Typer(add_completion=False, help="Manage the TCR3D native-structures database.")
 app.add_typer(native_app, name="native")
+paper_app = typer.Typer(add_completion=False, help="Nat Comput Sci 2022 reproduction.")
+app.add_typer(paper_app, name="paper")
+
+
+@paper_app.command("bootstrap")
+def paper_bootstrap(
+    structures: bool = typer.Option(True, "--structures/--no-structures"),
+    vdjdb: bool = typer.Option(True, "--vdjdb/--no-vdjdb"),
+    data: bool = typer.Option(True, "--data/--no-data"),
+    legacy: bool = typer.Option(True, "--legacy/--no-legacy"),
+) -> None:
+    """Fetch HF structures + vdjdb + paper data + legacy results into notebooks/natcompsci2022/."""
+    from .paper import bootstrap as run
+
+    summary = run(structures=structures, vdjdb=vdjdb, data=data, legacy=legacy)
+    for k, v in summary.items():
+        typer.echo(f"{k}: {v}")
 
 _PDB_SUFFIXES = (".pdb", ".ent", ".cif", ".mmcif")
 
@@ -99,6 +116,33 @@ def contacts(
         frames.append(cm.contacts if interface == "all" else cm.interface(interface))
     pl.concat(frames).write_csv(str(out))
     typer.echo(f"wrote {out}")
+
+
+@app.command()
+def orient(
+    structures: Path = typer.Option(..., "-s", "--structures", help="PDB/CIF file or directory"),
+    out: Path = typer.Option("oriented", "-o", "--out", help="output dir for oriented PDBs"),
+    metadata: Path = typer.Option("orient_metadata.csv", "--metadata"),
+    organism: str = typer.Option("human", "--organism"),
+    reference_id: str = typer.Option(None, "--reference", help="force a reference complex id"),
+    force_pca: bool = typer.Option(False, "--force-pca", help="skip native superposition"),
+    native_root: Path = typer.Option(None, "--native-root", help="TCR3D native DB root"),
+    workers: int = typer.Option(1, "--workers", "-j", help="parallel worker processes"),
+    push_to_hub: str = typer.Option(None, "--push-to-hub", help="HF dataset repo id to upload to"),
+    hub_folder: str = typer.Option("Native2026", "--hub-folder"),
+) -> None:
+    """Canonicalize TCR-pMHC structures into the common MHC frame (A-E chains)."""
+    from .native.database import NativeDatabase
+    from .orient import run_folder
+
+    db = NativeDatabase(native_root) if native_root else None
+    run_folder(structures, out, metadata=metadata, organism=organism,
+               reference_id=reference_id, force_pca=force_pca, db=db, workers=workers)
+    if push_to_hub:
+        from .orient.hub import push_oriented
+
+        push_oriented(out, push_to_hub, folder=hub_folder)
+        typer.echo(f"pushed {out} -> {push_to_hub}/{hub_folder}")
 
 
 @app.command("derive-potential")
@@ -204,6 +248,30 @@ def native_status(
     if check_remote:
         changed = needs_update(db)
         typer.echo("up to date" if not changed else f"OUTDATED — changed: {changed}")
+
+
+@native_app.command("build-matrix")
+def native_build_matrix(
+    out: Path = typer.Option("TCRen_tcr3d.csv", "-o", "--out"),
+    root: Path | None = typer.Option(None, "--root"),
+    verify: bool = typer.Option(True, "--verify/--no-verify", help="check annotation vs TCR3D tables"),
+    variant: str = typer.Option("classic", "--variant"),
+    limit: int | None = typer.Option(None, "--limit", help="cap structures (verification)"),
+) -> None:
+    """Recompute the TCRen matrix from TCR3D: bootstrap, verify annotation, derive, write."""
+    from .native import NativeDatabase, derive_native_potential, ensure
+    from .native.annotate import verify_against_tcr3d
+
+    db = ensure(NativeDatabase(root))
+    typer.echo(f"native database: {db.version().get('n_cif', '?')} CIFs at {db.root}")
+    if verify:
+        report = verify_against_tcr3d(db, limit=limit)
+        typer.echo(f"annotation concordance over {report['n']} complexes ({report['errors']} errors):")
+        for field, rate in report["concordance"].items():
+            typer.echo(f"  {field}: {rate:.3f}")
+    pot = derive_native_potential(db, variant=variant, use_cache=False)
+    pot.to_csv(out)
+    typer.echo(f"TCRen matrix (from TCR3D, {variant}) -> {out}")
 
 
 @native_app.command("derive-potential")

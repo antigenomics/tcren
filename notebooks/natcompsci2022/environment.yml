@@ -1,0 +1,19 @@
+# Conda environment for the Nat Comput Sci 2022 reproduction notebooks.
+#
+# This is a SEPARATE env from the lean `tcren` library-dev env: it adds Jupyter and the
+# analysis/viz dependencies the notebooks need (matplotlib, rapidfuzz, scikit-learn,
+# logomaker) plus the mmseqs2 binary used by the annotation pipeline.
+#
+# Create it with `bash setup.sh` (which also editable-installs arda + tcren and registers
+# the Jupyter kernel). See README.md.
+name: tcren-nb
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python=3.11
+  - mmseqs2
+  - pip
+  # tcren, arda and the notebook Python deps are pip-installed editable by setup.sh:
+  #   pip install -e ../../../arda
+  #   pip install -e ../..[notebooks]   (pulls jupyter, matplotlib, rapidfuzz, sklearn, logomaker)

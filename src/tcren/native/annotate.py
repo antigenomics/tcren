@@ -93,3 +93,49 @@ def mhc_locus(allele: str | None) -> str:
     if not allele:
         return ""
     return allele.split(":")[0]
+
+
+def verify_against_tcr3d(db, limit: int | None = None) -> dict:
+    """Check tcren annotation against the TCR3D reference tables (V-gene/CDR3/class).
+
+    For each native CIF that is in ``tcr_complexes_data.tsv``, annotate it with tcren and
+    compare the V genes, CDR3s and MHC class to TCR3D. Returns per-field concordance
+    (``matches / comparable``), the structure count, and any errors.
+    """
+    import polars as pl
+
+    have = set(db.pdb_ids())
+    organism = {
+        r["PDB_ID"]: ("mouse" if r["TCR_organism"] == "Mouse" else "human")
+        for r in db.complex_data.iter_rows(named=True)
+    }
+    fields = ("v_alpha", "v_beta", "cdr3_alpha", "cdr3_beta", "class")
+    match = dict.fromkeys(fields, 0)
+    total = dict.fromkeys(fields, 0)
+    n, errors = 0, []
+
+    def cmp(field, got, exp):
+        if exp is None or exp == "":
+            return
+        total[field] += 1
+        if got is not None and got == exp:
+            match[field] += 1
+
+    ids = [p for p in db.complex_data["PDB_ID"].to_list() if p in have][:limit]
+    for pdb_id in ids:
+        row = db.complex_data.filter(pl.col("PDB_ID") == pdb_id).to_dicts()[0]
+        try:
+            ann = annotate_complex(db, pdb_id, organism=organism[pdb_id])
+        except Exception as exc:  # noqa: BLE001
+            errors.append((pdb_id, str(exc)[:60]))
+            continue
+        n += 1
+        a, b = ann.chain("Alpha"), ann.chain("Beta")
+        cmp("v_alpha", a.v_gene if a else None, row["TRAV_gene"])
+        cmp("v_beta", b.v_gene if b else None, row["TRBV_gene"])
+        cmp("cdr3_alpha", a.cdr3 if a else None, cdr3_core(row["CDR3_alpha"]))
+        cmp("cdr3_beta", b.cdr3 if b else None, cdr3_core(row["CDR3_beta"]))
+        cmp("class", ann.mhc_class, row["TCR_complex"])
+
+    rates = {f: (match[f] / total[f] if total[f] else float("nan")) for f in fields}
+    return {"n": n, "errors": len(errors), "concordance": rates}
