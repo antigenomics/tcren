@@ -108,6 +108,106 @@ def annotate_structure_set(
     return contacts_df, markup_df
 
 
+def mhc_annotation(
+    struct_dir, ids=None, organism: str = "human", on_error: str = "skip"
+) -> pl.DataFrame:
+    """Per-structure MHC allele + class for a folder (tcren mapper) — fully batched.
+
+    Replaces the legacy ``PDB_MHC_annotation`` table. ``ids`` restricts to those PDB ids.
+    Every chain is TCR-typed in one batched arda call (so MHC candidates can be found),
+    then every candidate MHC chain across the whole folder is searched against the MHC
+    reference in a **single** mmseqs ``easy_search`` (mmseqs parallelises internally — no
+    Python process/thread pool, which would either deadlock on fork or re-pay the fixed
+    mmseqs startup cost per structure). Returns ``pdb.id``, ``mhc.class``, ``mhc.allele``,
+    ``status``.
+    """
+    import tempfile
+
+    import arda.mmseqs as mmseqs
+
+    from ..annotation import classify_chains
+    from ..annotation.arda_adapter import _import_arda
+    from ..mhc import reference
+    from ..mhc.mapper import MhcCall, _best_hits, _candidate_chains, _reconcile_class
+    from ..structure import parse_structure
+
+    struct_dir = Path(struct_dir)
+    paths = sorted(p for p in struct_dir.iterdir() if p.suffix.lower() in (".pdb", ".cif"))
+    if ids is not None:
+        keep = set(ids)
+        paths = [p for p in paths if p.stem.split("_")[0] in keep]
+
+    structures: list[Structure] = []
+    for path in paths:
+        pdb_id = path.stem.split("_")[0]
+        try:
+            structures.append(parse_structure(path, pdb_id=pdb_id))
+        except Exception:
+            if on_error == "raise":
+                raise
+
+    # 1) Batched TCR chain-typing so the non-receptor / non-peptide MHC candidates are known.
+    records_by_struct = _batch_annotate(structures, _import_arda())
+    for idx, s in enumerate(structures):
+        try:
+            classify_chains(s, organism=organism, autodetect_species=True,
+                            precomputed_records=records_by_struct[idx])
+        except Exception:
+            if on_error == "raise":
+                raise
+
+    # 2) One mmseqs search over every candidate MHC chain across all structures. Global ids
+    #    "<struct_idx>|<chain_id>" keep chains unique; hits are sliced back per structure.
+    flat = [
+        (idx, c.chain_id, c.sequence())
+        for idx, s in enumerate(structures)
+        for c in _candidate_chains(s)
+        if c.sequence()
+    ]
+    best: dict[str, dict] = {}
+    if flat:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            query_fa = tmp / "query.fasta"
+            with query_fa.open("w") as fh:
+                for idx, cid, seq in flat:
+                    fh.write(f">{idx}|{cid}\n{seq}\n")
+            out_tsv = tmp / "hits.tsv"
+            mmseqs.easy_search(query_fa, reference.reference_fasta(), out_tsv,
+                               tmp / "mmseqs_tmp", search_type=1, sensitivity=5.7, max_seqs=50)
+            best = _best_hits(out_tsv)
+
+    # 3) Build MhcCalls per structure from the sliced hits, reconcile class, summarise.
+    rows = []
+    for idx, s in enumerate(structures):
+        calls: list[MhcCall] = []
+        for c in _candidate_chains(s):
+            hit = best.get(f"{idx}|{c.chain_id}")
+            if hit is None:
+                continue
+            meta = reference.parse_header(hit["target"])
+            calls.append(MhcCall(
+                chain_id=c.chain_id, chain_role=meta["chain_role"],
+                mhc_class=meta["mhc_class"], allele=meta["allele"], locus=meta["locus"],
+                species=meta["species"], identity=float(hit["pident"]), bits=float(hit["bits"]),
+                qstart=int(hit["qstart"]), qend=int(hit["qend"]),
+                tstart=int(hit["tstart"]), tend=int(hit["tend"]), cigar=hit["cigar"],
+            ))
+        _reconcile_class(calls)
+        mhca = next((c for c in calls if c.chain_role == "MHCa"), None)
+        if any(c.chain_role == "MHCb" for c in calls):
+            mhc_class = "MHCII"
+        elif mhca:
+            mhc_class = "MHCI"
+        else:
+            mhc_class = None
+        rows.append({
+            "pdb.id": s.pdb_id, "mhc.class": mhc_class,
+            "mhc.allele": mhca.allele if mhca else None, "status": "ok",
+        })
+    return pl.DataFrame(rows)
+
+
 def _batch_annotate(
     structures, arda, organisms=("human", "mouse")
 ) -> list[dict[str, dict[str, dict]]]:
