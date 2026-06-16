@@ -285,3 +285,26 @@ TSWLatexianTemp*
 # Uncomment the next line to have this generated file ignored.
 #*Notes.bib.ipynb_checkpoints/
 data/output_TCRen/structures_annotation/cadist.txt
+
+# Python (tcren package)
+tmp/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+docs/_build/
+data/mhc_cache/
+database/mhc/
+
+# Native (tcr3d) database — downloaded artifacts
+data/native/
+docs/notebooks/
+
+# natcompsci2022 reproduction — HF-bootstrapped structures
+notebooks/data/structures/
