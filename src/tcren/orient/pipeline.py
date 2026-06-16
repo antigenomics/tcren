@@ -7,8 +7,8 @@ from pathlib import Path
 
 import polars as pl
 
-from ..native.align import apply_transform
-from ..native.database import NativeDatabase
+from .align import apply_transform
+from ..structure.io import structure_id_from_path
 from ..structure.model import Structure
 from .chains import _has_multiple_copies, rename_chains, select_primary_complex
 from .exceptions import detect_reverse_dock
@@ -17,7 +17,6 @@ from .frame import CanonResult, canonical_frame
 
 def canonicalize_structure(
     structure: Structure,
-    db: NativeDatabase | None = None,
     reference_id: str | None = None,
     force_pca: bool = False,
     select_primary: bool = True,
@@ -30,7 +29,7 @@ def canonicalize_structure(
     transform clears region markup).
     """
     s = select_primary_complex(structure) if select_primary else structure
-    result = canonical_frame(s, db, reference_id, force_pca)
+    result = canonical_frame(s, reference_id, force_pca)
     result.reversed_dock = detect_reverse_dock(s, result.rotation, result.translation)
     oriented = apply_transform(s, result)
     oriented.cell_type = s.cell_type
@@ -41,7 +40,6 @@ def canonicalize_structure(
 
 def align_to_canonical(
     structure: Structure,
-    db: NativeDatabase | None = None,
     reference_id: str | None = None,
     organism: str = "human",
     force_pca: bool = False,
@@ -57,7 +55,7 @@ def align_to_canonical(
 
     classify_chains(structure, organism=organism)
     annotate_mhc(structure)
-    return canonicalize_structure(structure, db=db, reference_id=reference_id, force_pca=force_pca)
+    return canonicalize_structure(structure, reference_id=reference_id, force_pca=force_pca)
 
 
 def check_oriented_complex(structure, max_peptide_len: int = 25, max_offset: float = 25.0,
@@ -91,9 +89,9 @@ def check_oriented_complex(structure, max_peptide_len: int = 25, max_offset: flo
 
 
 def _structure_files(path: Path):
-    if path.is_file():
-        return [path]
-    return sorted(p for p in path.iterdir() if p.suffix.lower() in (".pdb", ".cif", ".ent"))
+    from ..structure.io import structure_paths
+
+    return structure_paths(path)
 
 
 _ROW_KEYS = ("pdb.id", "status", "mhc.class", "species", "tcr.type", "cell.type", "frame",
@@ -107,7 +105,7 @@ def _orient_row(pdb_id, status="ok"):
     return row
 
 
-def _finish_orient(structure, pdb_id, out, reference_id, force_pca, db) -> dict:
+def _finish_orient(structure, pdb_id, out, reference_id, force_pca) -> dict:
     """Canonicalize an (already classified + MHC-annotated) structure → metadata row."""
     from ..structure.io import write_pdb
 
@@ -118,7 +116,7 @@ def _finish_orient(structure, pdb_id, out, reference_id, force_pca, db) -> dict:
     row["tcr.type"] = ("ab" if {"TRA", "TRB"} <= loci and not (loci & {"TRD", "TRG"})
                        else "gd" if {"TRD", "TRG"} <= loci else "other")
     row["n.copies"] = 2 if _has_multiple_copies(structure) else 1
-    oriented, res = canonicalize_structure(structure, db=db, reference_id=reference_id,
+    oriented, res = canonicalize_structure(structure, reference_id=reference_id,
                                            force_pca=force_pca)
     ok, reason = check_oriented_complex(oriented)
     row.update({"frame": res.frame, "reference.id": res.reference_id, "rmsd": res.rmsd,
@@ -142,12 +140,12 @@ def _orient_one_file(fp_str, out_str, organism, reference_id, force_pca) -> dict
     from ..structure.io import import_structure
 
     fp = Path(fp_str)
-    pdb_id = fp.stem.split("_")[0]
+    pdb_id = structure_id_from_path(fp)
     try:
         s = import_structure(fp, pdb_id=pdb_id, keep_c_gene=True)
         classify_chains(s, organism=organism)
         annotate_mhc(s)
-        return _finish_orient(s, pdb_id, out_str, reference_id, force_pca, None)
+        return _finish_orient(s, pdb_id, out_str, reference_id, force_pca)
     except Exception as exc:  # noqa: BLE001
         return _orient_row(pdb_id, f"error: {type(exc).__name__}: {str(exc)[:80]}")
 
@@ -159,7 +157,6 @@ def run_folder(
     organism: str = "human",
     reference_id: str | None = None,
     force_pca: bool = False,
-    db: NativeDatabase | None = None,
     workers: int = 1,
 ) -> pl.DataFrame:
     """Canonicalize a file or folder of structures; write oriented PDBs + a metadata table.
@@ -188,10 +185,9 @@ def run_folder(
         from ..paper.helpers import _batch_annotate
         from ..structure.io import import_structure
 
-        db = db or NativeDatabase()
         parsed, parse_errors = [], {}
         for fp in files:
-            pdb_id = fp.stem.split("_")[0]
+            pdb_id = structure_id_from_path(fp)
             try:
                 parsed.append((pdb_id, import_structure(fp, pdb_id=pdb_id, keep_c_gene=True)))
             except Exception as exc:  # noqa: BLE001
@@ -201,7 +197,7 @@ def run_folder(
             try:
                 classify_chains(s, organism=organism, precomputed_records=recs)
                 annotate_mhc(s)
-                rows.append(_finish_orient(s, pdb_id, out, reference_id, force_pca, db))
+                rows.append(_finish_orient(s, pdb_id, out, reference_id, force_pca))
             except Exception as exc:  # noqa: BLE001 - keep the batch resilient
                 rows.append(_orient_row(pdb_id, f"error: {type(exc).__name__}: {str(exc)[:80]}"))
         for pdb_id, status in parse_errors.items():

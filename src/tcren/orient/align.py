@@ -19,9 +19,9 @@ import numpy as np
 from ..annotation import classify_chains
 from ..mhc import annotate_mhc
 from ..mhc.regions import _aligner
+from ..paths import reference_structure_path
 from ..structure import parse_structure
 from ..structure.model import Atom, Residue, Structure
-from .database import NativeDatabase
 
 # Default canonical reference complex per MHC class.
 DEFAULT_REFERENCE = {"MHCI": "1ao7", "MHCII": "1fyt"}
@@ -83,9 +83,9 @@ def _matched_anchors(mobile: Structure, reference: Structure):
 
 
 @lru_cache(maxsize=4)
-def _reference_structure(reference_id: str, root: str | None) -> Structure:
-    db = NativeDatabase(root)
-    s = parse_structure(db.cif_for(reference_id), pdb_id=reference_id)
+def _reference_structure(reference_id: str) -> Structure:
+    """Load + annotate a canonical reference complex from the Native2026 dataset."""
+    s = parse_structure(reference_structure_path(reference_id), pdb_id=reference_id)
     classify_chains(s, organism="human")
     annotate_mhc(s)
     return s
@@ -93,24 +93,22 @@ def _reference_structure(reference_id: str, root: str | None) -> Structure:
 
 def align_to_native(
     structure: Structure,
-    db: NativeDatabase | None = None,
     reference_id: str | None = None,
 ) -> OrientationResult:
     """Compute the transform orienting ``structure`` onto a native reference by MHC.
 
     ``structure`` must already be chain-typed and MHC-annotated (see
-    :func:`tcren.mhc.annotate_mhc`). The reference defaults to a canonical complex for
-    the structure's MHC class.
+    :func:`tcren.mhc.annotate_mhc`). The reference (default a canonical complex for the
+    structure's MHC class) is loaded from the ``Native2026`` dataset (``tcren.paths``).
     """
     from Bio.SVDSuperimposer import SVDSuperimposer
 
-    db = db or NativeDatabase()
     mhc_class = next(
         (c.chain_supertype for c in structure.chains if c.chain_type in ("MHCa", "MHCb")),
         "MHCI",
     )
     reference_id = reference_id or DEFAULT_REFERENCE.get(mhc_class, "1ao7")
-    reference = _reference_structure(reference_id, str(db.root))
+    reference = _reference_structure(reference_id)
 
     mob_pts, ref_pts = _matched_anchors(structure, reference)
     if len(mob_pts) < 3:
