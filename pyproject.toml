@@ -17,6 +17,7 @@ dependencies = [
     "polars>=1.0",
     "typer>=0.12",
     "requests>=2.31",
+    "huggingface_hub>=0.20",  # lazy fetch of canonical reference structures for orientation
 ]
 
 [project.optional-dependencies]

@@ -15,6 +15,8 @@ from .structure.io import STRUCTURE_SUFFIXES
 
 _REPO = Path(__file__).resolve().parents[2]
 NATIVE2026 = "Native2026"
+# The canonical reference structures (and full Native2026 set) live in this HF dataset.
+HF_REPO = "isalgo/tcren_structures"
 
 
 def data_dir() -> Path:
@@ -28,18 +30,54 @@ def native_dir() -> Path:
     return data_dir() / NATIVE2026
 
 
-def reference_structure_path(pdb_id: str) -> Path:
-    """Resolve a Native2026 structure file by id, trying plain and gzipped PDB/mmCIF.
-
-    Raises ``FileNotFoundError`` (with a bootstrap hint) if no candidate exists — run
-    ``tcren paper bootstrap`` (or fetch the HF dataset) to populate ``data/Native2026``.
-    """
+def _local_reference(pdb_id: str) -> Path | None:
+    """A Native2026 structure file for ``pdb_id`` under the data dir, if present locally."""
     base = native_dir()
     for suffix in STRUCTURE_SUFFIXES:
         for name in (f"{pdb_id}{suffix}", f"{pdb_id}{suffix}.gz"):
             cand = base / name
             if cand.exists():
                 return cand
+    return None
+
+
+def _fetch_reference_from_hf(pdb_id: str, folder: str = NATIVE2026) -> Path | None:
+    """Download (and cache) a single reference structure from the HF dataset.
+
+    Returns the cached file path, or ``None`` if ``huggingface_hub`` is missing or the file
+    cannot be fetched. ``hf_hub_download`` caches under the HF cache, so repeat lookups are
+    local (no network). This is what lets an installed library/CLI orient a brand-new,
+    non-canonical structure without a populated repo ``data/``.
+    """
+    try:
+        from huggingface_hub import hf_hub_download  # noqa: PLC0415
+    except ImportError:
+        return None
+    for suffix in (".pdb.gz", ".cif.gz", ".pdb", ".cif"):
+        try:
+            path = hf_hub_download(HF_REPO, f"{folder}/{pdb_id}{suffix}", repo_type="dataset")
+            return Path(path)
+        except Exception:  # noqa: BLE001 - try the next suffix / fall through to None
+            continue
+    return None
+
+
+def reference_structure_path(pdb_id: str) -> Path:
+    """Resolve a canonical reference structure by id (plain/gzipped PDB/mmCIF).
+
+    Looks under ``data/Native2026`` first; if absent (e.g. a pip-installed library with no
+    repo ``data/``), lazily downloads it from the HF dataset into the HF cache. This makes
+    orienting a new, non-canonical structure work out of the box for both the library and CLI.
+
+    Raises ``FileNotFoundError`` if it is neither local nor fetchable.
+    """
+    local = _local_reference(pdb_id)
+    if local is not None:
+        return local
+    fetched = _fetch_reference_from_hf(pdb_id)
+    if fetched is not None:
+        return fetched
     raise FileNotFoundError(
-        f"{pdb_id} not found in {base}. Populate Native2026 (e.g. `tcren paper bootstrap`)."
+        f"{pdb_id} not found in {native_dir()} and could not be fetched from {HF_REPO}. "
+        f"Populate Native2026 (`tcren paper bootstrap`) or install `huggingface_hub`."
     )
