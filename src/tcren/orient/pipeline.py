@@ -125,7 +125,7 @@ def _finish_orient(structure, pdb_id, out, reference_id, force_pca) -> dict:
                 "transform": json.dumps({"rotation": res.rotation.tolist(),
                                          "translation": res.translation.tolist()})})
     if ok:
-        write_pdb(oriented, Path(out) / f"{pdb_id}.pdb")
+        write_pdb(oriented, Path(out) / f"{pdb_id}.pdb.gz")
     else:
         row["status"] = f"rejected: {reason}"
     return row

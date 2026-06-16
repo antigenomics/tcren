@@ -9,7 +9,7 @@ import pytest
 from tcren.structure import parse_structure
 
 REPO = Path(__file__).resolve().parents[2]
-PDB_DIR = REPO / "data" / "PDB_structures"
+PDB_DIR = REPO / "tests" / "assets" / "pdb"
 
 
 @pytest.fixture(scope="module")

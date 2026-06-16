@@ -30,13 +30,10 @@ conda activate tcren
 
 ```fish
 # End-to-end scoring (drop-in replacement for run_TCRen.R)
-tcren score -s example/input_structures -c example/candidate_epitopes.txt -o out.csv
+tcren score -s legacy/example/input_structures -c legacy/example/candidate_epitopes.txt -o out.csv
 
-# Native (TCR3D) database — versioned download + uses
-tcren native bootstrap              # fetch TCR3D CIFs + annotation tables -> data/native
-tcren native status --check-remote  # show local version; check if TCR3D updated it
-tcren native derive-potential -o TCRen_native.csv   # re-derive TCRen from native structures
-#   (a custom/previous TCR3D copy: pass --root DIR, or set TCREN_NATIVE_DIR)
+# Structures (gzipped .pdb.gz/.cif.gz, .tar.gz batches all accepted)
+tcren paper bootstrap               # fetch HF structure sets -> notebooks/data/<Set>/ (gitignored)
 
 # MHC allele/class/role mapping (build the reference once)
 tcren build-mhc-ref                # downloads IMGT/HLA + mouse H-2 (cached, not committed)
@@ -49,7 +46,7 @@ tcren orient -s example/input_structures -o oriented/ --metadata orient.csv
 # Other subcommands
 tcren annotate -s example/input_structures -o markup.csv
 tcren contacts -s example/input_structures -o contacts.csv --interface tcr_peptide
-tcren derive-potential -i data/contact_maps_PDB.csv --summary data/summary_PDB_structures.csv --nonred -o TCRen_potential.csv
+tcren derive-potential -i legacy/data/contact_maps_PDB.csv --summary legacy/data/summary_PDB_structures.csv --nonred -o TCRen_potential.csv
 tcren info
 ```
 
@@ -60,7 +57,7 @@ from tcren import parse_structure, ContactMap, score_peptides
 from tcren.annotation import classify_chains
 from tcren.potential import tcren
 
-s = parse_structure("example/input_structures/6uk4_TCRpMHCmodels_polyV.pdb")
+s = parse_structure("legacy/example/input_structures/6uk4_TCRpMHCmodels_polyV.pdb")
 classify_chains(s, organism="human")          # TRA/TRB via arda, peptide, MHC
 cm = ContactMap.from_structure(s)              # 5 Å contacts + interface partitioning
 ranked = score_peptides(cm, ["KQWLVWLFL", "RLLHPHHPL"], tcren())
@@ -87,8 +84,9 @@ d = docking_angles(s)        # crossing_angle (~20-70° for αβ), incident_angl
 
 Structures come from the Hugging Face dataset
 [`isalgo/tcren_structures`](https://huggingface.co/datasets/isalgo/tcren_structures):
-`Native2022` (the 2022 paper set, oracle) and `Native2026` (the comprehensive 2026 TCR:pMHC
-set), both in the canonical orientation.
+`Native2022` (the 2022 paper set, oracle), `Native2026` (the comprehensive 2026 TCR:pMHC
+set), and `Canonical2026` (Native2026 after `tcren orient` re-orientation). All structures are
+gzipped (`*.pdb.gz`); tcren reads `.pdb`/`.cif`/`.pdb.gz`/`.cif.gz` and `.tar.gz` batches.
 
 ### 2D complementarity maps & C-gene-aware import
 

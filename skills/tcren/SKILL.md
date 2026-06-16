@@ -39,12 +39,17 @@ from tcren.paper import (
 )
 ```
 
-- Notebooks live in `notebooks/natcompsci2022/` (01 nonred+derivation, 02 cognate/unrelated
-  benchmark, 07 legacy compare, …). New results computed ONLY from `notebooks/data/`
-  (HF structures + allowed external inputs); `data_legacy/` is a comparison oracle, never a
-  pipeline input.
-- Structure sets under `notebooks/data/structures/`: `Native2022`, `Tcr3d2026` (renumbered
-  CIFs), `Native2026`, `PolyV2022`, `Bobisse`, `Bigot`.
+- Notebooks live in `notebooks/natcompsci2022/`. HF structure sets are fetched (gitignored) into
+  per-set folders directly under `notebooks/data/` — **`notebooks/data/Native2022`,
+  `notebooks/data/Native2026`, `notebooks/data/PolyV2022`, `notebooks/data/Bobisse`,
+  `notebooks/data/Bigot`** (no `structures/` wrapper). `Canonical2026` is Native2026 after
+  `tcren orient`. All structures are gzipped (`*.pdb.gz`).
+- Non-structure inputs + 2022 comparison baselines are **committed** under
+  `notebooks/natcompsci2022/data_legacy/` (vdjdb, Birnbaum, MJ/Keskin, IEDB, epitope lists,
+  `TCRpMHCmodels.tar.gz`, PDB dates, mir/R oracle) — never a pipeline input. `results_new/` is computed.
+- Root `data/` holds only the library dataset: `Native2026` (symlink, gitignored), `PDB_date.tsv`,
+  `orient_metadata.json`. The TCR3D `native` module is retired to `legacy/`; orientation references
+  load 1ao7/1fyt from `data/Native2026` via `tcren.paths`.
 
 ## Geometry: contacts, region pairs, docking angle
 

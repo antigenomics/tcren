@@ -31,14 +31,13 @@ app.add_typer(paper_app, name="paper")
 @paper_app.command("bootstrap")
 def paper_bootstrap(
     structures: bool = typer.Option(True, "--structures/--no-structures"),
-    vdjdb: bool = typer.Option(True, "--vdjdb/--no-vdjdb"),
-    data: bool = typer.Option(True, "--data/--no-data"),
-    legacy: bool = typer.Option(True, "--legacy/--no-legacy"),
+    canonical: bool = typer.Option(False, "--canonical", help="also fetch the Canonical2026 set"),
 ) -> None:
-    """Fetch HF structures + vdjdb + paper data + legacy results into notebooks/natcompsci2022/."""
+    """Fetch HF structure sets into notebooks/data/<Set>/ (gitignored; non-structure inputs
+    are already committed under natcompsci2022/data_legacy/)."""
     from .paper import bootstrap as run
 
-    summary = run(structures=structures, vdjdb=vdjdb, data=data, legacy=legacy)
+    summary = run(structures=structures, canonical=canonical)
     for k, v in summary.items():
         typer.echo(f"{k}: {v}")
 

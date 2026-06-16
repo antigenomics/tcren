@@ -14,7 +14,7 @@ from tcren.structure import parse_structure
 from tcren.structure.model import RegionMarkup
 
 REPO = Path(__file__).resolve().parents[2]
-PDB_DIR = REPO / "data" / "PDB_structures"
+PDB_DIR = REPO / "tests" / "assets" / "pdb"
 
 
 def test_classify_contact_cases():

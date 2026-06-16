@@ -304,11 +304,14 @@ database/mhc/
 docs/notebooks/
 
 # HF-bootstrapped structure sets (isalgo/tcren_structures) — never committed.
-# Root data/: the canonical Native2026 set (symlinked from the notebooks copy).
+# Root data/: the canonical Native2026 set (symlinked from the notebooks copy) and the
+# re-oriented Canonical2026 set produced by `tcren orient` (synced to the Hub).
 data/Native2026
+data/Canonical2026/
 # notebooks/data/: per-set folders for the natcompsci2022 reproduction.
 notebooks/data/Native2022/
 notebooks/data/Native2026/
+notebooks/data/Canonical2026/
 notebooks/data/PolyV2022/
 notebooks/data/Bobisse/
 notebooks/data/Bigot/

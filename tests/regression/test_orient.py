@@ -16,7 +16,7 @@ arda = pytest.importorskip("arda")
 pytestmark = pytest.mark.slow  # arda + native DB + BioPython superposition
 
 REPO = Path(__file__).resolve().parents[2]
-NATIVE = REPO / "notebooks" / "data" / "structures" / "Native2022"
+NATIVE = REPO / "notebooks" / "data" / "Native2022"
 
 
 def _oriented(pid):

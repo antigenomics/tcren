@@ -163,45 +163,13 @@ tcren.scoring module
    :undoc-members:
    :show-inheritance:
 
-Native database (TCR3D)
------------------------
+Data paths
+----------
 
-tcren.native.database module
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tcren.paths module
+~~~~~~~~~~~~~~~~~~~
 
-.. automodule:: tcren.native.database
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-tcren.native.bootstrap module
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-.. automodule:: tcren.native.bootstrap
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-tcren.native.annotate module
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-.. automodule:: tcren.native.annotate
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-tcren.native.align module
-~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-.. automodule:: tcren.native.align
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-tcren.native.potential module
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-.. automodule:: tcren.native.potential
+.. automodule:: tcren.paths
    :members:
    :undoc-members:
    :show-inheritance:
@@ -219,6 +187,14 @@ tcren.analysis module
 
 Orientation
 -----------
+
+tcren.orient.align module
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: tcren.orient.align
+   :members:
+   :undoc-members:
+   :show-inheritance:
 
 tcren.orient.frame module
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
