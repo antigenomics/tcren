@@ -11,7 +11,11 @@ from __future__ import annotations
 
 import polars as pl
 
-from ..contacts.geometry import all_atom_contacts, ca_distance_matrix
+from ..contacts.geometry import (
+    all_atom_contacts,
+    ca_distance_matrix,
+    representative_atom_contacts,
+)
 from ..structure.model import Structure
 from .frame import ProjectionResult
 
@@ -211,3 +215,103 @@ def contacts_table(structure: Structure, threshold: float = 5.0) -> pl.DataFrame
         "contact_type": pl.Utf8, "backbone_1": pl.Boolean, "backbone_2": pl.Boolean,
     }
     return pl.DataFrame(rows, schema=schema)
+
+
+# Default cutoff (Å) per contact definition.
+_KIND_CUTOFF = {"closest": 5.0, "cb": 8.0, "ca": 12.0}
+
+
+def _region_lookup(structure: Structure) -> dict[tuple[str, int], tuple[str, str | None]]:
+    """``(chain_id, seq_index) -> (complex_chain, complex_region)`` for complex chains."""
+    out: dict[tuple[str, int], tuple[str, str | None]] = {}
+    for chain in structure.chains:
+        if chain.chain_type not in _COMPLEX_CHAINS:
+            continue
+        cc = _COMPLEX_CHAIN[chain.chain_type]
+        region_of = _region_of_chain(chain)
+        for res in chain.residues:
+            out[(chain.chain_id, res.seq_index)] = (cc, _complex_region(region_of.get(res.seq_index)))
+    return out
+
+
+def region_pair_contacts(
+    structure: Structure, kind: str = "closest", cutoff: float | None = None
+) -> pl.DataFrame:
+    """Inter-chain residue contacts annotated with the region pair they bridge.
+
+    ``kind`` selects the contact definition: ``"closest"`` (closest heavy-atom pair,
+    :func:`all_atom_contacts`, default 5 Å — the original TCRen definition, and the only kind
+    that carries a ``contact_type`` bond classification), ``"cb"`` (Cβ representative atom,
+    default 8 Å), or ``"ca"`` (Cα representative atom, default 12 Å). Region labels are ordered
+    canonically per row so a pair is direction-independent (``cdr3``↔``peptide`` ==
+    ``peptide``↔``cdr3``).
+
+    Returns columns: ``structure_id, complex_chain_1, region_1, complex_chain_2, region_2,
+    aa_index_1, aa_index_2, min_dist`` plus, for ``kind="closest"``, ``contact_type``.
+    """
+    if kind not in _KIND_CUTOFF:
+        raise ValueError(f"kind must be one of {sorted(_KIND_CUTOFF)}, got {kind!r}")
+    cutoff = _KIND_CUTOFF[kind] if cutoff is None else cutoff
+    raw = (all_atom_contacts(structure, cutoff=cutoff) if kind == "closest"
+           else representative_atom_contacts(structure, kind=kind, cutoff=cutoff))
+    lookup = _region_lookup(structure)
+
+    rows = []
+    for row in raw.iter_rows(named=True):
+        c1, c2 = row["chain.id.from"], row["chain.id.to"]
+        i1, i2 = row["residue.index.from"], row["residue.index.to"]
+        cc1, reg1 = lookup.get((c1, i1), (None, None))
+        cc2, reg2 = lookup.get((c2, i2), (None, None))
+        if cc1 is None or cc2 is None:  # a non-complex chain (e.g. an extra copy); skip
+            continue
+        # Canonical ordering of the two ends so the region pair is direction-independent.
+        end1 = (cc1, reg1, i1)
+        end2 = (cc2, reg2, i2)
+        if end1 > end2:
+            end1, end2 = end2, end1
+        rec = {
+            "structure_id": structure.pdb_id,
+            "complex_chain_1": end1[0], "region_1": end1[1],
+            "complex_chain_2": end2[0], "region_2": end2[1],
+            "aa_index_1": end1[2], "aa_index_2": end2[2], "min_dist": row["dist"],
+        }
+        if kind == "closest":
+            rec["contact_type"] = classify_contact(
+                row["residue.aa.from"], row["residue.aa.to"],
+                row["atom.from"], row["atom.to"], row["dist"],
+            )
+        rows.append(rec)
+
+    schema = {
+        "structure_id": pl.Utf8, "complex_chain_1": pl.Utf8, "region_1": pl.Utf8,
+        "complex_chain_2": pl.Utf8, "region_2": pl.Utf8,
+        "aa_index_1": pl.Int64, "aa_index_2": pl.Int64, "min_dist": pl.Float64,
+    }
+    if kind == "closest":
+        schema["contact_type"] = pl.Utf8
+    return pl.DataFrame(rows, schema=schema)
+
+
+def region_pair_summary(
+    structure: Structure, kind: str = "closest", cutoff: float | None = None
+) -> pl.DataFrame:
+    """Per region-pair contact counts (+ bond-type breakdown for ``kind="closest"``).
+
+    Aggregates :func:`region_pair_contacts` to one row per ``(region_1, region_2)`` pair with
+    ``n_contacts``. For ``kind="closest"`` it adds a column per bond type
+    (``n_hydrogen_bond, n_salt_bridge, n_aromatic, n_hydrophobic, n_polar, n_other``), so
+    hydrogen bonds (and the rest) are reported for **every** region pair in the complex, not
+    just the MHC interface.
+    """
+    contacts = region_pair_contacts(structure, kind=kind, cutoff=cutoff)
+    keys = ["complex_chain_1", "region_1", "complex_chain_2", "region_2"]
+    if contacts.height == 0:
+        return contacts.select(keys).head(0).with_columns(pl.lit(0, dtype=pl.Int64).alias("n_contacts"))
+    summary = contacts.group_by(keys).agg(pl.len().alias("n_contacts"))
+    if kind == "closest":
+        types = ["hydrogen_bond", "salt_bridge", "aromatic", "hydrophobic", "polar", "other"]
+        breakdown = contacts.group_by(keys).agg(
+            [(pl.col("contact_type") == t).sum().alias(f"n_{t}") for t in types]
+        )
+        summary = summary.join(breakdown, on=keys)
+    return summary.sort("n_contacts", descending=True)
