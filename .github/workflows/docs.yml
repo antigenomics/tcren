@@ -10,8 +10,9 @@ permissions:
   pages: write
   id-token: write
 
+# Per-ref so a dev push never cancels an in-flight master Pages deploy.
 concurrency:
-  group: pages
+  group: pages-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -38,6 +39,9 @@ jobs:
 
   deploy:
     needs: build
+    # The github-pages environment only allows deploys from the default branch; on dev we
+    # validate the build (above) but skip deployment so the workflow stays green.
+    if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
