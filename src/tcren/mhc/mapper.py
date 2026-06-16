@@ -91,8 +91,21 @@ def map_mhc(structure: Structure, sensitivity: float = 5.7) -> list[MhcCall]:
                            search_type=1, sensitivity=sensitivity, max_seqs=50)
         best = _best_hits(out_tsv)
 
+    calls = calls_from_hits(candidates, best)
+    return calls
+
+
+def calls_from_hits(candidates, best: dict[str, dict], key=None) -> list[MhcCall]:
+    """Build reconciled :class:`MhcCall`s for ``candidates`` from precomputed mmseqs hits.
+
+    ``key(chain) -> str`` maps a candidate chain to its key in ``best`` (default the chain id;
+    a batched search uses ``"<struct_idx>|<chain_id>"``). Lets one mmseqs search over many
+    structures' chains be sliced back per structure — no per-structure mmseqs call.
+    """
+    key = key or (lambda c: c.chain_id)
+    calls: list[MhcCall] = []
     for chain in candidates:
-        hit = best.get(chain.chain_id)
+        hit = best.get(key(chain))
         if hit is None:
             continue
         meta = reference.parse_header(hit["target"])
@@ -113,7 +126,6 @@ def map_mhc(structure: Structure, sensitivity: float = 5.7) -> list[MhcCall]:
                 cigar=hit["cigar"],
             )
         )
-
     _reconcile_class(calls)
     return calls
 

@@ -8,7 +8,7 @@ This is a method for prediction of TCR recognition of unseen epitopes based on r
 
 TCRen method starts from a structure of the peptide-MHC complex with the TCR of interest—either experimentally derived or based on a homology model—then extracts a TCR-peptide contact map and estimates the TCR-peptide energy of interaction for all candidate  epitopes using TCRen potential, which we derived from statistical analysis of amino acid contact preferences in TCR:pMHC crystal structures.
 
-![preview](figures/Fig1.png)
+![preview](legacy/figures/Fig1.png)
 
 ## Python library (`tcren`)
 
@@ -35,17 +35,22 @@ tcren score -s legacy/example/input_structures -c legacy/example/candidate_epito
 # Structures (gzipped .pdb.gz/.cif.gz, .tar.gz batches all accepted)
 tcren paper bootstrap               # fetch HF structure sets -> notebooks/data/<Set>/ (gitignored)
 
+# Fetch recent TCR-pMHC structures from RCSB -> data/pdb_recent/ (mmCIF .cif.gz, 5-chain validated)
+tcren fetch-recent --discover --after 2024-01-01
+
 # MHC allele/class/role mapping (build the reference once)
 tcren build-mhc-ref                # downloads IMGT/HLA + mouse H-2 (cached, not committed)
-tcren mhc -s example/input_structures -o mhc_calls.csv
+tcren mhc -s legacy/example/input_structures -o mhc_calls.csv
 
-# Canonical orientation — superpose TCR-pMHC into one MHC frame, rename chains A-E
-tcren orient -s example/input_structures -o oriented/ --metadata orient.csv
+# Canonical orientation — superpose TCR-pMHC into one MHC frame, rename chains A-E, write .pdb.gz.
+# Annotation is one batched mmseqs call; -t threads only the alignment + write (never mmseqs).
+tcren orient -s data/Native2026 -o data/Canonical2026 -t 8 \
+    --push-to-hub isalgo/tcren_structures --hub-folder Canonical2026
 #   z (PC1) = MHC->TCR, y (PC2) = peptide, x (PC3); chains: A=Va B=Vb C=peptide D=MHCa E=MHCb/b2m
 
 # Other subcommands
-tcren annotate -s example/input_structures -o markup.csv
-tcren contacts -s example/input_structures -o contacts.csv --interface tcr_peptide
+tcren annotate -s legacy/example/input_structures -o markup.csv
+tcren contacts -s legacy/example/input_structures -o contacts.csv --interface tcr_peptide
 tcren derive-potential -i legacy/data/contact_maps_PDB.csv --summary legacy/data/summary_PDB_structures.csv --nonred -o TCRen_potential.csv
 tcren info
 ```

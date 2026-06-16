@@ -88,3 +88,39 @@ def annotate_mhc(structure: Structure) -> list[MhcCall]:
     apply_mhc_calls(structure, calls)
     partition_mhc(structure, calls)
     return calls
+
+
+def annotate_mhc_batch(structures: list[Structure], sensitivity: float = 5.7) -> None:
+    """MHC-annotate many (chain-typed) structures with a SINGLE mmseqs search.
+
+    Gathers every candidate MHC chain across all structures, runs one ``easy_search`` (mmseqs
+    parallelises internally — no Python threads, no per-structure call), then slices the hits
+    back and applies the calls + groove partitioning to each structure in place. This is the
+    batched equivalent of calling :func:`annotate_mhc` per structure, for dataset-scale work.
+    """
+    import tempfile
+    from pathlib import Path
+
+    import arda.mmseqs as mmseqs
+
+    from . import reference
+    from .mapper import _best_hits, _candidate_chains, calls_from_hits
+
+    flat = [(i, c) for i, s in enumerate(structures) for c in _candidate_chains(s) if c.sequence()]
+    best: dict[str, dict] = {}
+    if flat:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            query_fa = tmp / "query.fasta"
+            with query_fa.open("w") as fh:
+                for i, c in flat:
+                    fh.write(f">{i}|{c.chain_id}\n{c.sequence()}\n")
+            out_tsv = tmp / "hits.tsv"
+            mmseqs.easy_search(query_fa, reference.reference_fasta(), out_tsv,
+                               tmp / "mmseqs_tmp", search_type=1, sensitivity=sensitivity,
+                               max_seqs=50)
+            best = _best_hits(out_tsv)
+    for i, s in enumerate(structures):
+        calls = calls_from_hits(_candidate_chains(s), best, key=lambda c, i=i: f"{i}|{c.chain_id}")
+        apply_mhc_calls(s, calls)
+        partition_mhc(s, calls)

@@ -22,9 +22,29 @@ parallel layer; Python orchestration is a single call.
 - A `ProcessPoolExecutor(fork)` over structures **deadlocks** (fork after mmseqs2/BLAS
   spawn threads). A `ThreadPoolExecutor` runs but still pays the fixed cost N times.
 - `paper/helpers.py::_batch_annotate` does TCR annotation for a whole dataset in 2 arda
-  calls (human + mouse). MHC annotation must follow the same gather→batch→map pattern.
+  calls (human + mouse). MHC annotation uses the same pattern: `mhc.annotate_mhc_batch(structures)`
+  — ONE mmseqs search over every candidate MHC chain, sliced back per structure.
 
 Reference: `arda.annotate_sequences([(id, seq), ...])` — one call, threads internally.
+
+## Threading model — annotation batched, threads only for structural ops
+
+- **Annotation (TCR + MHC) is never Python-threaded and never per-structure.** It is one
+  batched mmseqs2 call; mmseqs2 is the parallel layer (do NOT pass it a thread count). No
+  `ProcessPoolExecutor`/`workers`.
+- **Use threads ONLY for the embarrassingly-parallel, mmseqs-free stages:** structural
+  alignment (Kabsch/SVD superposition), peptide mutation, relaxation, and rendering — i.e.
+  pymol / Rosetta / FlexPepDock and figure generation. `orient.run_folder(threads=…)` threads
+  the parse and the align+write stages (default `os.cpu_count()`); annotation between them is
+  the single batched pass. `tcren orient -t N`.
+
+## Fetching recent structures — `tcren fetch-recent` / `tcren.recent`
+
+- `tcren fetch-recent [--discover --after YYYY-MM-DD]` → `data/pdb_recent/` (gitignored):
+  downloads PDB ids (Native2026 seed; `--discover` adds an RCSB full-text TCR:pMHC search) as
+  **mmCIF `.cif.gz`** (the PDB deprecates split `.pdb`; handles **extended >4-char ids**), then
+  keeps only complexes with all **5 required chains** (MHCa + b2m/MHCb + peptide + TCR pair),
+  validated by one batched annotation pass. `tcren.recent.{fetch_ids,discover_similar,native2026_ids}`.
 
 ## Paper-reproduction module (`tcren.paper`)
 
