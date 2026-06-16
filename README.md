@@ -1,4 +1,4 @@
-> The pipeline is free for acadimc and non-commercial use. Inquiries regarding commercial use can be e-mailed to the last author (PI) of [the study](https://www.nature.com/articles/s43588-024-00653-0) and dully ignored.
+> The pipeline is free for acadimc and non-commercial use. Inquiries regarding commercial use can be e-mailed to the last author (PI) of [the study](https://www.nature.com/articles/s43588-024-00653-0) to be duly ignored.
 
 ![logo](assets/tcren_dark.svg)
 
