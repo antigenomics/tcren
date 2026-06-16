@@ -218,4 +218,4 @@ See ``tcren_am/`` for derivation of alignment scoring matrices from TCRen and ex
 
 ## Cite as
 
-Karnaukhov, V.K., Shcherbinin, D.S., Chugunov, A.O. et al. Structure-based prediction of T cell receptor recognition of unseen epitopes using TCRen. Nat Comput Sci 4, 510–521 (2024). https://doi.org/10.1038/s43588-024-00653-0
+```Karnaukhov VK, Shcherbinin DS, Chugunov AO, Chudakov DM, Efremov RG, Zvyagin IV, Shugay M. Structure-based prediction of T cell receptor recognition of unseen epitopes using TCRen. Nat Comput Sci. 2024 Jul;4(7):510-521. doi: 10.1038/s43588-024-00653-0. Epub 2024 Jul 10. PMID: 38987378.```
