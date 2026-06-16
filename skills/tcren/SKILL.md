@@ -22,9 +22,29 @@ parallel layer; Python orchestration is a single call.
 - A `ProcessPoolExecutor(fork)` over structures **deadlocks** (fork after mmseqs2/BLAS
   spawn threads). A `ThreadPoolExecutor` runs but still pays the fixed cost N times.
 - `paper/helpers.py::_batch_annotate` does TCR annotation for a whole dataset in 2 arda
-  calls (human + mouse). MHC annotation must follow the same gather→batch→map pattern.
+  calls (human + mouse). MHC annotation uses the same pattern: `mhc.annotate_mhc_batch(structures)`
+  — ONE mmseqs search over every candidate MHC chain, sliced back per structure.
 
 Reference: `arda.annotate_sequences([(id, seq), ...])` — one call, threads internally.
+
+## Threading model — annotation batched, threads only for structural ops
+
+- **Annotation (TCR + MHC) is never Python-threaded and never per-structure.** It is one
+  batched mmseqs2 call; mmseqs2 is the parallel layer (do NOT pass it a thread count). No
+  `ProcessPoolExecutor`/`workers`.
+- **Use threads ONLY for the embarrassingly-parallel, mmseqs-free stages:** structural
+  alignment (Kabsch/SVD superposition), peptide mutation, relaxation, and rendering — i.e.
+  pymol / Rosetta / FlexPepDock and figure generation. `orient.run_folder(threads=…)` threads
+  the parse and the align+write stages (default `os.cpu_count()`); annotation between them is
+  the single batched pass. `tcren orient -t N`.
+
+## Fetching recent structures — `tcren fetch-recent` / `tcren.recent`
+
+- `tcren fetch-recent [--discover --after YYYY-MM-DD]` → `data/pdb_recent/` (gitignored):
+  downloads PDB ids (Native2026 seed; `--discover` adds an RCSB full-text TCR:pMHC search) as
+  **mmCIF `.cif.gz`** (the PDB deprecates split `.pdb`; handles **extended >4-char ids**), then
+  keeps only complexes with all **5 required chains** (MHCa + b2m/MHCb + peptide + TCR pair),
+  validated by one batched annotation pass. `tcren.recent.{fetch_ids,discover_similar,native2026_ids}`.
 
 ## Paper-reproduction module (`tcren.paper`)
 
@@ -39,12 +59,17 @@ from tcren.paper import (
 )
 ```
 
-- Notebooks live in `notebooks/natcompsci2022/` (01 nonred+derivation, 02 cognate/unrelated
-  benchmark, 07 legacy compare, …). New results computed ONLY from `notebooks/data/`
-  (HF structures + allowed external inputs); `data_legacy/` is a comparison oracle, never a
-  pipeline input.
-- Structure sets under `notebooks/data/structures/`: `Native2022`, `Tcr3d2026` (renumbered
-  CIFs), `Native2026`, `PolyV2022`, `Bobisse`, `Bigot`.
+- Notebooks live in `notebooks/natcompsci2022/`. HF structure sets are fetched (gitignored) into
+  per-set folders directly under `notebooks/data/` — **`notebooks/data/Native2022`,
+  `notebooks/data/Native2026`, `notebooks/data/PolyV2022`, `notebooks/data/Bobisse`,
+  `notebooks/data/Bigot`** (no `structures/` wrapper). `Canonical2026` is Native2026 after
+  `tcren orient`. All structures are gzipped (`*.pdb.gz`).
+- Non-structure inputs + 2022 comparison baselines are **committed** under
+  `notebooks/natcompsci2022/data_legacy/` (vdjdb, Birnbaum, MJ/Keskin, IEDB, epitope lists,
+  `TCRpMHCmodels.tar.gz`, PDB dates, mir/R oracle) — never a pipeline input. `results_new/` is computed.
+- Root `data/` holds only the library dataset: `Native2026` (symlink, gitignored), `PDB_date.tsv`,
+  `orient_metadata.json`. The TCR3D `native` module is retired to `legacy/`; orientation references
+  load 1ao7/1fyt from `data/Native2026` via `tcren.paths`.
 
 ## Geometry: contacts, region pairs, docking angle
 

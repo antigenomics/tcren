@@ -1,0 +1,117 @@
+---
+title: "Test TCRen performance on neoepitope data"
+author: "Vadim Karnaukhov"
+date: '2022-08-20'
+output: html_document
+---
+
+# Prediction of neo-epitope recognized by TCR 302TIL
+
+```{r}
+run_mir(pdb_dir = "neoepitope/struct/", arg = "annotate-structures")
+run_mir(pdb_dir = "neoepitope/struct/", arg = "compute-pdb-contacts")
+```
+
+```{r}
+extract_contact_map <- function(dir_name) {
+  
+  contacts <- fread(file.path(dir_name, "atomdist.txt")) %>%
+    filter(dist <= 5, chain.id.from != chain.id.to) %>%
+    select(-atom.from, -atom.to, -dist) %>%
+    unique
+    
+  contacts.full <- rbind(
+    contacts,
+    contacts %>% 
+      rename(chain.id.from = chain.id.to,
+             chain.id.to = chain.id.from,
+             residue.index.from = residue.index.to,
+             residue.index.to = residue.index.from)
+  )
+  
+  general_resmarkup <- fread(file.path(dir_name, "general.txt")) %>% 
+    merge(fread(file.path(dir_name, "resmarkup.txt"),
+          blank.lines.skip = T)) %>% 
+    group_by(pdb.id, chain.id, region.type) %>% 
+    mutate(region.start = min(residue.index)) %>% 
+    ungroup 
+    
+  markup <- fread(file.path(dir_name, "markup.txt"))
+  
+  peptides_pdb <- markup %>% 
+    filter(region.type == "PEPTIDE") %>% 
+    select(pdb.id, peptide = region.sequence) %>% 
+    mutate(pep.len = nchar(peptide))
+  
+  
+  contacts.full %>% 
+    merge.data.frame(general_resmarkup %>% 
+            select(pdb.id, chain.type.from = chain.type, chain.id.from = chain.id,
+                   residue.index.from = residue.index, residue.aa.from = residue.aa,
+                   region.type.from = region.type, region.start.from = region.start)) %>% 
+    merge.data.frame(general_resmarkup %>% 
+            select(pdb.id, chain.type.to = chain.type, chain.id.to = chain.id, 
+                   residue.index.to = residue.index, residue.aa.to = residue.aa,
+                   region.type.to = region.type, region.start.to = region.start)) %>% 
+    mutate(pos.from = residue.index.from - region.start.from,
+           pos.to = residue.index.to - region.start.to) %>% 
+    filter(chain.type.from %in% c("TRA", "TRB"),
+           chain.type.to == "PEPTIDE") %>% 
+    select(pdb.id, chain.type.from, region.type.from, residue.index.from, residue.index.to,
+           pos.from, pos.to, residue.aa.from, residue.aa.to)
+
+}
+```
+```{r}
+til.ranks <- extract_contact_map("../data/Bobisse/output_TCRen_TCRpMHCmodels/structures_annotation/") %>% 
+  select(pdb.id, chain.type.from, region.type.from, residue.index.from, residue.index.to, residue.aa.from) %>%
+  mutate(HLA = str_split_fixed(pdb.id, "_", 4)[,2],
+         pep.len = str_split_fixed(pdb.id, "_", 4)[,3]) %>% 
+  merge(fread("../data/Bobisse/Bobisse_peptides.tsv") %>% 
+          select(peptide = Peptide, HLA) %>% 
+          mutate(pep.len = nchar(peptide)) %>% 
+          mutate(HLA = gsub(":", "", HLA)) %>%  
+          separate_peptide(),
+        allow.cartesian=TRUE) %>% 
+  merge.data.frame(TCRen.LOO %>% 
+                     filter(pdb.id %in% c("6p64", "6uk4")) %>% 
+                     select(-pdb.id)) %>% 
+  group_by(pdb.id, peptide, HLA, pep.len) %>% 
+  summarise(TCRen.LOO.s = sum(TCRen.LOO)) %>%
+  arrange(TCRen.LOO.s)
+```
+
+
+
+```{r}
+library(ggrepel)
+
+pfig2e <- til.ranks %>% 
+  mutate(real = (peptide == "KQWLVWLFL"),
+         label = ifelse(real, "cognate\nneoepitope\n(KQWLVWLFL)", ""),
+         HLA = paste0(substr(HLA, 1, 1), "*", substr(HLA, 2, 3), ":", substr(HLA, 4, 5))) %>% 
+  ggplot(aes(x = "", y = TCRen.LOO.s, shape = HLA, color = real)) +
+  geom_quasirandom() +
+  theme_bw() +
+  theme_pubclean() +
+  ylab("TCRen score") + xlab("") +
+  theme(aspect.ratio = 2,
+        axis.ticks.x = element_blank()) +
+  geom_text_repel(aes(label = label), lineheight = .9, min.segment.length = .01, box.padding = 0.5, max.overlaps = Inf) +
+  scale_color_manual(values = c("black", "red")) +
+  ylim(c(-5, 6.5)) +
+  theme(legend.position = "right") +
+  guides(color = F)
+
+pfig2e
+```
+
+```{r}
+pdf("../figures//Fig2e.pdf", height = 4, width = 4)
+pfig2e
+dev.off()
+```
+
+
+
+

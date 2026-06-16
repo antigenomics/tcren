@@ -9,7 +9,7 @@ from tcren.structure import import_structure, parse_structure
 
 REPO = Path(__file__).resolve().parents[2]
 FULL = REPO / "tests" / "assets" / "cgene" / "1ao7_full.pdb"
-VONLY = REPO / "data" / "PDB_structures" / "1ao7.pdb"
+VONLY = REPO / "tests" / "assets" / "pdb" / "1ao7.pdb"
 
 
 def test_constant_span_found_in_full_beta_chain():

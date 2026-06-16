@@ -55,14 +55,14 @@ def annotate_structure_set(
     """
     from ..annotation import classify_chains
     from ..annotation.arda_adapter import _import_arda
-    from ..structure import parse_structure
+    from ..structure import parse_structure, structure_id_from_path, structure_paths
 
     struct_dir = Path(struct_dir)
-    paths = sorted(p for p in struct_dir.iterdir() if p.suffix in (".pdb", ".cif"))
+    paths = structure_paths(struct_dir)
     structures: list[Structure] = []
     for path in paths:
-        # TCR3D CIFs are named "<pdb>_renumbered.cif"; normalise to the 4-char PDB id.
-        pdb_id = path.stem.split("_")[0]
+        # id resolved from the filename (handles "<id>.pdb(.gz)" and "<id>_renumbered.cif").
+        pdb_id = structure_id_from_path(path)
         try:
             structures.append(parse_structure(path, pdb_id=pdb_id))
         except Exception:
@@ -129,17 +129,17 @@ def mhc_annotation(
     from ..annotation.arda_adapter import _import_arda
     from ..mhc import reference
     from ..mhc.mapper import MhcCall, _best_hits, _candidate_chains, _reconcile_class
-    from ..structure import parse_structure
+    from ..structure import parse_structure, structure_id_from_path, structure_paths
 
     struct_dir = Path(struct_dir)
-    paths = sorted(p for p in struct_dir.iterdir() if p.suffix.lower() in (".pdb", ".cif"))
+    paths = structure_paths(struct_dir)
     if ids is not None:
         keep = set(ids)
-        paths = [p for p in paths if p.stem.split("_")[0] in keep]
+        paths = [p for p in paths if structure_id_from_path(p) in keep]
 
     structures: list[Structure] = []
     for path in paths:
-        pdb_id = path.stem.split("_")[0]
+        pdb_id = structure_id_from_path(path)
         try:
             structures.append(parse_structure(path, pdb_id=pdb_id))
         except Exception:

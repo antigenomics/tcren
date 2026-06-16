@@ -284,7 +284,6 @@ TSWLatexianTemp*
 # option is specified. Footnotes are the stored in a file with suffix Notes.bib.
 # Uncomment the next line to have this generated file ignored.
 #*Notes.bib.ipynb_checkpoints/
-data/output_TCRen/structures_annotation/cadist.txt
 
 # Python (tcren package)
 tmp/
@@ -302,9 +301,18 @@ docs/_build/
 data/mhc_cache/
 database/mhc/
 
-# Native (tcr3d) database — downloaded artifacts
-data/native/
 docs/notebooks/
 
-# natcompsci2022 reproduction — HF-bootstrapped structures
-notebooks/data/structures/
+# HF-bootstrapped structure sets (isalgo/tcren_structures) — never committed.
+# Root data/: the canonical Native2026 set (symlinked from the notebooks copy) and the
+# re-oriented Canonical2026 set produced by `tcren orient` (synced to the Hub).
+data/Native2026
+data/Canonical2026/
+# notebooks/data/: per-set folders for the natcompsci2022 reproduction.
+notebooks/data/Native2022/
+notebooks/data/Native2026/
+notebooks/data/Canonical2026/
+notebooks/data/PolyV2022/
+notebooks/data/Bobisse/
+notebooks/data/Bigot/
+data/pdb_recent/
