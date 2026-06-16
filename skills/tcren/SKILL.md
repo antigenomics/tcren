@@ -46,8 +46,28 @@ from tcren.paper import (
 - Structure sets under `notebooks/data/structures/`: `Native2022`, `Tcr3d2026` (renumbered
   CIFs), `Native2026`, `PolyV2022`, `Bobisse`, `Bigot`.
 
+## Geometry: contacts, region pairs, docking angle
+
+```python
+from tcren.project2d import region_pair_contacts, region_pair_summary  # needs chain-typed + MHC-annotated structure
+from tcren.orient import docking_angles
+```
+
+- `region_pair_summary(s, kind="closest"|"cb"|"ca")` — inter-chain contact counts for **every**
+  region pair (CDR↔peptide, peptide↔MHC, TCR↔MHC, intra-TCR …), not just one interface. Three
+  contact definitions: `closest` (5 Å closest heavy-atom pair — the original TCRen definition, the
+  only kind that carries a `contact_type` bond classification), `cb` (8 Å Cβ, Cα fallback for Gly),
+  `ca` (12 Å Cα). Region-pair labels are ordered canonically (direction-independent).
+- Bond types come from the heavy-atom heuristic `project2d.classify_contact` (salt_bridge /
+  hydrogen_bond / aromatic / hydrophobic / polar). The external `biotite.structure.hbond`
+  (Baker-Hubbard) needs **explicit hydrogens** — it returns 0 on X-ray crystals (no H), so it is
+  only useful on protonated / NMR / MD structures. Use the heuristic for crystal structures.
+- `docking_angles(s)` — TCR crossing + incident angle from a groove frame built from the peptide
+  principal axis + peptide→TCR normal (NOT the whole-complex PCA basis, which the Vα–Vβ spread
+  contaminates). ~20–70° crossing for αβ; requires a peptide chain (γδ without peptide raises).
+
 ## Gotchas
 
-- nbconvert: pass `--ExecutePreprocessor.kernel_name=python3` or cells silently don't run.
+- nbconvert: pass `--ExecutePreprocessor.kernel_name=python3` (or `=tcren-nb`) or cells silently don't run.
 - MHC allele strings from the mapper carry full resolution (e.g. `HLA-A*02:608N`); for
   IEDB-style matching, truncate to 2-field group (`HLA-A*02`).
