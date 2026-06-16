@@ -1,7 +1,17 @@
-"""Parse PDB / mmCIF files into the :mod:`tcren.structure.model` data model."""
+"""Parse PDB / mmCIF files into the :mod:`tcren.structure.model` data model.
+
+Accepts plain ``.pdb``/``.ent``/``.cif``/``.mmcif`` files, their gzip-compressed forms
+(``.pdb.gz``/``.cif.gz`` …), and — for batches — directories or ``.tar``/``.tar.gz`` archives
+of any of those (see :func:`iter_structures`). Structure identifiers are resolved from the file
+name by :func:`structure_id_from_path`.
+"""
 
 from __future__ import annotations
 
+import gzip
+import tarfile
+import tempfile
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import numpy as np
@@ -13,6 +23,41 @@ from .model import Atom, Chain, Residue, Structure
 # Extended three→one map covers modified residues (MSE→M, SEC→U, …).
 _THREE_TO_ONE = dict(protein_letters_3to1_extended)
 _WATER = {"HOH", "WAT", "DOD"}
+
+# Recognised structure extensions (mmCIF first). A file also matches with a trailing ``.gz``.
+_CIF_SUFFIXES = (".cif", ".mmcif")
+_PDB_SUFFIXES = (".pdb", ".ent")
+STRUCTURE_SUFFIXES = _CIF_SUFFIXES + _PDB_SUFFIXES
+_TAR_SUFFIXES = (".tar", ".tar.gz", ".tgz")
+
+
+def _strip_gz(name: str) -> tuple[str, bool]:
+    """``(name_without_trailing_.gz, was_gzipped)``."""
+    return (name[:-3], True) if name.lower().endswith(".gz") else (name, False)
+
+
+def is_structure_file(name: str | Path) -> bool:
+    """True if ``name`` is a (optionally gzipped) PDB/mmCIF structure file."""
+    inner, _ = _strip_gz(Path(name).name)
+    return inner.lower().endswith(STRUCTURE_SUFFIXES)
+
+
+def structure_id_from_path(path: str | Path) -> str:
+    """Resolve a structure identifier from a file name.
+
+    Strips a trailing ``.gz`` and the structure extension, then takes the part before the
+    first ``_`` (so ``4x5w_renumbered.cif`` and ``1ao7.pdb.gz`` and
+    ``6uk4_TCRpMHCmodels.pdb`` all resolve to their PDB id).
+    """
+    inner, _ = _strip_gz(Path(path).name)
+    stem = inner.rsplit(".", 1)[0] if "." in inner else inner
+    return stem.split("_")[0]
+
+
+def _structure_format(name: str) -> str:
+    """``"cif"`` or ``"pdb"`` for a (possibly gzipped) structure file name."""
+    inner, _ = _strip_gz(Path(name).name)
+    return "cif" if inner.lower().endswith(_CIF_SUFFIXES) else "pdb"
 
 
 def _one_letter(resname: str) -> str | None:
@@ -67,14 +112,15 @@ def parse_structure(
         The parsed :class:`Structure`.
     """
     path = Path(path)
-    pdb_id = pdb_id or path.stem
-    suffix = path.suffix.lower()
-    if suffix in (".cif", ".mmcif"):
-        parser = MMCIFParser(QUIET=True)
-    else:
-        parser = PDBParser(QUIET=True)
+    inner, gzipped = _strip_gz(path.name)
+    pdb_id = pdb_id or inner.rsplit(".", 1)[0]
+    parser = MMCIFParser(QUIET=True) if _structure_format(path.name) == "cif" else PDBParser(QUIET=True)
 
-    bio = parser.get_structure(pdb_id, str(path))
+    if gzipped:
+        with gzip.open(path, "rt") as handle:
+            bio = parser.get_structure(pdb_id, handle)
+    else:
+        bio = parser.get_structure(pdb_id, str(path))
     bio_model = list(bio)[model]
 
     chains: list[Chain] = []
@@ -168,6 +214,72 @@ def import_structure(
     if trim_c_gene and not keep_c_gene:
         _trim_constant_regions(structure, min_score=min_constant_score)
     return structure
+
+
+def structure_paths(src: str | Path) -> list[Path]:
+    """List structure files for ``src`` (a single file or a directory), sorted.
+
+    Recognises plain and gzipped PDB/mmCIF (``.pdb``, ``.cif.gz``, …). For archives or
+    streaming, use :func:`iter_structures`.
+    """
+    src = Path(src)
+    if src.is_dir():
+        return sorted(p for p in src.iterdir() if is_structure_file(p))
+    return [src]
+
+
+def iter_structures(
+    src: str | Path,
+    importer: Callable[..., Structure] = import_structure,
+    on_error: str = "raise",
+    **kwargs,
+) -> Iterator[tuple[str, Structure]]:
+    """Yield ``(pdb_id, Structure)`` for a file, directory, or ``.tar``/``.tar.gz`` archive.
+
+    Handles plain and gzipped PDB/mmCIF (``.pdb``/``.cif``/``.pdb.gz``/``.cif.gz`` …); a
+    directory is scanned for those; a tar archive is streamed member-by-member (each member
+    materialised to a temp file so the path-based ``importer`` works unchanged). The
+    identifier is resolved per file by :func:`structure_id_from_path`.
+
+    Args:
+        src: structure file, directory, or tar archive.
+        importer: per-file parser — :func:`import_structure` (default, trims the C-gene) or
+            :func:`parse_structure` (parity-pure). Extra ``kwargs`` are forwarded to it.
+        on_error: ``"raise"`` (default) or ``"skip"`` to ignore files that fail to parse.
+    """
+    src = Path(src)
+    name = src.name.lower()
+
+    def _safe(path: Path, pdb_id: str) -> Structure | None:
+        try:
+            return importer(path, pdb_id=pdb_id, **kwargs)
+        except Exception:
+            if on_error == "raise":
+                raise
+            return None
+
+    if src.is_file() and name.endswith(_TAR_SUFFIXES):
+        with tarfile.open(src) as tar:
+            for member in tar.getmembers():
+                if not (member.isfile() and is_structure_file(member.name)):
+                    continue
+                inner, _ = _strip_gz(Path(member.name).name)
+                ext = "." + inner.rsplit(".", 1)[-1] + (".gz" if member.name.lower().endswith(".gz") else "")
+                fh = tar.extractfile(member)
+                if fh is None:
+                    continue
+                with tempfile.NamedTemporaryFile(suffix=ext) as tmp:
+                    tmp.write(fh.read())
+                    tmp.flush()
+                    s = _safe(Path(tmp.name), structure_id_from_path(member.name))
+                if s is not None:
+                    yield structure_id_from_path(member.name), s
+        return
+
+    for path in structure_paths(src):
+        s = _safe(path, structure_id_from_path(path))
+        if s is not None:
+            yield structure_id_from_path(path), s
 
 
 def _atom_name_field(name: str) -> str:

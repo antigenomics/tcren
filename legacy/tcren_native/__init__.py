@@ -1,6 +1,6 @@
 """TCR3D native-structures database."""
 
-from .align import OrientationResult, align_to_native, apply_transform
+from tcren.orient.align import OrientationResult, align_to_native, apply_transform
 from .annotate import annotate_complex, verify_against_tcr3d
 from .bootstrap import bootstrap, ensure, needs_update, remote_metadata
 from .database import NativeDatabase, default_native_root
