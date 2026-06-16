@@ -252,6 +252,14 @@ tcren.orient.pipeline module
    :undoc-members:
    :show-inheritance:
 
+tcren.orient.docking module
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: tcren.orient.docking
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Command line
 ------------
 
