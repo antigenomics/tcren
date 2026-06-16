@@ -21,6 +21,7 @@ and scores candidate epitopes.
    notebooks/complementarity_map_2d
    notebooks/pocket_cdr_3d
    notebooks/canonical_frame_figures
+   notebooks/pymol_canonical_figures
    notebooks/contact_thresholds_and_bondtypes
    notebooks/example_gil_a02_rs_motif
    notebooks/tcren_analysis
