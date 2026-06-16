@@ -1,0 +1,182 @@
+---
+title: "Test TCRen performance on yeast display data"
+author: "Vadim Karnaukhov"
+date: '2022-08-18'
+output: html_document
+---
+
+# Test systems with yeast display data
+
+## Birnbaum
+
+```{r}
+birnbaum.pdb <- tibble(TCR = c("2b4", "226", "5cc7"),
+       pdb.id = c("3qib", "3qiu", "4p2r"))
+
+birnbaum <- birnbaum.pdb %>% 
+  merge(fread("../data/Birnbaum.tsv") %>% 
+          select(peptide, round_5, TCR) %>% 
+          group_by(TCR) %>% 
+          slice(1:50)) %>% 
+  select(pdb.id, peptide)
+
+# find PDBID which are necessary to exclude when calculating TCRen for Birnbaum test
+exclude.birnbaum.clusters <- clusters.seq %>% 
+  vector_to_df("pdb.id", "cluster.seq") %>% 
+  filter(pdb.id %in% birnbaum$pdb.id) %>% 
+  .$cluster.seq
+
+exclude.birnbaum.pdb <- clusters.seq %>% 
+  vector_to_df("pdb.id", "cluster.seq") %>% 
+  filter(cluster.seq %in% exclude.birnbaum.clusters) %>% 
+  .$pdb.id
+```
+
+```{r}
+separate_peptide <- function(df) {
+  df %>% 
+    separate(peptide, into = as.character(0:(max.pep.len - 1)), 
+                     sep = 1:max.pep.len, remove = F) %>% 
+    as.data.table() %>% 
+    melt(id = c(colnames(df)),
+         variable.name = "residue.index.to", value.name = "residue.aa.to") %>% 
+    filter(residue.aa.to != "") %>% 
+    mutate(residue.index.to = as.integer(as.character(residue.index.to)))
+}
+```
+
+
+```{r}
+pdb_birnbaum <- birnbaum.pdb$pdb.id
+
+birnbaum.energy <- bench.peptides %>% 
+  ungroup() %>% 
+  filter(pdb.id %in% pdb_birnbaum) %>% 
+  ungroup() %>% 
+  rbind(birnbaum %>% 
+          mutate(real = T)) %>% 
+  select(pdb.id, peptide, real) %>% 
+  separate_peptide() %>% 
+  merge(contacts.pTCR %>% 
+          select(pdb.id, chain.type.from, region.type.from, residue.index.from, residue.index.to, residue.aa.from)) %>% 
+  merge(calc_TCRen(exclude = exclude.birnbaum.pdb) %>% 
+          mutate(potential = "TCRen") %>% 
+          rename(value = TCRen))
+
+birnbaum.energy.s <- birnbaum.energy %>%   
+  group_by(pdb.id, peptide, real, potential) %>% 
+  summarise(value.s = sum(value)) %>% 
+  group_by(pdb.id, potential) 
+```
+
+```{r}
+birnbaum.energy.s %>% 
+  group_by(pdb.id) %>% 
+  mutate(rank = rank(value.s) / n() * 100) %>% 
+  filter(real) %>% 
+  merge(fread("../data/Birnbaum.tsv") %>% 
+          group_by(TCR) %>% 
+          mutate(top = round(rank(-round_5), 0)) %>% 
+          select(peptide, top) %>% 
+          filter(top < 100)) %>% 
+  ggplot(aes(x = top, y = rank)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  facet_wrap(~pdb.id)
+```
+
+
+```{r, fig.width=3, fig.height=3}
+auc_birnbaum <- birnbaum.energy.s %>% 
+  group_by(pdb.id, potential) %>% 
+  summarise(auc = round(auc(roc(real, value.s, direction = ">", levels = c(F,T))), 2)) %>% 
+  merge(birnbaum.pdb) %>% 
+  mutate(label = paste0("AUC = ", auc))
+
+plot_birnbaum <- function(.TCR) {
+  .pdb.id <- auc_birnbaum %>% 
+    filter(TCR == .TCR) %>% 
+    .$pdb.id
+  
+  .label <- auc_birnbaum %>% 
+    filter(TCR == .TCR) %>% 
+    .$label
+  
+  birnbaum.energy.s %>% 
+    filter(potential == "TCRen",
+           pdb.id == .pdb.id) %>% 
+    ggplot(aes(d = real, m = -value.s, color = pdb.id)) +
+    theme_roc +
+    scale_color_discrete(labels = .label) 
+}
+
+p.2b4.roc <- plot_birnbaum("2b4")
+p.226.roc <- plot_birnbaum("226")
+p.5cc7.roc <- plot_birnbaum("5cc7")
+```
+
+```{r}
+library(ggseqlogo)
+
+logo_birnbaum <- function(.TCR) {
+  fread("~/shared-with-me/struct2020/benchmark/final_version/yeast_display/Birnbaum.tsv") %>% 
+    filter(TCR == .TCR) %>% 
+    arrange(-round_5) %>% 
+    head(20) %>% 
+    .$peptide %>% 
+    ggseqlogo() +
+    theme(legend.position = "") +
+    ggtitle(.TCR) +
+    theme(plot.title = element_text(hjust = 0.5))}
+
+p.2b4.logo <- logo_birnbaum("2b4")
+p.226.logo <- logo_birnbaum("226")
+p.5cc7.logo <- logo_birnbaum("5cc7")
+
+```
+
+```{r, fig.width=8, fig.height=4}
+ggdraw() +
+  draw_plot(p.2b4.logo, x = 0, y = .6, width = .33, height = .4) +
+  draw_plot(p.226.logo, x = .33, y = .6, width = .33, height = .4) +
+  draw_plot(p.5cc7.logo, x = .66, y = .6, width = .33, height = .4) +
+  draw_plot(p.2b4.roc, x = 0, y = 0, width = .33, height = .65) +
+  draw_plot(p.226.roc, x = .33, y = 0, width = .33, height = .65) +
+  draw_plot(p.5cc7.roc, x = .66, y = 0, width = .33, height = .65)
+
+```
+
+
+```{r, fig.width=12, fig.height=12}
+ggdraw() +
+  draw_plot(pfig2a, x = 0, y = .68, width = .66, height = .32) +
+  draw_plot(pfig2c, x = .66, y = .68, width = .33, height = .32) +
+  draw_plot(pfig2b, x = 0, y = .36, width = .66, height = .32) +
+  draw_plot(pfig2d, x = .66, y = .36, width = .33, height = .32) +
+  draw_plot(p.2b4.logo, x = 0, y = .22, width = .33, height = .12) +
+  draw_plot(p.226.logo, x = .33, y = .22, width = .33, height = .12) +
+  draw_plot(p.5cc7.logo, x = .66, y = .22, width = .33, height = .12) +
+  draw_plot(p.2b4.roc, x = 0, y = 0, width = .33, height = .23) +
+  draw_plot(p.226.roc, x = .33, y = 0, width = .33, height = .23) +
+  draw_plot(p.5cc7.roc, x = .66, y = 0, width = .33, height = .23) +
+  draw_plot_label(label = c("A", "B", "C", "D", "E"), size = 12,
+                  x = c(0, 0, .66, .66, 0), y = c(1, .68, 1, .68, .35))
+
+```
+
+
+
+```{r, fig.width=7.5, fig.height=5}
+ggdraw() +
+  draw_plot(pfig2a, x = 0, y = .5, width = .66, height = .5) +
+  draw_plot(pfig2b, x = .66, y = .5, width = .33, height = .5) +
+  draw_plot(p.2b4.logo, x = 0, y = .33, width = .33, height = .17) +
+  draw_plot(p.226.logo, x = .33, y = .33, width = .33, height = .17) +
+  draw_plot(p.5cc7.logo, x = .66, y = .33, width = .33, height = .17) +
+  draw_plot(p.2b4.roc, x = 0, y = 0, width = .33, height = .33) +
+  draw_plot(p.226.roc, x = .33, y = 0, width = .33, height = .33) +
+  draw_plot(p.5cc7.roc, x = .66, y = 0, width = .33, height = .33) +
+  draw_plot_label(label = c("A", "B", "C", "D", "E"), size = 12,
+                  x = c(0, 0, .66, .66, 0), y = c(1, .68, 1, .68, .35))
+
+```

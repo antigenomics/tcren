@@ -1,0 +1,161 @@
+---
+title: "Deriving alignment matrix based on TCRen"
+author: "M.S."
+date: "2025-08-14"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(ggplot2)
+library(reshape2)
+library(MASS)
+select <- dplyr::select
+```
+
+```{r}
+contacts.pTCR <- read_csv("../data/contact_maps_PDB.csv")
+
+pdb_nonred <- read_csv("../data/summary_PDB_structures.csv") |>
+  filter(nonred) %>% 
+  .$pdb.id
+```
+
+ (A, I, L, V,
+ R, H, K,
+ C, M,
+ S, T,
+ D, E,
+ N, Q,
+ G, P, 
+ Y, F, W)
+
+```{r}
+aa.levels <- c("A", "I", "L", "V",
+               "R", "H", "K",
+               "C", "M",
+               "S", "T",
+               "D", "E",
+               "N", "Q",
+               "G", "P", 
+               "Y", "F", "W", "-")
+
+beta <- 44 # temperature, GB/nJ
+
+calc_TCRen <- function(include = pdb_nonred, exclude = NULL, 
+                       pseudocount = 1) {
+  res <- contacts.pTCR |> 
+    filter(pdb.id %in% include,
+           !pdb.id %in% exclude) 
+  res %>% 
+    group_by(residue.aa.from, residue.aa.to) |> 
+    summarise(count = n(), .groups = 'drop') |> 
+    rbind(tibble(residue.aa.from = "-", 
+                 residue.aa.to = "-", count = nrow(res))) |>
+    merge(expand.grid(residue.aa.from = aa.levels, 
+                      residue.aa.to = aa.levels), all = T) |> 
+    mutate(count = replace_na(count, 0),
+           count = count + pseudocount) |> 
+    group_by(residue.aa.from) |> 
+    mutate(total.from = sum(count)) |> 
+    group_by(residue.aa.to) |> 
+    mutate(total.to = sum(count)) |> 
+    ungroup() |> 
+    mutate(total = sum(count)) |> 
+    mutate(TCRen = -log2(count * total / total.to / total.from) / beta) |> 
+    #filter(residue.aa.from != "C") %>% 
+    select(residue.aa.from, residue.aa.to, TCRen, count)
+}
+```
+
+```{r}
+TCRen <- calc_TCRen()
+
+TCRen.LOO <- pdb_nonred %>% 
+  lapply(function(x) {
+    calc_TCRen(exclude = x) %>% 
+      mutate(pdb.id = x)
+  }) %>% 
+  bind_rows() %>% 
+  rename(TCRen.LOO = TCRen)
+
+write_tsv(TCRen, "tcren.txt")
+```
+
+```{r}
+ggplot(TCRen, 
+       aes(x = residue.aa.from, y = residue.aa.to,
+           fill = TCRen, size = sqrt(count))) +
+  geom_point(shape = 23, color = "black") +
+  scale_fill_distiller("TCRen, TB/nJ",
+                       limits = c(-0.06, 0.06),
+                       palette = "RdBu",
+                       guide = guide_colorbar(frame.colour = "black", 
+                                              ticks.colour = "black")) +
+  xlab("TCR residue") + 
+  ylab("Antigen residue") +
+  theme_minimal() +
+  theme(aspect.ratio = 1,
+        panel.grid.major=element_line(colour="black", 
+                                      size = 0.1))
+```
+
+```{r}
+test_tri_ineq <- function(dd) {
+    mat <- as.matrix(dd)
+    n <- dim(mat)[1]
+    max_delta <- -Inf
+    for (i in 1:(n - 2)) {
+        for (j in (i + 1):(n - 1)) {
+            for (k in (j + 1):n) {
+                sds <- c(mat[j, i], mat[k, i], mat[k, j])
+                lng <- max(sds)
+                delta <- lng - (sum(sds) - lng)
+                max_delta <- max(max_delta, delta)
+            }
+        }
+    }
+    max_delta
+}
+
+tcr_mat <- TCRen |>
+  #filter(residue.aa.from != "-", residue.aa.to != "-") |>
+  dcast(residue.aa.from ~ residue.aa.to, value.var = "TCRen") |>
+  column_to_rownames(var = "residue.aa.from")
+
+tcr_am <- dist(tcr_mat)
+test_tri_ineq(tcr_am) # < 0
+
+isoMDS(tcr_am, k = 2)$points |>
+  as.data.frame() |>
+  rownames_to_column() |>
+  filter(rowname != "-") |>
+  ggplot(aes(x = scale(V1), y = scale(V2))) +
+  geom_label(aes(label = rowname))
+
+write.matrix(signif(as.matrix(tcr_am)), "tcren_tcr_am.txt")
+```
+
+```{r}
+ag_mat <- TCRen |>
+  #filter(residue.aa.from != "-", residue.aa.to != "-") |>
+  dcast(residue.aa.to ~ residue.aa.from, value.var = "TCRen") |>
+  column_to_rownames(var = "residue.aa.to")
+
+ag_am <- dist(ag_mat)
+test_tri_ineq(ag_am) # < 0
+
+isoMDS(ag_am, k = 2)$points |>
+  as.data.frame() |>
+  rownames_to_column() |>
+  filter(rowname != "-") |>
+  ggplot(aes(x = scale(V1), y = scale(V2))) +
+  geom_label(aes(label = rowname))
+
+write.matrix(signif(as.matrix(ag_am)), "tcren_ag_am.txt")
+```
+
+```{r}
+Sys.info()
+```

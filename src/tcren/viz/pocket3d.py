@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from ..native.align import align_to_native
+from ..orient.align import align_to_native
 from ..structure.model import Structure
 from .palette import REGION_COLOR
 
@@ -19,10 +19,10 @@ _TCR_TYPES = ("TRA", "TRB", "TRD", "TRG", "IGH", "IGK", "IGL")
 _GROOVE = ("HELIX_A1", "HELIX_A2", "HELIX_B1", "GROOVE_FLOOR")
 
 
-def _oriented_coords(structure: Structure, db, reference_id):
+def _oriented_coords(structure: Structure, reference_id):
     """Return a function mapping a Cα coord to the canonical frame (identity on failure)."""
     try:
-        result = align_to_native(structure, db=db, reference_id=reference_id)
+        result = align_to_native(structure, reference_id=reference_id)
         return lambda c: c @ result.rotation + result.translation
     except Exception:
         return lambda c: c
@@ -41,7 +41,6 @@ def _pdb_block(structure: Structure, transform) -> str:
 
 def view_pocket_cdr(
     structure: Structure,
-    db=None,
     reference_id: str | None = None,
     surface: bool = True,
     width: int = 700,
@@ -51,7 +50,7 @@ def view_pocket_cdr(
 
     Args:
         structure: a chain-typed, MHC-annotated structure.
-        db, reference_id: native reference for orientation (identity frame if unavailable).
+        reference_id: native reference for orientation (identity frame if unavailable).
         surface: draw a translucent groove surface.
         width, height: viewer size.
 
@@ -60,7 +59,7 @@ def view_pocket_cdr(
     """
     import py3Dmol
 
-    transform = _oriented_coords(structure, db, reference_id)
+    transform = _oriented_coords(structure, reference_id)
     view = py3Dmol.view(width=width, height=height)
     view.addModel(_pdb_block(structure, transform), "pdb")
     view.setStyle({}, {"cartoon": {"color": "lightgray"}})

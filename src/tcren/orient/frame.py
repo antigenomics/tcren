@@ -1,7 +1,7 @@
 """Canonical TCR-pMHC frame by PCA: z ≈ PC1 (MHC→TCR), y ≈ PC2 (peptide), x ≈ PC3.
 
 Every structure is first superposed onto a per-class native reference by its MHC groove Cα
-(:func:`tcren.native.align.align_to_native`); a fixed per-class rotation ``R_canon`` then maps
+(:func:`tcren.orient.align.align_to_native`); a fixed per-class rotation ``R_canon`` then maps
 that reference frame into the canonical axes. ``R_canon`` is obtained by centring the reference
 complex's Cα cloud at its centre of mass and taking its principal axes (PCA):
 
@@ -25,8 +25,7 @@ from typing import Literal
 
 import numpy as np
 
-from ..native.align import DEFAULT_REFERENCE, align_to_native, _reference_structure
-from ..native.database import NativeDatabase
+from .align import DEFAULT_REFERENCE, align_to_native, _reference_structure
 from ..structure.model import Structure
 
 _GROOVE_FLOOR = "GROOVE_FLOOR"
@@ -108,14 +107,14 @@ def _transform_from_basis(basis: np.ndarray, centroid: np.ndarray) -> tuple[np.n
 
 
 @lru_cache(maxsize=4)
-def _reference_canon(reference_id: str, root: str | None) -> tuple[np.ndarray, np.ndarray]:
+def _reference_canon(reference_id: str) -> tuple[np.ndarray, np.ndarray]:
     """``R_canon`` (rotation, translation) for a class reference, from the bundled artifact
     if present, else computed from the reference structure's own groove/peptide geometry."""
     bundled = _load_canonical_frame()
     for entry in bundled.values():
         if entry.get("reference_id") == reference_id:
             return np.asarray(entry["rotation"]), np.asarray(entry["translation"])
-    ref = _reference_structure(reference_id, root)
+    ref = _reference_structure(reference_id)
     basis, centroid, _ = _canonical_basis(ref)
     return _transform_from_basis(basis, centroid)
 
@@ -129,7 +128,6 @@ def _load_canonical_frame() -> dict:
 
 def canonical_frame(
     structure: Structure,
-    db: NativeDatabase | None = None,
     reference_id: str | None = None,
     force_pca: bool = False,
 ) -> CanonResult:
@@ -137,9 +135,8 @@ def canonical_frame(
     canonical axes directly from the query (PCA fallback when no DB / too few anchors)."""
     if not force_pca:
         try:
-            db = db or NativeDatabase()
-            align = align_to_native(structure, db=db, reference_id=reference_id)
-            r_canon, t_canon = _reference_canon(align.reference_id, str(db.root))
+            align = align_to_native(structure, reference_id=reference_id)
+            r_canon, t_canon = _reference_canon(align.reference_id)
             rot = align.rotation @ r_canon
             tran = align.translation @ r_canon + t_canon
             return CanonResult(rot, tran, align.rmsd, align.n_anchor_atoms,
@@ -152,16 +149,15 @@ def canonical_frame(
     return CanonResult(rot, tran, float("nan"), 0, None, "pca")
 
 
-def build_canonical_frame(db: NativeDatabase | None = None) -> dict:
+def build_canonical_frame() -> dict:
     """(Re)compute ``R_canon`` for each class reference and return the artifact dict.
 
     Writes nothing; the caller serialises to ``tcren/data/canonical_frame.json``.
     """
-    db = db or NativeDatabase()
     out: dict = {}
     for mhc_class, reference_id in DEFAULT_REFERENCE.items():
         try:
-            ref = _reference_structure(reference_id, str(db.root))
+            ref = _reference_structure(reference_id)
             basis, centroid, var = _canonical_basis(ref)
             rot, tran = _transform_from_basis(basis, centroid)
             out[mhc_class] = {

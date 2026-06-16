@@ -3,7 +3,7 @@
 The "optimal plane" is the MHC groove plane. Two routes produce it:
 
 * **native** (default) — orient the structure onto a canonical reference via
-  :func:`tcren.native.align.align_to_native`; the canonical groove plane is xy and its
+  :func:`tcren.orient.align.align_to_native`; the canonical groove plane is xy and its
   normal is z, so projecting is just dropping z. The transform is applied only to the
   extracted Cα coordinates (``apply_transform`` would clear region annotations).
 * **pca** (fallback) — fit a plane to the groove-floor Cα by SVD when no native database
@@ -140,7 +140,6 @@ def _tcr_up(structure: Structure, keys, coords3d: np.ndarray) -> np.ndarray:
 
 def project_structure(
     structure: Structure,
-    db=None,
     reference_id: str | None = None,
     force_pca: bool = False,
 ) -> ProjectionResult:
@@ -162,9 +161,9 @@ def project_structure(
 
     if not force_pca:
         try:
-            from ..native.align import align_to_native
+            from ..orient.align import align_to_native
 
-            result = align_to_native(structure, db=db, reference_id=reference_id)
+            result = align_to_native(structure, reference_id=reference_id)
             coords3d = _tcr_up(structure, keys, ca @ result.rotation + result.translation)
             return ProjectionResult(
                 keys=keys, coords3d=coords3d, frame="native",

@@ -8,7 +8,7 @@ This is a method for prediction of TCR recognition of unseen epitopes based on r
 
 TCRen method starts from a structure of the peptide-MHC complex with the TCR of interest—either experimentally derived or based on a homology model—then extracts a TCR-peptide contact map and estimates the TCR-peptide energy of interaction for all candidate  epitopes using TCRen potential, which we derived from statistical analysis of amino acid contact preferences in TCR:pMHC crystal structures.
 
-![preview](figures/Fig1.png)
+![preview](legacy/figures/Fig1.png)
 
 ## Python library (`tcren`)
 
@@ -30,26 +30,28 @@ conda activate tcren
 
 ```fish
 # End-to-end scoring (drop-in replacement for run_TCRen.R)
-tcren score -s example/input_structures -c example/candidate_epitopes.txt -o out.csv
+tcren score -s legacy/example/input_structures -c legacy/example/candidate_epitopes.txt -o out.csv
 
-# Native (TCR3D) database — versioned download + uses
-tcren native bootstrap              # fetch TCR3D CIFs + annotation tables -> data/native
-tcren native status --check-remote  # show local version; check if TCR3D updated it
-tcren native derive-potential -o TCRen_native.csv   # re-derive TCRen from native structures
-#   (a custom/previous TCR3D copy: pass --root DIR, or set TCREN_NATIVE_DIR)
+# Structures (gzipped .pdb.gz/.cif.gz, .tar.gz batches all accepted)
+tcren paper bootstrap               # fetch HF structure sets -> notebooks/data/<Set>/ (gitignored)
+
+# Fetch recent TCR-pMHC structures from RCSB -> data/pdb_recent/ (mmCIF .cif.gz, 5-chain validated)
+tcren fetch-recent --discover --after 2024-01-01
 
 # MHC allele/class/role mapping (build the reference once)
 tcren build-mhc-ref                # downloads IMGT/HLA + mouse H-2 (cached, not committed)
-tcren mhc -s example/input_structures -o mhc_calls.csv
+tcren mhc -s legacy/example/input_structures -o mhc_calls.csv
 
-# Canonical orientation — superpose TCR-pMHC into one MHC frame, rename chains A-E
-tcren orient -s example/input_structures -o oriented/ --metadata orient.csv
+# Canonical orientation — superpose TCR-pMHC into one MHC frame, rename chains A-E, write .pdb.gz.
+# Annotation is one batched mmseqs call; -t threads only the alignment + write (never mmseqs).
+tcren orient -s data/Native2026 -o data/Canonical2026 -t 8 \
+    --push-to-hub isalgo/tcren_structures --hub-folder Canonical2026
 #   z (PC1) = MHC->TCR, y (PC2) = peptide, x (PC3); chains: A=Va B=Vb C=peptide D=MHCa E=MHCb/b2m
 
 # Other subcommands
-tcren annotate -s example/input_structures -o markup.csv
-tcren contacts -s example/input_structures -o contacts.csv --interface tcr_peptide
-tcren derive-potential -i data/contact_maps_PDB.csv --summary data/summary_PDB_structures.csv --nonred -o TCRen_potential.csv
+tcren annotate -s legacy/example/input_structures -o markup.csv
+tcren contacts -s legacy/example/input_structures -o contacts.csv --interface tcr_peptide
+tcren derive-potential -i legacy/data/contact_maps_PDB.csv --summary legacy/data/summary_PDB_structures.csv --nonred -o TCRen_potential.csv
 tcren info
 ```
 
@@ -60,7 +62,7 @@ from tcren import parse_structure, ContactMap, score_peptides
 from tcren.annotation import classify_chains
 from tcren.potential import tcren
 
-s = parse_structure("example/input_structures/6uk4_TCRpMHCmodels_polyV.pdb")
+s = parse_structure("legacy/example/input_structures/6uk4_TCRpMHCmodels_polyV.pdb")
 classify_chains(s, organism="human")          # TRA/TRB via arda, peptide, MHC
 cm = ContactMap.from_structure(s)              # 5 Å contacts + interface partitioning
 ranked = score_peptides(cm, ["KQWLVWLFL", "RLLHPHHPL"], tcren())
@@ -87,8 +89,9 @@ d = docking_angles(s)        # crossing_angle (~20-70° for αβ), incident_angl
 
 Structures come from the Hugging Face dataset
 [`isalgo/tcren_structures`](https://huggingface.co/datasets/isalgo/tcren_structures):
-`Native2022` (the 2022 paper set, oracle) and `Native2026` (the comprehensive 2026 TCR:pMHC
-set), both in the canonical orientation.
+`Native2022` (the 2022 paper set, oracle), `Native2026` (the comprehensive 2026 TCR:pMHC
+set), and `Canonical2026` (Native2026 after `tcren orient` re-orientation). All structures are
+gzipped (`*.pdb.gz`); tcren reads `.pdb`/`.cif`/`.pdb.gz`/`.cif.gz` and `.tar.gz` batches.
 
 ### 2D complementarity maps & C-gene-aware import
 
@@ -218,4 +221,6 @@ See ``tcren_am/`` for derivation of alignment scoring matrices from TCRen and ex
 
 ## Cite as
 
-```Karnaukhov VK, Shcherbinin DS, Chugunov AO, Chudakov DM, Efremov RG, Zvyagin IV, Shugay M. Structure-based prediction of T cell receptor recognition of unseen epitopes using TCRen. Nat Comput Sci. 2024 Jul;4(7):510-521. doi: 10.1038/s43588-024-00653-0. Epub 2024 Jul 10. PMID: 38987378.```
+```
+Karnaukhov VK, Shcherbinin DS, Chugunov AO, Chudakov DM, Efremov RG, Zvyagin IV, Shugay M. Structure-based prediction of T cell receptor recognition of unseen epitopes using TCRen. Nat Comput Sci. 2024 Jul;4(7):510-521. doi: 10.1038/s43588-024-00653-0. Epub 2024 Jul 10. PMID: 38987378.
+```
