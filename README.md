@@ -79,6 +79,10 @@ oriented, info = canonicalize_structure(s)     # PCA frame: z=MHC->TCR, y=peptid
 
 # three nested contact layers: d1 heavy-atom (5 Å), d2 Cβ (8 Å, Cα for Gly), d3 Cα (12 Å)
 layers = multi_contacts(s, ContactDefinition(d1=5, d2=8, d3=12))
+
+# TCR docking geometry from the groove frame (no external package needed)
+from tcren.orient import docking_angles
+d = docking_angles(s)        # crossing_angle (~20-70° for αβ), incident_angle, cell_type
 ```
 
 Structures come from the Hugging Face dataset
@@ -102,9 +106,15 @@ markup = residue_markup_table(s, proj)             # tidy polars: chain/region/a
 contacts = contacts_table(s, threshold=5.0)        # TCRen-compatible, classified by bond type
 svg = render_complementarity_map(markup, contacts=contacts)   # metadata-rich SVG
 view_pocket_cdr(s).show()                          # interactive 3D pocket + CDR overlay (py3Dmol)
+
+# contacts between every region pair, under three definitions, with a bond-type breakdown
+from tcren.project2d import region_pair_summary
+region_pair_summary(s, kind="closest")             # 5 Å heavy-atom; kind="cb" (8 Å) / "ca" (12 Å)
 ```
 
-See the tutorial notebooks under `docs/notebooks/` for full examples.
+See the tutorial notebooks under `docs/notebooks/` for full examples; `notebooks/` adds
+`complementarity_map_2d` (multiple structural + map views of 1ao7) and
+`contact_thresholds_and_bondtypes` (region-pair contact counts across the three thresholds).
 
 Run the tests with `pytest tests/` (set `RUN_BENCHMARK=1` for the full-dataset sweeps).
 Project status & open tasks: [STATUS.md](STATUS.md); achieved accuracy & performance:
