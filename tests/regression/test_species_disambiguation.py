@@ -23,7 +23,7 @@ arda = pytest.importorskip("arda")
 pytestmark = pytest.mark.slow  # annotates each structure under both organisms
 
 REPO = Path(__file__).resolve().parents[2]
-PDB_DIR = REPO / "data" / "PDB_structures"
+PDB_DIR = REPO / "tests" / "assets" / "pdb"
 
 
 def _loci(structure) -> list[str]:

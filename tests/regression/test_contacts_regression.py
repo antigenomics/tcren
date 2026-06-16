@@ -26,8 +26,8 @@ from tcren.contacts import all_atom_contacts
 from tcren.structure import parse_structure
 
 REPO = Path(__file__).resolve().parents[2]
-PDB_DIR = REPO / "data" / "PDB_structures"
-CONTACT_MAPS = REPO / "data" / "contact_maps_PDB.csv"
+PDB_DIR = REPO / "tests" / "assets" / "pdb"
+CONTACT_MAPS = REPO / "legacy" / "data" / "contact_maps_PDB.csv"
 
 _KEYS = [
     "chain.id.from",

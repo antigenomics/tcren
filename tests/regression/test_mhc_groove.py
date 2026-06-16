@@ -20,7 +20,7 @@ from tcren.annotation import classify_chains
 from tcren.mhc import annotate_mhc
 
 REPO = Path(__file__).resolve().parents[2]
-PDB_DIR = REPO / "data" / "PDB_structures"
+PDB_DIR = REPO / "tests" / "assets" / "pdb"
 _HAVE_REF = (REPO / "database" / "mhc" / "alleles.aa.fasta").exists()
 needs_ref = pytest.mark.skipif(not _HAVE_REF, reason="MHC reference not built")
 

@@ -19,6 +19,8 @@ from pathlib import Path
 
 import requests
 
+from ..structure.io import is_structure_file
+
 _REPO = Path(__file__).resolve().parents[3]
 PAPER_DIR = _REPO / "notebooks" / "natcompsci2022"
 # Shared data lives one level up (notebooks/data) so sibling notebooks can reuse it; the
@@ -27,9 +29,10 @@ DATA_DIR = _REPO / "notebooks" / "data"
 
 HF_REPO = "isalgo/tcren_structures"
 # Native2022 = original 2022 paper PDB set (oracle); Native2026 = the comprehensive 2026
-# TCR:pMHC set (original peptide-preserving PDBs from TCR3D's list + an RCSB search, validated
-# to TCR:pMHC-only) that the new TCRen is derived from.
+# TCR:pMHC set the new TCRen is derived from; Canonical2026 = Native2026 after canonical
+# re-orientation (tcren orient). All structures on the Hub are gzipped (*.pdb.gz / *.cif.gz).
 HF_FOLDERS = ("Native2022", "Native2026", "PolyV2022", "Bobisse", "Bigot")
+CANONICAL_FOLDER = "Canonical2026"
 _HF_TREE = "https://huggingface.co/api/datasets/{repo}/tree/main/{folder}?recursive=true"
 _HF_RESOLVE = "https://huggingface.co/datasets/{repo}/resolve/main/{path}"
 
@@ -100,7 +103,7 @@ def fetch_hf_structures(
     resume + retries); otherwise falls back to a retrying ``requests`` loop. Neither is a
     hard package dependency — this is an optional reproduction tool.
     """
-    out = data_dir / "structures"
+    out = data_dir  # per-set folders land directly under data_dir (no "structures/" wrapper)
     out.mkdir(parents=True, exist_ok=True)
     try:
         from huggingface_hub import snapshot_download  # noqa: PLC0415
@@ -118,8 +121,8 @@ def fetch_hf_structures(
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 _download_with_requests(path, dest, timeout)
     return {
-        f: len(list((out / f).glob("*.pdb"))) + len(list((out / f).glob("*.cif")))
-        for f in folders
+        f: sum(1 for p in (out / f).glob("*") if p.is_file() and is_structure_file(p))
+        for f in folders if (out / f).is_dir()
     }
 
 
@@ -228,25 +231,18 @@ def copy_legacy_results(paper_dir: Path = PAPER_DIR, repo_data: Path | None = No
 
 def bootstrap(
     paper_dir: Path = PAPER_DIR, data_dir: Path = DATA_DIR, structures: bool = True,
-    vdjdb: bool = True, data: bool = True, legacy: bool = True,
+    canonical: bool = False, **_legacy_flags,
 ) -> dict:
-    """Run the full bootstrap; return a summary dict.
+    """Fetch the HF structure sets into ``data_dir`` (``notebooks/data`` by default).
 
-    Inputs (HF structures, vdjdb, the allowed external datasets, RCSB release dates) land
-    in ``data_dir`` (``notebooks/data`` by default, shared across notebooks); the 2022
-    comparison baselines go to ``<paper_dir>/data_legacy/``.
+    Each set lands in its own folder directly under ``data_dir`` (e.g. ``notebooks/data/
+    Native2026/``) — no ``structures/`` wrapper — and is gitignored. The non-structure inputs
+    (vdjdb, Birnbaum, MJ/Keskin, IEDB, epitope lists, PDB dates) and the legacy comparison
+    baselines are already committed under ``<paper_dir>/data_legacy/``, so they are not
+    re-fetched here. Pass ``canonical=True`` to also fetch the re-oriented ``Canonical2026`` set.
     """
     summary: dict = {}
     if structures:
-        summary["structures"] = fetch_hf_structures(data_dir)
-    if vdjdb:
-        summary["vdjdb"] = str(fetch_vdjdb(data_dir))
-    if data:
-        summary["external_inputs"] = copy_external_inputs(data_dir)
-        struct = data_dir / "structures"
-        ids = sorted({p.stem[:4] for sub in ("Native2022", "Native2026")
-                      for p in struct.glob(f"{sub}/*") if p.suffix in (".pdb", ".cif")})
-        summary["pdb_dates"] = str(fetch_pdb_dates(data_dir, ids)) if ids else None
-    if legacy:
-        summary["legacy_files"] = copy_legacy_results(paper_dir)
+        folders = HF_FOLDERS + ((CANONICAL_FOLDER,) if canonical else ())
+        summary["structures"] = fetch_hf_structures(data_dir, folders=folders)
     return summary

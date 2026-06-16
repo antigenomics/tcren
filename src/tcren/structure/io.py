@@ -327,16 +327,25 @@ def pdb_lines(structure: Structure, transform=None, keep_hydrogens: bool = True)
 
 def write_pdb(structure: Structure, path: str | Path, transform=None,
               keep_hydrogens: bool = True) -> Path:
-    """Write ``structure`` to a PDB file; return the path."""
+    """Write ``structure`` to a PDB file; return the path.
+
+    A ``.gz`` suffix (``foo.pdb.gz``) transparently gzip-compresses the output.
+    """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(pdb_lines(structure, transform, keep_hydrogens)) + "\n")
+    text = "\n".join(pdb_lines(structure, transform, keep_hydrogens)) + "\n"
+    if path.name.lower().endswith(".gz"):
+        with gzip.open(path, "wt") as fh:
+            fh.write(text)
+    else:
+        path.write_text(text)
     return path
 
 
 def write_structure(structure: Structure, path: str | Path, **kwargs) -> Path:
-    """Format-dispatch writer (``.pdb`` only for now; mmCIF deferred)."""
+    """Format-dispatch writer (PDB / gzipped PDB only for now; mmCIF deferred)."""
     path = Path(path)
-    if path.suffix.lower() not in (".pdb", ".ent"):
-        raise ValueError(f"only PDB output is supported, got {path.suffix!r}")
+    inner, _ = _strip_gz(path.name)
+    if not inner.lower().endswith(_PDB_SUFFIXES):
+        raise ValueError(f"only PDB output is supported, got {path.name!r}")
     return write_pdb(structure, path, **kwargs)
