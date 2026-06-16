@@ -22,6 +22,7 @@ and scores candidate epitopes.
    notebooks/pocket_cdr_3d
    notebooks/canonical_frame_figures
    notebooks/contact_thresholds_and_bondtypes
+   notebooks/example_gil_a02_rs_motif
    notebooks/tcren_analysis
 
 Indices
