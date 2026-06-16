@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 requests = pytest.importorskip("requests")
+pytest.importorskip("arda")  # fetch_ids validates via batched annotation (needs arda/mmseqs)
 
 from tcren.recent import _download_cif_gz, fetch_ids
 
