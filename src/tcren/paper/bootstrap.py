@@ -105,21 +105,30 @@ def fetch_hf_structures(
     """
     out = data_dir  # per-set folders land directly under data_dir (no "structures/" wrapper)
     out.mkdir(parents=True, exist_ok=True)
-    try:
-        from huggingface_hub import snapshot_download  # noqa: PLC0415
 
-        snapshot_download(
-            repo_id=HF_REPO, repo_type="dataset", local_dir=str(out),
-            allow_patterns=[f"{f}/*" for f in folders],
-        )
-    except ImportError:
-        for folder in folders:
-            for path in _hf_files(folder, timeout):
-                dest = out / path
-                if dest.exists() and not force:
-                    continue
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                _download_with_requests(path, dest, timeout)
+    def _present(folder: str) -> bool:
+        d = out / folder
+        return d.is_dir() and any(p.is_file() and is_structure_file(p) for p in d.glob("*"))
+
+    # Skip-if-present: only hit the network for folders that are missing locally. (Otherwise
+    # snapshot_download HEADs every one of ~800 files each run — the dominant bootstrap cost.)
+    todo = list(folders) if force else [f for f in folders if not _present(f)]
+    if todo:
+        try:
+            from huggingface_hub import snapshot_download  # noqa: PLC0415
+
+            snapshot_download(
+                repo_id=HF_REPO, repo_type="dataset", local_dir=str(out),
+                allow_patterns=[f"{f}/*" for f in todo],
+            )
+        except ImportError:
+            for folder in todo:
+                for path in _hf_files(folder, timeout):
+                    dest = out / path
+                    if dest.exists() and not force:
+                        continue
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    _download_with_requests(path, dest, timeout)
     return {
         f: sum(1 for p in (out / f).glob("*") if p.is_file() and is_structure_file(p))
         for f in folders if (out / f).is_dir()
