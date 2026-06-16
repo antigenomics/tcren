@@ -112,15 +112,15 @@ def orient(
     organism: str = typer.Option("human", "--organism"),
     reference_id: str = typer.Option(None, "--reference", help="force a reference complex id"),
     force_pca: bool = typer.Option(False, "--force-pca", help="skip native superposition"),
-    workers: int = typer.Option(1, "--workers", "-j", help="parallel worker processes"),
+    threads: int = typer.Option(None, "--threads", "-t", help="threads for alignment/IO (default: all cores)"),
     push_to_hub: str = typer.Option(None, "--push-to-hub", help="HF dataset repo id to upload to"),
-    hub_folder: str = typer.Option("Native2026", "--hub-folder"),
+    hub_folder: str = typer.Option("Canonical2026", "--hub-folder"),
 ) -> None:
-    """Canonicalize TCR-pMHC structures into the common MHC frame (A-E chains)."""
+    """Canonicalize TCR-pMHC structures into the common MHC frame (A-E chains, gzipped)."""
     from .orient import run_folder
 
     run_folder(structures, out, metadata=metadata, organism=organism,
-               reference_id=reference_id, force_pca=force_pca, workers=workers)
+               reference_id=reference_id, force_pca=force_pca, threads=threads)
     if push_to_hub:
         from .orient.hub import push_oriented
 
@@ -193,6 +193,30 @@ def mhc(
             )
     pl.DataFrame(rows).write_csv(str(out))
     typer.echo(f"wrote {out}")
+
+
+@app.command("fetch-recent")
+def fetch_recent(
+    dest: Path = typer.Option(None, "--dest", help="output dir (default: data/pdb_recent)"),
+    discover: bool = typer.Option(False, "--discover", help="also RCSB-search new TCR-pMHC entries"),
+    after: str = typer.Option(None, "--after", help="discovery: release date >= YYYY-MM-DD"),
+    organism: str = typer.Option("human", "--organism"),
+) -> None:
+    """Download recent TCR-pMHC structures from RCSB into data/pdb_recent.
+
+    Seeds with the Native2026 ids; with --discover also full-text-searches RCSB for new
+    entries. Each is pulled as mmCIF (.cif.gz; handles extended PDB ids), annotated, and kept
+    only if it has all 5 required chains (MHCa + b2m/MHCb + peptide + TCR pair).
+    """
+    from .recent import discover_similar, fetch_ids, native2026_ids
+
+    ids = native2026_ids()
+    if discover:
+        have = set(ids)
+        ids = ids + [i for i in discover_similar(after_date=after) if i not in have]
+    summary = fetch_ids(ids, dest=dest, organism=organism)
+    for k, v in summary.items():
+        typer.echo(f"{k}: {v}")
 
 
 @app.command()
