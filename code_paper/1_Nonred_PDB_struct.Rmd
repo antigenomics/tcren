@@ -1,0 +1,202 @@
+---
+title: "Curation of a non-redundant dataset of TCR-p-MHC structures from PDB"
+author: "Vadim Karnaukhov"
+date: '2022-08-18'
+output: html_document
+---
+
+```{r}
+library(data.table)
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(forcats)
+library(ggrepel)
+library(broom)
+library(rstatix)
+library(ggpubr)
+library(ggbeeswarm)
+library(stringdist)
+library(magrittr)
+library(stringi)
+```
+
+
+```{r}
+aa.levels <- c("L","F","I","M","V","W","Y","C","H","A","G","P","T","S","Q","N","D","E","R","K")
+```
+
+# All PDB structures of TCR-peptide-MHC complexes
+```{r}
+pdb_dir <- "../data/PDB_structures/"
+output_dir <- "../data/output_TCRen/structures_annotation/"
+pdb_list <- dir(pdb_dir)
+```
+
+
+#Annotation of structures and contacts by MIR
+```{r}
+MEMORY <- "20G"
+
+run_mir <- function(pdb_dir,
+                    mir_path = "mir-1.0-SNAPSHOT.jar",
+                    output_dir = "mir_output",
+                    arg, #"annotate-structures", "compute-pdb-geom", "compute-pdb-contacts"
+                    print_log = T) {
+  pdb_list <- dir(pdb_dir)
+  .pdb_list <- paste0(pdb_dir, pdb_list) %>% paste(collapse = " ")
+  output_dir <- paste0(pdb_dir, "/../", output_dir)
+  dir.create(output_dir, showWarnings = FALSE)
+  cmd <- str_glue("java -Xmx{MEMORY} -cp {mir_path} com.milaboratory.mir.scripts.Examples {arg} -I {.pdb_list} -O ./{output_dir}/")
+  code <- system(cmd,
+                 ignore.stdout = !print_log, 
+                 ignore.stderr = !print_log)
+  if(code != 0) {
+    stop(str_glue("Failed to execute '{cmd}'"))
+  }
+}
+system("java -version")
+```
+
+```{r}
+run_mir(pdb_dir = pdb_dir, output_dir = output_dir, arg = "annotate-structures")
+run_mir(pdb_dir = pdb_dir, output_dir = output_dir, arg = "compute-pdb-contacts")
+```
+
+# Extract all TCR:peptide contacts from PDB structures
+
+
+```{r}
+contacts.1 <- fread(file.path(output_dir, "atomdist.txt")) %>% 
+  mutate(pdb.id = substr(pdb.id, 1, 4)) %>%
+  filter(dist <= 5, chain.id.from != chain.id.to) %>%
+  select(-atom.from, -atom.to, -dist) %>%
+  unique
+
+contacts.2 <- contacts.1 %>%
+  select(pdb.id, chain.id.from = chain.id.to, chain.id.to = chain.id.from,
+         residue.index.from = residue.index.to, residue.index.to = residue.index.from)
+  
+contacts <- contacts.1 %>%
+  rbind(contacts.2)
+```
+
+```{r}
+resmarkup <- fread(file.path(output_dir, "resmarkup.txt"), blank.lines.skip = T) %>% 
+  mutate(pdb.id = substr(pdb.id, 1, 4)) 
+  
+
+general <- fread(file.path(output_dir, "general.txt")) %>% 
+  mutate(pdb.id = substr(pdb.id, 1, 4))
+
+resmarkup.a <- resmarkup %>%
+  merge(general)
+
+contacts.a <- contacts %>%
+  merge(resmarkup.a %>% select(pdb.id,
+                               chain.id.from = chain.id,
+                               chain.type.from = chain.type,
+                               chain.supertype.from = chain.supertype,
+                               complex.species,
+                               region.type.from = region.type,
+                               residue.index.from = residue.index,
+                               residue.aa.from = residue.aa)) %>%
+  merge(resmarkup.a %>% select(pdb.id,
+                               chain.id.to = chain.id,
+                               chain.type.to = chain.type,
+                               chain.supertype.to = chain.supertype,
+                               region.type.to = region.type,
+                               residue.index.to = residue.index,
+                               residue.aa.to = residue.aa)
+        #, by = c("pdb.id", "chain.id.to", "residue.index.to") 
+  )
+```
+
+```{r}
+contacts.pTCR <- contacts.a %>% 
+  filter(chain.supertype.from == "TRAB",
+         chain.supertype.to == "PEPTIDE")
+```
+
+```{r}
+contacts.pTCR %>% 
+  fwrite("../data/contacts_PDB.csv")
+```
+
+
+# Cluster PDB structures based on sequence similarity
+```{r}
+markup <- fread(file.path(output_dir, "markup.txt")) %>% 
+  mutate(pdb.id = substr(pdb.id, 1, 4))
+
+markup.seq <- markup %>% 
+  merge(general) %>% 
+  filter(chain.supertype == "PEPTIDE" | 
+           chain.supertype == "TRAB" & region.type == "CDR3") %>% 
+  mutate(region.type = ifelse(chain.type == "TRA", "cdr3a",
+                              ifelse(chain.type == "TRB", "cdr3b", region.type %>% tolower()))) %>% 
+  select(pdb.id, region.type, region.sequence) %>% 
+  as.data.table() %>% 
+  dcast(pdb.id ~ region.type) %>% 
+  mutate(cdr3a.len = nchar(cdr3a),
+         cdr3b.len = nchar(cdr3b),
+         peptide.len = nchar(peptide))
+
+dist.seq <- expand.grid(pdb.id.1 = markup.seq$pdb.id, pdb.id.2 = markup.seq$pdb.id) %>%
+  merge(markup.seq %>% select(pdb.id.1 = pdb.id, cdr3a.1 = cdr3a, cdr3b.1 = cdr3b, peptide.1 = peptide)) %>%
+  merge(markup.seq %>% select(pdb.id.2 = pdb.id, cdr3a.2 = cdr3a, cdr3b.2 = cdr3b, peptide.2 = peptide)) %>%
+  mutate(dist.cdr3a = stringdist(cdr3a.1, cdr3a.2, method = 'dl'),
+         dist.cdr3b = stringdist(cdr3b.1, cdr3b.2, method = 'dl'),
+         dist.peptide = stringdist(peptide.1, peptide.2, method = 'dl')) %>% 
+  rowwise() %>% 
+  mutate(dist.sum = sum(dist.cdr3a + dist.cdr3b + dist.peptide))
+```
+
+
+```{r}
+clusters.seq <- dist.seq %>% 
+  select(pdb.id.1, pdb.id.2, dist.sum) %>%
+  spread(pdb.id.2, dist.sum) %>%
+  column_to_rownames("pdb.id.1") %>%
+  as.dist() %>%
+  hclust() %>%
+  cutree(h = 6)
+```
+
+
+```{r}
+vector_to_df <- function(vector, col_name1, col_name2) {
+  vector %>% 
+    as.data.frame() %>% 
+    rownames_to_column() %>% 
+    set_colnames(c(col_name1, col_name2))
+}
+
+pdb_nonred  <- vector_to_df(clusters.seq, "pdb.id", "cluster.seq") %>% 
+  group_by(cluster.seq) %>% 
+  slice(1) %>% 
+  .$pdb.id
+```
+
+```{r}
+table.s1 <- fread(file.path(output_dir, "general.txt")) %>% 
+  mutate(pdb.id = toupper(substr(pdb.id, 1, 4))) %>% 
+  select(pdb.id) %>% 
+  distinct() %>% 
+  arrange(pdb.id)
+  
+markup.structures <- markup.seq %>% 
+  merge(general %>% 
+          filter(chain.type == "MHCb") %>% 
+          select(pdb.id, complex.species, mhc.class = chain.supertype)) %>% 
+  select(pdb.id, complex.species, mhc.class, peptide, cdr3a, cdr3b) %>% 
+  mutate(nonred = (pdb.id %in% pdb_nonred))
+  
+table.s2 <- markup.structures %>% 
+  mutate(pdb.id = toupper(pdb.id))  %>% 
+  filter(nonred) %>% 
+  set_colnames(c("PDB ID", "Species", "MHC class", "peptide", "CDR3a", "CDR3b", "nonred"))
+
+markup.structures %>% fwrite("../data/summary_PDB_structures.csv")
+```
+

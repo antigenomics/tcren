@@ -1,0 +1,369 @@
+---
+title: "Test TCRen performance in distinction between cognate epitope and unrelated peptides"
+author: "Vadim Karnaukhov"
+date: '2022-08-20'
+output: html_document
+---
+
+# MJ and Keskin potentials
+
+```{r}
+mj_keskin <- fread("../data/MJ_Keskin_potentials.csv")
+
+TCRen.mj_keskin <- TCRen %>% 
+  mutate(potential = "TCRen") %>% 
+  select(residue.aa.from, residue.aa.to, potential, value = TCRen) %>% 
+  rbind(mj_keskin) %>% 
+  mutate(potential = factor(potential, levels = c("TCRen", "MJ", "Keskin")))
+```
+
+```{r}
+pdb_unseen <- fread("~/vdjdb/vdjdb-2022-03-30/vdjdb.slim.txt") %>% 
+  filter(gene == "TRB") %>% 
+  select(peptide = antigen.epitope, cdr3b = cdr3) %>% 
+  distinct() %>% 
+  filter(!cdr3b %in% markup.seq$cdr3b) %>% 
+  group_by(peptide) %>% 
+  summarise(n.vdjdb = n()) %>% 
+  merge(markup.seq %>% 
+          select(pdb.id, peptide), all.y = T) %>% 
+  mutate(n.vdjdb = replace_na(n.vdjdb, 0)) %>% 
+  filter(n.vdjdb == 0) %>% 
+  filter(pdb.id %in% pdb_nonred) %>% 
+  .$pdb.id
+```
+
+
+# Cognate/unrelated peptides benchmark
+
+```{r}
+aa.re <- "[LFIMVWYCHAGPTSQNDERK]"
+
+peptide_seq <- general %>% 
+  filter(#pdb.id %in% pdb_nonred,
+         chain.component == "PEPTIDE") %>% 
+  select(pdb.id, peptide.pdb = allele.info, peptide.len = seq.length)
+
+bench.peptides <- peptide_seq %>% 
+  slice(rep(1:n(), each = 1000)) %>% 
+  rowwise() %>% 
+  mutate(peptide = paste0(stri_rand_strings(1, 1, aa.re), substr(peptide.pdb, 2, 2), stri_rand_strings(1, peptide.len-3, aa.re), substr(peptide.pdb, peptide.len, peptide.len))) %>% 
+  select(pdb.id, peptide) %>% 
+  mutate(real = F) %>% 
+  rbind(peptide_seq %>% mutate(real = T) %>% select(pdb.id, peptide = peptide.pdb, real))
+
+max.pep.len <- max(nchar(bench.peptides$peptide))
+```
+
+## Repeat the benchmark with control peptides from IEDB
+```{r}
+iedb <- fread("../data/iedb_slim.csv") %>% 
+  filter(Assay.1 == "cellular MHC/mass spectrometry",
+         Assay.5 == "Positive",
+         Epitope.1 == "Linear peptide") %>% 
+  mutate(MHC = stringr::str_split_fixed(MHC, ":", 2)[,1],
+         pep.len = nchar(Epitope.2)) %>%
+  distinct() %>%         
+  mutate(MHC = ifelse(substr(MHC, 1, 3) == "H2-", "H-2", MHC),
+         MHC = ifelse(substr(MHC, 1, 5) == "HLA-D", substr(MHC, 1, 6), MHC))
+
+pdb.hla <- fread("../data/PDB_MHC_annotation.csv")
+
+bench.peptides.iedb.control <- iedb %>% 
+  select(peptide = Epitope.2, MHC, pep.len) %>% 
+  distinct() %>% 
+  merge(pdb.hla %>% 
+          select(pdb.id, cognate.peptide = PEPTIDE, MHC, pep.len)) %>% 
+  filter(peptide != cognate.peptide) %>% 
+  group_by(pdb.id) %>% 
+  mutate(n.iedb = n()) %>% 
+  filter(n.iedb > 100) %>% 
+  sample_n(size = min(n.iedb, 1000))
+
+bench.peptides.iedb <- bench.peptides.iedb.control %>% 
+  select(peptide, pdb.id) %>% 
+  mutate(real = F) %>% 
+  rbind(bench.peptides.iedb.control %>% 
+          select(pdb.id, peptide = cognate.peptide) %>% 
+          distinct() %>% 
+          mutate(real = T))
+```
+
+```{r}
+calc_ranks_bench_peptides <- function(bench.peptides) {
+  bench.peptides.res <- bench.peptides %>% 
+    rowwise() %>% 
+    filter(pdb.id %in% pdb_nonred) %>% 
+    select(pdb.id, peptide, real) %>% 
+    separate(peptide, into = as.character(0:(max.pep.len - 1)), 
+                       sep = 1:max.pep.len, remove = F) %>% 
+    as.data.table() %>% 
+    melt(id = colnames(bench.peptides), 
+         variable.name = "residue.index.to", value.name = "residue.aa.to") %>% 
+    filter(residue.aa.to != "") %>% 
+    mutate(residue.index.to = as.integer(as.character(residue.index.to)))
+  
+  bench.peptides.contacts <- contacts.pTCR %>%
+    filter(pdb.id %in% pdb_nonred) %>% 
+    select(pdb.id, chain.type.from, region.type.from, residue.index.from, residue.index.to, residue.aa.from) %>% 
+    merge(bench.peptides.res,
+            allow.cartesian=TRUE)
+  
+  bench.peptides.energy <- bench.peptides.contacts %>% 
+    merge.data.frame(TCRen.mj_keskin) %>% 
+    rbind(bench.peptides.contacts %>% 
+            merge.data.frame(TCRen.LOO %>% 
+                               mutate(potential = "TCRen.LOO") %>% 
+                               rename(value = TCRen.LOO))) %>% 
+    group_by(pdb.id, peptide, real, potential) %>% 
+    summarise(value.s = sum(value))
+  
+  bench.peptides.energy %>% 
+    group_by(pdb.id, potential) %>% 
+    mutate(value.rank = rank(value.s) / n() * 100)
+}
+```
+
+```{r}
+bench.peptides.ranks <- calc_ranks_bench_peptides(bench.peptides) %>% 
+  filter(real)
+
+bench.peptides.ranks %>% 
+  filter(pdb.id %in% pdb_nonred) %>%
+  group_by(potential) %>% 
+  summarise(rank.median = round(median(value.rank), 0))
+
+bench.peptides.ranks.iedb <- calc_ranks_bench_peptides(bench.peptides.iedb) %>% 
+  filter(real)
+
+bench.peptides.ranks.iedb %>% 
+  filter(pdb.id %in% pdb_nonred) %>%
+  group_by(potential) %>% 
+  summarise(rank.median = round(median(value.rank), 0))
+```
+
+```{r}
+bench.peptides.ranks %>% 
+  select(pdb.id, potential, rank.random = value.rank) %>% 
+  merge(bench.peptides.ranks.iedb %>% 
+          select(pdb.id, potential, rank.iedb = value.rank)) %>% 
+  filter(potential %in% c("TCRen", "TCRen.LOO")) %>% 
+  ggplot(aes(x = rank.random, y = rank.iedb)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  facet_wrap(~potential) +
+  theme_bw()
+```
+
+## Validation on a holdout set
+
+```{r}
+pdb_holdout <- fread("../data/PDB_date.csv") %>% 
+  merge(tibble(`PDB ID` = toupper(pdb_nonred), all.y = T)) %>% 
+  arrange(`Release Date`) %>% 
+  filter(`Release Date` > "2019-01-01") %>%
+  mutate(pdb.id = tolower(`PDB ID`)) %>% 
+  .$pdb.id
+
+TCRen.holdout <- calc_TCRen(exclude = pdb_holdout) %>%
+  rename(TCRen.holdout = TCRen)
+
+bench.peptides.holdout <- bench.peptides.contacts %>% 
+  filter(pdb.id %in% pdb_holdout) %>% 
+  merge(TCRen.holdout) %>% 
+  group_by(pdb.id, peptide, real) %>% 
+  summarise(TCRen.holdout.s = sum(TCRen.holdout)) 
+
+bench.peptides.holdout.ranks <- bench.peptides.holdout %>% 
+  group_by(pdb.id) %>% 
+  mutate(rank = rank(TCRen.holdout.s) / n()) %>% 
+  filter(real == T) 
+```
+
+```{r, fig.height=10, fig.width=10}
+holdout_labels <- bench.peptides.holdout.ranks %>% 
+  mutate(label = paste0(toupper(pdb.id), " (", round(rank*100), "%)")) %>% 
+  arrange(rank) %>% 
+  mutate(label = factor(label, levels = .$label)) %>% 
+  select(pdb.id, label)
+
+
+pfigs4a <- bench.peptides.holdout %>% 
+  merge(holdout_labels) %>% 
+  mutate(label = factor(label, levels = holdout_labels$label)) %>% 
+  ggplot(aes(x = "", y = TCRen.holdout.s)) +
+  geom_quasirandom(size = .1, color = "grey") +
+  geom_boxplot(alpha = 0) +
+  geom_point(data = bench.peptides.holdout %>% 
+               filter(pdb.id %in% holdout_labels$pdb.id, real) %>% 
+               merge(holdout_labels), color = "red") +
+  facet_wrap(~label, ncol = 9) +
+  theme_bw() +
+  #ylim(c(-5, 15)) +
+  xlab("") + ylab("TCRen")
+
+pfigs4a
+```
+# Compare with state-of-art tools
+
+## TITAN
+
+Process TITAN output
+```{r}
+TITAN.ranks <- fread("../data/benchmark_other_tools/TITAN/output_test.csv", header = T) %>% 
+  set_colnames(c("id", "score", "label")) %>%
+  mutate(id = id + 1) %>% 
+  merge(fread("../data/benchmark_other_tools/TITAN/input_test.csv") %>% 
+          rename(id = V1)) %>% 
+  merge(fread("../data/benchmark_other_tools/TITAN/input_tcr.csv") %>% 
+          set_colnames(c("full_seq", "sequence_id"))) %>% 
+  merge(fread("../data/benchmark_other_tools/TITAN/input_tcr_fullseq.csv", header = T) %>% 
+          select(CDR3b, full_seq)) %>% 
+  merge(markup.seq %>% 
+          filter(pdb.id %in% pdb_unseen) %>% 
+          select(CDR3b = cdr3b) %>% 
+          distinct()) %>% 
+  group_by(sequence_id) %>% 
+  mutate(rank = rank(-score) / n() * 100) %>% 
+  filter(label == 1) %>% 
+  ungroup()
+```
+
+## ERGO-II
+```{r}
+ERGO.ranks <- fread("../data/benchmark_other_tools/ERGO-II/output_bench_long.csv") %>% 
+  group_by(TRA, TRB) %>% 
+  mutate(rank = rank(-Score) / n() * 100) %>% 
+  merge(markup.seq %>% 
+          filter(pdb.id %in% pdb_unseen) %>% 
+          select(pdb.id, TRB = cdr3b, TRA = cdr3a, Peptide = peptide))
+```
+
+## Random potential - shuffled TCRen values
+```{r}
+random.ranks <- bench.peptides.contacts %>% 
+  filter(pdb.id %in% pdb_unseen) %>% 
+  merge(TCRen %>% 
+          mutate(random = sample(TCRen))) %>% 
+  group_by(pdb.id, peptide, real) %>% 
+  summarise(value.s = sum(random)) %>% 
+  mutate(potential = "random") %>% 
+  group_by(pdb.id) %>% 
+  mutate(rank = rank(value.s) / n() * 100) %>% 
+  filter(real)
+```
+```{r}
+random.ranks$rank %>% median()
+```
+
+
+## All methods
+
+```{r}
+bench_all <- bench.peptides.ranks %>% 
+  filter(pdb.id %in% pdb_unseen) %>% 
+  select(pdb.id, potential, rank = value.rank) %>% 
+  rbind(ERGO.ranks %>% 
+          mutate(potential = "ERGO-II") %>% 
+          select(pdb.id, potential, rank)) %>% 
+  rbind(TITAN.ranks %>% 
+          mutate(pdb.id = NA,
+                 potential = "TITAN") %>% 
+          select(pdb.id, potential, rank)) %>% 
+  rbind(random.ranks %>% 
+          select(pdb.id, potential, rank)) %>% 
+  mutate(potential = ifelse(potential == "TCRen", "TCRen (full)",
+                            ifelse(potential == "TCRen.LOO", "TCRen (LOO)", potential)) %>% 
+           factor(levels = c("TCRen (full)", "TCRen (LOO)", "TITAN", "ERGO-II", "Keskin", "MJ", "random")))
+```
+
+```{r}
+bench_all.ranks.med <- bench_all %>% 
+  group_by(potential) %>% 
+  summarise(rank.median = round(median(rank), 0))
+
+
+pfig2a <- bench_all %>% 
+  ggplot(aes(x = potential, y = rank, fill = potential)) +
+  geom_violin() +
+  geom_boxplot(color = 'black', alpha = 0, width = .1) +
+  #scale_x_discrete(guide = guide_axis(angle = 30)) +
+  xlab("") + ylab("Cognate epitope rank") +
+  guides(fill=FALSE) +
+  geom_text(data = bench_all.ranks.med, 
+            aes(y = rank.median, label = paste0(rank.median, "%")),
+            size = 4, vjust = .3, hjust = -.3) +
+  scale_fill_manual(values = c("red", "orange", "grey80", "grey70", "grey60", "grey50", "grey40")) +
+  scale_x_discrete(labels =c("TCRen \n(full)", "TCRen \n(LOO)", "TITAN \n(sequence)", "ERGO-II \n(sequence)", "Keskin \n(structure)", "MJ \n(structure)", "random")) +
+  theme_pubclean() 
+
+pfig2a
+```
+
+```{r}
+library(plotROC)
+library(PRROC)
+library(pROC)
+
+theme_roc <- list( 
+    geom_vline(xintercept = 1, size = 1),
+    geom_abline(intercept = 1, slope = 0, size = 1),
+    geom_roc(n.cuts = 0, size = .5),
+    style_roc(major.breaks = c(0, 0.25, 0.5, 0.75, 1), minor.breaks = F, theme = theme_classic),
+    geom_abline(intercept = 0, slope = 1, linetype="dashed"),
+    labs(#color = "Potential : AUC", 
+         color = "",
+         x = 'FPR', y = 'TPR'),
+    scale_x_continuous(expand = c(0, 0)), scale_y_continuous(expand = c(0, 0)),
+    theme(aspect.ratio = 1, 
+          legend.position = c(.8,.25),
+          legend.background = element_blank(),
+          legend.text=element_text(size=9),
+          legend.key.size = unit(.7, 'lines'),
+          )
+)
+```
+
+```{r}
+bench_all.for_auc <- bench_all %>% 
+  mutate(real = T) %>% 
+  rbind(bench_all %>% 
+          distinct(pdb.id, potential) %>% 
+          merge(tibble(rank = seq(1, 100, 0.1))) %>% 
+          mutate(real = F))
+
+auc_bench_peptides <- bench_all.for_auc %>% 
+  group_by(potential) %>% 
+  summarise(auc = ceiling(auc(roc(real, rank, direction = ">", levels = c(F,T))) * 100) / 100) %>% 
+  mutate(label = paste0(potential, ": ", auc))
+
+pfig2b <- bench_all.for_auc %>% 
+  ggplot(aes(d = real, m = -rank, color = potential)) +
+  theme_roc +
+  scale_color_manual(values = c("red", "orange", "grey80", "grey70", "grey60", "grey50", "grey40"), labels = auc_bench_peptides$label)
+```
+
+```{r}
+bench.peptides.ranks %>% 
+  filter(potential %in% c("TCRen", "TCRen.LOO")) %>% 
+  merge(fread("../data/output_TCRen/structures_annotation/general.txt") %>% 
+          mutate(pdb.id = substr(pdb.id, 1, 4)) %>% 
+          filter(chain.type == "MHCa") %>% 
+          distinct(pdb.id, complex.species, chain.supertype)) %>% 
+  mutate(type = paste0(complex.species, "_", chain.supertype)) %>% 
+  ggplot(aes(x = type, y = value.rank)) +
+  geom_boxplot(width = .5, fill = "grey90") +
+  geom_quasirandom() +
+  facet_wrap(~potential) +
+  theme_pubclean() +
+  ylab("Cognate epitope rank") + xlab("") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
+```
+
+```{r, fig.width=7.5, fig.height=2.5}
+pfig2ab <- ggdraw() +
+  draw_plot(pfig2a, x = 0, y = 0, width = .63, height = 1) +
+  draw_plot(pfig2b + 
+              theme(legend.position = c(.75,.25)),
+            x = .6, y = 0, width = .4, height = 1)
+```
