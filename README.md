@@ -1,23 +1,33 @@
-> The pipeline is free for academic and non-commercial use. Inquiries regarding commercial use can be e-mailed to the last author (PI) of [the study](https://www.nature.com/articles/s43588-024-00653-0) to be duly ignored.
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/tcren_dark.svg">
+    <img alt="tcren" src="assets/tcren_light.svg" width="340">
+  </picture>
+</p>
 
-![logo](assets/tcren_dark.svg)
+<h1 align="center">tcren — structure-based prediction of TCR–epitope recognition</h1>
 
-# The algorithm
+<p align="center">
+  <a href="https://github.com/antigenomics/tcren/actions/workflows/tests.yml"><img alt="tests" src="https://github.com/antigenomics/tcren/actions/workflows/tests.yml/badge.svg"></a>
+  <a href="https://docs.isalgo.dev/tcren/"><img alt="docs" src="https://github.com/antigenomics/tcren/actions/workflows/docs.yml/badge.svg"></a>
+  <img alt="python" src="https://img.shields.io/badge/python-3.10%2B-blue">
+  <img alt="license" src="https://img.shields.io/badge/license-academic%20%2F%20non--commercial-green">
+</p>
 
-This is a method for prediction of TCR recognition of unseen epitopes based on residue-level pairwise statistical potential scoring. While AI-guided prediction of TCR:pMHC structures is becoming routine now, and methods such as AlphaFold provide structure confidence that correlates with the probability of a complex coming from true binder, the following question still remains open: AlphaFold (or any other AI-based method) will always try to "please" the user and provide him with a "fancy" TCR:peptide:MHC structure, but is the binding physically possible and can this complex exist in nature in the first place?
+**TCRen** predicts which epitopes a T-cell receptor recognises from a single TCR–peptide–MHC
+structure (experimental or modelled). It extracts the TCR–peptide contact map and scores every
+candidate peptide with a **residue-level statistical potential** derived from contact preferences
+in TCR:pMHC crystal structures — answering not "what fancy complex can a model draw?" but "is this
+binding physically plausible?". Method: Karnaukhov *et al.*, *Nat Comput Sci* 2024
+([doi:10.1038/s43588-024-00653-0](https://www.nature.com/articles/s43588-024-00653-0)).
 
-TCRen method starts from a structure of the peptide-MHC complex with the TCR of interest—either experimentally derived or based on a homology model—then extracts a TCR-peptide contact map and estimates the TCR-peptide energy of interaction for all candidate  epitopes using TCRen potential, which we derived from statistical analysis of amino acid contact preferences in TCR:pMHC crystal structures.
+This is a documented, tested, CLI-driven Python library. TCR chains are annotated with the sibling
+[`arda`](https://github.com/antigenomics/arda); MHC chains are mapped and the groove partitioned
+against a curated reference; structures are oriented into one canonical frame; and the original
+contact maps, potential, and scores are reproduced numerically (validated against committed oracles
+to floating-point precision).
 
-![preview](legacy/figures/Fig1.png)
-
-## Python library (`tcren`)
-
-A Python re-implementation of the TCRen pipeline lives under `src/tcren/`. It replaces
-the legacy Java `mir` annotator with [`arda`](https://github.com/antigenomics/arda) for
-TCR chain mapping and reproduces the original contact maps, potential and scores
-numerically (validated against the committed CSV oracles to floating-point precision).
-
-### Install
+## Install
 
 ```fish
 bash setup.sh              # creates the `tcren` conda env, installs arda + tcren
@@ -26,201 +36,138 @@ conda activate tcren
 
 `setup.sh` expects the sibling `arda` checkout next to this repo (or set `ARDA_DIR`).
 
-### Command line
+## Command line
 
 ```fish
-# End-to-end scoring (drop-in replacement for run_TCRen.R)
-tcren score -s legacy/example/input_structures -c legacy/example/candidate_epitopes.txt -o out.csv
+# End-to-end candidate-epitope scoring from a structure
+tcren score -s complex.pdb -c candidates.txt -o ranked.csv
 
-# Structures (gzipped .pdb.gz/.cif.gz, .tar.gz batches all accepted)
-tcren paper bootstrap               # fetch HF structure sets -> notebooks/data/<Set>/ (gitignored)
+# Structures: any of .pdb / .cif / .pdb.gz / .cif.gz, a directory, or a .tar.gz batch
+tcren contacts -s batch.tar.gz -o contacts.csv --interface tcr_peptide
+tcren annotate -s complex.cif.gz -o markup.csv
+tcren mhc      -s complex.pdb    -o mhc_calls.csv
 
-# Fetch recent TCR-pMHC structures from RCSB -> data/pdb_recent/ (mmCIF .cif.gz, 5-chain validated)
-tcren fetch-recent --discover --after 2024-01-01
-
-# MHC allele/class/role mapping (build the reference once)
-tcren build-mhc-ref                # downloads IMGT/HLA + mouse H-2 (cached, not committed)
-tcren mhc -s legacy/example/input_structures -o mhc_calls.csv
-
-# Canonical orientation — superpose TCR-pMHC into one MHC frame, rename chains A-E, write .pdb.gz.
-# Annotation is one batched mmseqs call; -t threads only the alignment + write (never mmseqs).
+# Canonical orientation (writes oriented .pdb.gz; chains A=Vα B=Vβ C=peptide D=MHCα E=MHCβ/β2m).
+# Annotation is one batched mmseqs call; -t threads only the structural alignment + write.
 tcren orient -s data/Native2026 -o data/Canonical2026 -t 8 \
     --push-to-hub isalgo/tcren_structures --hub-folder Canonical2026
-#   z (PC1) = MHC->TCR, y (PC2) = peptide, x (PC3); chains: A=Va B=Vb C=peptide D=MHCa E=MHCb/b2m
 
-# Other subcommands
-tcren annotate -s legacy/example/input_structures -o markup.csv
-tcren contacts -s legacy/example/input_structures -o contacts.csv --interface tcr_peptide
-tcren derive-potential -i legacy/data/contact_maps_PDB.csv --summary legacy/data/summary_PDB_structures.csv --nonred -o TCRen_potential.csv
+# Fetch recent TCR-pMHC structures from RCSB -> data/pdb_recent (mmCIF .cif.gz, 5-chain validated)
+tcren fetch-recent --discover --after 2024-01-01
+
+# Build the MHC reference once (IMGT/HLA + mouse H-2; cached, not committed)
+tcren build-mhc-ref
+
 tcren info
 ```
 
-### Library
+## Library
 
 ```python
-from tcren import parse_structure, ContactMap, score_peptides
+from tcren import parse_structure, import_structure, ContactMap, score_peptides
 from tcren.annotation import classify_chains
 from tcren.potential import tcren
 
-s = parse_structure("legacy/example/input_structures/6uk4_TCRpMHCmodels_polyV.pdb")
-classify_chains(s, organism="human")          # TRA/TRB via arda, peptide, MHC
+s = parse_structure("complex.pdb.gz")          # also .cif/.cif.gz; import_structure trims the C-gene
+classify_chains(s, organism="human")           # TRA/TRB via arda, peptide, MHC
 cm = ContactMap.from_structure(s)              # 5 Å contacts + interface partitioning
 ranked = score_peptides(cm, ["KQWLVWLFL", "RLLHPHHPL"], tcren())
 ```
 
-### Canonical orientation & flexible contacts
+### Batch inputs, gzip, archives
+
+```python
+from tcren.structure import iter_structures
+for pdb_id, structure in iter_structures("batch.tar.gz"):   # file | directory | .tar.gz
+    classify_chains(structure, organism="human")
+    ...
+```
+
+### Canonical orientation, contacts, docking geometry
 
 ```python
 from tcren.mhc import annotate_mhc
-from tcren.orient import canonicalize_structure, align_to_canonical
+from tcren.orient import canonicalize_structure, align_to_canonical, docking_angles
 from tcren.contacts import multi_contacts, ContactDefinition
 
 annotate_mhc(s)
-oriented, info = canonicalize_structure(s)     # PCA frame: z=MHC->TCR, y=peptide, chains A-E
-#   align a NEW structure onto the dataset frame: align_to_canonical(new_structure)
-
-# three nested contact layers: d1 heavy-atom (5 Å), d2 Cβ (8 Å, Cα for Gly), d3 Cα (12 Å)
-layers = multi_contacts(s, ContactDefinition(d1=5, d2=8, d3=12))
-
-# TCR docking geometry from the groove frame (no external package needed)
-from tcren.orient import docking_angles
-d = docking_angles(s)        # crossing_angle (~20-70° for αβ), incident_angle, cell_type
+oriented, info = canonicalize_structure(s)     # frame: z=MHC→TCR, y=peptide, x=thin; chains A–E
+layers = multi_contacts(s, ContactDefinition(d1=5, d2=8, d3=12))   # heavy-atom / Cβ / Cα
+d = docking_angles(s)                          # crossing (~20–70° αβ) + incident angle
 ```
 
-Structures come from the Hugging Face dataset
-[`isalgo/tcren_structures`](https://huggingface.co/datasets/isalgo/tcren_structures):
-`Native2022` (the 2022 paper set, oracle), `Native2026` (the comprehensive 2026 TCR:pMHC
-set), and `Canonical2026` (Native2026 after `tcren orient` re-orientation). All structures are
-gzipped (`*.pdb.gz`); tcren reads `.pdb`/`.cif`/`.pdb.gz`/`.cif.gz` and `.tar.gz` batches.
-
-### 2D complementarity maps & C-gene-aware import
+### 2D complementarity maps & region-pair contacts
 
 ```python
-from tcren import import_structure                 # trims the TCR C-gene by default
-from tcren.annotation import classify_chains
-from tcren.mhc import annotate_mhc
-from tcren.project2d import project_structure, residue_markup_table, contacts_table
+from tcren.project2d import (project_structure, residue_markup_table, contacts_table,
+                             region_pair_summary)
 from tcren.viz import render_complementarity_map, view_pocket_cdr
 
-s = import_structure("complex.cif")                # keep_c_gene=True for MD / FlexPepDock
-classify_chains(s, organism="human"); annotate_mhc(s)
-proj = project_structure(s)                        # canonical groove plane (TCR on top)
-markup = residue_markup_table(s, proj)             # tidy polars: chain/region/aa/x,y,z
-contacts = contacts_table(s, threshold=5.0)        # TCRen-compatible, classified by bond type
-svg = render_complementarity_map(markup, contacts=contacts)   # metadata-rich SVG
-view_pocket_cdr(s).show()                          # interactive 3D pocket + CDR overlay (py3Dmol)
-
-# contacts between every region pair, under three definitions, with a bond-type breakdown
-from tcren.project2d import region_pair_summary
-region_pair_summary(s, kind="closest")             # 5 Å heavy-atom; kind="cb" (8 Å) / "ca" (12 Å)
+proj = project_structure(s)                                   # canonical groove plane
+svg  = render_complementarity_map(residue_markup_table(s, proj),
+                                  contacts=contacts_table(s, threshold=5.0))
+region_pair_summary(s, kind="closest")        # contacts per region pair + bond types (cb/ca too)
+view_pocket_cdr(s).show()                      # interactive 3D pocket + CDR overlay (py3Dmol)
 ```
 
-See the tutorial notebooks under `docs/notebooks/` for full examples; `notebooks/` adds
-`complementarity_map_2d` (multiple structural + map views of 1ao7) and
-`contact_thresholds_and_bondtypes` (region-pair contact counts across the three thresholds).
+## Data
 
-Run the tests with `pytest tests/` (set `RUN_BENCHMARK=1` for the full-dataset sweeps).
-Project status & open tasks: [STATUS.md](STATUS.md); achieved accuracy & performance:
-[BENCHMARKS.md](BENCHMARKS.md).
+Structures live in the Hugging Face dataset
+[`isalgo/tcren_structures`](https://huggingface.co/datasets/isalgo/tcren_structures), all gzipped:
 
----
+| folder | contents |
+|---|---|
+| `Native2022` | the 2022 paper set (oracle) |
+| `Native2026` | the comprehensive 2026 TCR:pMHC set the current potential is derived from |
+| `Canonical2026` | `Native2026` re-oriented into the canonical frame (`tcren orient`) |
 
-# Legacy R pipeline
+`tcren` reads `.pdb`/`.cif`/`.pdb.gz`/`.cif.gz` and `.tar.gz` batches; an installed library lazily
+fetches the canonical reference structures from the Hub when orienting a new complex. The root
+`data/` holds `Native2026` (+ `Canonical2026`, gitignored, fetched on demand), `PDB_date.tsv`, and
+`orient_metadata.json`.
 
-The original R + Java pipeline is preserved below and remains the reference
-implementation; the Python library above reproduces its results.
+## Notebooks
 
-## Dependencies
-R with packages data.table, tidyverse, optparse, stringr, magrittr (tested on: R v4.0.5 with data.table v1.14.0, 
-tidyverse v.1.3.1, optparse v1.7.3, stringr v1.4.0, magrittr v2.0.3; R v4.2.0 with data.data.table v1.13.0, 
-tidyverse v.1.3.0, optparse v1.7.3, stringr v1.4.0, magrittr v1.5; we expect other package
-versions should also be compatible with the script)
+Runnable examples under [`notebooks/`](notebooks/) (rendered in the
+[docs](https://docs.isalgo.dev/tcren/)):
 
-Java (tested on openjdk 11.0.16)
+- `complementarity_map_2d` — 2D interface maps, multiple structural + map views of 1ao7
+- `contact_thresholds_and_bondtypes` — region-pair contact counts (closest/Cβ/Cα) + bond types
+- `canonical_frame_figures` — canonical-frame QC across the Native2026 set
+- `pymol_canonical_figures` — ray-traced PyMOL panels (overlay, groove, interface) by class/species
+- `example_gil_a02_rs_motif` — GILGFVFTL/HLA-A*02 and the public CDR3β Arg–Ser motif
+- `natcompsci2022/` — full reproduction of the Nat Comput Sci 2022 analyses
 
-## Repository content
-* Script to run TCRen pipeline on new target TCRs and candidate epitopes. 
-This script is provided in 2 versions: 1) as Rmarkdown file ``TCRen_pipeline/run_TCRen.Rmd`` which 
-can be run in Rstudio (the first chunk should contain paths to input files); 
-2) as R script ``TCRen_pipeline/run_TCRen.R`` which can be run from a command line 
-(with arguments indicating paths to input files; for details see Tutorial below)
+## Performance
 
-* Example files for input and output (folder ``example``)
+Per-stage timings on a TCR-pMHC complex (1ao7), Apple M3, single thread (`RUN_BENCHMARK=1 pytest
+-k benchmark -s` to reproduce):
 
-* Scripts and data to reproduce the benchmarking of TCRen performance and other analysis performed 
-in the corresponding paper (scripts in the folder ``code_paper``, data in the folder ``data``)
+| stage | time | notes |
+|---|---|---|
+| parse a gzipped structure | ~19 ms | `.pdb.gz` / `.cif.gz` |
+| contact map (5 Å, cKDTree) | ~9 ms | per structure |
+| score 1000 candidate peptides | ~8 ms | ~8 µs/peptide (vectorised) |
+| **annotate (TCR + MHC), batched** | **~213 ms/structure** | one mmseqs2 call for the whole set; vs ~1.5 s/structure unbatched |
+| peak RSS, single-structure pipeline | ~195 MB | |
 
-* All cleaned-up TCR-peptide-MHC structures from PDB (folder ``data/PDB_structures``) with meta-data 
-(``data/summary_PDB_structures.csv``) and the file with all extracted TCR-peptide residue contacts (``data/contact_maps_PDB.csv``)
+Annotation is the only network/compute-heavy step and is always **batched** (one mmseqs2 search over
+all chains; mmseqs2 parallelises internally — never per-structure, never Python-threaded). Threads are
+used only for the embarrassingly-parallel, mmseqs-free stages (structural alignment, write, rendering):
+`tcren orient -t N`.
 
-* Values of TCRen potential (``TCRen_potential.csv``)
+## Tests
 
-## TCRen input 
-1. A structure of TCR-peptide-MHC complex (either experimentally derived or a homology model). Several structures may be submitted at once. Structure(s) should be placed in a single folder.
-* Example: ``example/input_structures``
-
-2. A list of candidate epitopes.
-* Example: ``example/candidate_epitopes.txt``
-
-## TCRen output
-A table with 4 columns: complex.id (corresponding to the name of an input structure), peptide (corresponding to the name of a candidate peptide), potential (“TCRen” if the default ```TCRen_potential.csv``` file is used) and score (TCRen estimate of energy of peptide-TCR interaction).
-* Example: ``example/output_TCRen/candidate_epitopes_TCRen.csv``
-
-## Tutorial
-1. Clone the github repository for TCRen:
-
-```
-$ git clone https://github.com/antigenomics/tcren-ms.git
+```fish
+pytest -m "not slow"          # unit + fast regression (the CI gate)
+pytest                        # add the arda/mmseqs-backed regression tests
+RUN_BENCHMARK=1 pytest -k benchmark -s
 ```
 
-2. Prepare a structure (or several structures) of TCR-peptide-MHC complex. Format: “.pdb”.
+## Cite
 
-* All structures for which predictions will be done should be placed in a single directory (e.g. ``example/input_structures``)
+Karnaukhov *et al.* "Predicting TCR specificity from structure with a residue-level statistical
+potential." *Nature Computational Science* (2024).
+[doi:10.1038/s43588-024-00653-0](https://www.nature.com/articles/s43588-024-00653-0)
 
-* If for the TCR of interest a crystal structure of the ternary complex (TCR-peptide-MHC) with some peptide is available 
-(i.g. for the task of prediction of cross-reactivity of a well-known TCR), 
-it can be downloaded directly from [PDB](https://www.rcsb.org/) and used as input. 
-For the task of predictions for unseen TCRs, homology model(s) should be used as input, 
-e.g. obtained using TCRpMHCmodels tool which is implemented both as a 
-[webserver](https://services.healthtech.dtu.dk/service.php?TCRpMHCmodels-1.0) and a 
-[stand-alone software](https://services.healthtech.dtu.dk/cgi-bin/sw_request). 
-Detailed instructions for TCRpMHCmodels tool use can be found on the webserver site and in README of software download.
-The modeling usually requires a few minutes for a single TCR-peptide-MHC complex either in the web-server or in a single CPU. 
-
-3. Prepare a list of candidate epitopes (e.g. mutated peptides predicted as binders to host MHC for the task of prediction of neoepitope recognition). Format: “.txt” file with each candidate epitope in a separate line, with a header “peptide”. Note that only peptides with the same length as in the input structures would be considered for predictions.
-* Example in ``example/candidate_epitopes.csv``
-
-4. Run TCRen pipeline (typical runtime is within minutes for a standard laptop). 
-
-* The pipeline should be run the directory containing all the files necessary for TCRen launching: ``run_TCRen.R``, 
-``TCRen_potential.csv`` and ``mir-1.0-SNAPSHOT.jar`` (java script for annotation and extraction of contacts in TCR-peptide-MHC structures)
-
-* Detailed comments on all stages of TCRen pipeline can be found in Rmarkdown file ``run_TCRen.Rmd`` which is identical 
-in terms of the main code to ```run_TCRen.R```
-
-```
-$ cd TCRen_pipeline
-$ Rscript --vanilla run_TCRen.R -s ../example/input_structures/ -c ../example/candidate_epitopes.txt -p TCRen_potential.csv -o ../example/output_TCRen/ -m 1G
-```
-
-* Arguments of run_TCRen.R script:
-
-| option                                         | Description                                      |    
-|------------------------------------------------|--------------------------------------------------|
-| -s, --structures                               | directory with input structures                  |
-| -c, --candidates                               | file with candidate epitopes                     |
-| -p, --potential                                | file with energy potential (TCRen)               |
-| -o, --out                                      | directory for TCRen output                       |
-| -m, --memory                                   | memory allocation                                |
-
-5. The output of TCRen can be found in the file ``candidate_epitopes_TCRen.csv`` in the folder which was set by -o flag. The content of the output file is described above in the section “TCRen output”
-
-## Additional calculation
-
-See ``tcren_am/`` for derivation of alignment scoring matrices from TCRen and extended TCRen that includes Cys (``C``) and gap (``-``).
-
-## Cite as
-
-```
-Karnaukhov VK, Shcherbinin DS, Chugunov AO, Chudakov DM, Efremov RG, Zvyagin IV, Shugay M. Structure-based prediction of T cell receptor recognition of unseen epitopes using TCRen. Nat Comput Sci. 2024 Jul;4(7):510-521. doi: 10.1038/s43588-024-00653-0. Epub 2024 Jul 10. PMID: 38987378.
-```
+> Free for academic and non-commercial use; for commercial use, contact the study's corresponding author.

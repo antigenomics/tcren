@@ -12,6 +12,7 @@ and scores candidate epitopes.
    :caption: Contents
 
    getting-started
+   performance
    modules
 
 .. toctree::
