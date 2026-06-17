@@ -79,7 +79,7 @@ jobs:
         with:
           name: ${{ matrix.artifact }}
           path: wheels/
-      - name: Install wheel (no deps) and import the C++ ext
+      - name: Install wheel (with deps) and import the C++ ext
         shell: bash
         run: |
           pip install --upgrade pip
@@ -90,8 +90,8 @@ jobs:
           matches = sorted(glob.glob(f"wheels/tcren-*-{tag}-*.whl"))
           if len(matches) != 1:
               raise SystemExit(f"expected 1 wheel for {tag}, found {len(matches)}: {matches}")
-          # --no-deps: arda-mapper is published separately; tcren imports it lazily.
-          subprocess.check_call([sys.executable, "-m", "pip", "install", "--no-deps", matches[0]])
+          # Full install: resolves biopython/scipy/polars/... and arda-mapper from PyPI.
+          subprocess.check_call([sys.executable, "-m", "pip", "install", matches[0]])
           PY
           python -c "import tcren, tcren._align; print('[OK] tcren', tcren.__version__, '/ _align', tcren._align.__version__)"
 
