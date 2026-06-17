@@ -41,8 +41,10 @@ tcren = "tcren.cli:app"
 wheel.packages = ["src/tcren"]
 cmake.version = ">=3.18"
 build-dir = "build/{wheel_tag}"
-# Keep the editable install rebuilding the C++ ext automatically on import.
-editable.rebuild = true
+# The ext is built once at install; do NOT rebuild on import (that needs cmake on PATH at
+# import time and breaks under pytest / CI where the build-env cmake is gone). Re-run
+# `pip install -e .` after changing the C++ source.
+editable.rebuild = false
 editable.verbose = false
 
 [tool.ruff]

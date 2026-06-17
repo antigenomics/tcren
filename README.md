@@ -59,11 +59,13 @@ tcren contacts -s batch.tar.gz -o contacts.csv --interface tcr_peptide
 # --regions all|tcr|mhc|peptide filters; --pseudo also marks NetMHCpan groove residues (MPS).
 tcren annotate -s complex.cif.gz -o markup.csv --regions mhc --pseudo
 
-# Superimpose a new structure onto the canonical frame, by MHC, against the canonical
-# database (data/Canonical2026, fetched at install). Detects MHC class + species and averages
-# the superposition over every database structure of that class/species. Chains -> A=Vα B=Vβ
-# C=peptide D=MHCα E=MHCβ/β2m.
-tcren superimpose -s complex.pdb -o oriented/
+# Superimpose structure(s) onto the canonical frame, by MHC, against the canonical database
+# (data/Canonical2026, fetched at install). Detects MHC class + species and averages the
+# superposition over every database structure of that class/species. Chains -> A=Vα B=Vβ
+# C=peptide D=MHCα E=MHCβ/β2m. -s takes a file / directory / .tar.gz / glob; -o is a directory,
+# or a single structure file (one input) whose extension must match --mmCIF/--compress; -t threads.
+tcren superimpose -s complex.pdb -o oriented.pdb           # single file
+tcren superimpose -s 'data/*.pdb' -o oriented/ -t 8        # glob -> directory, threaded
 
 # Build a canonical database from native complexes (how Canonical2026 is produced). Annotation
 # is one batched mmseqs call; -t threads only the structural alignment + write.
@@ -79,6 +81,7 @@ tcren fetch-recent --discover --after 2024-01-01
 tcren build-mhc-ref
 
 tcren info
+tcren --install-completion        # shell tab-completion (bash/zsh/fish)
 ```
 
 `tcren orient` and `tcren superimpose` need the reference sets in `data/` (`Native2026`,

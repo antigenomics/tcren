@@ -101,19 +101,24 @@ def superimpose(
     structure: Structure,
     db_dir: str | Path | None = None,
     organism: str = "human",
+    annotate: bool = True,
 ) -> tuple[Structure, OrientationResult]:
     """Superimpose ``structure`` onto a canonical database by MHC (see module docstring).
 
-    ``structure`` is chain-typed + MHC-annotated here. ``db_dir`` defaults to
-    ``data/Canonical2026``. Returns the oriented, A–E renamed structure and the consensus
-    :class:`~tcren.orient.align.OrientationResult` (averaged over the matching ensemble).
+    ``structure`` is chain-typed + MHC-annotated here unless ``annotate=False`` (used by the
+    threaded batch driver, which annotates the whole input set in one mmseqs pass first). The
+    ensemble alignment itself is mmseqs-free, so it is the part safe to run on a thread pool.
+    ``db_dir`` defaults to ``data/Canonical2026``. Returns the oriented, A–E renamed structure
+    and the consensus :class:`~tcren.orient.align.OrientationResult` (averaged over the ensemble).
     """
-    from ..annotation import classify_chains
-    from ..mhc import annotate_mhc
     from Bio.SVDSuperimposer import SVDSuperimposer
 
-    classify_chains(structure, organism=organism)
-    annotate_mhc(structure)
+    if annotate:
+        from ..annotation import classify_chains
+        from ..mhc import annotate_mhc
+
+        classify_chains(structure, organism=organism)
+        annotate_mhc(structure)
     mhc_class, species = _query_class_species(structure)
 
     db_dir = Path(db_dir) if db_dir is not None else data_dir() / "Canonical2026"

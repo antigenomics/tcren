@@ -37,7 +37,11 @@ Reference: `arda.annotate_sequences([(id, seq), ...])` — one call, threads int
   alignment (Kabsch/SVD superposition), peptide mutation, relaxation, and rendering — i.e.
   pymol / Rosetta / FlexPepDock and figure generation. `orient.run_folder(threads=…)` threads
   the parse and the align+write stages (default `os.cpu_count()`); annotation between them is
-  the single batched pass. `tcren orient -t N`.
+  the single batched pass. `tcren orient -t N`. **`superimpose` is the same**: `run_superimpose`
+  batch-annotates all inputs, then threads the mmseqs-free ensemble alignment + write
+  (`superimpose(..., annotate=False)` on the pre-annotated structures). `tcren superimpose -t N`.
+  `-s` accepts file / dir / .tar.gz / glob; `-o` is a directory, or a single structure file
+  (one input) whose extension must match `--mmCIF`/`--compress` (validated by `_output_target`).
 
 ## Two orientation commands — `superimpose` vs `orient`
 
@@ -68,8 +72,11 @@ Reference: `arda.annotate_sequences([(id, seq), ...])` — one call, threads int
   builds it (editable.rebuild on import). Funcs: `fitting_score`, `best_hit` (GIL released over
   candidates), `align` (traceback). Scoring matches Bio.Align's fitting config EXACTLY (BLOSUM62,
   placed-gap open -11/extend -1, free target + end gaps), so `tcren.mhc.pseudo` falls back to
-  Biopython transparently when the ext is absent. ~45 ms vs Bio 70 ms vs pure-Python 15 s for 4k
-  candidates.
+  Biopython transparently when the ext is absent. ~40 ms vs Bio 59 ms vs pure-Python 15 s for 4k
+  candidates (a modest 1.5x — Bio's aligner is already C). `editable.rebuild = false` in
+  pyproject: the ext is built once at `pip install -e .` (do NOT rebuild on import — that needs
+  cmake on PATH at import time and breaks pytest/CI). CI installs `--no-deps` + explicit runtime
+  deps (so arda-backed tests skip) and `pip install cmake ninja` to build the ext.
 
 ## Annotation CLI — one `annotate`, no separate `mhc`
 

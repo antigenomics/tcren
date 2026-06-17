@@ -24,7 +24,10 @@ from .potential import Potential, derive_tcren, derive_tcren_loo, tcren
 from .scoring import score_peptides
 from .structure import iter_structures, parse_structure
 
-app = typer.Typer(add_completion=False, help="Structure-based TCR–epitope recognition scoring.")
+app = typer.Typer(
+    add_completion=True,  # `tcren --install-completion` for bash/zsh/fish; --show-completion to print
+    help="Structure-based TCR–epitope recognition scoring.",
+)
 paper_app = typer.Typer(add_completion=False, help="Nat Comput Sci 2022 reproduction.")
 app.add_typer(paper_app, name="paper")
 
@@ -161,10 +164,11 @@ def orient(
 
 @app.command()
 def superimpose(
-    structures: Path = typer.Option(..., "-s", "--structures", help="structure file, directory, or .tar.gz to orient"),
-    out: Path = typer.Option("superimposed", "-o", "--out", help="output dir for oriented structures"),
+    structures: str = typer.Option(..., "-s", "--structures", help="structure file, directory, .tar.gz, or a glob ('data/*.pdb')"),
+    out: Path = typer.Option("superimposed", "-o", "--out", help="output directory, or a single structure file (one input)"),
     db: Path = typer.Option(None, "--db", help="canonical database dir (default: data/Canonical2026, fetched at install)"),
     organism: str = typer.Option("human", "--organism"),
+    threads: int = typer.Option(None, "--threads", "-t", help="threads for the alignment/write (default: all cores)"),
     mmcif: bool = typer.Option(False, "--mmCIF", help="write mmCIF (.cif) instead of PDB"),
     compress: bool = typer.Option(False, "--compress", help="gzip the output (.gz)"),
 ) -> None:
@@ -173,10 +177,18 @@ def superimpose(
     Detects each input's MHC chains, class, and species, then superposes its conserved groove Cα
     onto *every* database structure of the same class and species and averages the transforms into
     one consensus placement. The database defaults to ``data/Canonical2026`` (populated at install).
+
+    ``-s`` accepts a file, directory, ``.tar.gz``, or a shell glob. ``-o`` is an output directory,
+    or — for a single input — a structure file whose extension must match ``--mmCIF``/``--compress``.
+    Annotation is one batched mmseqs call; ``-t`` threads the alignment + write.
     """
     from .orient import run_superimpose
 
-    run_superimpose(structures, out, db_dir=db, organism=organism, mmcif=mmcif, compress=compress)
+    try:
+        run_superimpose(structures, out, db_dir=db, organism=organism,
+                        threads=threads, mmcif=mmcif, compress=compress)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
 
 
 @app.command("derive-potential")

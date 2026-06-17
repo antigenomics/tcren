@@ -202,6 +202,50 @@ def run_folder(
     return df
 
 
+def _resolve_inputs(structures: str | Path) -> list:
+    """Parse inputs from a file, directory, ``.tar.gz``, or a shell glob (``'data/*.pdb'``)."""
+    from ..structure.io import iter_structures, parse_structure, structure_id_from_path
+
+    spec = str(structures)
+    if any(ch in spec for ch in "*?[") and not Path(spec).exists():
+        import glob
+
+        from ..structure.io import is_structure_file
+        out = []
+        for path in sorted(glob.glob(spec)):
+            p = Path(path)
+            if is_structure_file(p):
+                out.append((structure_id_from_path(p), parse_structure(p)))
+        return out
+    return list(iter_structures(structures, importer=parse_structure))
+
+
+def _output_target(out: str | Path, n_inputs: int, mmcif: bool, compress: bool) -> Path | None:
+    """Validate ``out``; return a single output file path, or ``None`` if ``out`` is a directory.
+
+    A structure-suffixed ``out`` (``oriented.pdb``, ``x.cif.gz``) means single-file output: its
+    extension must match ``--mmCIF``/``--compress`` and there must be exactly one input. Anything
+    else is treated as an output directory.
+    """
+    from ..structure.io import _strip_gz, is_structure_file
+
+    out = Path(out)
+    if not is_structure_file(out):
+        return None  # directory
+    if n_inputs != 1:
+        raise ValueError(f"-o is a single file but {n_inputs} input structures were given; "
+                         "pass an output directory instead")
+    inner, gz = _strip_gz(out.name)
+    is_cif = inner.lower().endswith((".cif", ".mmcif"))
+    if is_cif != mmcif:
+        raise ValueError(f"-o {out.name!r} extension does not match "
+                         f"{'--mmCIF' if mmcif else 'PDB output'}")
+    if gz != compress:
+        raise ValueError(f"-o {out.name!r} {'must' if compress else 'must not'} end in .gz "
+                         f"to match {'--compress' if compress else 'the uncompressed default'}")
+    return out
+
+
 def run_superimpose(
     structures: str | Path,
     out: str | Path,
@@ -209,34 +253,56 @@ def run_superimpose(
     organism: str = "human",
     mmcif: bool = False,
     compress: bool = False,
+    threads: int | None = None,
 ) -> pl.DataFrame:
-    """Superimpose each input structure onto a canonical database; write oriented structures.
+    """Superimpose input structure(s) onto a canonical database; write oriented structures.
 
-    Thin folder/file driver over :func:`tcren.orient.superimpose` (see its module docstring for
-    the MHC-ensemble method). ``db_dir`` defaults to ``data/Canonical2026``. Output format
-    follows ``mmcif``/``compress`` (plain PDB by default for user-facing output).
+    ``structures`` is a file, directory, ``.tar.gz``, or a shell glob. ``out`` is an output
+    directory, or — for a single input — a structure file whose extension must match
+    ``mmcif``/``compress``. Annotation is BATCHED (one mmseqs pass over all inputs); only the
+    mmseqs-free ensemble alignment + write runs on the thread pool (``threads`` workers, default
+    all cores). See :func:`tcren.orient.superimpose` for the MHC-ensemble method.
     """
-    from ..orient.superimpose import superimpose
-    from ..structure.io import iter_structures, parse_structure, structure_output_path, write_structure
+    import os
+    from concurrent.futures import ThreadPoolExecutor
 
-    out = Path(out)
-    out.mkdir(parents=True, exist_ok=True)
-    rows = []
-    for pid, s in iter_structures(structures, importer=parse_structure):
+    from ..annotation import classify_chains
+    from ..annotation.arda_adapter import _import_arda
+    from ..mhc import annotate_mhc_batch
+    from ..orient.superimpose import superimpose
+    from ..paper.helpers import _batch_annotate
+    from ..structure.io import structure_output_path, write_structure
+
+    parsed = _resolve_inputs(structures)
+    single = _output_target(out, len(parsed), mmcif, compress)
+    if single is None:
+        Path(out).mkdir(parents=True, exist_ok=True)
+    threads = threads or (os.cpu_count() or 1)
+
+    # Batched annotation: one mmseqs pass for TCR chains, one for MHC chains (no threads).
+    records = _batch_annotate([s for _, s in parsed], _import_arda())
+    for (_pid, s), recs in zip(parsed, records):
+        classify_chains(s, organism=organism, precomputed_records=recs)
+    annotate_mhc_batch([s for _, s in parsed])
+
+    def _one(item):
+        pid, s = item
         try:
-            oriented, res = superimpose(s, db_dir=db_dir, organism=organism)
+            oriented, res = superimpose(s, db_dir=db_dir, organism=organism, annotate=False)
             ok, reason = check_oriented_complex(oriented)
             if ok:
-                write_structure(oriented, structure_output_path(out, pid, mmcif, compress))
-                rows.append({"pdb.id": pid, "status": "ok", "reference.id": res.reference_id,
-                             "rmsd": res.rmsd, "n.references": res.n_anchor_atoms})
-            else:
-                rows.append({"pdb.id": pid, "status": f"rejected: {reason}",
-                             "reference.id": res.reference_id, "rmsd": res.rmsd,
-                             "n.references": res.n_anchor_atoms})
+                dest = single if single is not None else structure_output_path(out, pid, mmcif, compress)
+                write_structure(oriented, dest)
+            return {"pdb.id": pid, "status": "ok" if ok else f"rejected: {reason}",
+                    "reference.id": res.reference_id, "rmsd": res.rmsd,
+                    "n.references": res.n_anchor_atoms}
         except Exception as exc:  # noqa: BLE001 - keep the batch resilient
-            rows.append({"pdb.id": pid, "status": f"error: {type(exc).__name__}: {str(exc)[:80]}",
-                         "reference.id": None, "rmsd": None, "n.references": None})
+            return {"pdb.id": pid, "status": f"error: {type(exc).__name__}: {str(exc)[:80]}",
+                    "reference.id": None, "rmsd": None, "n.references": None}
+
+    with ThreadPoolExecutor(max_workers=threads) as ex:
+        rows = list(ex.map(_one, parsed))
+
     df = pl.DataFrame(rows)
     ok = df.filter(pl.col("status") == "ok").height if df.height else 0
     print(f"superimposed {ok}/{df.height} structures -> {out}")
