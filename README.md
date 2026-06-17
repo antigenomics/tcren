@@ -34,15 +34,21 @@ bash setup.sh              # creates the `tcren` conda env, installs arda + tcre
 conda activate tcren
 ```
 
-TCR annotation is provided by [`arda`](https://github.com/antigenomics/arda), pulled in
-automatically as a pinned git dependency (tag `2.0.1`); its C++ extension builds against the
-conda toolchain in `environment.yml`. No separate checkout is needed. `setup.sh` also runs
-`tcren fetch-data` to populate `data/` with the reference structure sets (`Native2026`,
-`Canonical2026`) used by `orient`/`superimpose` (set `TCREN_NO_FETCH=1` to skip).
+tcren ships a small **pybind11/C++ extension** (`tcren._align`) for the MHC-pseudosequence
+fitting-alignment hot path, built on install by `scikit-build-core` against the conda C++
+toolchain in `environment.yml` (a Biopython fallback runs if it is not built). TCR annotation is
+provided by [`arda`](https://github.com/antigenomics/arda), pulled in automatically as a pinned
+git dependency (tag `2.0.1`); no separate checkout is needed. `setup.sh` also runs `tcren
+fetch-data` to populate `data/` with the reference structure sets (`Native2026`, `Canonical2026`)
+used by `orient`/`superimpose` (set `TCREN_NO_FETCH=1` to skip).
 
 ## Command line
 
 ```fish
+# Full pipeline: annotate -> superimpose -> resmarkup / canonical Cα / contacts -> per-interface
+# energies (TCRen for TCR↔peptide, MJ for TCR↔MHC and peptide↔MHC) + total
+tcren pipeline -s complex.pdb -o scores.csv
+
 # End-to-end candidate-epitope scoring from a structure
 tcren score -s complex.pdb -c candidates.txt -o ranked.csv
 
@@ -81,10 +87,14 @@ tcren info
 ## Library
 
 ```python
-from tcren import parse_structure, import_structure, ContactMap, score_peptides
+from tcren import run_pipeline, parse_structure, import_structure, ContactMap, score_peptides
 from tcren.annotation import classify_chains
 from tcren.potential import tcren
 
+# One call: annotate -> superimpose -> contacts -> per-interface energies + total
+res = run_pipeline("complex.pdb")              # res.scores, res.markup, res.contacts, res.oriented
+
+# …or the individual steps:
 s = parse_structure("complex.pdb.gz")          # also .cif/.cif.gz; import_structure trims the C-gene
 classify_chains(s, organism="human")           # TRA/TRB via arda, peptide, MHC
 cm = ContactMap.from_structure(s)              # 5 Å contacts + interface partitioning

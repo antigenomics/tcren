@@ -23,12 +23,17 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
-      - name: Install package (lean runtime + test extra)
-        # The `slow` tests invoke arda / mmseqs2 per structure and need the conda toolchain;
-        # they are deselected here. matplotlib is added for the pure-SVG viz tests. arda is
-        # imported lazily, so the non-slow suite runs without it.
+      - name: Build tooling for the C++ extension
+        # tcren ships a pybind11 fitting-alignment extension (src/_align), built by
+        # scikit-build-core; cmake + ninja + a C++ compiler are required (gcc is on the runner).
+        run: python -m pip install --upgrade pip cmake ninja
+      - name: Install package without arda (lean unit suite)
+        # arda is a pinned git dependency for real use, but the non-slow suite imports it lazily
+        # (importorskip) and CI has no arda reference database — so install tcren --no-deps and
+        # add the runtime deps explicitly, minus arda. The C++ ext is still built and tested.
         run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[test]" matplotlib
-      - name: Run unit tests (deselect arda/mmseqs-backed slow tests)
+          pip install -e . --no-deps
+          pip install biopython scipy numpy polars typer requests huggingface_hub \
+                      pytest pytest-cov matplotlib
+      - name: Run unit tests (arda/mmseqs-backed tests skip without arda)
         run: pytest -m "not slow" -ra

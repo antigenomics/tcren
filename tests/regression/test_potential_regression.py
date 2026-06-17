@@ -15,10 +15,10 @@ from tcren.potential import derive_tcren
 from tcren.potential.model import Potential
 
 REPO = Path(__file__).resolve().parents[2]
-CONTACT_MAPS = REPO / "legacy" / "data" / "contact_maps_PDB.csv"
-SUMMARY = REPO / "legacy" / "data" / "summary_PDB_structures.csv"
-TCREN_CSV = REPO / "legacy" / "data" / "TCRen_potential.csv"
-TCREN_AM_TXT = REPO / "legacy" / "tcren_am" / "tcren.txt"
+CONTACT_MAPS = REPO / "tests" / "assets" / "oracle" / "data" / "contact_maps_PDB.csv"
+SUMMARY = REPO / "tests" / "assets" / "oracle" / "data" / "summary_PDB_structures.csv"
+TCREN_CSV = REPO / "tests" / "assets" / "oracle" / "data" / "TCRen_potential.csv"
+TCREN_AM_TXT = REPO / "tests" / "assets" / "oracle" / "tcren_am" / "tcren.txt"
 
 
 def _nonred_ids() -> list[str]:

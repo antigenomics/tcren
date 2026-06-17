@@ -53,6 +53,24 @@ Reference: `arda.annotate_sequences([(id, seq), ...])` — one call, threads int
 - **HF upload is NOT a user command.** `--push-to-hub` was removed; maintainers run
   `scripts/push_canonical_to_hub.py` instead.
 
+## End-to-end pipeline — `tcren.run_pipeline` / `tcren pipeline`
+
+- `run_pipeline(structure, superimpose=True, db_dir=…)` → `PipelineResult`: import → annotate
+  (alleles + chains + MHC groove) → superimpose onto the canonical DB (canonical Cα) → resmarkup
+  + 5 Å contacts → per-interface energies. Scores: **TCRen** for TCR↔peptide, **MJ** for TCR↔MHC
+  and peptide↔MHC, plus `total` (sum of the residue-pair potential over each interface's
+  contacts). CLI `tcren pipeline -s … -o scores.csv` writes one row per structure.
+
+## Compiled extension — `tcren._align` (pybind11 / scikit-build-core)
+
+- The MHC-pseudosequence fitting-alignment hot path is a C++ ext (`src/_align/align.cpp`,
+  `CMakeLists.txt`). Build backend is `scikit-build-core` (not hatchling); `pip install -e .`
+  builds it (editable.rebuild on import). Funcs: `fitting_score`, `best_hit` (GIL released over
+  candidates), `align` (traceback). Scoring matches Bio.Align's fitting config EXACTLY (BLOSUM62,
+  placed-gap open -11/extend -1, free target + end gaps), so `tcren.mhc.pseudo` falls back to
+  Biopython transparently when the ext is absent. ~45 ms vs Bio 70 ms vs pure-Python 15 s for 4k
+  candidates.
+
 ## Annotation CLI — one `annotate`, no separate `mhc`
 
 - `tcren annotate -s … [--regions all|tcr|mhc|peptide] [--pseudo]` emits ONE per-residue markup
@@ -111,8 +129,10 @@ from tcren.paper import (
 - Root `data/` holds the library dataset (gitignored structures): `Native2026` (orientation
   references), `Canonical2026` (the default `superimpose` database), `PDB_date.tsv`,
   `orient_metadata.json`, `TCRen_potential.csv`. `setup.sh` runs `tcren fetch-data` at install to
-  populate `Native2026` + `Canonical2026` from HF. The TCR3D `native` module is retired to
-  `legacy/`; orientation references load 1ao7/1fyt from `data/Native2026` via `tcren.paths`.
+  populate `Native2026` + `Canonical2026` from HF (or lazily on first `superimpose`/`orient`).
+  Orientation references load 1ao7/1fyt from `data/Native2026` via `tcren.paths`. The numerical
+  regression oracle (legacy mir/R outputs: `contact_maps_PDB.csv`, `tcren_am/tcren.txt`, the
+  `example/` set) lives under `tests/assets/oracle/`; the legacy R/Java pipeline was deleted.
 
 ## Geometry: contacts, region pairs, docking angle
 

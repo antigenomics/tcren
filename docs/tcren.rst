@@ -98,6 +98,14 @@ tcren.mhc.linker module
    :undoc-members:
    :show-inheritance:
 
+tcren.mhc.pseudo module
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: tcren.mhc.pseudo
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Contacts
 --------
 
@@ -159,6 +167,14 @@ tcren.scoring module
 ~~~~~~~~~~~~~~~~~~~~~~
 
 .. automodule:: tcren.scoring
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+tcren.pipeline module
+~~~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: tcren.pipeline
    :members:
    :undoc-members:
    :show-inheritance:

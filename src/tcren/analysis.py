@@ -3,8 +3,8 @@
 Helpers for the analysis notebook / benchmarks, following the TCRen manuscript logic:
 potential heatmaps and comparisons, the distribution of TCR↔peptide contacts per
 structure and per region, and how contacts distribute over peptide / CDR3 positions as a
-function of peptide / CDR3 length. They operate on the committed manuscript contact table
-(``data/contact_maps_PDB.csv``) joined with ``data/summary_PDB_structures.csv``.
+function of peptide / CDR3 length. They take the manuscript contact + summary tables as
+explicit paths (the committed oracle lives under ``tests/assets/oracle/``).
 """
 
 from __future__ import annotations

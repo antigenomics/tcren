@@ -285,5 +285,34 @@ def score(
     typer.echo(f"The ranked list of candidate epitopes can be found in {out}")
 
 
+@app.command()
+def pipeline(
+    structures: Path = typer.Option(..., "-s", "--structures", help="structure file, directory, or .tar.gz"),
+    out: Path = typer.Option("pipeline_scores.csv", "-o", "--out", help="per-structure interface-score table"),
+    no_superimpose: bool = typer.Option(False, "--no-superimpose", help="skip canonical orientation"),
+    db: Path = typer.Option(None, "--db", help="canonical database dir (default: data/Canonical2026)"),
+    organism: str = typer.Option("human", "--organism"),
+    cutoff: float = typer.Option(5.0, "--cutoff"),
+) -> None:
+    """Run the full pipeline and write per-interface energies for each structure.
+
+    structure → annotate (alleles + chains) → superimpose → resmarkup / canonical Cα / contacts
+    → score (TCRen for TCR↔peptide, MJ for TCR↔MHC and peptide↔MHC) + total.
+    """
+    from .pipeline import run as run_pipeline, score_row
+
+    rows = []
+    for _pid, s in iter_structures(structures, importer=parse_structure):
+        try:
+            res = run_pipeline(s, organism=organism, superimpose=not no_superimpose,
+                               db_dir=db, cutoff=cutoff)
+            rows.append(score_row(res))
+        except Exception as exc:  # noqa: BLE001 - keep the batch resilient
+            rows.append({"pdb.id": s.pdb_id, "total": None,
+                         "error": f"{type(exc).__name__}: {str(exc)[:80]}"})
+    pl.DataFrame(rows).write_csv(str(out))
+    typer.echo(f"wrote {out}")
+
+
 if __name__ == "__main__":
     app()

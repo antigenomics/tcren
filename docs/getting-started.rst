@@ -22,6 +22,14 @@ End-to-end candidate-epitope scoring from a structure:
 
    $ tcren score -s complex.pdb -c candidates.txt -o ranked.csv
 
+The full pipeline — annotate → superimpose → resmarkup / canonical Cα / contacts → per-interface
+energies (TCRen for TCR↔peptide, MJ for TCR↔MHC and peptide↔MHC) plus the total — is one command
+(``tcren.run_pipeline(structure)`` in the library):
+
+.. code-block:: console
+
+   $ tcren pipeline -s complex.pdb -o scores.csv
+
 Inputs accept ``.pdb``/``.cif``/``.pdb.gz``/``.cif.gz``, a directory, or a ``.tar.gz`` batch;
 identifiers are resolved from the file names:
 

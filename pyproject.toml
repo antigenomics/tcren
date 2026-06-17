@@ -1,6 +1,6 @@
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["scikit-build-core>=0.10", "pybind11>=2.12"]
+build-backend = "scikit_build_core.build"
 
 [project]
 name = "tcren"
@@ -23,10 +23,9 @@ dependencies = [
 
 [project.optional-dependencies]
 viz = ["matplotlib>=3.8", "py3Dmol>=2.0"]
-flexpep = []
 docs = ["sphinx", "pydata-sphinx-theme", "nbsphinx"]
 test = ["pytest", "pytest-cov"]
-dev = ["ruff", "pytest", "pytest-cov"]
+dev = ["ruff", "pytest", "pytest-cov", "pybind11"]
 # Analysis/viz deps for the reproduction notebooks (notebooks/natcompsci2022/) — kept out
 # of the lean runtime deps. Installed into the separate `tcren-nb` conda env (see that
 # directory's environment.yml / setup.sh / README.md).
@@ -38,11 +37,13 @@ notebooks = [
 [project.scripts]
 tcren = "tcren.cli:app"
 
-[tool.hatch.build.targets.wheel]
-packages = ["src/tcren"]
-
-[tool.hatch.build.targets.wheel.force-include]
-"src/tcren/data" = "tcren/data"
+[tool.scikit-build]
+wheel.packages = ["src/tcren"]
+cmake.version = ">=3.18"
+build-dir = "build/{wheel_tag}"
+# Keep the editable install rebuilding the C++ ext automatically on import.
+editable.rebuild = true
+editable.verbose = false
 
 [tool.ruff]
 line-length = 100

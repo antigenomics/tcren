@@ -23,6 +23,11 @@ from pathlib import Path
 
 from ..structure.model import Chain, RegionMarkup, Structure
 
+try:  # compiled fitting-alignment hot path (built by scikit-build-core)
+    from .. import _align
+except ImportError:  # pragma: no cover - pure-Python fallback via Biopython
+    _align = None
+
 _PSEUDO_FA = {"MHCI": "mhci_pseudo.fa", "MHCII": "mhcii_pseudo.fa"}
 
 
@@ -57,14 +62,33 @@ def _pseudo_index(mhc_class: str) -> dict[str, str]:
     return index
 
 
+@lru_cache(maxsize=2)
+def _pseudo_lists(mhc_class: str) -> tuple[list[str], list[str]]:
+    """Parallel ``(ids, sequences)`` for the class — the order the C++ ``best_hit`` indexes."""
+    index = _pseudo_index(mhc_class)
+    return list(index.keys()), list(index.values())
+
+
+def _aligned_pairs(placed: str, free: str) -> list[tuple[int, int]]:
+    """Matched ``(placed_pos, free_pos)`` columns — C++ ``_align`` or the Biopython fallback."""
+    if _align is not None:
+        return _align.align(placed, free)
+    alignment = _pseudo_aligner().align(placed, free)[0]
+    return [(ps + k, cs + k) for (ps, pe), (cs, _ce) in zip(*alignment.aligned)
+            for k in range(pe - ps)]
+
+
 def _best_pseudo_hit(query_seq: str, mhc_class: str) -> tuple[str, str] | None:
     """The single best-fitting ``(id, 34-mer)`` for ``query_seq`` (or ``None``)."""
     if not query_seq:
         return None
-    aligner = _pseudo_aligner()
-    index = _pseudo_index(mhc_class)
-    best_id = max(index, key=lambda k: aligner.score(index[k], query_seq))
-    return best_id, index[best_id]
+    ids, seqs = _pseudo_lists(mhc_class)
+    if _align is not None:
+        best, _score = _align.best_hit(query_seq, seqs)
+    else:
+        aligner = _pseudo_aligner()
+        best = max(range(len(seqs)), key=lambda k: aligner.score(seqs[k], query_seq))
+    return ids[best], seqs[best]
 
 
 def _mark_concatenated(chains: list[Chain], pseudo_seq: str) -> dict[int, list]:
@@ -90,15 +114,12 @@ def _mark_concatenated(chains: list[Chain], pseudo_seq: str) -> dict[int, list]:
         return ci, pos - start
 
     out: dict[int, list] = {}
-    alignment = _pseudo_aligner().align(pseudo_seq, concat)[0]
-    for (ps, pe), (cs, _ce) in zip(*alignment.aligned):
-        for k in range(pe - ps):
-            p, cpos = ps + k, cs + k
-            if pseudo_seq[p] == "X" or cpos >= len(concat) or concat[cpos] != pseudo_seq[p]:
-                continue
-            ci, local = _locate(cpos)
-            if local < len(chains[ci].residues):
-                out.setdefault(ci, []).append(chains[ci].residues[local])
+    for p, cpos in _aligned_pairs(pseudo_seq, concat):
+        if pseudo_seq[p] == "X" or cpos >= len(concat) or concat[cpos] != pseudo_seq[p]:
+            continue
+        ci, local = _locate(cpos)
+        if local < len(chains[ci].residues):
+            out.setdefault(ci, []).append(chains[ci].residues[local])
     return out
 
 

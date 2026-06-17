@@ -8,7 +8,6 @@ package has no hard 3D dependency.
 
 from __future__ import annotations
 
-import numpy as np
 
 from ..orient.align import align_to_native
 from ..structure.model import Structure

@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from itertools import product
 
-import numpy as np
 import polars as pl
 
 from .model import AA20, AA21, Potential

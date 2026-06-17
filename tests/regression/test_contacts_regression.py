@@ -27,7 +27,7 @@ from tcren.structure import parse_structure
 
 REPO = Path(__file__).resolve().parents[2]
 PDB_DIR = REPO / "tests" / "assets" / "pdb"
-CONTACT_MAPS = REPO / "legacy" / "data" / "contact_maps_PDB.csv"
+CONTACT_MAPS = REPO / "tests" / "assets" / "oracle" / "data" / "contact_maps_PDB.csv"
 
 _KEYS = [
     "chain.id.from",

@@ -10,8 +10,8 @@ from tcren import analysis as an
 from tcren.potential import derive_tcren, mj, tcren
 
 REPO = Path(__file__).resolve().parents[2]
-CONTACTS = REPO / "legacy" / "data" / "contact_maps_PDB.csv"
-SUMMARY = REPO / "legacy" / "data" / "summary_PDB_structures.csv"
+CONTACTS = REPO / "tests" / "assets" / "oracle" / "data" / "contact_maps_PDB.csv"
+SUMMARY = REPO / "tests" / "assets" / "oracle" / "data" / "summary_PDB_structures.csv"
 
 
 def _df():

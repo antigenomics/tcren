@@ -72,7 +72,7 @@ def classify_chains(
     """
     used_organism = organism
     req_records = _records_for(structure, organism, precomputed_records)
-    tcr_ids, best_score = score_records(structure.chains, req_records)
+    _ids, best_score = score_records(structure.chains, req_records)
 
     # Compare the requested organism against the other supported species and keep the
     # better-scoring annotation. Cached records are re-applied (no extra arda call) when
@@ -80,11 +80,11 @@ def classify_chains(
     other = "mouse" if organism == "human" else "human"
     if autodetect_species and organism in _SPECIES and other in _SPECIES:
         _reset_receptor_chains(structure)
-        alt_ids, alt_score = score_records(
+        _alt_ids, alt_score = score_records(
             structure.chains, _records_for(structure, other, precomputed_records)
         )
         if alt_score > best_score:  # strict: ties favour the requested organism
-            used_organism, tcr_ids = other, alt_ids
+            used_organism = other
         else:  # restore the requested-organism annotation from the cache
             _reset_receptor_chains(structure)
             apply_records(structure.chains, req_records)

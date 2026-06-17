@@ -18,7 +18,6 @@ is dropped. ``huggingface_hub``/network are not involved; this uses ``requests``
 
 from __future__ import annotations
 
-import gzip
 from pathlib import Path
 
 import requests

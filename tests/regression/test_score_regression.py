@@ -16,7 +16,7 @@ pytest.importorskip("arda")
 pytestmark = pytest.mark.slow  # invokes arda / mmseqs per structure
 
 REPO = Path(__file__).resolve().parents[2]
-EXAMPLE = REPO / "legacy" / "example"
+EXAMPLE = REPO / "tests" / "assets" / "oracle" / "example"
 
 
 def _read_candidates(path: Path) -> list[str]:

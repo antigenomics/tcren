@@ -88,13 +88,7 @@ def check_oriented_complex(structure, max_peptide_len: int = 25, max_offset: flo
     return True, "ok"
 
 
-def _structure_files(path: Path):
-    from ..structure.io import structure_paths
-
-    return structure_paths(path)
-
-
-_ROW_KEYS = ("pdb.id", "status", "mhc.class", "species", "tcr.type", "cell.type", "frame",
+_ROW_KEYS =("pdb.id", "status", "mhc.class", "species", "tcr.type", "cell.type", "frame",
              "reference.id", "rmsd", "n.anchor.atoms", "reversed.dock", "n.copies",
              "chain.map", "transform")
 
@@ -163,9 +157,11 @@ def run_folder(
     from ..paper.helpers import _batch_annotate
     from ..structure.io import import_structure
 
+    from ..structure.io import structure_paths
+
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
-    files = _structure_files(Path(structures))
+    files = structure_paths(Path(structures))
     threads = threads or (os.cpu_count() or 1)
 
     # 1. Parse (I/O + gunzip — thread-friendly).
