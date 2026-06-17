@@ -3,7 +3,7 @@
 #
 # Steps:
 #   1. Create/update the `tcren` conda environment (python + mmseqs2 + toolchain).
-#   2. pip install -e . — pulls in arda (pinned git tag) and builds its C++ extension.
+#   2. pip install -e . — pulls in arda (PyPI: arda-mapper) and builds the C++ extension.
 #
 # Flags:
 #   --no-conda   Skip conda env creation (use the already-active environment).
@@ -46,8 +46,8 @@ if [[ "$USE_CONDA" -eq 1 ]]; then
   conda activate "$ENV_NAME"
 fi
 
-# --- 2. tcren (+ arda, pinned git tag, from pyproject.toml) -----------------
-log "installing tcren (editable); arda is pulled in as a pinned git dependency"
+# --- 2. tcren (+ arda-mapper, from pyproject.toml) --------------------------
+log "installing tcren (editable); arda (PyPI: arda-mapper) is pulled in as a dependency"
 pip install -e "$ROOT"
 
 # --- 3. reference data (HF) ------------------------------------------------

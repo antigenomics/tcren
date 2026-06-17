@@ -37,13 +37,17 @@ bash setup.sh              # creates the `tcren` conda env, installs arda + tcre
 conda activate tcren
 ```
 
+Or, once released, simply `pip install tcren` (binary wheels ship the C++ extension). tcren is on
+PyPI; install with `pip install tcren`.
+
 tcren ships a small **pybind11/C++ extension** (`tcren._align`) for the MHC-pseudosequence
-fitting-alignment hot path, built on install by `scikit-build-core` against the conda C++
-toolchain in `environment.yml` (a Biopython fallback runs if it is not built). TCR annotation is
-provided by [`arda`](https://github.com/antigenomics/arda), pulled in automatically as a pinned
-git dependency (tag `2.0.1`); no separate checkout is needed. `setup.sh` also runs `tcren
-fetch-data` to populate `data/` with the reference structure sets (`Native2026`, `Canonical2026`)
-used by `orient`/`superimpose` (set `TCREN_NO_FETCH=1` to skip).
+fitting-alignment hot path, built on install by `scikit-build-core` (a Biopython fallback runs if
+it is not built). TCR annotation is provided by
+[`arda`](https://github.com/antigenomics/arda), a runtime dependency published to PyPI as
+[`arda-mapper`](https://pypi.org/project/arda-mapper/) (it imports as `arda`); `pip`/`setup.sh`
+pull it automatically. `setup.sh` also runs `tcren fetch-data` to populate `data/` with the
+reference structure sets (`Native2026`, `Canonical2026`) used by `orient`/`superimpose` (set
+`TCREN_NO_FETCH=1` to skip).
 
 ## Command line
 

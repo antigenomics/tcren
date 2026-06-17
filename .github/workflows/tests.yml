@@ -28,9 +28,9 @@ jobs:
         # scikit-build-core; cmake + ninja + a C++ compiler are required (gcc is on the runner).
         run: python -m pip install --upgrade pip cmake ninja
       - name: Install package without arda (lean unit suite)
-        # arda is a pinned git dependency for real use, but the non-slow suite imports it lazily
-        # (importorskip) and CI has no arda reference database — so install tcren --no-deps and
-        # add the runtime deps explicitly, minus arda. The C++ ext is still built and tested.
+        # arda (PyPI: arda-mapper) is a real runtime dependency, but the non-slow suite imports it
+        # lazily (importorskip) and CI has no arda reference database — so install tcren --no-deps
+        # and add the runtime deps explicitly, minus arda. The C++ ext is still built and tested.
         run: |
           pip install -e . --no-deps
           pip install biopython scipy numpy polars typer requests huggingface_hub \

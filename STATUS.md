@@ -36,4 +36,4 @@ legacy, `dev` = integration, feature branches off `dev` (merged `--no-ff`). See
 
 - All bundled structure sets (`data/PDB_structures/`, TCR3D CIFs) are **variable-domain-only**; the C-gene classifier and full-complex geometry need full RCSB inputs (fixtures in `tests/assets/cgene/`).
 - TCR3D `tcr_complexes_data.tsv` mislabels some TRAV/DV J calls (e.g. 1bd2 `TRDJ1`); arda is correct (locus follows J). Locked by a test in `arda` dev.
-- arda is a pinned git dependency in `pyproject.toml` (`git+https://github.com/antigenomics/arda.git@2.0.1`), installed by `pip install -e .`.
+- arda is a runtime dependency, published to PyPI as `arda-mapper>=2.0.1` (imports as `arda`); installed by `pip install -e .` / `pip install tcren`.
