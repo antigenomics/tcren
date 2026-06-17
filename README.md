@@ -18,14 +18,17 @@
 structure (experimental or modelled). It extracts the TCR–peptide contact map and scores every
 candidate peptide with a **residue-level statistical potential** derived from contact preferences
 in TCR:pMHC crystal structures — answering not "what fancy complex can a model draw?" but "is this
-binding physically plausible?". Method: Karnaukhov *et al.*, *Nat Comput Sci* 2024
-([doi:10.1038/s43588-024-00653-0](https://www.nature.com/articles/s43588-024-00653-0)).
+binding physically plausible?".
 
 This is a documented, tested, CLI-driven Python library. TCR chains are annotated with the sibling
 [`arda`](https://github.com/antigenomics/arda); MHC chains are mapped and the groove partitioned
 against a curated reference; structures are oriented into one canonical frame; and the original
 contact maps, potential, and scores are reproduced numerically (validated against committed oracles
 to floating-point precision).
+
+While the original tcren focused on TCR:peptide contacts, the new version brings in features to 
+score TCR:MHC and peptide:MHC interactions, required to get full picture of TCR:pMHC binding 
+mechanics and estimate ddG values.
 
 ## Install
 
@@ -197,12 +200,11 @@ pytest                        # add the arda/mmseqs-backed regression tests
 RUN_BENCHMARK=1 pytest -k benchmark -s
 ```
 
-## Cite
+## Citing
 
-Karnaukhov *et al.* "Predicting TCR specificity from structure with a residue-level statistical
-potential." *Nature Computational Science* (2024).
-[doi:10.1038/s43588-024-00653-0](https://www.nature.com/articles/s43588-024-00653-0)
+**TCRen** is free for academic and non-commercial use. If you use it, please cite our latest 
+[Nature Computational Science 2024 paper](https://www.nature.com/articles/s43588-024-00653-0):
 
-## License
-
-GPLv3 — see [LICENSE](LICENSE). © ISALGO laboratory.
+```
+Karnaukhov VK, Shcherbinin DS, Chugunov AO, Chudakov DM, Efremov RG, Zvyagin IV, Shugay M. Structure-based prediction of T cell receptor recognition of unseen epitopes using TCRen. Nat Comput Sci. 2024 Jul;4(7):510-521. doi: 10.1038/s43588-024-00653-0. Epub 2024 Jul 10. PMID: 38987378.
+```
