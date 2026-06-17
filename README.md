@@ -8,6 +8,7 @@
 <h1 align="center">tcren — structure-based prediction of TCR–epitope recognition</h1>
 
 <p align="center">
+  <a href="https://pypi.org/project/tcren/"><img alt="PyPI" src="https://img.shields.io/pypi/v/tcren"></a>
   <a href="https://github.com/antigenomics/tcren/actions/workflows/tests.yml"><img alt="tests" src="https://github.com/antigenomics/tcren/actions/workflows/tests.yml/badge.svg"></a>
   <a href="https://docs.isalgo.dev/tcren/"><img alt="docs" src="https://github.com/antigenomics/tcren/actions/workflows/docs.yml/badge.svg"></a>
   <img alt="python" src="https://img.shields.io/badge/python-3.10%2B-blue">
@@ -33,12 +34,16 @@ mechanics and estimate ddG values.
 ## Install
 
 ```fish
+pip install tcren          # from PyPI — binary wheels ship the C++ extension; pulls in arda-mapper
+```
+
+For development (editable install, conda env with the build toolchain, and the reference data
+fetched into `data/`):
+
+```fish
 bash setup.sh              # creates the `tcren` conda env, installs arda + tcren, fetches data/
 conda activate tcren
 ```
-
-Or, once released, simply `pip install tcren` (binary wheels ship the C++ extension). tcren is on
-PyPI; install with `pip install tcren`.
 
 tcren ships a small **pybind11/C++ extension** (`tcren._align`) for the MHC-pseudosequence
 fitting-alignment hot path, built on install by `scikit-build-core` (a Biopython fallback runs if
