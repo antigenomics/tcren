@@ -3,7 +3,8 @@
 Subcommands:
 
 * ``tcren info`` — environment / dependency check.
-* ``tcren annotate`` — chain typing + region markup for input structures.
+* ``tcren annotate`` — chain typing + region markup (TCR/MHC/peptide; ``--regions`` to filter,
+  ``--pseudo`` for MHC pseudosequence residues) for input structures.
 * ``tcren contacts`` — annotated contact table for input structures.
 * ``tcren derive-potential`` — derive a TCRen potential from a contact-map table.
 * ``tcren score`` — end-to-end candidate scoring (drop-in for ``run_TCRen.R``).
@@ -64,24 +65,53 @@ def info() -> None:
 
         arda_status = f"available ({Path(arda.__file__).parent})"
     except ImportError:
-        arda_status = "NOT available — install with: pip install -e ../arda"
+        arda_status = "NOT available — run: bash setup.sh (installs arda@2.0.1)"
     typer.echo(f"arda: {arda_status}")
     typer.echo(f"bundled TCRen potential: {tcren().matrix.height} pairs")
+
+
+_REGION_CHAINS = {
+    "tcr": {"TRA", "TRB", "TRD", "TRG"},
+    "mhc": {"MHCa", "MHCb", "B2M"},
+    "peptide": {"PEPTIDE"},
+}
 
 
 @app.command()
 def annotate(
     structures: Path = typer.Option(..., "-s", "--structures", help="structure file, directory, or .tar.gz (.pdb/.cif/.pdb.gz/.cif.gz)"),
     out: Path = typer.Option("markup.csv", "-o", "--out", help="output residue-markup CSV"),
+    regions: str = typer.Option("all", "--regions", help="which chains to annotate: all|tcr|mhc|peptide"),
+    pseudo: bool = typer.Option(False, "--pseudo", help="also mark MHC pseudosequence (MPS) residues"),
     organism: str = typer.Option("human", "--organism"),
 ) -> None:
-    """Annotate chains and emit a per-residue region-markup table."""
+    """Annotate chains and emit a per-residue region-markup table.
+
+    Covers TCR (CDR/FR), MHC groove (helices/floor) and peptide in one pass — ``--regions``
+    restricts the output to one chain class. ``--pseudo`` additionally marks the NetMHCpan MHC
+    pseudosequence residues (region ``MPS``). MHC groove + ``MPS`` require MHC annotation, which
+    runs automatically when needed.
+    """
     from .contacts.table import residue_annotation
+
+    if regions not in ("all", "tcr", "mhc", "peptide"):
+        raise typer.BadParameter("--regions must be one of all|tcr|mhc|peptide")
+    want_mhc = pseudo or regions in ("all", "mhc")
+    keep = None if regions == "all" else _REGION_CHAINS[regions]
 
     frames = []
     for pid, s in iter_structures(structures, importer=parse_structure):
         classify_chains(s, organism=organism)
-        frames.append(residue_annotation(s).with_columns(pl.lit(pid).alias("pdb.id")))
+        if want_mhc:
+            from .mhc import annotate_mhc
+            annotate_mhc(s)
+        if pseudo:
+            from .mhc import annotate_pseudo
+            annotate_pseudo(s)
+        df = residue_annotation(s).with_columns(pl.lit(pid).alias("pdb.id"))
+        if keep is not None:
+            df = df.filter(pl.col("chain.type").is_in(list(keep)))
+        frames.append(df)
     pl.concat(frames).write_csv(str(out))
     typer.echo(f"wrote {out}")
 
@@ -106,26 +136,47 @@ def contacts(
 
 @app.command()
 def orient(
-    structures: Path = typer.Option(..., "-s", "--structures", help="PDB/CIF file or directory"),
-    out: Path = typer.Option("oriented", "-o", "--out", help="output dir for oriented PDBs"),
+    structures: Path = typer.Option(..., "-s", "--structures", help="PDB/CIF file or directory of native complexes"),
+    out: Path = typer.Option("oriented", "-o", "--out", help="output dir for oriented structures"),
     metadata: Path = typer.Option("orient_metadata.csv", "--metadata"),
     organism: str = typer.Option("human", "--organism"),
     reference_id: str = typer.Option(None, "--reference", help="force a reference complex id"),
     force_pca: bool = typer.Option(False, "--force-pca", help="skip native superposition"),
     threads: int = typer.Option(None, "--threads", "-t", help="threads for alignment/IO (default: all cores)"),
-    push_to_hub: str = typer.Option(None, "--push-to-hub", help="HF dataset repo id to upload to"),
-    hub_folder: str = typer.Option("Canonical2026", "--hub-folder"),
+    mmcif: bool = typer.Option(False, "--mmCIF", help="write mmCIF (.cif) instead of PDB"),
+    compress: bool = typer.Option(False, "--compress", help="gzip the output (.gz)"),
 ) -> None:
-    """Canonicalize TCR-pMHC structures into the common MHC frame (A-E chains, gzipped)."""
+    """Build a canonical database: orient native TCR-pMHC complexes into the common MHC frame.
+
+    Derives the per-class canonical frame and writes every complex into it (A–E chains). This is
+    how the bundled ``Canonical2026`` set is produced; use ``superimpose`` to bring a *new*
+    structure into an existing canonical database.
+    """
     from .orient import run_folder
 
     run_folder(structures, out, metadata=metadata, organism=organism,
-               reference_id=reference_id, force_pca=force_pca, threads=threads)
-    if push_to_hub:
-        from .orient.hub import push_oriented
+               reference_id=reference_id, force_pca=force_pca, threads=threads,
+               mmcif=mmcif, compress=compress)
 
-        push_oriented(out, push_to_hub, folder=hub_folder)
-        typer.echo(f"pushed {out} -> {push_to_hub}/{hub_folder}")
+
+@app.command()
+def superimpose(
+    structures: Path = typer.Option(..., "-s", "--structures", help="structure file, directory, or .tar.gz to orient"),
+    out: Path = typer.Option("superimposed", "-o", "--out", help="output dir for oriented structures"),
+    db: Path = typer.Option(None, "--db", help="canonical database dir (default: data/Canonical2026, fetched at install)"),
+    organism: str = typer.Option("human", "--organism"),
+    mmcif: bool = typer.Option(False, "--mmCIF", help="write mmCIF (.cif) instead of PDB"),
+    compress: bool = typer.Option(False, "--compress", help="gzip the output (.gz)"),
+) -> None:
+    """Superimpose structure(s) onto a canonical database by MHC.
+
+    Detects each input's MHC chains, class, and species, then superposes its conserved groove Cα
+    onto *every* database structure of the same class and species and averages the transforms into
+    one consensus placement. The database defaults to ``data/Canonical2026`` (populated at install).
+    """
+    from .orient import run_superimpose
+
+    run_superimpose(structures, out, db_dir=db, organism=organism, mmcif=mmcif, compress=compress)
 
 
 @app.command("derive-potential")
@@ -154,6 +205,25 @@ def derive_potential(
     typer.echo(f"wrote {out}")
 
 
+@app.command("fetch-data")
+def fetch_data(
+    canonical: bool = typer.Option(True, "--canonical/--no-canonical", help="also fetch Canonical2026"),
+) -> None:
+    """Populate ``data/`` with the reference structure sets from the HF dataset.
+
+    Run once at install (``setup.sh`` does this). Fetches ``Native2026`` (orientation
+    references) and, by default, ``Canonical2026`` (the default ``superimpose`` database) into
+    ``$TCREN_DATA_DIR`` / repo ``data/``. Skips folders already present.
+    """
+    from .paper.bootstrap import fetch_hf_structures
+    from .paths import data_dir
+
+    folders = ("Native2026",) + (("Canonical2026",) if canonical else ())
+    summary = fetch_hf_structures(data_dir(), folders=folders)
+    for k, v in summary.items():
+        typer.echo(f"{k}: {v} structures")
+
+
 @app.command("build-mhc-ref")
 def build_mhc_ref(
     species: str = typer.Option("human,mouse", "--species", help="comma-separated"),
@@ -166,33 +236,6 @@ def build_mhc_ref(
         species=tuple(s.strip() for s in species.split(",")), force_download=force_download
     )
     typer.echo(f"MHC reference written to {fasta}")
-
-
-@app.command()
-def mhc(
-    structures: Path = typer.Option(..., "-s", "--structures", help="structure file, directory, or .tar.gz (.pdb/.cif/.pdb.gz/.cif.gz)"),
-    out: Path = typer.Option("mhc_calls.csv", "-o", "--out"),
-    organism: str = typer.Option("human", "--organism"),
-) -> None:
-    """Map MHC chains to allele / class / role for input structures."""
-    from .mhc import map_mhc
-
-    rows = []
-    for pid, s in iter_structures(structures, importer=parse_structure):
-        classify_chains(s, organism=organism)
-        for call in map_mhc(s):
-            rows.append(
-                {
-                    "pdb.id": pid,
-                    "chain.id": call.chain_id,
-                    "chain.role": call.chain_role,
-                    "mhc.class": call.mhc_class,
-                    "allele": call.allele,
-                    "identity": call.identity,
-                }
-            )
-    pl.DataFrame(rows).write_csv(str(out))
-    typer.echo(f"wrote {out}")
 
 
 @app.command("fetch-recent")

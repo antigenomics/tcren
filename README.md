@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/tcren_dark.svg">
-    <img alt="tcren" src="assets/tcren_light.svg" width="340">
+    <source media="(prefers-color-scheme: light)" srcset="assets/tcren_light.svg">
+    <img alt="tcren" src="assets/tcren_dark.svg" width="340">
   </picture>
 </p>
 
@@ -11,7 +11,7 @@
   <a href="https://github.com/antigenomics/tcren/actions/workflows/tests.yml"><img alt="tests" src="https://github.com/antigenomics/tcren/actions/workflows/tests.yml/badge.svg"></a>
   <a href="https://docs.isalgo.dev/tcren/"><img alt="docs" src="https://github.com/antigenomics/tcren/actions/workflows/docs.yml/badge.svg"></a>
   <img alt="python" src="https://img.shields.io/badge/python-3.10%2B-blue">
-  <img alt="license" src="https://img.shields.io/badge/license-academic%20%2F%20non--commercial-green">
+  <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-GPLv3-green"></a>
 </p>
 
 **TCRen** predicts which epitopes a T-cell receptor recognises from a single TCR–peptide–MHC
@@ -30,11 +30,15 @@ to floating-point precision).
 ## Install
 
 ```fish
-bash setup.sh              # creates the `tcren` conda env, installs arda + tcren
+bash setup.sh              # creates the `tcren` conda env, installs arda + tcren, fetches data/
 conda activate tcren
 ```
 
-`setup.sh` expects the sibling `arda` checkout next to this repo (or set `ARDA_DIR`).
+TCR annotation is provided by [`arda`](https://github.com/antigenomics/arda), pulled in
+automatically as a pinned git dependency (tag `2.0.1`); its C++ extension builds against the
+conda toolchain in `environment.yml`. No separate checkout is needed. `setup.sh` also runs
+`tcren fetch-data` to populate `data/` with the reference structure sets (`Native2026`,
+`Canonical2026`) used by `orient`/`superimpose` (set `TCREN_NO_FETCH=1` to skip).
 
 ## Command line
 
@@ -44,13 +48,23 @@ tcren score -s complex.pdb -c candidates.txt -o ranked.csv
 
 # Structures: any of .pdb / .cif / .pdb.gz / .cif.gz, a directory, or a .tar.gz batch
 tcren contacts -s batch.tar.gz -o contacts.csv --interface tcr_peptide
-tcren annotate -s complex.cif.gz -o markup.csv
-tcren mhc      -s complex.pdb    -o mhc_calls.csv
 
-# Canonical orientation (writes oriented .pdb.gz; chains A=Vα B=Vβ C=peptide D=MHCα E=MHCβ/β2m).
-# Annotation is one batched mmseqs call; -t threads only the structural alignment + write.
-tcren orient -s data/Native2026 -o data/Canonical2026 -t 8 \
-    --push-to-hub isalgo/tcren_structures --hub-folder Canonical2026
+# Per-residue markup: TCR (CDR/FR) + MHC groove (helix/floor) + peptide in one table.
+# --regions all|tcr|mhc|peptide filters; --pseudo also marks NetMHCpan groove residues (MPS).
+tcren annotate -s complex.cif.gz -o markup.csv --regions mhc --pseudo
+
+# Superimpose a new structure onto the canonical frame, by MHC, against the canonical
+# database (data/Canonical2026, fetched at install). Detects MHC class + species and averages
+# the superposition over every database structure of that class/species. Chains -> A=Vα B=Vβ
+# C=peptide D=MHCα E=MHCβ/β2m.
+tcren superimpose -s complex.pdb -o oriented/
+
+# Build a canonical database from native complexes (how Canonical2026 is produced). Annotation
+# is one batched mmseqs call; -t threads only the structural alignment + write.
+tcren orient -s data/Native2026 -o data/Canonical2026 -t 8
+
+# Structure outputs are plain .pdb by default; add --mmCIF for .cif and --compress for .gz.
+tcren superimpose -s complex.pdb -o oriented/ --mmCIF --compress   # -> oriented/<id>.cif.gz
 
 # Fetch recent TCR-pMHC structures from RCSB -> data/pdb_recent (mmCIF .cif.gz, 5-chain validated)
 tcren fetch-recent --discover --after 2024-01-01
@@ -60,6 +74,9 @@ tcren build-mhc-ref
 
 tcren info
 ```
+
+`tcren orient` and `tcren superimpose` need the reference sets in `data/` (`Native2026`,
+`Canonical2026`); `setup.sh` fetches them at install via `tcren fetch-data` (re-run it any time).
 
 ## Library
 
@@ -87,11 +104,12 @@ for pdb_id, structure in iter_structures("batch.tar.gz"):   # file | directory |
 
 ```python
 from tcren.mhc import annotate_mhc
-from tcren.orient import canonicalize_structure, align_to_canonical, docking_angles
+from tcren.orient import canonicalize_structure, superimpose, docking_angles
 from tcren.contacts import multi_contacts, ContactDefinition
 
 annotate_mhc(s)
 oriented, info = canonicalize_structure(s)     # frame: z=MHC→TCR, y=peptide, x=thin; chains A–E
+oriented, info = superimpose(s)                # orient onto data/Canonical2026 by MHC (class+species ensemble)
 layers = multi_contacts(s, ContactDefinition(d1=5, d2=8, d3=12))   # heavy-atom / Cβ / Cα
 d = docking_angles(s)                          # crossing (~20–70° αβ) + incident angle
 ```
@@ -123,8 +141,9 @@ Structures live in the Hugging Face dataset
 
 `tcren` reads `.pdb`/`.cif`/`.pdb.gz`/`.cif.gz` and `.tar.gz` batches; an installed library lazily
 fetches the canonical reference structures from the Hub when orienting a new complex. The root
-`data/` holds `Native2026` (+ `Canonical2026`, gitignored, fetched on demand), `PDB_date.tsv`, and
-`orient_metadata.json`.
+`data/` holds `Native2026` (+ `Canonical2026`, gitignored, fetched on demand), `PDB_date.tsv`,
+`orient_metadata.json`, and **`TCRen_potential.csv`** — the current potential derived from the
+Native2026 set (use it with `tcren score -p data/TCRen_potential.csv`).
 
 ## Notebooks
 
@@ -135,6 +154,7 @@ Runnable examples under [`notebooks/`](notebooks/) (rendered in the
 - `contact_thresholds_and_bondtypes` — region-pair contact counts (closest/Cβ/Cα) + bond types
 - `canonical_frame_figures` — canonical-frame QC across the Native2026 set
 - `pymol_canonical_figures` — ray-traced PyMOL panels (overlay, groove, interface) by class/species
+- `mhc_pseudosequence_mps` — NetMHCpan MHC pseudosequence (MPS) residues vs. peptide contacts
 - `example_gil_a02_rs_motif` — GILGFVFTL/HLA-A*02 and the public CDR3β Arg–Ser motif
 - `natcompsci2022/` — full reproduction of the Nat Comput Sci 2022 analyses
 
@@ -170,4 +190,6 @@ Karnaukhov *et al.* "Predicting TCR specificity from structure with a residue-le
 potential." *Nature Computational Science* (2024).
 [doi:10.1038/s43588-024-00653-0](https://www.nature.com/articles/s43588-024-00653-0)
 
-> Free for academic and non-commercial use; for commercial use, contact the study's corresponding author.
+## License
+
+GPLv3 — see [LICENSE](LICENSE). © ISALGO laboratory.

@@ -7,8 +7,9 @@ description: tcren — TCR-pMHC contact potential (TCRen) pipeline; conventions 
 
 `tcren` reproduces and extends the TCRen contact-energy potential (Nat Comput Sci 2022)
 on a pure-Python pipeline (structure parsing → contacts → TCR/MHC annotation → potential
-derivation → epitope-ranking benchmarks). Annotation uses the sibling `arda` package
-(mmseqs2-backed). Conda env `tcren`; `arda` installed editable alongside.
+derivation → epitope-ranking benchmarks). Annotation uses the `arda` package
+(mmseqs2-backed), a pinned git dependency (`arda@2.0.1`) in `pyproject.toml` — no separate
+checkout. Conda env `tcren` (`bash setup.sh`).
 
 ## Batch annotation — never loop (mmseqs2 is the parallel layer)
 
@@ -37,6 +38,46 @@ Reference: `arda.annotate_sequences([(id, seq), ...])` — one call, threads int
   pymol / Rosetta / FlexPepDock and figure generation. `orient.run_folder(threads=…)` threads
   the parse and the align+write stages (default `os.cpu_count()`); annotation between them is
   the single batched pass. `tcren orient -t N`.
+
+## Two orientation commands — `superimpose` vs `orient`
+
+- **`tcren superimpose` / `tcren.orient.superimpose(s, db_dir=…)`** — bring a NEW structure into
+  the canonical frame against a canonical *database* (default `data/Canonical2026`). It detects
+  the input's MHC class + species, selects every DB member of that class+species (from the DB's
+  `orient_metadata.json`), superposes the query groove Cα onto each, and **averages** the rigid
+  transforms (chordal/SVD mean rotation + mean translation) into one consensus placement. The
+  matching DB subset is batch-annotated once and cached per process.
+- **`tcren orient` / `tcren.orient.run_folder(...)`** — BUILD a canonical DB from native
+  complexes using the per-class derived frame (how `Canonical2026` is produced). Not for orienting
+  a single new structure — use `superimpose` for that.
+- **HF upload is NOT a user command.** `--push-to-hub` was removed; maintainers run
+  `scripts/push_canonical_to_hub.py` instead.
+
+## Annotation CLI — one `annotate`, no separate `mhc`
+
+- `tcren annotate -s … [--regions all|tcr|mhc|peptide] [--pseudo]` emits ONE per-residue markup
+  covering TCR (CDR/FR), MHC groove (HELIX/FLOOR) and peptide. `--regions` filters by chain class;
+  `--pseudo` adds `MPS` rows. The old `tcren mhc` command was removed — its allele/class info is
+  available in the library via `mhc.map_mhc` / `mhc.annotate_mhc`.
+
+## MHC pseudosequence (MPS) — `tcren.mhc.annotate_pseudo`
+
+- Marks the NetMHCpan 34-residue groove pseudosequence on an annotated structure (region `MPS`).
+  Committed FASTAs `src/tcren/data/{mhci,mhcii}_pseudo.fa` (built by `scripts/build_pseudo_fasta.py`
+  from NetMHCpan tables; unique seqs, header `<allele>|n=<count>`).
+- The 34 positions are **scattered**, so mmseqs/local search can't find them (no shared k-mer).
+  Instead each candidate 34-mer is threaded through the chain with a **fitting alignment** (free
+  chain gaps; positions are N→C ordered) — ~0.1 s over all ~4k seqs, no prebuilt index. One best
+  hit is chosen; class I marks MHCa only (never β2m), class II splits across MHCa+MHCb.
+- Validation notebook `notebooks/mhc_pseudosequence_mps.ipynb`: MPS residues vs. 5 Å peptide
+  contacts (~half are direct contacts; the rest line the groove toward the TCR).
+
+## Structure output format — `--mmCIF` / `--compress`
+
+- Every command that writes a structure (`orient`, `superimpose`) outputs plain `.pdb` by
+  default; `--mmCIF` switches to `.cif`, `--compress` adds a trailing `.gz`. In the library:
+  `structure_output_path(dir, id, mmcif=…, compress=…)` + `write_structure(s, path)` (dispatches
+  PDB/mmCIF by suffix; a minimal `_atom_site` mmCIF loop that round-trips through Biopython).
 
 ## Fetching recent structures — `tcren fetch-recent` / `tcren.recent`
 
@@ -67,9 +108,11 @@ from tcren.paper import (
 - Non-structure inputs + 2022 comparison baselines are **committed** under
   `notebooks/natcompsci2022/data_legacy/` (vdjdb, Birnbaum, MJ/Keskin, IEDB, epitope lists,
   `TCRpMHCmodels.tar.gz`, PDB dates, mir/R oracle) — never a pipeline input. `results_new/` is computed.
-- Root `data/` holds only the library dataset: `Native2026` (symlink, gitignored), `PDB_date.tsv`,
-  `orient_metadata.json`. The TCR3D `native` module is retired to `legacy/`; orientation references
-  load 1ao7/1fyt from `data/Native2026` via `tcren.paths`.
+- Root `data/` holds the library dataset (gitignored structures): `Native2026` (orientation
+  references), `Canonical2026` (the default `superimpose` database), `PDB_date.tsv`,
+  `orient_metadata.json`, `TCRen_potential.csv`. `setup.sh` runs `tcren fetch-data` at install to
+  populate `Native2026` + `Canonical2026` from HF. The TCR3D `native` module is retired to
+  `legacy/`; orientation references load 1ao7/1fyt from `data/Native2026` via `tcren.paths`.
 
 ## Geometry: contacts, region pairs, docking angle
 

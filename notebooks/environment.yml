@@ -1,0 +1,22 @@
+# Conda environment for ALL notebooks under notebooks/ (examples + the natcompsci2022
+# reproduction). It is the standard `tcren` env plus the analysis/viz packages the notebooks
+# need (Jupyter, matplotlib, rapidfuzz, scikit-learn, logomaker) — installed via the `notebooks`
+# extra in pyproject.toml. arda (and tcren) come from that editable install, pinned to arda@2.0.1.
+#
+#   bash setup.sh        # creates the env, editable-installs tcren[notebooks,viz], registers a kernel
+#
+name: tcren-nb
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python=3.12
+  - mmseqs2          # annotation backend binary (used by arda + MHC mapping)
+  - cxx-compiler     # builds arda's C++ extension on install
+  - cmake
+  - pip
+  - pip:
+      - scikit-build-core>=0.10
+      - pybind11>=2.12
+      # tcren (+ arda@2.0.1 + notebook analysis deps) is editable-installed by setup.sh:
+      #   pip install -e ..[notebooks,viz]

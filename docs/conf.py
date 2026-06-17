@@ -19,7 +19,7 @@ if _NB_SRC.is_dir():
         shutil.copy2(_nb, _NB_DST / _nb.name)
 
 project = "tcren"
-author = "Antigenomics"
+author = "ISALGO laboratory"
 release = "0.1.0"
 
 extensions = [

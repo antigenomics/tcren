@@ -9,11 +9,14 @@ from .pipeline import (
     canonicalize_structure,
     check_oriented_complex,
     run_folder,
+    run_superimpose,
 )
+from .superimpose import superimpose
 
 __all__ = [
     "CanonResult", "canonical_frame", "build_canonical_frame",
     "detect_reverse_dock", "CHAIN_RENAME", "select_primary_complex", "rename_chains",
     "canonicalize_structure", "align_to_canonical", "check_oriented_complex", "run_folder",
+    "superimpose", "run_superimpose",
     "DockingAngles", "docking_angles", "crossing_incident_from_vector",
 ]

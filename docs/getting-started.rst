@@ -9,8 +9,9 @@ Installation
    $ bash setup.sh
    $ conda activate tcren
 
-``setup.sh`` creates the ``tcren`` conda environment, installs the sibling ``arda``
-package (the TCR-annotation backend, mmseqs2-based), and installs ``tcren`` in editable mode.
+``setup.sh`` creates the ``tcren`` conda environment and installs ``tcren`` in editable mode.
+The TCR-annotation backend ``arda`` (mmseqs2-based) is pulled in automatically as a pinned
+git dependency (tag ``2.0.1``); its C++ extension builds against the conda toolchain.
 
 Command line
 ------------
@@ -27,16 +28,35 @@ identifiers are resolved from the file names:
 .. code-block:: console
 
    $ tcren contacts -s batch.tar.gz -o contacts.csv --interface tcr_peptide
-   $ tcren annotate -s complex.cif.gz -o markup.csv
-   $ tcren mhc      -s complex.pdb    -o mhc_calls.csv
+   $ tcren annotate -s complex.cif.gz -o markup.csv --regions mhc --pseudo
 
-Canonical orientation writes oriented ``.pdb.gz`` (chains ``A``\=Vα, ``B``\=Vβ, ``C``\=peptide,
-``D``\=MHCα, ``E``\=MHCβ/β2m). Annotation runs as a single batched mmseqs2 call; ``-t`` threads
-only the structural alignment and write:
+``tcren annotate`` emits one per-residue markup table covering TCR (CDR/FR), MHC groove
+(helices/floor) and peptide; ``--regions all|tcr|mhc|peptide`` filters it to one chain class and
+``--pseudo`` additionally marks the NetMHCpan MHC pseudosequence residues (region ``MPS``). It
+replaces the old separate ``tcren mhc`` command.
+
+There are two orientation commands (chains are renamed ``A``\=Vα, ``B``\=Vβ, ``C``\=peptide,
+``D``\=MHCα, ``E``\=MHCβ/β2m):
+
+* ``tcren superimpose`` brings a **new** structure into the canonical frame by superposing its
+  conserved MHC groove Cα onto a canonical *database*. It detects the input's MHC class and
+  species, selects every database structure of the same class and species, superposes against
+  each (sequence alignment fixes the residue correspondence), and **averages** the rigid
+  transforms — translations by mean, rotations by the chordal (SVD-orthonormalised) mean — into
+  one consensus placement. The database defaults to ``data/Canonical2026`` (populated at install).
+
+* ``tcren orient`` **builds** a canonical database from native complexes by deriving the
+  per-class canonical frame (this is how ``Canonical2026`` itself is produced). Annotation runs
+  as a single batched mmseqs2 call; ``-t`` threads only the structural alignment and write.
 
 .. code-block:: console
 
+   $ tcren superimpose -s complex.pdb -o oriented/
    $ tcren orient -s data/Native2026 -o data/Canonical2026 -t 8
+
+Both need the reference sets in ``data/``; ``setup.sh`` runs ``tcren fetch-data`` at install to
+populate them. Structure outputs are plain ``.pdb`` by default — add ``--mmCIF`` for ``.cif`` and
+``--compress`` for a trailing ``.gz`` (these flags apply to every command that writes a structure).
 
 Fetch recent TCR-pMHC structures from the RCSB into ``data/pdb_recent`` (mmCIF ``.cif.gz``,
 validated to have all five required chains):
@@ -76,11 +96,12 @@ Orient into the canonical frame, layer contacts, and read the docking geometry:
 .. code-block:: python
 
    from tcren.mhc import annotate_mhc
-   from tcren.orient import canonicalize_structure, docking_angles
+   from tcren.orient import canonicalize_structure, superimpose, docking_angles
    from tcren.contacts import multi_contacts, ContactDefinition
 
    annotate_mhc(structure)
    oriented, info = canonicalize_structure(structure)   # z=MHC->TCR, y=peptide, x=thin
+   oriented, info = superimpose(structure)              # onto data/Canonical2026 (class+species ensemble)
    layers = multi_contacts(structure, ContactDefinition(d1=5, d2=8, d3=12))
    angles = docking_angles(structure)                   # crossing + incident angle
 

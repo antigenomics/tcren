@@ -325,15 +325,56 @@ def pdb_lines(structure: Structure, transform=None, keep_hydrogens: bool = True)
     return lines
 
 
+_CIF_COLUMNS = (
+    "group_PDB", "id", "type_symbol", "label_atom_id", "label_alt_id", "label_comp_id",
+    "label_asym_id", "label_seq_id", "pdbx_PDB_ins_code", "Cartn_x", "Cartn_y", "Cartn_z",
+    "occupancy", "B_iso_or_equiv", "auth_seq_id", "auth_asym_id", "pdbx_PDB_model_num",
+)
+
+
+def cif_lines(structure: Structure, transform=None, keep_hydrogens: bool = True) -> list[str]:
+    """Minimal mmCIF ``atom_site`` loop for ``structure`` (optionally transformed).
+
+    Same atom selection as :func:`pdb_lines` (one conformer per atom name per residue). Only
+    the ``_atom_site`` category is written — enough to round-trip coordinates + chain/residue
+    identity through the Biopython MMCIF parser, which is all tcren consumes.
+    """
+    lines = [f"data_{structure.pdb_id or 'structure'}", "#", "loop_"]
+    lines += [f"_atom_site.{c}" for c in _CIF_COLUMNS]
+    serial = 1
+    for chain in structure.chains:
+        chain_id = (chain.chain_id or "A")[0]
+        for res in chain.residues:
+            seen: set[str] = set()
+            for atom in res.atoms:
+                element = (atom.element or atom.name[:1]).strip().upper()
+                if (not keep_hydrogens and element == "H") or atom.name in seen:
+                    continue
+                seen.add(atom.name)
+                x, y, z = transform(atom.coord) if transform else atom.coord
+                icode = (res.insertion_code or "?")[:1] or "?"
+                lines.append(
+                    f"ATOM {serial} {element} {atom.name} . {res.resname} {chain_id} "
+                    f"{res.pdb_index} {icode} {x:.3f} {y:.3f} {z:.3f} 1.00 0.00 "
+                    f"{res.pdb_index} {chain_id} 1"
+                )
+                serial += 1
+    lines.append("#")
+    return lines
+
+
 def write_pdb(structure: Structure, path: str | Path, transform=None,
               keep_hydrogens: bool = True) -> Path:
     """Write ``structure`` to a PDB file; return the path.
 
     A ``.gz`` suffix (``foo.pdb.gz``) transparently gzip-compresses the output.
     """
+    return _write_text(path, "\n".join(pdb_lines(structure, transform, keep_hydrogens)) + "\n")
+
+
+def _write_text(path: str | Path, text: str) -> Path:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    text = "\n".join(pdb_lines(structure, transform, keep_hydrogens)) + "\n"
     if path.name.lower().endswith(".gz"):
         with gzip.open(path, "wt") as fh:
             fh.write(text)
@@ -342,10 +383,20 @@ def write_pdb(structure: Structure, path: str | Path, transform=None,
     return path
 
 
-def write_structure(structure: Structure, path: str | Path, **kwargs) -> Path:
-    """Format-dispatch writer (PDB / gzipped PDB only for now; mmCIF deferred)."""
-    path = Path(path)
-    inner, _ = _strip_gz(path.name)
-    if not inner.lower().endswith(_PDB_SUFFIXES):
-        raise ValueError(f"only PDB output is supported, got {path.name!r}")
-    return write_pdb(structure, path, **kwargs)
+def structure_output_path(directory: str | Path, pdb_id: str, mmcif: bool = False,
+                          compress: bool = False) -> Path:
+    """Build an output path ``<directory>/<pdb_id>.<ext>`` from format flags.
+
+    ``.pdb`` by default, ``.cif`` if ``mmcif``, with a trailing ``.gz`` if ``compress``.
+    """
+    ext = ".cif" if mmcif else ".pdb"
+    return Path(directory) / f"{pdb_id}{ext}{'.gz' if compress else ''}"
+
+
+def write_structure(structure: Structure, path: str | Path, transform=None,
+                    keep_hydrogens: bool = True) -> Path:
+    """Format-dispatch writer: PDB or mmCIF, optionally gzipped (by the path suffix)."""
+    inner, _ = _strip_gz(Path(path).name)
+    if inner.lower().endswith(_CIF_SUFFIXES):
+        return _write_text(path, "\n".join(cif_lines(structure, transform, keep_hydrogens)) + "\n")
+    return write_pdb(structure, path, transform=transform, keep_hydrogens=keep_hydrogens)

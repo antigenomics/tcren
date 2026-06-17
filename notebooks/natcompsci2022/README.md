@@ -7,18 +7,15 @@ structure set with the current pipeline.
 
 ## Environment
 
-The notebooks run in a **separate conda env** (`tcren-nb`) from the lean `tcren`
-library-dev env, because they add Jupyter and analysis/viz deps (matplotlib, rapidfuzz,
-scikit-learn, logomaker) on top of the `mmseqs2` binary used for annotation.
+These notebooks use the shared `tcren-nb` conda env for all notebooks. Set it up once from the
+parent `notebooks/` directory:
 
 ```fish
-bash setup.sh        # creates/updates the tcren-nb env + editable installs + Jupyter kernel
+cd .. ; bash setup.sh        # creates the tcren-nb env + editable installs + Jupyter kernel
 ```
 
-`setup.sh` reads `environment.yml`, editable-installs `arda` and `tcren` (the latter with the
-`notebooks` extra from `pyproject.toml`), and registers the **"Python (tcren-nb)"** kernel.
-Select that kernel in VS Code / Jupyter. Override `ENV_NAME` or `ARDA_DIR` if your layout
-differs.
+See [`../README.md`](../README.md) for details. Select the **"Python (tcren-nb)"** kernel in
+VS Code / Jupyter.
 
 ## Data layout
 

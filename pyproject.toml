@@ -8,8 +8,8 @@ version = "0.1.0"
 description = "Structure-based prediction of TCR recognition of epitopes via residue-level statistical potentials"
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "MIT" }
-authors = [{ name = "Antigenomics" }]
+license = { text = "GPL-3.0-or-later" }
+authors = [{ name = "ISALGO laboratory", email = "mikhail.shugay@gmail.com" }]
 dependencies = [
     "biopython>=1.84",
     "scipy>=1.11",
@@ -18,6 +18,7 @@ dependencies = [
     "typer>=0.12",
     "requests>=2.31",
     "huggingface_hub>=0.20",  # lazy fetch of canonical reference structures for orientation
+    "arda @ git+https://github.com/antigenomics/arda.git@2.0.1",  # TCR annotation backend
 ]
 
 [project.optional-dependencies]

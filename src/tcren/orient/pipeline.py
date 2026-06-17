@@ -105,9 +105,10 @@ def _orient_row(pdb_id, status="ok"):
     return row
 
 
-def _finish_orient(structure, pdb_id, out, reference_id, force_pca) -> dict:
+def _finish_orient(structure, pdb_id, out, reference_id, force_pca,
+                   mmcif=False, compress=True) -> dict:
     """Canonicalize an (already classified + MHC-annotated) structure → metadata row."""
-    from ..structure.io import write_pdb
+    from ..structure.io import structure_output_path, write_structure
 
     row = _orient_row(pdb_id)
     row["mhc.class"] = "MHCII" if any(c.chain_type == "MHCb" for c in structure.chains) else "MHCI"
@@ -125,7 +126,7 @@ def _finish_orient(structure, pdb_id, out, reference_id, force_pca) -> dict:
                 "transform": json.dumps({"rotation": res.rotation.tolist(),
                                          "translation": res.translation.tolist()})})
     if ok:
-        write_pdb(oriented, Path(out) / f"{pdb_id}.pdb.gz")
+        write_structure(oriented, structure_output_path(out, pdb_id, mmcif, compress))
     else:
         row["status"] = f"rejected: {reason}"
     return row
@@ -139,8 +140,13 @@ def run_folder(
     reference_id: str | None = None,
     force_pca: bool = False,
     threads: int | None = None,
+    mmcif: bool = False,
+    compress: bool = False,
 ) -> pl.DataFrame:
-    """Canonicalize a file or folder of structures; write oriented ``.pdb.gz`` + a metadata table.
+    """Canonicalize a file or folder of structures; write oriented structures + a metadata table.
+
+    Output format follows ``mmcif`` (``.cif`` vs ``.pdb``) and ``compress`` (trailing ``.gz``);
+    plain PDB by default (pass ``compress=True`` to rebuild the gzipped Canonical2026 set).
 
     Annotation is BATCHED — one mmseqs search for all TCR chains (per organism) and one for all
     MHC chains across the whole set (mmseqs parallelises internally; never per-structure, never
@@ -185,7 +191,7 @@ def run_folder(
     def _orient(item):
         pid, s = item
         try:
-            return _finish_orient(s, pid, out, reference_id, force_pca)
+            return _finish_orient(s, pid, out, reference_id, force_pca, mmcif, compress)
         except Exception as exc:  # noqa: BLE001 - keep the batch resilient
             return _orient_row(pid, f"error: {type(exc).__name__}: {str(exc)[:80]}")
 
@@ -197,4 +203,45 @@ def run_folder(
         df.write_csv(metadata)
     ok = df.filter(pl.col("status") == "ok").height
     print(f"oriented {ok}/{df.height} structures -> {out}")
+    return df
+
+
+def run_superimpose(
+    structures: str | Path,
+    out: str | Path,
+    db_dir: str | Path | None = None,
+    organism: str = "human",
+    mmcif: bool = False,
+    compress: bool = False,
+) -> pl.DataFrame:
+    """Superimpose each input structure onto a canonical database; write oriented structures.
+
+    Thin folder/file driver over :func:`tcren.orient.superimpose` (see its module docstring for
+    the MHC-ensemble method). ``db_dir`` defaults to ``data/Canonical2026``. Output format
+    follows ``mmcif``/``compress`` (plain PDB by default for user-facing output).
+    """
+    from ..orient.superimpose import superimpose
+    from ..structure.io import iter_structures, parse_structure, structure_output_path, write_structure
+
+    out = Path(out)
+    out.mkdir(parents=True, exist_ok=True)
+    rows = []
+    for pid, s in iter_structures(structures, importer=parse_structure):
+        try:
+            oriented, res = superimpose(s, db_dir=db_dir, organism=organism)
+            ok, reason = check_oriented_complex(oriented)
+            if ok:
+                write_structure(oriented, structure_output_path(out, pid, mmcif, compress))
+                rows.append({"pdb.id": pid, "status": "ok", "reference.id": res.reference_id,
+                             "rmsd": res.rmsd, "n.references": res.n_anchor_atoms})
+            else:
+                rows.append({"pdb.id": pid, "status": f"rejected: {reason}",
+                             "reference.id": res.reference_id, "rmsd": res.rmsd,
+                             "n.references": res.n_anchor_atoms})
+        except Exception as exc:  # noqa: BLE001 - keep the batch resilient
+            rows.append({"pdb.id": pid, "status": f"error: {type(exc).__name__}: {str(exc)[:80]}",
+                         "reference.id": None, "rmsd": None, "n.references": None})
+    df = pl.DataFrame(rows)
+    ok = df.filter(pl.col("status") == "ok").height if df.height else 0
+    print(f"superimposed {ok}/{df.height} structures -> {out}")
     return df

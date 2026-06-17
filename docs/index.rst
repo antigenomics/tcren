@@ -24,6 +24,7 @@ and scores candidate epitopes.
    notebooks/canonical_frame_figures
    notebooks/pymol_canonical_figures
    notebooks/contact_thresholds_and_bondtypes
+   notebooks/mhc_pseudosequence_mps
    notebooks/example_gil_a02_rs_motif
    notebooks/tcren_analysis
 
