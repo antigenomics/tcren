@@ -1,0 +1,173 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amsthm}
+\usepackage{mathtools}
+\usepackage{graphicx}
+% Old-style journal look matching the mhcmatch appendix (OldStandard text+math, small-caps
+% headings, run-in paragraph leaders). Requires lualatex -- pinned in .latexmkrc / Makefile.
+\usepackage{OldStandard}
+\usepackage{unicode-math}
+\setmathfont{OldStandard-Math.otf}
+\usepackage{titlesec}
+\usepackage[hidelinks]{hyperref}
+
+\linespread{1.15}
+\setlength{\parindent}{2em}
+\titleformat{\section}{\normalfont\large\scshape\bfseries}{\thesection.}{0.6em}{}
+\titleformat{\subsection}{\normalfont\scshape\bfseries}{\thesubsection.}{0.5em}{}
+\titleformat{\paragraph}[runin]{\bfseries\scshape}{}{0pt}{}[.]
+\titlespacing*{\paragraph}{\parindent}{0.4em}{0.6em}
+
+\newtheoremstyle{oldplain}{}{}{\itshape}{}{\scshape}{.}{.5em}{}
+\newtheoremstyle{oldrem}{}{}{\normalfont}{}{\scshape}{.}{.5em}{}
+\theoremstyle{oldplain}
+\newtheorem{proposition}{Proposition}
+\theoremstyle{oldrem}
+\newtheorem{definition}{Definition}
+\newtheorem{remark}{Remark}
+
+\DeclareMathOperator*{\argmin}{arg\,min}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\Aset}{\mathcal{A}}
+\newcommand{\Cset}{\mathcal{C}}
+\newcommand{\xref}{x^{0}}
+
+\title{\scshape Backbone-preserving peptide substitution and potential-guided
+refinement of TCR--peptide--MHC structures}
+\author{Mikhail Shugay\textsuperscript{1}\thanks{Correspondence:
+  \href{mailto:mikhail.shugay@gmail.com}{mikhail.shugay@gmail.com}}}
+\date{%
+  \small
+  \textsuperscript{1}ISALGO laboratory\\[6pt]
+  \normalsize\textit{tcren technical appendix}%
+}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+\texttt{tcren} ranks candidate epitopes for a fixed TCR--peptide--MHC structure by summing a
+residue-level pairwise statistical potential over the observed contact map~\cite{Karnaukhov2024};
+because the potential depends only on residue identity and the closest-atom contact geometry, a
+candidate is scored \emph{virtually}---its amino acids are threaded onto the native contacts with no
+atom moved. This appendix documents two coordinate-level extensions that the virtual score does not
+need but downstream re-docking does: (i) a backbone-preserving \emph{peptide substitution} that
+produces the coordinates of a new equal-length epitope on the native scaffold, and (ii) a
+knowledge-based \emph{potential-guided refinement} of the peptide pose---a statistical contact
+potential plus a soft heavy-atom clash term and a harmonic restraint to the input pose, sampled by
+rigid-body Metropolis Monte Carlo~\cite{Metropolis1953,Kirkpatrick1983} and implemented as a
+\texttt{pybind11}/C++ kernel. We give the energy function, prove that the restraint is necessary
+(without it the rigid-body minimiser is unbounded and ejects the peptide), and state the sampler and
+its cost. The method is knowledge-based, in the spirit of contact potentials of mean
+force~\cite{Sippl1990,Miyazawa1996}; it is \emph{not} a physics force field. Physics-grade
+relaxation is delegated to Rosetta FlexPepDock~\cite{Raveh2010,London2011}.
+\end{abstract}
+
+\section{Scope}\label{sec:scope}
+For a chain-typed complex \texttt{tcren} builds the inter-chain contact map---closest heavy-atom
+pairs at a $5\,\text{\AA}$ cutoff, reduced to one pair per residue pair---and scores a candidate
+peptide $s$ on the TCR$\leftrightarrow$peptide interface as $\sum_{(i,j)} \phi(a_i, s_{\pi(j)})$,
+where $\phi$ is the TCRen statistical potential, $a_i$ the fixed partner residue and $\pi$ the
+contact's peptide position~\cite{Karnaukhov2024}. This is a fixed-backbone, fixed-contact-set
+approximation: the native pose stands in for every candidate. It is fast (microseconds per peptide)
+and is the basis of all ranking in \texttt{tcren}. The two operations below relax that
+approximation when a candidate's \emph{geometry}---not just its score on the native contacts---is
+required, e.g.\ to seed re-docking, to relieve a clash introduced by substitution, or to compare
+poses across candidates.
+
+\section{Backbone-preserving peptide substitution}\label{sec:sub}
+\begin{definition}[Substitution]\label{def:sub}
+Let the native peptide chain have residues $r_1,\dots,r_L$ with heavy-atom coordinate sets
+$X_1,\dots,X_L$, and let $s\in\Aset^L$ be a new sequence over the twenty amino acids. The
+substitution $\mathrm{sub}(\,\cdot\,,s)$ returns a chain whose $i$-th residue has identity $s_i$ and
+retains exactly the backbone atoms $\{\mathrm N,\mathrm C_\alpha,\mathrm C,\mathrm O\}$ together with
+$\mathrm C_\beta$ when $s_i\neq\mathrm{Gly}$, with all coordinates inherited from $X_i$; side-chain
+atoms beyond $\mathrm C_\beta$ are discarded.
+\end{definition}
+
+\paragraph{Rationale} A residue-level potential reads the contact map through residue
+\emph{identity} and the closest-atom (or $\mathrm C_\beta$) distance~\cite{Miyazawa1996}; the
+backbone $+\,\mathrm C_\beta$ frame therefore carries everything the score and the refinement energy
+of \S\ref{sec:refine} consume, while the native backbone---rigidly constrained between the MHC
+groove walls and the TCR loops---is the appropriate scaffold for an equal-length epitope. Rebuilding
+the discarded side chains (a backbone-dependent rotamer search~\cite{Shapovalov2011}) and full
+physics relaxation are deliberately \emph{not} performed here; substitution only fixes identity and
+$\mathrm C_\beta$ geometry, leaving heavier modelling to the refiner or to an external tool. The map
+is purely combinatorial---no alignment, no optimisation---so it is exact and order-preserving on the
+peptide's sequential indexing.
+
+\section{Potential-guided refinement}\label{sec:refine}
+Write $x\in\R^{3M}$ for the $M$ peptide heavy-atom coordinates (the only degrees of freedom) and
+$y\in\R^{3M'}$ for the fixed partner (TCR\,$+$\,MHC) heavy atoms; $a$ indexes peptide residues by
+amino acid, $b$ the partner residues. Let $\phi:\Aset\times\Aset\to\R$ be a residue-level contact
+potential, signed so that favourable contacts are negative (TCRen~\cite{Karnaukhov2024}, or the
+Miyazawa--Jernigan general contact energy~\cite{Miyazawa1996}). With a contact cutoff $r_c$ define
+the residue contact set
+\[
+  \Cset(x) \;=\; \Bigl\{(i,j) : \min_{p\in i,\,q\in j}\lVert x_p - y_q\rVert \le r_c \Bigr\}.
+\]
+\begin{definition}[Refinement energy]\label{def:energy}
+\[
+  E(x) \;=\;
+  \underbrace{\sum_{(i,j)\in\Cset(x)} \phi(a_i,b_j)}_{\text{statistical potential}}
+  \;+\;
+  w_{\mathrm c}\!\!\sum_{\substack{p,q\,:\,\lVert x_p-y_q\rVert < d_0}}\!\!
+      \bigl(d_0-\lVert x_p-y_q\rVert\bigr)^2
+  \;+\;
+  w_{\mathrm r}\sum_{p=1}^{M}\lVert x_p-\xref_p\rVert^2 ,
+\]
+where the second term is a soft quadratic penalty on heavy-atom pairs closer than $d_0$ (a
+``soft-core'' clash, default $d_0=3\,\text{\AA}$) and the third is a harmonic restraint to the input
+pose $\xref$. Defaults: $r_c=5\,\text{\AA}$ (the TCRen contact definition), $w_{\mathrm c}=w_{\mathrm
+r}=1$.
+\end{definition}
+
+\paragraph{Why the restraint is necessary} The statistical-potential term alone cannot be minimised
+by moving a \emph{rigid} peptide.
+\begin{proposition}\label{prop:restraint}
+Restrict $x$ to the rigid-body family $x=R\xref+t$, $R\in SO(3)$, $t\in\R^3$. The map
+$(R,t)\mapsto \sum_{(i,j)\in\Cset}\phi(a_i,b_j)$ takes finitely many values and is constant on the
+open set of $t$ with $\lVert t\rVert$ large enough that $\Cset=\varnothing$, where it equals $0$.
+Hence if the native contact energy $\sum_{(i,j)\in\Cset(\xref)}\phi>0$, every minimiser of the
+potential term alone has $\Cset=\varnothing$: the peptide is ejected from the pocket. The clash term
+bounds penetration but not ejection. Adding $w_{\mathrm r}\sum_p\lVert x_p-\xref_p\rVert^2$ makes $E$
+coercive ($E\to\infty$ as $\lVert x\rVert\to\infty$), so a finite minimiser near $\xref$ exists, and
+$w_{\mathrm r}$ controls its distance from $\xref$.
+\end{proposition}
+\noindent Statistical potentials are not physical energies---a contact may be net unfavourable---so
+``more burial'' need not lower $E$; the restraint converts a global, unbounded search into the
+intended \emph{local} refinement.
+
+\paragraph{Sampling} $E$ is minimised by simulated-annealing Metropolis Monte
+Carlo~\cite{Metropolis1953,Kirkpatrick1983}. At step $t$ a trial pose is proposed by a rigid move of
+the peptide: a Gaussian translation $\delta\sim\mathcal N(0,\sigma_t^2 I_3)$ and a rotation about the
+peptide centroid by a random axis and angle $\theta\sim\mathcal N(0,\sigma_r^2)$. The trial is
+accepted with probability $\min\!\bigl(1,\exp(-\Delta E/T_t)\bigr)$, with the temperature cooled
+linearly $T_t:T_0\!\downarrow\!T_1$; the lowest-energy pose visited is returned. The chain is
+deterministic given its pseudo-random seed.
+
+\paragraph{Implementation and cost} Each energy evaluation is $O(MM')$; partner atoms are
+pre-filtered to those within a $12\,\text{\AA}$ shell of the peptide, so $M'$ is the interface, not
+the whole complex, and several thousand steps complete in well under a second. The kernel is C++
+(\texttt{pybind11}); the dense potential matrix is passed by buffer and indexed in $O(1)$. A native
+pose is a fixed point of the move set up to thermal noise (it barely moves); a clashed or perturbed
+input relaxes locally, trading clash for restraint.
+
+\section{Assumptions and limitations}\label{sec:limits}
+The peptide is treated as a \emph{rigid} body: there is no backbone flexibility and no side-chain
+repacking, so substitution leaves heavy atoms beyond $\mathrm C_\beta$ unmodelled and the refiner
+cannot resolve rotameric clashes (a backbone-dependent rotamer pass~\cite{Shapovalov2011} is the
+natural next step). A single potential $\phi$ is used across all peptide--partner contacts, whereas
+the TCR-facing and groove-facing faces have different statistics; the clash term is a heuristic
+soft-core, not a Lennard--Jones repulsion. The restraint weight $w_{\mathrm r}$ is a tunable that
+sets the locality radius. For physically realistic, full-atom relaxation---side-chain optimisation
+and backbone minimisation under an all-atom force field---\texttt{tcren} defers to Rosetta
+FlexPepDock~\cite{Raveh2010,London2011} with the ref2015 energy function~\cite{Alford2017}, invoked
+as an external process; the C++ kernel here is a fast knowledge-based pre-refinement, not a
+substitute for it.
+
+\bibliographystyle{plain}
+\bibliography{refs}
+
+\end{document}

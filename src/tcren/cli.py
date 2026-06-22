@@ -326,5 +326,43 @@ def pipeline(
     typer.echo(f"wrote {out}")
 
 
+@app.command()
+def refine(
+    structures: str = typer.Option(..., "-s", "--structures", help="structure file, directory, .tar.gz, or glob"),
+    out: Path = typer.Option("refined", "-o", "--out", help="output directory for refined structures"),
+    substitute: str = typer.Option(None, "--substitute", help="thread this peptide onto the backbone first"),
+    organism: str = typer.Option("human", "--organism"),
+    n_steps: int = typer.Option(2000, "--steps", help="Monte-Carlo steps"),
+    restraint_w: float = typer.Option(1.0, "--restraint", help="harmonic restraint to the input pose"),
+    seed: int = typer.Option(0, "--seed"),
+    mmcif: bool = typer.Option(False, "--mmCIF", help="write mmCIF (.cif) instead of PDB"),
+    compress: bool = typer.Option(False, "--compress", help="gzip the output (.gz)"),
+) -> None:
+    """Potential-guided rigid-body refinement of the peptide pose (knowledge-based, not physics).
+
+    Optionally ``--substitute`` a new equal-length peptide first, then run a statistical-potential +
+    soft-clash Monte-Carlo refinement (restrained to the input pose). Writes one structure per input
+    and prints the final energy. (For physics-grade relaxation use Rosetta FlexPepDock externally.)
+    """
+    from .refine import refine_peptide, substitute_peptide
+    from .structure.io import import_structure, structure_output_path, write_structure
+
+    out.mkdir(parents=True, exist_ok=True)
+    rows = []
+    for pid, s in iter_structures(structures, importer=import_structure):
+        try:
+            classify_chains(s, organism=organism)
+            if substitute:
+                s = substitute_peptide(s, substitute)
+            oriented, energy = refine_peptide(s, restraint_w=restraint_w, n_steps=n_steps, seed=seed)
+            write_structure(oriented, structure_output_path(out, pid, mmcif, compress))
+            rows.append({"pdb.id": pid, "energy": energy})
+        except Exception as exc:  # noqa: BLE001 - keep the batch resilient
+            rows.append({"pdb.id": pid, "energy": None,
+                         "error": f"{type(exc).__name__}: {str(exc)[:80]}"})
+    pl.DataFrame(rows).write_csv(str(out / "refine_energies.csv"))
+    typer.echo(f"refined {sum(r.get('energy') is not None for r in rows)}/{len(rows)} -> {out}")
+
+
 if __name__ == "__main__":
     app()

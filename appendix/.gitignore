@@ -1,0 +1,8 @@
+# latexmk intermediates (the source .tex/.bib + the built tcren.pdf are committed)
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.out

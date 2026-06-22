@@ -11,6 +11,7 @@ from .contacts import all_atom_contacts, ca_distance_matrix
 from .pipeline import PipelineResult
 from .pipeline import run as run_pipeline
 from .potential import Potential, derive_tcren, derive_tcren_loo
+from .refine import refine_peptide, substitute_peptide
 from .scoring import score_peptides, score_structures
 from .structure import Structure, import_structure, parse_structure
 
@@ -31,5 +32,7 @@ __all__ = [
     "score_structures",
     "run_pipeline",
     "PipelineResult",
+    "substitute_peptide",
+    "refine_peptide",
     "__version__",
 ]

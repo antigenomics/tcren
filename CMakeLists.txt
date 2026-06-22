@@ -17,4 +17,8 @@ find_package(pybind11 CONFIG REQUIRED)
 pybind11_add_module(_align src/_align/align.cpp)
 target_compile_options(_align PRIVATE -O3)
 
-install(TARGETS _align DESTINATION tcren)
+# Potential-guided rigid-body peptide refinement (statistical potential + clash MC). See src/_refine/refine.cpp.
+pybind11_add_module(_refine src/_refine/refine.cpp)
+target_compile_options(_refine PRIVATE -O3)
+
+install(TARGETS _align _refine DESTINATION tcren)

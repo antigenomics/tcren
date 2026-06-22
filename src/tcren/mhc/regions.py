@@ -116,7 +116,7 @@ def annotate_mhc_batch(structures: list[Structure], sensitivity: float = 5.7) ->
                 for i, c in flat:
                     fh.write(f">{i}|{c.chain_id}\n{c.sequence()}\n")
             out_tsv = tmp / "hits.tsv"
-            mmseqs.easy_search(query_fa, reference.reference_fasta(), out_tsv,
+            mmseqs.easy_search(query_fa, reference.reference_db(), out_tsv,
                                tmp / "mmseqs_tmp", search_type=1, sensitivity=sensitivity,
                                max_seqs=50)
             best = _best_hits(out_tsv)

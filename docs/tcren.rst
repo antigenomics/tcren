@@ -179,6 +179,19 @@ tcren.pipeline module
    :undoc-members:
    :show-inheritance:
 
+tcren.refine package
+~~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: tcren.refine
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. automodule:: tcren.refine.substitute
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Data paths
 ----------
 

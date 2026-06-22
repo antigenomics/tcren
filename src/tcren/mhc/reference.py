@@ -76,6 +76,34 @@ def reference_fasta(out_dir: Path = DATABASE_DIR) -> Path:
     return fasta
 
 
+def reference_db(cache_dir: Path = CACHE_DIR) -> Path:
+    """Path to a compiled, **pre-indexed** mmseqs DB of the allele reference (built once, cached).
+
+    `mmseqs easy-search` otherwise rebuilds the target DB *and* its k-mer prefilter index from the
+    ~28k-allele FASTA on every call. Caching `createdb` saves little; the dominant cost is the
+    prefilter index, so we also run `createindex` once. Reusing this DB cuts a single-structure MHC
+    search from ~4.5 s to ~0.9 s. Built into the gitignored ``data/mhc_cache`` when missing or older
+    than the FASTA.
+    """
+    import tempfile
+
+    import arda.mmseqs as mmseqs
+
+    fasta = reference_fasta()
+    db = cache_dir / "alleles_db"
+    db_marker = db.with_name(db.name + ".dbtype")        # createdb output
+    idx_marker = db.with_name(db.name + ".idx.dbtype")   # createindex output
+    fasta_mtime = fasta.stat().st_mtime
+    stale = (not db_marker.exists() or db_marker.stat().st_mtime < fasta_mtime
+             or not idx_marker.exists() or idx_marker.stat().st_mtime < fasta_mtime)
+    if stale:
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        mmseqs.createdb(fasta, db, dbtype=1)
+        with tempfile.TemporaryDirectory() as tmp:
+            mmseqs.run(["createindex", str(db), tmp, "--search-type", "1"])
+    return db
+
+
 def parse_header(header: str) -> dict[str, str]:
     """Parse a reference FASTA header back into its metadata fields."""
     return dict(zip(_META_FIELDS, header.split("|")))

@@ -65,8 +65,11 @@ Reference: `arda.annotate_sequences([(id, seq), ...])` — one call, threads int
   and peptide↔MHC, plus `total` (sum of the residue-pair potential over each interface's
   contacts). CLI `tcren pipeline -s … -o scores.csv` writes one row per structure.
 
-## Compiled extension — `tcren._align` (pybind11 / scikit-build-core)
+## Compiled extensions — `tcren._align`, `tcren._refine` (pybind11 / scikit-build-core)
 
+- TWO C++ exts, both in `CMakeLists.txt` (`pybind11_add_module` each, `install(TARGETS _align
+  _refine …)`): `src/_align/align.cpp` (MHC pseudoseq fitting alignment) and `src/_refine/refine.cpp`
+  (potential-guided peptide refinement). Adding a third = same pattern.
 - The MHC-pseudosequence fitting-alignment hot path is a C++ ext (`src/_align/align.cpp`,
   `CMakeLists.txt`). Build backend is `scikit-build-core` (not hatchling); `pip install -e .`
   builds it (editable.rebuild on import). Funcs: `fitting_score`, `best_hit` (GIL released over
@@ -77,6 +80,27 @@ Reference: `arda.annotate_sequences([(id, seq), ...])` — one call, threads int
   pyproject: the ext is built once at `pip install -e .` (do NOT rebuild on import — that needs
   cmake on PATH at import time and breaks pytest/CI). CI installs `--no-deps` + explicit runtime
   deps (so arda-backed tests skip) and `pip install cmake ninja` to build the ext.
+
+## Peptide substitution + refinement — `tcren.refine` (`tcren refine`)
+
+- `substitute_peptide(structure, new_peptide)` — backbone-preserving identity swap on the peptide
+  chain (keep N/Cα/C/O+Cβ, drop side-chain beyond Cβ); pure data-model, no atoms moved. `score_peptides`
+  is *virtual* (matrix lookup over the fixed contact map) — substitution is only needed to then refine.
+- `refine_peptide(structure, potential=mj(), restraint_w=1.0, …)` → `(structure, energy)`: knowledge-
+  based rigid-body **Metropolis MC** of the peptide via the `_refine` C++ kernel. Energy = Σ statistical
+  potential over peptide↔partner residue contacts (5 Å, dense matrix passed as `py::array_t`) + soft
+  heavy-atom clash + **harmonic restraint to the input pose** (without the restraint a rigid contact-
+  energy min trivially EJECTS the peptide — this was the key fix). Partners = all non-peptide chains
+  within a 12 Å shell. NOT physics MD; Rosetta FlexPepDock (subprocess) is the deferred physics path.
+- `tcren refine -s … -o … [--substitute PEP] [--steps N] [--restraint W]`. Native pose ≈ stays
+  (RMSD ~0); a buried/clashed peptide relaxes locally to relieve clash. Deterministic given `seed`.
+
+## MHC mapping speed — `mhc.reference.reference_db()`
+
+- `easy_search(query, reference_fasta())` rebuilt the 28k-allele target DB + k-mer index on EVERY
+  call (~4.5 s). `reference_db()` runs `createdb` + **`createindex`** once into gitignored
+  `data/mhc_cache` (the index is the real cost); `map_mhc` / `annotate_mhc_batch` pass that DB →
+  repeated single-structure searches drop to ~0.9 s (5×). Rebuilds if the FASTA is newer.
 
 ## Annotation CLI — one `annotate`, no separate `mhc`
 

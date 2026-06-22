@@ -64,6 +64,10 @@ tcren pipeline -s complex.pdb -o scores.csv
 # End-to-end candidate-epitope scoring from a structure
 tcren score -s complex.pdb -c candidates.txt -o ranked.csv
 
+# Substitute a peptide and refine its pose (knowledge-based MC: statistical potential + clash,
+# restrained to the input). Not physics relaxation — use Rosetta FlexPepDock for that.
+tcren refine -s complex.pdb -o refined/ --substitute KQWLVWLFL
+
 # Structures: any of .pdb / .cif / .pdb.gz / .cif.gz, a directory, or a .tar.gz batch
 tcren contacts -s batch.tar.gz -o contacts.csv --interface tcr_peptide
 
@@ -208,6 +212,13 @@ pytest -m "not slow"          # unit + fast regression (the CI gate)
 pytest                        # add the arda/mmseqs-backed regression tests
 RUN_BENCHMARK=1 pytest -k benchmark -s
 ```
+
+## Methods appendix
+
+The coordinate-level extensions — backbone-preserving peptide substitution and the potential-guided
+Monte-Carlo refinement kernel (energy function, the restraint-necessity argument, sampler, and
+citations) — are written up in the technical appendix [`appendix/tcren.tex`](appendix/tcren.tex)
+(built with `make -C appendix` → `appendix/tcren.pdf`).
 
 ## Citing
 

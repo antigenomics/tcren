@@ -77,7 +77,7 @@ def map_mhc(structure: Structure, sensitivity: float = 5.7) -> list[MhcCall]:
     candidates = _candidate_chains(structure)
     if not candidates:
         return []
-    ref_fasta = reference.reference_fasta()
+    ref_db = reference.reference_db()  # prebuilt mmseqs DB (createdb cached), not the FASTA
 
     calls: list[MhcCall] = []
     with tempfile.TemporaryDirectory() as tmp:
@@ -87,7 +87,7 @@ def map_mhc(structure: Structure, sensitivity: float = 5.7) -> list[MhcCall]:
             for chain in candidates:
                 fh.write(f">{chain.chain_id}\n{chain.sequence()}\n")
         out_tsv = tmp / "hits.tsv"
-        mmseqs.easy_search(query_fa, ref_fasta, out_tsv, tmp / "mmseqs_tmp",
+        mmseqs.easy_search(query_fa, ref_db, out_tsv, tmp / "mmseqs_tmp",
                            search_type=1, sensitivity=sensitivity, max_seqs=50)
         best = _best_hits(out_tsv)
 
