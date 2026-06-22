@@ -1,12 +1,18 @@
 """Peptide substitution + potential-guided refinement.
 
 :func:`substitute_peptide` threads a new sequence onto the peptide backbone; :func:`refine_peptide`
-runs a knowledge-based rigid-body Monte-Carlo refinement of the peptide pose (statistical potential
-+ soft clash) via the compiled ``tcren._refine`` kernel. This is a lightweight, in-character refine
-for a knowledge-based method — NOT physics relaxation (that is Rosetta, as a subprocess).
+runs a knowledge-based rigid-body Monte-Carlo refinement of the peptide pose via the compiled
+``tcren._refine`` kernel. The refinement energy is the **DOPE** atom-level distance-dependent
+statistical potential (Shen & Sali, *Protein Science* 2006), used here *independently* of the
+TCRen/MJ potentials tcren scores epitopes with — so the pose is not optimised against the same
+quantity it is later scored with. This is a lightweight, knowledge-based refine, NOT physics
+relaxation (that is Rosetta FlexPepDock, as a subprocess).
 """
 
 from __future__ import annotations
+
+from functools import lru_cache
+from importlib import resources
 
 import numpy as np
 
@@ -16,13 +22,15 @@ from .substitute import substitute_peptide
 __all__ = ["substitute_peptide", "refine_peptide"]
 
 
-def _padded_potential(potential):
-    """Dense potential matrix + aa→index map, padded with a neutral (zero) row/col for unknowns."""
-    matrix, index = potential.as_matrix()
-    n = matrix.shape[0]
-    padded = np.zeros((n + 1, n + 1), dtype=np.float64)
-    padded[:n, :n] = np.nan_to_num(np.asarray(matrix, dtype=np.float64), nan=0.0)
-    return padded, index, n  # n = index of the neutral "unknown" row/col
+@lru_cache(maxsize=1)
+def _dope():
+    """Load the bundled DOPE potential: ``(table (Nc,Nc,Nbins) float32, atom_class, x_start, dx)``."""
+    path = resources.files("tcren.data").joinpath("dope_potential.npz")
+    with resources.as_file(path) as p:
+        d = np.load(p)
+        table = np.ascontiguousarray(d["table"], dtype=np.float32)
+        atom_class = {str(k): int(v) for k, v in zip(d["keys"].tolist(), d["vals"].tolist())}
+        return table, atom_class, float(d["x_start"]), float(d["dx"]), int(d["nbins"])
 
 
 def _rebuild_peptide(structure: Structure, pep: Chain, coords: np.ndarray) -> Structure:
@@ -42,63 +50,61 @@ def _rebuild_peptide(structure: Structure, pep: Chain, coords: np.ndarray) -> St
                      cell_type=structure.cell_type)
 
 
-def refine_peptide(structure: Structure, potential=None, *, shell: float = 12.0,
-                   cutoff: float = 5.0, clash_d0: float = 3.0, clash_w: float = 1.0,
-                   restraint_w: float = 1.0, n_steps: int = 2000, trans_sigma: float = 0.2,
-                   rot_sigma: float = 0.05, temp0: float = 1.0, temp1: float = 0.05, seed: int = 0):
+def refine_peptide(structure: Structure, *, shell: float = 12.0, restraint_w: float = 0.5,
+                   n_steps: int = 2000, trans_sigma: float = 0.2, rot_sigma: float = 0.05,
+                   temp0: float = 1.0, temp1: float = 0.05, seed: int = 0):
     """Rigid-body refine the peptide pose against its TCR+MHC partners; ``(structure, energy)``.
 
-    Scores with ``potential`` (default the MJ general contact potential — appropriate for the
-    peptide's groove/TCR packing) over inter-chain residue contacts within ``cutoff`` Å, plus a soft
-    heavy-atom clash penalty and a **harmonic restraint to the input pose** (``restraint_w``) that
-    keeps the search local (without it a rigid contact-energy minimisation just ejects the peptide).
-    Only partner residues within ``shell`` Å of the peptide are considered. The structure must be
-    chain-typed (peptide = chain of ``chain_type == 'PEPTIDE'``). Returns a copy with the refined
-    peptide coordinates and the final energy. Requires the compiled ``_refine`` ext.
+    The energy is the DOPE atom-level distance-dependent statistical potential summed over all
+    peptide$\\leftrightarrow$partner heavy-atom pairs within DOPE's range (its short-range bins are
+    repulsive, so it provides its own clash term), plus a harmonic restraint to the input pose
+    (``restraint_w``) that keeps the search local. Only partner atoms within ``shell`` Å of the
+    peptide are considered. The structure must be chain-typed (peptide = chain of
+    ``chain_type == 'PEPTIDE'``). Requires the compiled ``_refine`` ext + the bundled DOPE table.
     """
     from .. import _refine  # built by scikit-build-core; refinement requires it (no Python fallback)
-    from ..potential import mj
 
-    pot = potential if potential is not None else mj()
-    padded, index, unk = _padded_potential(pot)
-    aa_idx = lambda aa: index.get(aa, unk)  # noqa: E731
+    table, atom_class, x_start, dx, nbins = _dope()
+    n_cls = table.shape[0]
+
+    def cls(resname: str, atom: str) -> int:
+        return atom_class.get(f"{resname}:{atom}", -1)
 
     pep = next((c for c in structure.chains if c.chain_type == PEPTIDE_TYPE), None)
     if pep is None:
         raise ValueError(f"no peptide chain in structure {structure.pdb_id!r}")
 
-    pep_xyz, pep_atom_res, pep_res_aa = [], [], []
-    for ri, res in enumerate(pep.residues):
-        pep_res_aa.append(aa_idx(res.aa))
+    # Peptide: ALL atoms (moved rigidly and written back); class -1 (e.g. H / non-standard) is
+    # skipped in the energy but still transformed so the chain stays intact.
+    pep_xyz, pep_class = [], []
+    for res in pep.residues:
         for a in res.atoms:
             pep_xyz.append(a.coord)
-            pep_atom_res.append(ri)
+            pep_class.append(cls(res.resname, a.name))
     pep_xyz = np.asarray(pep_xyz, dtype=np.float64)
     if not len(pep_xyz):
         raise ValueError("peptide chain has no atoms")
 
-    par_xyz, par_atom_res, par_res_aa = [], [], []
-    rj = 0
+    # Partner: only DOPE-typed atoms, within `shell` of the peptide.
+    par_xyz, par_class = [], []
     for chain in structure.chains:
-        if chain is pep:  # partners = every non-peptide chain (TCR + MHC + β2m); shell filters distant ones
+        if chain is pep:
             continue
         for res in chain.residues:
-            coords = np.array([a.coord for a in res.atoms], dtype=np.float64)
-            if not len(coords):
-                continue
-            if np.sqrt(((coords[:, None, :] - pep_xyz[None, :, :]) ** 2).sum(-1).min()) > shell:
-                continue
-            par_res_aa.append(aa_idx(res.aa))
             for a in res.atoms:
-                par_xyz.append(a.coord)
-                par_atom_res.append(rj)
-            rj += 1
+                c = cls(res.resname, a.name)
+                if c >= 0:
+                    par_xyz.append(a.coord)
+                    par_class.append(c)
     par_xyz = np.asarray(par_xyz, dtype=np.float64).reshape(-1, 3)
+    par_class = np.asarray(par_class, dtype=np.int32)
+    if len(par_xyz):
+        keep = np.sqrt(((par_xyz[:, None, :] - pep_xyz[None, :, :]) ** 2).sum(-1).min(1)) <= shell
+        par_xyz, par_class = par_xyz[keep], par_class[keep]
 
     best, energy, _n_accept = _refine.refine(
-        pep_xyz, np.asarray(pep_atom_res, np.int32), np.asarray(pep_res_aa, np.int32),
-        par_xyz, np.asarray(par_atom_res, np.int32), np.asarray(par_res_aa, np.int32),
-        padded, cutoff, clash_d0, clash_w, restraint_w, n_steps, trans_sigma, rot_sigma,
-        temp0, temp1, seed,
+        pep_xyz, np.asarray(pep_class, np.int32), par_xyz, par_class,
+        table.reshape(-1), n_cls, nbins, x_start, dx, restraint_w,
+        n_steps, trans_sigma, rot_sigma, temp0, temp1, seed,
     )
     return _rebuild_peptide(structure, pep, np.asarray(best)), float(energy)

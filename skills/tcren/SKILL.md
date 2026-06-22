@@ -86,14 +86,19 @@ Reference: `arda.annotate_sequences([(id, seq), ...])` — one call, threads int
 - `substitute_peptide(structure, new_peptide)` — backbone-preserving identity swap on the peptide
   chain (keep N/Cα/C/O+Cβ, drop side-chain beyond Cβ); pure data-model, no atoms moved. `score_peptides`
   is *virtual* (matrix lookup over the fixed contact map) — substitution is only needed to then refine.
-- `refine_peptide(structure, potential=mj(), restraint_w=1.0, …)` → `(structure, energy)`: knowledge-
-  based rigid-body **Metropolis MC** of the peptide via the `_refine` C++ kernel. Energy = Σ statistical
-  potential over peptide↔partner residue contacts (5 Å, dense matrix passed as `py::array_t`) + soft
-  heavy-atom clash + **harmonic restraint to the input pose** (without the restraint a rigid contact-
-  energy min trivially EJECTS the peptide — this was the key fix). Partners = all non-peptide chains
-  within a 12 Å shell. NOT physics MD; Rosetta FlexPepDock (subprocess) is the deferred physics path.
+- `refine_peptide(structure, restraint_w=0.5, …)` → `(structure, energy)`: knowledge-based rigid-body
+  **Metropolis MC** of the peptide via the `_refine` C++ kernel. Energy = **DOPE** atom-level
+  distance-dependent statistical potential (Shen & Sali 2006) over all peptide↔partner heavy-atom
+  pairs (chain-agnostic, atom-class × distance lookup with linear interp) + **harmonic restraint to
+  the input pose**. DOPE is used ONLY for refinement — deliberately decoupled from the TCRen/MJ
+  potentials tcren *scores* with (no circularity: don't refine and score against the same quantity).
+  DOPE's short-range bins are repulsive, so it supplies its own clash term (no separate clash). The
+  restraint keeps it local (without it the search can drift to another favourable pocket). Partners =
+  all non-peptide chains within a 12 Å shell. NOT physics MD; Rosetta FlexPepDock is the deferred path.
+- DOPE data: `src/tcren/data/dope_potential.npz` (158 atom classes × 29 bins 0.75–14.75 Å), built by
+  `scripts/build_dope.py` from the pymod/altmod MODELLER libraries; `tcren.refine._dope()` loads it.
 - `tcren refine -s … -o … [--substitute PEP] [--steps N] [--restraint W]`. Native pose ≈ stays
-  (RMSD ~0); a buried/clashed peptide relaxes locally to relieve clash. Deterministic given `seed`.
+  (RMSD ~0.2 Å); a buried/clashed peptide relaxes locally. Deterministic given `seed`.
 
 ## MHC mapping speed — `mhc.reference.reference_db()`
 

@@ -333,16 +333,17 @@ def refine(
     substitute: str = typer.Option(None, "--substitute", help="thread this peptide onto the backbone first"),
     organism: str = typer.Option("human", "--organism"),
     n_steps: int = typer.Option(2000, "--steps", help="Monte-Carlo steps"),
-    restraint_w: float = typer.Option(1.0, "--restraint", help="harmonic restraint to the input pose"),
+    restraint_w: float = typer.Option(0.5, "--restraint", help="harmonic restraint to the input pose"),
     seed: int = typer.Option(0, "--seed"),
     mmcif: bool = typer.Option(False, "--mmCIF", help="write mmCIF (.cif) instead of PDB"),
     compress: bool = typer.Option(False, "--compress", help="gzip the output (.gz)"),
 ) -> None:
     """Potential-guided rigid-body refinement of the peptide pose (knowledge-based, not physics).
 
-    Optionally ``--substitute`` a new equal-length peptide first, then run a statistical-potential +
-    soft-clash Monte-Carlo refinement (restrained to the input pose). Writes one structure per input
-    and prints the final energy. (For physics-grade relaxation use Rosetta FlexPepDock externally.)
+    Optionally ``--substitute`` a new equal-length peptide first, then run a Monte-Carlo refinement
+    scored by the DOPE atom-level statistical potential (restrained to the input pose; independent of
+    the TCRen/MJ scoring potentials). Writes one structure per input and prints the final DOPE
+    energy. (For physics-grade relaxation use Rosetta FlexPepDock externally.)
     """
     from .refine import refine_peptide, substitute_peptide
     from .structure.io import import_structure, structure_output_path, write_structure

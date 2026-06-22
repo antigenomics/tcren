@@ -54,13 +54,16 @@ candidate is scored \emph{virtually}---its amino acids are threaded onto the nat
 atom moved. This appendix documents two coordinate-level extensions that the virtual score does not
 need but downstream re-docking does: (i) a backbone-preserving \emph{peptide substitution} that
 produces the coordinates of a new equal-length epitope on the native scaffold, and (ii) a
-knowledge-based \emph{potential-guided refinement} of the peptide pose---a statistical contact
-potential plus a soft heavy-atom clash term and a harmonic restraint to the input pose, sampled by
-rigid-body Metropolis Monte Carlo~\cite{Metropolis1953,Kirkpatrick1983} and implemented as a
-\texttt{pybind11}/C++ kernel. We give the energy function, prove that the restraint is necessary
-(without it the rigid-body minimiser is unbounded and ejects the peptide), and state the sampler and
-its cost. The method is knowledge-based, in the spirit of contact potentials of mean
-force~\cite{Sippl1990,Miyazawa1996}; it is \emph{not} a physics force field. Physics-grade
+knowledge-based \emph{potential-guided refinement} of the peptide pose---the \textsc{dope} atom-level
+distance-dependent statistical potential~\cite{Shen2006} plus a harmonic restraint to the input pose,
+sampled by rigid-body Metropolis Monte Carlo~\cite{Metropolis1953,Kirkpatrick1983} and implemented as
+a \texttt{pybind11}/C++ kernel. The refinement potential is deliberately \emph{distinct} from the
+TCRen / Miyazawa--Jernigan potentials \texttt{tcren} \emph{scores} epitopes with: refining a pose
+against the same quantity one then reports would be circular, so the pose is optimised under an
+independent, more physical energy. We give the energy function, prove that the restraint is necessary
+(without it the rigid-body minimiser drifts the peptide out of its pocket), and state the sampler and
+its cost. The method is knowledge-based, in the spirit of distance-dependent potentials of mean
+force~\cite{Sippl1990,Miyazawa1996,Shen2006}; it is \emph{not} a physics force field. Physics-grade
 relaxation is delegated to Rosetta FlexPepDock~\cite{Raveh2010,London2011}.
 \end{abstract}
 
@@ -99,45 +102,42 @@ peptide's sequential indexing.
 
 \section{Potential-guided refinement}\label{sec:refine}
 Write $x\in\R^{3M}$ for the $M$ peptide heavy-atom coordinates (the only degrees of freedom) and
-$y\in\R^{3M'}$ for the fixed partner (TCR\,$+$\,MHC) heavy atoms; $a$ indexes peptide residues by
-amino acid, $b$ the partner residues. Let $\phi:\Aset\times\Aset\to\R$ be a residue-level contact
-potential, signed so that favourable contacts are negative (TCRen~\cite{Karnaukhov2024}, or the
-Miyazawa--Jernigan general contact energy~\cite{Miyazawa1996}). With a contact cutoff $r_c$ define
-the residue contact set
-\[
-  \Cset(x) \;=\; \Bigl\{(i,j) : \min_{p\in i,\,q\in j}\lVert x_p - y_q\rVert \le r_c \Bigr\}.
-\]
+$y\in\R^{3M'}$ for the fixed partner (TCR\,$+$\,MHC) heavy atoms. Each heavy atom carries a
+\textsc{dope} atom class $c(\cdot)\in\{1,\dots,158\}$---a MODELLER mean-force atom type, i.e.\ a
+(residue, atom-name) label---and let $\varphi_{c,c'}:\R_{\ge0}\to\R$ be the \textsc{dope}
+distance-dependent potential of mean force for the class pair $(c,c')$~\cite{Shen2006}, tabulated on
+$29$ knots at $0.75$--$14.75\,\text{\AA}$ ($0.5\,\text{\AA}$ spacing), linearly interpolated, and set
+to $0$ beyond $d_{\max}=14.75\,\text{\AA}$. Crucially $\varphi$ is \emph{not} TCRen or
+Miyazawa--Jernigan---those score the final epitope (\S\ref{sec:scope}), so reusing them to refine
+would optimise the pose against the very quantity reported. \textsc{dope} is a single, chain-agnostic,
+atom-resolved potential applied uniformly to every peptide$\leftrightarrow$partner pair.
 \begin{definition}[Refinement energy]\label{def:energy}
 \[
   E(x) \;=\;
-  \underbrace{\sum_{(i,j)\in\Cset(x)} \phi(a_i,b_j)}_{\text{statistical potential}}
+  \underbrace{\sum_{p=1}^{M}\sum_{q=1}^{M'} \varphi_{c(p),\,c(q)}\!\bigl(\lVert x_p - y_q\rVert\bigr)}_{\text{\textsc{dope}}}
   \;+\;
-  w_{\mathrm c}\!\!\sum_{\substack{p,q\,:\,\lVert x_p-y_q\rVert < d_0}}\!\!
-      \bigl(d_0-\lVert x_p-y_q\rVert\bigr)^2
-  \;+\;
-  w_{\mathrm r}\sum_{p=1}^{M}\lVert x_p-\xref_p\rVert^2 ,
+  w_{\mathrm r}\sum_{p=1}^{M}\lVert x_p-\xref_p\rVert^2 .
 \]
-where the second term is a soft quadratic penalty on heavy-atom pairs closer than $d_0$ (a
-``soft-core'' clash, default $d_0=3\,\text{\AA}$) and the third is a harmonic restraint to the input
-pose $\xref$. Defaults: $r_c=5\,\text{\AA}$ (the TCRen contact definition), $w_{\mathrm c}=w_{\mathrm
-r}=1$.
+\textsc{dope}'s short-range knots are strongly repulsive (capped near $+10$), so the potential
+supplies its own excluded-volume term: there is no separate clash penalty. The second term is a
+harmonic restraint to the input pose $\xref$ (default $w_{\mathrm r}=\tfrac12$).
 \end{definition}
 
-\paragraph{Why the restraint is necessary} The statistical-potential term alone cannot be minimised
-by moving a \emph{rigid} peptide.
+\paragraph{Boundedness and the role of the restraint} Unlike a residue contact-count energy---whose
+trivial rigid-body minimum can be ``no contacts'' (the peptide ejected)---the \textsc{dope} term is
+bounded below and tends to $0$ as the peptide is translated away, so a finite rigid-body minimiser
+always exists.
 \begin{proposition}\label{prop:restraint}
-Restrict $x$ to the rigid-body family $x=R\xref+t$, $R\in SO(3)$, $t\in\R^3$. The map
-$(R,t)\mapsto \sum_{(i,j)\in\Cset}\phi(a_i,b_j)$ takes finitely many values and is constant on the
-open set of $t$ with $\lVert t\rVert$ large enough that $\Cset=\varnothing$, where it equals $0$.
-Hence if the native contact energy $\sum_{(i,j)\in\Cset(\xref)}\phi>0$, every minimiser of the
-potential term alone has $\Cset=\varnothing$: the peptide is ejected from the pocket. The clash term
-bounds penetration but not ejection. Adding $w_{\mathrm r}\sum_p\lVert x_p-\xref_p\rVert^2$ makes $E$
-coercive ($E\to\infty$ as $\lVert x\rVert\to\infty$), so a finite minimiser near $\xref$ exists, and
-$w_{\mathrm r}$ controls its distance from $\xref$.
+Restrict $x$ to the rigid-body family $x=R\xref+t$, $R\in SO(3)$, $t\in\R^3$, and let $E_{\mathrm
+D}(x)=\sum_{p,q}\varphi_{c(p),c(q)}(\lVert x_p-y_q\rVert)$. Then $E_{\mathrm D}$ is bounded
+($|E_{\mathrm D}|\le M M'\max|\varphi|$) and $E_{\mathrm D}\to 0$ as $\lVert t\rVert\to\infty$. Its
+rigid-body minimiser is the globally best-packed pose, which need not coincide with the input
+$\xref$: the peptide may slide within the groove. Adding $w_{\mathrm r}\sum_p\lVert
+x_p-\xref_p\rVert^2$ makes $E$ coercive and confines the minimiser to a neighbourhood of $\xref$
+whose radius decreases with $w_{\mathrm r}$, yielding a \emph{local} refinement---a native pose
+(already near a \textsc{dope} optimum) barely moves, while a clashed or displaced input relaxes
+locally.
 \end{proposition}
-\noindent Statistical potentials are not physical energies---a contact may be net unfavourable---so
-``more burial'' need not lower $E$; the restraint converts a global, unbounded search into the
-intended \emph{local} refinement.
 
 \paragraph{Sampling} $E$ is minimised by simulated-annealing Metropolis Monte
 Carlo~\cite{Metropolis1953,Kirkpatrick1983}. At step $t$ a trial pose is proposed by a rigid move of
@@ -147,25 +147,29 @@ accepted with probability $\min\!\bigl(1,\exp(-\Delta E/T_t)\bigr)$, with the te
 linearly $T_t:T_0\!\downarrow\!T_1$; the lowest-energy pose visited is returned. The chain is
 deterministic given its pseudo-random seed.
 
-\paragraph{Implementation and cost} Each energy evaluation is $O(MM')$; partner atoms are
-pre-filtered to those within a $12\,\text{\AA}$ shell of the peptide, so $M'$ is the interface, not
-the whole complex, and several thousand steps complete in well under a second. The kernel is C++
-(\texttt{pybind11}); the dense potential matrix is passed by buffer and indexed in $O(1)$. A native
-pose is a fixed point of the move set up to thermal noise (it barely moves); a clashed or perturbed
-input relaxes locally, trading clash for restraint.
+\paragraph{Implementation and cost} Each energy evaluation is $O(MM')$ over heavy-atom pairs;
+partner atoms are pre-filtered to those within a $12\,\text{\AA}$ shell of the peptide, so $M'$ is
+the interface, not the whole complex, and several thousand steps complete in well under a second.
+The kernel is C++ (\texttt{pybind11}); the symmetric $158\times158\times29$ \textsc{dope} table is
+passed by buffer, an atom's class is its (residue, atom) label, and $\varphi$ is a single buffer
+lookup plus a linear interpolation. The bundled table is parsed once from the MODELLER mean-force
+libraries (\texttt{atmcls-mf.lib}, \texttt{dist-mf.lib}) as redistributed by the \texttt{pymod/altmod}
+project.\footnote{\url{https://github.com/pymodproject/altmod} (\textsc{dope} libraries from MODELLER;
+\cite{Shen2006}).} A native pose is a fixed point of the move set up to thermal noise (it barely
+moves); a clashed or displaced input relaxes locally.
 
 \section{Assumptions and limitations}\label{sec:limits}
 The peptide is treated as a \emph{rigid} body: there is no backbone flexibility and no side-chain
 repacking, so substitution leaves heavy atoms beyond $\mathrm C_\beta$ unmodelled and the refiner
 cannot resolve rotameric clashes (a backbone-dependent rotamer pass~\cite{Shapovalov2011} is the
-natural next step). A single potential $\phi$ is used across all peptide--partner contacts, whereas
-the TCR-facing and groove-facing faces have different statistics; the clash term is a heuristic
-soft-core, not a Lennard--Jones repulsion. The restraint weight $w_{\mathrm r}$ is a tunable that
-sets the locality radius. For physically realistic, full-atom relaxation---side-chain optimisation
-and backbone minimisation under an all-atom force field---\texttt{tcren} defers to Rosetta
-FlexPepDock~\cite{Raveh2010,London2011} with the ref2015 energy function~\cite{Alford2017}, invoked
-as an external process; the C++ kernel here is a fast knowledge-based pre-refinement, not a
-substitute for it.
+natural next step; until then a substituted side chain contributes no \textsc{dope} terms beyond
+$\mathrm C_\beta$). \textsc{dope} is an isotropic, distance-only potential---an orientation-dependent
+potential would resolve packing better at the cost of per-atom frames---and the restraint weight
+$w_{\mathrm r}$ is a tunable that sets the locality radius. For physically realistic, full-atom
+relaxation---side-chain optimisation and backbone minimisation under an all-atom force
+field---\texttt{tcren} defers to Rosetta FlexPepDock~\cite{Raveh2010,London2011} with the ref2015
+energy function~\cite{Alford2017}, invoked as an external process; the C++ kernel here is a fast
+knowledge-based pre-refinement, not a substitute for it.
 
 \bibliographystyle{plain}
 \bibliography{refs}

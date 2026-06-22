@@ -1,4 +1,4 @@
-"""Potential-guided refinement: the C++ kernel (pure) + the refine_peptide wrapper (arda-gated)."""
+"""Potential-guided DOPE refinement: the C++ kernel (pure) + the refine_peptide wrapper (arda-gated)."""
 
 from __future__ import annotations
 
@@ -12,43 +12,55 @@ _refine = pytest.importorskip("tcren._refine")
 _I = lambda *v: np.asarray(v, dtype=np.int32)  # noqa: E731
 
 
-def test_kernel_relieves_clash_and_moves_away():
-    # one peptide atom 1 Å from one partner atom → clash (d0=3); zero potential isolates clash+restraint.
-    pep = np.array([[0.0, 0.0, 0.0]]); par = np.array([[1.0, 0.0, 0.0]])
-    best, e, n_acc = _refine.refine(
-        pep, _I(0), _I(0), par, _I(0), _I(0), np.zeros((1, 1)),
-        cutoff=5.0, clash_d0=3.0, clash_w=10.0, restraint_w=0.1,
-        n_steps=2000, trans_sigma=0.3, seed=1,
-    )
-    assert e < 10 * (3 - 1) ** 2          # below the start clash energy (40)
-    assert np.linalg.norm(best[0] - par[0]) > 1.0   # moved away from the clashing partner
+def _table(n_cls, pairs, nbins):
+    """Symmetric (n_cls, n_cls, nbins) DOPE-style table from {(i,j): [knots]}."""
+    t = np.zeros((n_cls, n_cls, nbins), dtype=np.float32)
+    for (i, j), v in pairs.items():
+        t[i, j] = v
+        t[j, i] = v
+    return t
+
+
+# A 1-class toy potential: knots at d = 1, 2, 3 Å (x_start=1, dx=1): repulsive, favourable, zero.
+_TOY = _table(1, {(0, 0): [10.0, -2.0, 0.0]}, 3).reshape(-1)
+
+
+def test_kernel_interpolates_potential():
+    # atoms 2.5 Å apart → linear interp between -2 (@2 Å) and 0 (@3 Å) = -1.
+    e = _refine.refine(np.array([[0.0, 0, 0]]), _I(0), np.array([[2.5, 0, 0]]), _I(0),
+                       _TOY, 1, 3, 1.0, 1.0, restraint_w=0.0, n_steps=0, seed=0)[1]
+    assert e == pytest.approx(-1.0)
+
+
+def test_kernel_relieves_repulsion_and_moves():
+    # 1 Å apart → +10 (repulsive); MC moves the peptide away to a lower-energy pose.
+    best, e, n_acc = _refine.refine(np.array([[0.0, 0, 0]]), _I(0), np.array([[1.0, 0, 0]]), _I(0),
+                                    _TOY, 1, 3, 1.0, 1.0, restraint_w=0.1, n_steps=2000,
+                                    trans_sigma=0.3, seed=1)
+    assert e < 10.0
+    assert np.linalg.norm(best[0] - np.array([1.0, 0, 0])) > 1.0
     assert n_acc > 0
 
 
-def test_kernel_native_pose_barely_moves():
-    # partner far away (no clash, no contact); restraint keeps the peptide at the start.
-    pep = np.array([[0.0, 0.0, 0.0]]); par = np.array([[50.0, 0.0, 0.0]])
-    best, e, _ = _refine.refine(
-        pep, _I(0), _I(0), par, _I(0), _I(0), np.zeros((1, 1)),
-        clash_w=10.0, restraint_w=1.0, n_steps=2000, trans_sigma=0.2, seed=1,
-    )
-    assert np.linalg.norm(best[0]) < 0.5  # stayed home
+def test_kernel_native_barely_moves():
+    # partner beyond d_max (=3 Å) → no interaction; restraint holds the peptide home.
+    best, e, _ = _refine.refine(np.array([[0.0, 0, 0]]), _I(0), np.array([[50.0, 0, 0]]), _I(0),
+                                _TOY, 1, 3, 1.0, 1.0, restraint_w=1.0, n_steps=2000, seed=1)
+    assert np.linalg.norm(best[0]) < 0.5
     assert e == pytest.approx(0.0, abs=1e-9)
 
 
-def test_kernel_sums_potential_over_contacts():
-    # peptide & partner 4 Å apart (in contact, no clash); a favourable (-2) potential lowers energy.
-    pep = np.array([[0.0, 0.0, 0.0]]); par = np.array([[4.0, 0.0, 0.0]])
-    e = _refine.refine(pep, _I(0), _I(0), par, _I(0), _I(0), np.array([[-2.0]]),
-                       cutoff=5.0, n_steps=0, restraint_w=1.0, seed=0)[1]
-    assert e == pytest.approx(-2.0)       # one contact, potential[-2], no clash/restraint at start
+def test_kernel_skips_unmapped_class():
+    # an unmapped (class -1) atom contributes no energy.
+    e = _refine.refine(np.array([[0.0, 0, 0]]), _I(-1), np.array([[2.0, 0, 0]]), _I(0),
+                       _TOY, 1, 3, 1.0, 1.0, restraint_w=0.0, n_steps=0, seed=0)[1]
+    assert e == pytest.approx(0.0)
 
 
 def test_kernel_is_deterministic():
-    pep = np.array([[0.0, 0.0, 0.0]]); par = np.array([[1.0, 0.0, 0.0]])
-    args = (pep, _I(0), _I(0), par, _I(0), _I(0), np.zeros((1, 1)))
-    a = _refine.refine(*args, clash_w=10.0, n_steps=1000, seed=7)
-    b = _refine.refine(*args, clash_w=10.0, n_steps=1000, seed=7)
+    args = (np.array([[0.0, 0, 0]]), _I(0), np.array([[1.0, 0, 0]]), _I(0), _TOY, 1, 3, 1.0, 1.0)
+    a = _refine.refine(*args, n_steps=1000, seed=7)
+    b = _refine.refine(*args, n_steps=1000, seed=7)
     assert a[1] == b[1] and np.allclose(a[0], b[0])
 
 
@@ -69,7 +81,7 @@ def test_refine_peptide_native_barely_moves():
     ca = lambda st: np.array([r.ca for c in st.chains if c.chain_type == PEPTIDE_TYPE  # noqa: E731
                               for r in c.residues if r.ca is not None])
     before = ca(s)
-    out, energy = refine_peptide(s, restraint_w=1.0, n_steps=2000, seed=1)
+    out, energy = refine_peptide(s, restraint_w=0.5, n_steps=2000, seed=1)
     rmsd = float(np.sqrt(((ca(out) - before) ** 2).sum(1).mean()))
-    assert rmsd < 1.0                     # a native pose is already a local optimum
-    assert isinstance(energy, float)
+    assert rmsd < 1.0          # the native pose is a DOPE optimum
+    assert energy < 0.0        # favourable DOPE energy

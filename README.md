@@ -64,8 +64,9 @@ tcren pipeline -s complex.pdb -o scores.csv
 # End-to-end candidate-epitope scoring from a structure
 tcren score -s complex.pdb -c candidates.txt -o ranked.csv
 
-# Substitute a peptide and refine its pose (knowledge-based MC: statistical potential + clash,
-# restrained to the input). Not physics relaxation — use Rosetta FlexPepDock for that.
+# Substitute a peptide and refine its pose (knowledge-based MC scored by the DOPE atom-level
+# statistical potential — independent of the TCRen/MJ scoring potentials, restrained to the input).
+# Not physics relaxation — use Rosetta FlexPepDock for that.
 tcren refine -s complex.pdb -o refined/ --substitute KQWLVWLFL
 
 # Structures: any of .pdb / .cif / .pdb.gz / .cif.gz, a directory, or a .tar.gz batch
