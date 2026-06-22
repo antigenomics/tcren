@@ -93,7 +93,7 @@ jobs:
           # Full install: resolves biopython/scipy/polars/... and arda-mapper from PyPI.
           subprocess.check_call([sys.executable, "-m", "pip", "install", matches[0]])
           PY
-          python -c "import tcren, tcren._align; print('[OK] tcren', tcren.__version__, '/ _align', tcren._align.__version__)"
+          python -c "import tcren, tcren._align, tcren._refine; print('[OK] tcren', tcren.__version__, '/ _align', tcren._align.__version__, '/ _refine', tcren._refine.__version__)"
 
   publish:
     name: Publish To PyPI
