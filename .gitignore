@@ -316,3 +316,6 @@ notebooks/data/PolyV2022/
 notebooks/data/Bobisse/
 notebooks/data/Bigot/
 data/pdb_recent/
+
+# Re-derivation sweep working dir (cached contacts/markup, candidate potentials, metrics).
+scratch/

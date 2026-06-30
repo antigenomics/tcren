@@ -207,21 +207,52 @@ def superimpose(
 
 @app.command("derive-potential")
 def derive_potential(
-    contact_maps: Path = typer.Option(..., "-i", "--contact-maps", help="contact-map CSV"),
+    contact_maps: Path | None = typer.Option(None, "-i", "--contact-maps", help="contact-map CSV"),
     out: Path = typer.Option("TCRen_potential.csv", "-o", "--out"),
     summary: Path | None = typer.Option(None, "--summary", help="summary CSV with a nonred flag"),
     nonred: bool = typer.Option(False, "--nonred", help="restrict to non-redundant structures"),
+    structure_dir: Path | None = typer.Option(
+        None, "--structure-dir",
+        help="folder of PDBs to assemble contacts from (PDBs→contacts) when no -i CSV is given",
+    ),
+    redundancy_t: float | None = typer.Option(
+        None, "--redundancy-t",
+        help="non-redundancy clustering cutoff over αβ structures (off by default; "
+             "requires markup, available with --structure-dir)",
+    ),
     variant: str = typer.Option("classic", "--variant", help="classic|am"),
     pseudocount: int = typer.Option(1, "--pseudocount"),
     loo: bool = typer.Option(False, "--loo", help="emit leave-one-out potentials instead"),
 ) -> None:
-    """Derive a TCRen potential from observed contacts."""
-    contacts = pl.read_csv(contact_maps)
+    """Derive a TCRen potential from observed contacts.
+
+    Provide contacts either as a precomputed ``-i`` CSV or as a ``--structure-dir`` of
+    PDBs (assembled via ``annotate_structure_set``); pass exactly one. With a structure
+    directory, ``--redundancy-t`` additionally restricts derivation to one representative
+    per non-redundant cluster of αβ complexes (PDBs→contacts→cluster→derive in one call).
+    """
+    if (contact_maps is None) == (structure_dir is None):
+        raise typer.BadParameter("pass exactly one of -i/--contact-maps or --structure-dir")
+
+    markup = None
+    if structure_dir is not None:
+        from .paper import annotate_structure_set
+        contacts, markup = annotate_structure_set(structure_dir)
+    else:
+        contacts = pl.read_csv(contact_maps)
+
     include = None
     if nonred:
         if summary is None:
             raise typer.BadParameter("--nonred requires --summary")
         include = pl.read_csv(summary).filter(pl.col("nonred"))["pdb.id"].to_list()
+    if redundancy_t is not None:
+        from .potential import alphabeta_ids, nonredundant_ids
+        if markup is None:
+            raise typer.BadParameter("--redundancy-t requires markup (use --structure-dir)")
+        ab = alphabeta_ids(contacts)
+        include = nonredundant_ids(markup.filter(pl.col("pdb.id").is_in(ab)), t=redundancy_t)
+
     if loo:
         ids = include or contacts["pdb.id"].unique().to_list()
         derive_tcren_loo(contacts, ids, variant=variant, pseudocount=pseudocount).write_csv(str(out))
