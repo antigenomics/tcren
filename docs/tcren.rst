@@ -179,6 +179,14 @@ tcren.pipeline module
    :undoc-members:
    :show-inheritance:
 
+tcren.oracle module
+~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: tcren.oracle
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 tcren.refine package
 ~~~~~~~~~~~~~~~~~~~~~~
 
