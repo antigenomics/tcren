@@ -19,6 +19,15 @@ from .structure.model import MHC_TYPES, PEPTIDE_TYPE, RECEPTOR_TYPES, Structure
 
 Interface = Literal["tcr_peptide", "tcr_mhc", "peptide_mhc"]
 
+#: TCR region sets selectable on the ``from`` (TCR) side of an interface. ``"all"`` (no
+#: filter) is the default and reproduces the legacy behaviour byte-for-byte; ``"cdr"`` keeps
+#: only the three CDRs; ``"cdr+fr"`` adds the FR1–FR3 framework regions (FR4 excluded).
+TCR_REGIONS: dict[str, set[str] | None] = {
+    "cdr": {"CDR1", "CDR2", "CDR3"},
+    "cdr+fr": {"CDR1", "CDR2", "CDR3", "FR1", "FR2", "FR3"},
+    "all": None,
+}
+
 
 @dataclass(slots=True)
 class ContactMap:
@@ -51,22 +60,34 @@ class ContactMap:
             (pl.col("residue.index.to") - pl.col("region.start.to")).alias("pos.to"),
         )
 
-    def interface(self, which: Interface) -> pl.DataFrame:
+    def interface(self, which: Interface, tcr_regions: str = "all") -> pl.DataFrame:
         """Return the contacts of one interface with within-region positions.
 
         Args:
             which: ``"tcr_peptide"``, ``"tcr_mhc"`` or ``"peptide_mhc"``.
+            tcr_regions: which TCR regions to keep on the ``from`` (TCR) side —
+                ``"all"`` (default, no filter; legacy behaviour), ``"cdr"`` (CDR1–CDR3
+                only), or ``"cdr+fr"`` (CDR1–CDR3 plus FR1–FR3). Has no effect on
+                ``"peptide_mhc"`` (no TCR side).
 
         Returns:
             Filtered contacts with added ``pos.from``/``pos.to`` columns.
         """
+        if tcr_regions not in TCR_REGIONS:
+            raise ValueError(f"unknown tcr_regions {tcr_regions!r}")
         if which == "tcr_peptide":
-            return self._interface(RECEPTOR_TYPES, (PEPTIDE_TYPE,))
-        if which == "tcr_mhc":
-            return self._interface(RECEPTOR_TYPES, MHC_TYPES)
-        if which == "peptide_mhc":
+            sel = self._interface(RECEPTOR_TYPES, (PEPTIDE_TYPE,))
+        elif which == "tcr_mhc":
+            sel = self._interface(RECEPTOR_TYPES, MHC_TYPES)
+        elif which == "peptide_mhc":
             return self._interface((PEPTIDE_TYPE,), MHC_TYPES)
-        raise ValueError(f"unknown interface {which!r}")
+        else:
+            raise ValueError(f"unknown interface {which!r}")
+
+        keep = TCR_REGIONS[tcr_regions]
+        if keep is not None:  # TCR is on the 'from' side for these interfaces
+            sel = sel.filter(pl.col("region.type.from").is_in(list(keep)))
+        return sel
 
     def tcr_peptide(self) -> pl.DataFrame:
         """Convenience accessor for the TCR↔peptide interface."""
