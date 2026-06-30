@@ -87,6 +87,112 @@ expanded native data the cognate-ranking gain comes at the cost of physical-cons
 and the published legacy potential remains the only choice that satisfies the manuscript's
 own acceptance bar.
 
+## Sweep2 — two new levers: atom-atom scoring and inverse-cluster weighting
+
+The redundancy-cutoff sweep above leaves a clean tradeoff but no winner. Sweep2 tests two
+additional levers against the *same* two bars, asking whether either recovers the n=199
+ergodicity R² **while** holding cognate AUC at or above legacy:
+
+- **Atom-atom (atomic) scoring** — weight each TCR–peptide residue-pair term by
+  `n_atom_contacts` (count of heavy-atom pairs within cutoff) instead of 1. This is the
+  primary lever: it gives the residue-level potential a per-contact magnitude that *should*,
+  in principle, sharpen the physical-energy refit.
+- **Inverse-cluster (Henikoff) weighting** — keep all 369 Native2026 αβ structures in the
+  derivation but down-weight each by `1 / cluster_size` (`redundancy.cluster_weights`,
+  sharing the TCRdist clustering with the hard cutoffs). This is a soft alternative to the
+  hard nonredundant cutoff: redundancy is attenuated, not discarded.
+
+### Method
+
+A fast matrix-lookup scorer (`score = Σ over TCR–peptide contacts of M[tcr_aa, pep_aa] ×
+weight`; `weight = 1` residue, `weight = n_atom_contacts` atomic; Cys-from skipped) was
+validated **byte-exact** against `bench_harness._tcr_peptide_energy` in both modes for
+`legacy-control` and `2026-off`, then used to refit `sum_lj_coul ~ tcren + mj_hla_peptide +
+mj_cdr_hla` (HC3-OLS) over the cached per-structure contact arrays. The two MJ predictors
+(`mj_hla_peptide`, `mj_cdr_hla`) are fixed oracle physical values held constant across every
+refit exactly as the harness does — they are not the TCR–peptide interface and are never
+re-derived or re-weighted per potential. n=185 here (199 oracle structures − 13 FoldX/MD
+decoys absent from the cache − 1 with no TRA/TRB; the harness reaches n=187 via 2 PDBs that
+re-parse but are absent from the atomic cache — the 2-structure gap does not change any
+verdict). Builders: `scratch/build_matrix.py`, `scratch/loo_atomic.py`,
+`scratch/cognate_extra.py`; full matrix in `scratch/cache/benchmark_matrix_full.json`.
+
+### Atomic-vs-residue scoring (n199 R², n=185)
+
+n199 R² is the HC3-OLS refit R²; Δ = atomic − residue. Residue floor (legacy refit, n=185)
+= **0.5767**. cognate AUC is the LOO cognate-rank AUC in each scoring mode.
+
+| potential | residue n199 R² | atomic n199 R² | Δ (atomic − residue) | residue cognate AUC | atomic cognate AUC |
+|---|---|---|---|---|---|
+| legacy-control | **0.5767** | 0.4293 | −0.1474 | 0.6894 | 0.6893 |
+| 2026-t6-current | 0.5163 | 0.4146 | −0.1017 | 0.7186 | — |
+| 2026-t3 | 0.4475 | 0.3897 | −0.0578 | 0.7463 | — |
+| 2026-off | 0.4426 | 0.4134 | −0.0292 | **0.8025** | 0.7796 |
+| 2026-weighted | 0.5045 | 0.4096 | −0.0949 | 0.7785 | — |
+| 2026-weighted-t3 | 0.4443 | 0.3897 | −0.0547 | 0.7876 | — |
+
+**Atomic scoring does not recover ergodicity.** The Δ column is negative for every one of the
+six potentials: atom-atom weighting *lowers* n199 R² in every case, never reaching the 0.574
+floor. The best atomic n199 R² is `legacy-control` at **0.4293** — far below the floor and
+below even the worst residue value. Atomic scoring also slightly *hurts* cognate AUC
+(`2026-off` 0.8025 residue → 0.7796 atomic) and is neutral for legacy cognate (0.6894 →
+0.6893). It buys nothing on either axis. n199 signs are consistent everywhere (TCRen +/sig,
+MJ(HLA–pep) −/sig, MJ(CDR–HLA) n.s.).
+
+### Inverse-cluster weighting (residue mode, n=185)
+
+Two new potentials were derived with `derive_tcren(Native2026 369 αβ, weights=cluster_weights(t))`:
+
+| potential | weight-sum | n199 R² (residue) | cognate AUC (residue) |
+|---|---|---|---|
+| 2026-weighted (t=6) | 219 | **0.5045** | 0.7785 |
+| 2026-weighted-t3 (t=3) | 250 | 0.4443 | 0.7876 |
+| 2026-t6-current (hard t=6 cutoff) | 219 | 0.5163 | 0.7186 |
+| 2026-off (no filter) | 369 | 0.4426 | **0.8025** |
+
+Soft weighting beats the hard t=6 cutoff on **cognate** (0.7785 vs 0.7186 at the same
+effective sample weight) and beats `2026-off` on **n199** (0.5045 vs 0.4426). `2026-weighted`
+is the best Pareto compromise in the 2026 family — best 2026 n199 R² **and** a strong cognate
+AUC. **But it still fails bar A** (0.5045 < 0.574) and is dominated on each individual axis
+(legacy 0.5767 on n199; 2026-off 0.8025 on cognate). The tradeoff stands.
+
+**Note on t=3.** Both the hard `2026-t3` (0.4475 / 0.7463) and the weighted `2026-weighted-t3`
+(0.4443 / 0.7876) sit below the t=6 variants on n199 and below `2026-off` on cognate. Looser
+clustering (t=3) keeps more near-duplicates, which lifts cognate slightly toward `2026-off`
+but does not help — and modestly hurts — the n199 physical refit. t=3 is not a path to either
+bar.
+
+### Leave-one-out n199 R² (held-out derivation)
+
+LOO re-derives TCRen excluding each n199 structure, scores it, then refits — the honest
+out-of-sample analogue of the floor. All values shrink heavily (the in-sample refit is
+overfit), and the ordering is preserved:
+
+| potential | LOO n199 R² (residue) | LOO n199 R² (atomic) |
+|---|---|---|
+| legacy-control | 0.4281 | 0.3848 |
+| 2026-t6-current | 0.4203 | 0.3784 |
+| 2026-off | 0.4123 | 0.4006 |
+| 2026-weighted | **0.4376** | 0.3884 |
+
+`2026-weighted` has the **best LOO residue R² of all candidates** (0.4376 > legacy 0.4281),
+consistent with soft weighting being the best-generalizing 2026 derivation. Atomic LOO is
+below residue LOO for every potential (the one apparent exception, `2026-off` atomic 0.4006,
+is still below its own residue 0.4123) — confirming atomic generalizes no better than it fits.
+
+### Sweep2 verdict — atom-atom scoring is not the recommended path; no candidate clears both bars
+
+**Atom-atom scoring does NOT recover n=199 ergodicity** (it lowers n199 R² uniformly; best
+atomic 0.4293 ≪ 0.574 floor) and is therefore **not recommended**. **Inverse-cluster
+weighting** is the better lever — `2026-weighted` is the strongest 2026 Pareto point (n199 R²
+0.5045, cognate 0.7785, best LOO 0.4376) — but it does not reach the n199 floor either.
+
+The only (potential, scoring_mode) combo that clears **both** bars remains
+`legacy-control / residue` (n199 R² 0.5767, cognate AUC 0.6894) — the legacy regime itself.
+**No promotable new potential exists.** Each lever moves only one axis: redundancy-off and
+soft weighting raise cognate; only the legacy Native2022 / t=6 / residue regime reaches the
+ergodicity floor.
+
 ## Candidate table shipped
 
 `src/tcren/data/TCRen_potential_rederived.csv` holds the **2026-off** potential — the
@@ -94,7 +200,10 @@ strongest re-derivation on the new native data by cognate rank (AUC 0.8025). It 
 as a **new candidate file alongside, not replacing, the bundled default**
 (`TCRen_potential.csv`, md5 88c42cd5…, unchanged). The candidate (md5 5529a771…) is provided
 for the cognate-rank use case; **it does not meet the n199 acceptance floor and is not a
-drop-in replacement for the default potential.**
+drop-in replacement for the default potential.** It must be scored in **residue mode**
+(atomic scoring lowers both its cognate AUC, 0.8025 → 0.7796, and its n199 R², 0.4426 →
+0.4134). Sweep2 did not change this: no atomic-scored or inverse-cluster-weighted candidate
+clears both bars, so the shipped candidate is unchanged.
 
 ## Baselines for comparison
 
