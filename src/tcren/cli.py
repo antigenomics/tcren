@@ -20,7 +20,7 @@ import typer
 from . import __version__
 from .annotation import classify_chains
 from .contactmap import ContactMap
-from .potential import Potential, derive_tcren, derive_tcren_loo, tcren
+from .potential import Potential, derive_tcren, derive_tcren_loo, keskin, mj, tcren
 from .scoring import score_peptides
 from .structure import iter_structures, parse_structure
 
@@ -45,13 +45,22 @@ def paper_bootstrap(
     for k, v in summary.items():
         typer.echo(f"{k}: {v}")
 
+_BUNDLED_POTENTIALS = {"tcren": tcren, "mj": mj, "keskin": keskin}
+
+
 def _load_potential(spec: str | None) -> Potential:
+    """Resolve a potential from ``None`` (bundled TCRen), a bundled name, or a CSV path."""
     if spec is None:
         return tcren()
+    if spec in _BUNDLED_POTENTIALS:
+        return _BUNDLED_POTENTIALS[spec]()
     p = Path(spec)
     if p.exists():
         return Potential.from_csv(p)
-    raise typer.BadParameter(f"potential file not found: {spec}")
+    raise typer.BadParameter(
+        f"potential not recognised: {spec!r} (use a bundled name "
+        f"{sorted(_BUNDLED_POTENTIALS)} or an existing CSV path)"
+    )
 
 
 def _read_candidates(path: Path) -> list[str]:
@@ -305,19 +314,30 @@ def pipeline(
     db: Path = typer.Option(None, "--db", help="canonical database dir (default: data/Canonical2026)"),
     organism: str = typer.Option("human", "--organism"),
     cutoff: float = typer.Option(5.0, "--cutoff"),
+    tcr_peptide_potential: str = typer.Option(None, "--tcr-peptide-potential", help="potential for the TCR↔peptide interface: bundled name (tcren|mj|keskin) or CSV path (default: tcren)"),
+    tcr_mhc_potential: str = typer.Option(None, "--tcr-mhc-potential", help="potential for the TCR↔MHC interface: bundled name or CSV path (default: mj)"),
+    peptide_mhc_potential: str = typer.Option(None, "--peptide-mhc-potential", help="potential for the peptide↔MHC interface: bundled name or CSV path (default: mj)"),
 ) -> None:
     """Run the full pipeline and write per-interface energies for each structure.
 
     structure → annotate (alleles + chains) → superimpose → resmarkup / canonical Cα / contacts
     → score (TCRen for TCR↔peptide, MJ for TCR↔MHC and peptide↔MHC) + total.
+
+    Each interface's potential can be overridden with a bundled name (``tcren``/``mj``/
+    ``keskin``) or a CSV path; an unset option keeps the default family for that interface.
     """
     from .pipeline import run as run_pipeline, score_row
 
+    potentials = {
+        "tcr_peptide": tcr_peptide_potential,
+        "tcr_mhc": tcr_mhc_potential,
+        "peptide_mhc": peptide_mhc_potential,
+    }
     rows = []
     for _pid, s in iter_structures(structures, importer=parse_structure):
         try:
             res = run_pipeline(s, organism=organism, superimpose=not no_superimpose,
-                               db_dir=db, cutoff=cutoff)
+                               db_dir=db, cutoff=cutoff, potentials=potentials)
             rows.append(score_row(res))
         except Exception as exc:  # noqa: BLE001 - keep the batch resilient
             rows.append({"pdb.id": s.pdb_id, "total": None,
