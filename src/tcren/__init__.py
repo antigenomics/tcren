@@ -8,6 +8,7 @@ scoring are added in later milestones.
 from . import potential
 from .contactmap import ContactMap
 from .contacts import all_atom_contacts, ca_distance_matrix
+from .ddg import alanine_scan, ddg, neoantigen_ddg
 from .pipeline import PipelineResult
 from .pipeline import run as run_pipeline
 from .potential import Potential, derive_tcren, derive_tcren_loo
@@ -33,6 +34,9 @@ __all__ = [
     "score_structures",
     "percentile_rank",
     "background_peptides",
+    "ddg",
+    "alanine_scan",
+    "neoantigen_ddg",
     "run_pipeline",
     "PipelineResult",
     "substitute_peptide",
