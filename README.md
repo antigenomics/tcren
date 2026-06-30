@@ -61,6 +61,21 @@ reference structure sets (`Native2026`, `Canonical2026`) used by `orient`/`super
 # energies (TCRen for TCR↔peptide, MJ for TCR↔MHC and peptide↔MHC) + total
 tcren pipeline -s complex.pdb -o scores.csv
 
+# Configurable per-interface potential: swap a bundled name (tcren|mj|keskin), a CSV, or
+# None for any interface; default reproduces the built-in per-interface families exactly.
+tcren pipeline -s complex.pdb -o scores.csv --tcr-mhc-potential keskin
+
+# Opt-in TCR framework regions: --regions {all,cdr,cdr+fr} chooses which TCR regions
+# contribute on the TCR side (cdr = CDR1-3 only; cdr+fr adds FR1-3; all = unfiltered, default).
+tcren score -s complex.pdb -c candidates.txt -o ranked.csv --regions cdr+fr
+
+# Percentile-rank the native (or candidate) peptide's TCRen energy against a random pMHC
+# background — small rank_pct = the peptide scores among the best binders.
+tcren rank -s complex.pdb -o rank.csv
+
+# Fast ΔΔG of peptide point mutations (virtual-matrix path: no atoms move, no re-docking).
+tcren ddg -s complex.pdb -o ddg.csv
+
 # End-to-end candidate-epitope scoring from a structure
 tcren score -s complex.pdb -c candidates.txt -o ranked.csv
 
@@ -113,6 +128,12 @@ from tcren.potential import tcren
 
 # One call: annotate -> superimpose -> contacts -> per-interface energies + total
 res = run_pipeline("complex.pdb")              # res.scores, res.markup, res.contacts, res.oriented
+
+# Oracle facade: one structure -> a bundle of ready-to-tabulate frames for the paper
+# notebooks (scores, percentile rank, ΔΔG alanine scan, markup, contacts). Configurable
+# per-interface potentials and TCR-region selection are forwarded to every milestone.
+from tcren import summarize_structure
+bundle = summarize_structure("complex.pdb", alanine=True)   # bundle["scores"], ["rank"], ["ddg"], …
 
 # …or the individual steps:
 s = parse_structure("complex.pdb.gz")          # also .cif/.cif.gz; import_structure trims the C-gene

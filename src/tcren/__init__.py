@@ -1,8 +1,9 @@
 """tcren — structure-based prediction of TCR recognition of epitopes.
 
-A Python re-implementation of the TCRen method (Karnaukhov et al. 2024). Phase A
-exposes the statistical-potential core; structure parsing, annotation, contacts and
-scoring are added in later milestones.
+A Python re-implementation of the TCRen method (Karnaukhov et al. 2024), extended to
+the full TCR-pMHC picture: structure parsing, TCR/MHC annotation, canonical orientation,
+contacts, and a configurable per-interface statistical potential, plus percentile rank,
+fast ΔΔG, and a one-call oracle facade composing these for the paper notebooks.
 """
 
 from . import potential
@@ -18,7 +19,7 @@ from .scoring import score_peptides, score_structures
 from .scoring_rank import background_peptides, percentile_rank
 from .structure import Structure, import_structure, parse_structure
 
-__version__ = "0.1.0"
+__version__ = "2.0.0"
 
 __all__ = [
     "potential",

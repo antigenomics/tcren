@@ -19,6 +19,9 @@ Reproduce with `pytest` (fast) and `RUN_BENCHMARK=1 pytest` (full-dataset sweeps
 | Canonical alignment | self / 1bd2→1ao7 groove RMSD | **0.000 / 0.44 Å** | `test_native_uses` |
 | αβ/γδ from C-gene | 1ao7 / 1hxm | **ab (TRBC2) / gd (TRDC+TRGC1)** | `test_cgene` |
 | Re-derived TCRen (analysis) | max\|Δ\| vs published | **< 1e-9** | `test_analysis` |
+| v2 configurable potentials (default) | per-interface scores vs built-in families | **byte-identical** | `test_default_equals_explicit_equal_mapping` |
+| v2 TCR regions (`tcr_regions="all"`) | region filter membership/ordering | matches definition | `test_real_asset_region_ordering_and_fr_membership` |
+| v2 oracle facade `scores` | vs `pipeline.run` for same args | **byte-identical** | `test_scores_reproduce_run_byte_exact` |
 
 Notes: J-gene and class-II MHC allele names differ between pipelines by design (arda locus
 follows the J segment — TCR3D's 1bd2 `TRDJ1` is a mislabel; class-II TCR3D uses serotypes).
