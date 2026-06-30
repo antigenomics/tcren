@@ -390,7 +390,7 @@ def rank(
         if cands is not None:
             peptides = cands
         else:
-            native = next((c.sequence for c in s.chains if c.chain_type == PEPTIDE_TYPE), None)
+            native = next((c.sequence() for c in s.chains if c.chain_type == PEPTIDE_TYPE), None)
             if native is None:
                 raise typer.BadParameter(f"no peptide chain in {cm.pdb_id}; pass -c/--candidates")
             peptides = [native]
