@@ -314,6 +314,45 @@ def score(
     typer.echo(f"The ranked list of candidate epitopes can be found in {out}")
 
 
+@app.command("ddg")
+def ddg_cmd(
+    structures: Path = typer.Option(..., "-s", "--structures", help="structure file, directory, or .tar.gz (.pdb/.cif/.pdb.gz/.cif.gz)"),
+    native: str = typer.Option(..., "--native", help="native peptide sequence"),
+    alanine_scan: bool = typer.Option(False, "--alanine-scan", help="ΔΔG of every position mutated to alanine"),
+    mutant: list[str] = typer.Option(None, "--mutant", help="mutant peptide(s); repeat for several (neoantigen mode)"),
+    potential: str | None = typer.Option(None, "-p", "--potential", help="potential CSV (default: bundled TCRen)"),
+    out: Path = typer.Option("ddg.csv", "-o", "--out"),
+    interface: str = typer.Option("tcr_peptide", "--interface", help="tcr_peptide|tcr_mhc|peptide_mhc"),
+    regions: str = typer.Option("all", "--regions", help="TCR regions on the TCR side: all|cdr|cdr+fr (default: all)"),
+    organism: str = typer.Option("human", "--organism"),
+    cutoff: float = typer.Option(5.0, "--cutoff"),
+) -> None:
+    """ΔΔG of peptide mutations (fast virtual-matrix path; no atoms move).
+
+    Re-scores the mutant sequence on the native contact map; ``ddG = E(native) - E(mutant)``
+    (positive => destabilising). Use ``--alanine-scan`` for a per-position scan, or one or more
+    ``--mutant`` for specific neoantigen substitutions.
+    """
+    if regions not in TCR_REGIONS:
+        raise typer.BadParameter("--regions must be one of all|cdr|cdr+fr")
+    if alanine_scan == bool(mutant):
+        raise typer.BadParameter("pass exactly one of --alanine-scan or --mutant")
+    from .ddg import alanine_scan as run_scan, neoantigen_ddg
+
+    pot = _load_potential(potential)
+    frames = []
+    for _pid, s in iter_structures(structures, importer=parse_structure):
+        classify_chains(s, organism=organism)
+        cm = ContactMap.from_structure(s, cutoff=cutoff)
+        if alanine_scan:
+            df = run_scan(cm, native, pot, interface=interface, tcr_regions=regions)
+        else:
+            df = neoantigen_ddg(cm, native, mutant, pot, interface=interface, tcr_regions=regions)
+        frames.append(df.with_columns(pl.lit(cm.pdb_id).alias("complex.id")))
+    pl.concat(frames).write_csv(str(out))
+    typer.echo(f"wrote {out}")
+
+
 @app.command()
 def rank(
     structures: Path = typer.Option(..., "-s", "--structures", help="structure file, directory, or .tar.gz (.pdb/.cif/.pdb.gz/.cif.gz)"),
