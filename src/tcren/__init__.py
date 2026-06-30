@@ -13,6 +13,7 @@ from .pipeline import run as run_pipeline
 from .potential import Potential, derive_tcren, derive_tcren_loo
 from .refine import refine_peptide, substitute_peptide
 from .scoring import score_peptides, score_structures
+from .scoring_rank import background_peptides, percentile_rank
 from .structure import Structure, import_structure, parse_structure
 
 __version__ = "0.1.0"
@@ -30,6 +31,8 @@ __all__ = [
     "ContactMap",
     "score_peptides",
     "score_structures",
+    "percentile_rank",
+    "background_peptides",
     "run_pipeline",
     "PipelineResult",
     "substitute_peptide",

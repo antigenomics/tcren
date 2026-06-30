@@ -315,6 +315,59 @@ def score(
 
 
 @app.command()
+def rank(
+    structures: Path = typer.Option(..., "-s", "--structures", help="structure file, directory, or .tar.gz (.pdb/.cif/.pdb.gz/.cif.gz)"),
+    candidates: Path = typer.Option(None, "-c", "--candidates", help="peptides to rank; default: each structure's native peptide"),
+    potential: str | None = typer.Option(None, "-p", "--potential", help="potential CSV (default: bundled TCRen)"),
+    out: Path = typer.Option("rank.csv", "-o", "--out"),
+    interface: str = typer.Option("tcr_peptide", "--interface", help="tcr_peptide|tcr_mhc|peptide_mhc"),
+    regions: str = typer.Option("all", "--regions", help="TCR regions on the TCR side: all|cdr|cdr+fr (default: all)"),
+    background: int = typer.Option(1000, "--background", help="number of random background peptides"),
+    background_source: Path = typer.Option(None, "--background-source", help="FASTA/text of epitopes to sample the background from (default: uniform-random)"),
+    seed: int = typer.Option(0, "--seed"),
+    organism: str = typer.Option("human", "--organism"),
+    cutoff: float = typer.Option(5.0, "--cutoff"),
+) -> None:
+    """Percentile-rank peptides' TCRen energy against a random pMHC background.
+
+    For each structure, scores the supplied candidate peptides (or the structure's own
+    peptide when ``-c`` is omitted) together with ``--background`` random peptides of the
+    same length and reports ``rank_pct`` — the fraction of background scoring at least as
+    well (lower energy = better binder, so a small ``rank_pct`` means a strong binder).
+    """
+    if regions not in TCR_REGIONS:
+        raise typer.BadParameter("--regions must be one of all|cdr|cdr+fr")
+    from .scoring_rank import percentile_rank
+
+    from .structure.model import PEPTIDE_TYPE
+
+    pot = _load_potential(potential)
+    cands = _read_candidates(candidates) if candidates is not None else None
+    src = str(background_source) if background_source is not None else None
+    rows = []
+    for _pid, s in iter_structures(structures, importer=parse_structure):
+        classify_chains(s, organism=organism)
+        cm = ContactMap.from_structure(s, cutoff=cutoff)
+        if cands is not None:
+            peptides = cands
+        else:
+            native = next((c.sequence for c in s.chains if c.chain_type == PEPTIDE_TYPE), None)
+            if native is None:
+                raise typer.BadParameter(f"no peptide chain in {cm.pdb_id}; pass -c/--candidates")
+            peptides = [native]
+        for pep in peptides:
+            bg = None
+            if src is not None:
+                from .scoring_rank import background_peptides
+                bg = background_peptides(len(pep), n=background, seed=seed, source=src)
+            res = percentile_rank(cm, pep, pot, interface=interface, n_background=background,
+                                  seed=seed, tcr_regions=regions, background=bg)
+            rows.append({"complex.id": cm.pdb_id, **res})
+    pl.DataFrame(rows).write_csv(str(out))
+    typer.echo(f"wrote {out}")
+
+
+@app.command()
 def pipeline(
     structures: Path = typer.Option(..., "-s", "--structures", help="structure file, directory, or .tar.gz"),
     out: Path = typer.Option("pipeline_scores.csv", "-o", "--out", help="per-structure interface-score table"),
