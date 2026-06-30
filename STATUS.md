@@ -1,9 +1,10 @@
 # tcren — project status & TODO
 
 Status of the Python re-implementation of TCRen (`src/tcren/`). The legacy R/Java pipeline
-is preserved (tag `legacy-r-1.0`) and serves as the numerical oracle. Gitflow: `master` =
-legacy, `dev` = integration, feature branches off `dev` (merged `--no-ff`). See
-[BENCHMARKS.md](BENCHMARKS.md) for achieved accuracy/performance and the plan in
+is preserved (tag `legacy-r-1.0`) and serves as the numerical oracle. Current release: **v2.0.0**
+(configurable potentials, TCR framework regions, percentile rank, fast ΔΔG, oracle facade).
+Gitflow: `master` = released, `develop` = integration, feature branches off `develop` (merged
+`--no-ff`). See [BENCHMARKS.md](BENCHMARKS.md) for achieved accuracy/performance and the plan in
 `docs/` for design detail.
 
 ## Done
@@ -14,7 +15,11 @@ legacy, `dev` = integration, feature branches off `dev` (merged `--no-ff`). See
 | **Structure I/O** | `structure/` | biopython parse; `import_structure` (C-gene trim by default, `keep_c_gene` for MD) |
 | **TCR annotation** | `annotation/` | arda V(D)J → CDR/FR markup; αβ/γδ from C-gene (`cgene`) |
 | **Contacts** | `contacts/`, `contactmap.py` | cKDTree 5 Å + Cα matrix; TCR/peptide/MHC interfaces |
-| **Scoring** | `scoring.py` | substitution scoring; drop-in for `run_TCRen.R` |
+| **Scoring** | `scoring.py` | substitution scoring; drop-in for `run_TCRen.R`; opt-in TCR framework regions (`cdr`/`cdr+fr`/`all`) |
+| **Configurable potentials** | `pipeline.py` | per-interface potential override (`Potential`, bundled name, CSV, or None) on `pipeline.run`/CLI |
+| **Percentile rank** | `scoring_rank.py` | native peptide energy vs. random pMHC background (`tcren rank`) |
+| **Fast ΔΔG** | `ddg.py` | virtual-matrix point-mutation ΔΔG + alanine scan + neoantigen ΔΔG (`tcren ddg`) |
+| **Oracle facade** | `oracle.py` | `summarize_structure` composes S1–S4 into one frame bundle for the paper notebooks |
 | **MHC** | `mhc/` | IMGT/HLA + mouse H-2 reference, mmseqs mapping, groove partitioning, linker-peptide split |
 | **Native DB** | `native/` | TCR3D download/version/manifest; ground-truth comparison; align-to-canonical; potential re-derivation |
 | **2D maps** | `project2d/`, `viz/` | groove-plane projection, canonical tables, metadata-rich SVG, py3Dmol pocket+CDR |

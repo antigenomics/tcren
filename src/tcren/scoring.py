@@ -30,6 +30,7 @@ def score_peptides(
     interface: Interface = "tcr_peptide",
     require_same_length: bool = True,
     substituted_side: str | None = None,
+    tcr_regions: str = "all",
 ) -> pl.DataFrame:
     """Score candidate peptides against a structure's contact map.
 
@@ -43,6 +44,8 @@ def score_peptides(
             map has no recorded peptide length.
         substituted_side: ``"to"`` or ``"from"`` — which contact side the candidate is
             threaded onto. Defaults to the peptide side of ``interface``.
+        tcr_regions: which TCR regions to keep on the TCR side (``"all"`` default = no
+            filter = legacy behaviour; ``"cdr"`` or ``"cdr+fr"`` to restrict).
 
     Returns:
         Columns ``complex.id``, ``peptide``, ``potential``, ``score`` sorted by
@@ -53,7 +56,7 @@ def score_peptides(
         raise ValueError(f"substituted_side must be 'to' or 'from', got {side!r}")
     fixed = "from" if side == "to" else "to"
 
-    iface = contact_map.interface(interface)
+    iface = contact_map.interface(interface, tcr_regions=tcr_regions)
     matrix, index = potential.as_matrix()
 
     pos = np.asarray(iface[f"pos.{side}"].to_list(), dtype=np.int64)

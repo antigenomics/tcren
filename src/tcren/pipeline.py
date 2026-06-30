@@ -24,12 +24,48 @@ from .annotation import classify_chains
 from .contactmap import ContactMap
 from .contacts.table import residue_annotation
 from .mhc import MhcCall, annotate_mhc
-from .potential import Potential, mj, tcren
+from .potential import Potential, keskin, mj, tcren
 from .structure.io import import_structure
 from .structure.model import Structure
 
 # Interface → potential family (TCRen for the TCR↔peptide contact map; MJ elsewhere).
 _INTERFACE_POTENTIAL = {"tcr_peptide": "tcren", "tcr_mhc": "mj", "peptide_mhc": "mj"}
+
+# Bundled potential loaders, keyed by the name accepted in the ``potentials`` spec.
+_BUNDLED_POTENTIALS = {"tcren": tcren, "mj": mj, "keskin": keskin}
+
+
+def _resolve_potentials(
+    spec: dict[str, str | Potential | None] | None,
+) -> dict[str, Potential]:
+    """Resolve a per-interface potential spec to ``{interface: Potential}``.
+
+    Args:
+        spec: Maps an interface name (``"tcr_peptide"``, ``"tcr_mhc"``, ``"peptide_mhc"``)
+            to a :class:`Potential`, a bundled name (``"tcren"``/``"mj"``/``"keskin"``),
+            a CSV path, or ``None``. A missing or ``None`` entry falls back to the default
+            :data:`_INTERFACE_POTENTIAL` family for that interface.
+
+    Returns:
+        One resolved :class:`Potential` per interface in :data:`_INTERFACE_POTENTIAL`.
+    """
+    spec = spec or {}
+    cache: dict[str, Potential] = {}
+
+    def _load(value: str | Potential) -> Potential:
+        if isinstance(value, Potential):
+            return value
+        if value in _BUNDLED_POTENTIALS:
+            if value not in cache:
+                cache[value] = _BUNDLED_POTENTIALS[value]()
+            return cache[value]
+        return Potential.from_csv(value)
+
+    resolved: dict[str, Potential] = {}
+    for iface, default_fam in _INTERFACE_POTENTIAL.items():
+        value = spec.get(iface)
+        resolved[iface] = _load(default_fam if value is None else value)
+    return resolved
 
 
 @dataclass(slots=True)
@@ -65,6 +101,8 @@ def run(
     superimpose: bool = True,
     db_dir: str | Path | None = None,
     cutoff: float = 5.0,
+    potentials: dict[str, str | Potential | None] | None = None,
+    tcr_regions: str = "all",
 ) -> PipelineResult:
     """Run the full pipeline on one structure (path or parsed :class:`Structure`).
 
@@ -74,6 +112,14 @@ def run(
         superimpose: also orient onto the canonical database (sets ``oriented`` + ``rmsd``).
         db_dir: canonical database for ``superimpose`` (default ``data/Canonical2026``).
         cutoff: contact distance threshold (Å).
+        potentials: optional per-interface potential override mapping an interface name
+            (``"tcr_peptide"``, ``"tcr_mhc"``, ``"peptide_mhc"``) to a :class:`Potential`,
+            a bundled name (``"tcren"``/``"mj"``/``"keskin"``), a CSV path, or ``None``.
+            ``None`` (or a missing entry) keeps the default family for that interface, so
+            the default output is unchanged.
+        tcr_regions: which TCR regions to keep on the TCR side of the TCR-containing
+            interfaces (``"all"`` default = no filter = legacy behaviour; ``"cdr"`` or
+            ``"cdr+fr"`` to restrict).
 
     Returns:
         A :class:`PipelineResult` with the markup, contacts, per-interface scores and (if
@@ -91,10 +137,12 @@ def run(
         rmsd = info.rmsd
 
     cm = ContactMap.from_structure(s, cutoff=cutoff)
-    potentials = {"tcren": tcren(), "mj": mj()}
+    resolved = _resolve_potentials(potentials)
     scores = {
-        iface: _interface_energy(cm.interface(iface), potentials[fam])
-        for iface, fam in _INTERFACE_POTENTIAL.items()
+        iface: _interface_energy(
+            cm.interface(iface, tcr_regions=tcr_regions), resolved[iface]
+        )
+        for iface in _INTERFACE_POTENTIAL
     }
     scores["total"] = sum(scores.values())
 

@@ -19,8 +19,8 @@ import typer
 
 from . import __version__
 from .annotation import classify_chains
-from .contactmap import ContactMap
-from .potential import Potential, derive_tcren, derive_tcren_loo, tcren
+from .contactmap import TCR_REGIONS, ContactMap
+from .potential import Potential, derive_tcren, derive_tcren_loo, keskin, mj, tcren
 from .scoring import score_peptides
 from .structure import iter_structures, parse_structure
 
@@ -45,13 +45,22 @@ def paper_bootstrap(
     for k, v in summary.items():
         typer.echo(f"{k}: {v}")
 
+_BUNDLED_POTENTIALS = {"tcren": tcren, "mj": mj, "keskin": keskin}
+
+
 def _load_potential(spec: str | None) -> Potential:
+    """Resolve a potential from ``None`` (bundled TCRen), a bundled name, or a CSV path."""
     if spec is None:
         return tcren()
+    if spec in _BUNDLED_POTENTIALS:
+        return _BUNDLED_POTENTIALS[spec]()
     p = Path(spec)
     if p.exists():
         return Potential.from_csv(p)
-    raise typer.BadParameter(f"potential file not found: {spec}")
+    raise typer.BadParameter(
+        f"potential not recognised: {spec!r} (use a bundled name "
+        f"{sorted(_BUNDLED_POTENTIALS)} or an existing CSV path)"
+    )
 
 
 def _read_candidates(path: Path) -> list[str]:
@@ -125,14 +134,19 @@ def contacts(
     out: Path = typer.Option("contacts.csv", "-o", "--out"),
     cutoff: float = typer.Option(5.0, "--cutoff"),
     interface: str = typer.Option("tcr_peptide", "--interface", help="tcr_peptide|tcr_mhc|peptide_mhc|all"),
+    regions: str = typer.Option("all", "--regions", help="TCR regions on the TCR side: all|cdr|cdr+fr (default: all)"),
     organism: str = typer.Option("human", "--organism"),
 ) -> None:
     """Compute and emit an annotated contact table."""
+    if regions not in TCR_REGIONS:
+        raise typer.BadParameter("--regions must be one of all|cdr|cdr+fr")
     frames = []
     for _pid, s in iter_structures(structures, importer=parse_structure):
         classify_chains(s, organism=organism)
         cm = ContactMap.from_structure(s, cutoff=cutoff)
-        frames.append(cm.contacts if interface == "all" else cm.interface(interface))
+        frames.append(
+            cm.contacts if interface == "all" else cm.interface(interface, tcr_regions=regions)
+        )
     pl.concat(frames).write_csv(str(out))
     typer.echo(f"wrote {out}")
 
@@ -281,20 +295,115 @@ def score(
     potential: str | None = typer.Option(None, "-p", "--potential", help="potential CSV (default: bundled TCRen)"),
     out: Path = typer.Option("candidate_epitopes_TCRen.csv", "-o", "--out"),
     interface: str = typer.Option("tcr_peptide", "--interface"),
+    regions: str = typer.Option("all", "--regions", help="TCR regions on the TCR side: all|cdr|cdr+fr (default: all)"),
     organism: str = typer.Option("human", "--organism"),
     cutoff: float = typer.Option(5.0, "--cutoff"),
 ) -> None:
     """Score candidate epitopes against input structures (end-to-end pipeline)."""
+    if regions not in TCR_REGIONS:
+        raise typer.BadParameter("--regions must be one of all|cdr|cdr+fr")
     pot = _load_potential(potential)
     cands = _read_candidates(candidates)
     frames = []
     for _pid, s in iter_structures(structures, importer=parse_structure):
         classify_chains(s, organism=organism)
         cm = ContactMap.from_structure(s, cutoff=cutoff)
-        frames.append(score_peptides(cm, cands, pot, interface=interface))
+        frames.append(score_peptides(cm, cands, pot, interface=interface, tcr_regions=regions))
     result = pl.concat(frames) if frames else pl.DataFrame()
     result.write_csv(str(out))
     typer.echo(f"The ranked list of candidate epitopes can be found in {out}")
+
+
+@app.command("ddg")
+def ddg_cmd(
+    structures: Path = typer.Option(..., "-s", "--structures", help="structure file, directory, or .tar.gz (.pdb/.cif/.pdb.gz/.cif.gz)"),
+    native: str = typer.Option(..., "--native", help="native peptide sequence"),
+    alanine_scan: bool = typer.Option(False, "--alanine-scan", help="ΔΔG of every position mutated to alanine"),
+    mutant: list[str] = typer.Option(None, "--mutant", help="mutant peptide(s); repeat for several (neoantigen mode)"),
+    potential: str | None = typer.Option(None, "-p", "--potential", help="potential CSV (default: bundled TCRen)"),
+    out: Path = typer.Option("ddg.csv", "-o", "--out"),
+    interface: str = typer.Option("tcr_peptide", "--interface", help="tcr_peptide|tcr_mhc|peptide_mhc"),
+    regions: str = typer.Option("all", "--regions", help="TCR regions on the TCR side: all|cdr|cdr+fr (default: all)"),
+    organism: str = typer.Option("human", "--organism"),
+    cutoff: float = typer.Option(5.0, "--cutoff"),
+) -> None:
+    """ΔΔG of peptide mutations (fast virtual-matrix path; no atoms move).
+
+    Re-scores the mutant sequence on the native contact map; ``ddG = E(native) - E(mutant)``
+    (positive => destabilising). Use ``--alanine-scan`` for a per-position scan, or one or more
+    ``--mutant`` for specific neoantigen substitutions.
+    """
+    if regions not in TCR_REGIONS:
+        raise typer.BadParameter("--regions must be one of all|cdr|cdr+fr")
+    if alanine_scan == bool(mutant):
+        raise typer.BadParameter("pass exactly one of --alanine-scan or --mutant")
+    from .ddg import alanine_scan as run_scan, neoantigen_ddg
+
+    pot = _load_potential(potential)
+    frames = []
+    for _pid, s in iter_structures(structures, importer=parse_structure):
+        classify_chains(s, organism=organism)
+        cm = ContactMap.from_structure(s, cutoff=cutoff)
+        if alanine_scan:
+            df = run_scan(cm, native, pot, interface=interface, tcr_regions=regions)
+        else:
+            df = neoantigen_ddg(cm, native, mutant, pot, interface=interface, tcr_regions=regions)
+        frames.append(df.with_columns(pl.lit(cm.pdb_id).alias("complex.id")))
+    pl.concat(frames).write_csv(str(out))
+    typer.echo(f"wrote {out}")
+
+
+@app.command()
+def rank(
+    structures: Path = typer.Option(..., "-s", "--structures", help="structure file, directory, or .tar.gz (.pdb/.cif/.pdb.gz/.cif.gz)"),
+    candidates: Path = typer.Option(None, "-c", "--candidates", help="peptides to rank; default: each structure's native peptide"),
+    potential: str | None = typer.Option(None, "-p", "--potential", help="potential CSV (default: bundled TCRen)"),
+    out: Path = typer.Option("rank.csv", "-o", "--out"),
+    interface: str = typer.Option("tcr_peptide", "--interface", help="tcr_peptide|tcr_mhc|peptide_mhc"),
+    regions: str = typer.Option("all", "--regions", help="TCR regions on the TCR side: all|cdr|cdr+fr (default: all)"),
+    background: int = typer.Option(1000, "--background", help="number of random background peptides"),
+    background_source: Path = typer.Option(None, "--background-source", help="FASTA/text of epitopes to sample the background from (default: uniform-random)"),
+    seed: int = typer.Option(0, "--seed"),
+    organism: str = typer.Option("human", "--organism"),
+    cutoff: float = typer.Option(5.0, "--cutoff"),
+) -> None:
+    """Percentile-rank peptides' TCRen energy against a random pMHC background.
+
+    For each structure, scores the supplied candidate peptides (or the structure's own
+    peptide when ``-c`` is omitted) together with ``--background`` random peptides of the
+    same length and reports ``rank_pct`` — the fraction of background scoring at least as
+    well (lower energy = better binder, so a small ``rank_pct`` means a strong binder).
+    """
+    if regions not in TCR_REGIONS:
+        raise typer.BadParameter("--regions must be one of all|cdr|cdr+fr")
+    from .scoring_rank import percentile_rank
+
+    from .structure.model import PEPTIDE_TYPE
+
+    pot = _load_potential(potential)
+    cands = _read_candidates(candidates) if candidates is not None else None
+    src = str(background_source) if background_source is not None else None
+    rows = []
+    for _pid, s in iter_structures(structures, importer=parse_structure):
+        classify_chains(s, organism=organism)
+        cm = ContactMap.from_structure(s, cutoff=cutoff)
+        if cands is not None:
+            peptides = cands
+        else:
+            native = next((c.sequence for c in s.chains if c.chain_type == PEPTIDE_TYPE), None)
+            if native is None:
+                raise typer.BadParameter(f"no peptide chain in {cm.pdb_id}; pass -c/--candidates")
+            peptides = [native]
+        for pep in peptides:
+            bg = None
+            if src is not None:
+                from .scoring_rank import background_peptides
+                bg = background_peptides(len(pep), n=background, seed=seed, source=src)
+            res = percentile_rank(cm, pep, pot, interface=interface, n_background=background,
+                                  seed=seed, tcr_regions=regions, background=bg)
+            rows.append({"complex.id": cm.pdb_id, **res})
+    pl.DataFrame(rows).write_csv(str(out))
+    typer.echo(f"wrote {out}")
 
 
 @app.command()
@@ -305,19 +414,34 @@ def pipeline(
     db: Path = typer.Option(None, "--db", help="canonical database dir (default: data/Canonical2026)"),
     organism: str = typer.Option("human", "--organism"),
     cutoff: float = typer.Option(5.0, "--cutoff"),
+    tcr_peptide_potential: str = typer.Option(None, "--tcr-peptide-potential", help="potential for the TCR↔peptide interface: bundled name (tcren|mj|keskin) or CSV path (default: tcren)"),
+    tcr_mhc_potential: str = typer.Option(None, "--tcr-mhc-potential", help="potential for the TCR↔MHC interface: bundled name or CSV path (default: mj)"),
+    peptide_mhc_potential: str = typer.Option(None, "--peptide-mhc-potential", help="potential for the peptide↔MHC interface: bundled name or CSV path (default: mj)"),
+    regions: str = typer.Option("all", "--regions", help="TCR regions on the TCR side: all|cdr|cdr+fr (default: all)"),
 ) -> None:
     """Run the full pipeline and write per-interface energies for each structure.
 
     structure → annotate (alleles + chains) → superimpose → resmarkup / canonical Cα / contacts
     → score (TCRen for TCR↔peptide, MJ for TCR↔MHC and peptide↔MHC) + total.
+
+    Each interface's potential can be overridden with a bundled name (``tcren``/``mj``/
+    ``keskin``) or a CSV path; an unset option keeps the default family for that interface.
     """
     from .pipeline import run as run_pipeline, score_row
 
+    if regions not in TCR_REGIONS:
+        raise typer.BadParameter("--regions must be one of all|cdr|cdr+fr")
+    potentials = {
+        "tcr_peptide": tcr_peptide_potential,
+        "tcr_mhc": tcr_mhc_potential,
+        "peptide_mhc": peptide_mhc_potential,
+    }
     rows = []
     for _pid, s in iter_structures(structures, importer=parse_structure):
         try:
             res = run_pipeline(s, organism=organism, superimpose=not no_superimpose,
-                               db_dir=db, cutoff=cutoff)
+                               db_dir=db, cutoff=cutoff,
+                               potentials=potentials, tcr_regions=regions)
             rows.append(score_row(res))
         except Exception as exc:  # noqa: BLE001 - keep the batch resilient
             rows.append({"pdb.id": s.pdb_id, "total": None,

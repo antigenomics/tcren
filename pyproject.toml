@@ -4,7 +4,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "tcren"
-version = "0.1.0"
+version = "2.0.0"
 description = "Structure-based prediction of TCR recognition of epitopes via residue-level statistical potentials"
 readme = "README.md"
 requires-python = ">=3.10"
