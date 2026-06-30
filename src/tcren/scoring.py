@@ -31,6 +31,7 @@ def score_peptides(
     require_same_length: bool = True,
     substituted_side: str | None = None,
     tcr_regions: str = "all",
+    contact_weight: str = "residue",
 ) -> pl.DataFrame:
     """Score candidate peptides against a structure's contact map.
 
@@ -46,11 +47,18 @@ def score_peptides(
             threaded onto. Defaults to the peptide side of ``interface``.
         tcr_regions: which TCR regions to keep on the TCR side (``"all"`` default = no
             filter = legacy behaviour; ``"cdr"`` or ``"cdr+fr"`` to restrict).
+        contact_weight: ``"residue"`` (default, legacy) gives every contacting residue
+            pair unit weight; ``"atomic"`` weights each residue pair by its
+            ``n_atom_contacts`` heavy-atom-pair count, so the energy tracks the LJ+Coulomb
+            atom-pair sum more closely. ``"atomic"`` requires the contact map to have been
+            built with ``count_atoms=True``.
 
     Returns:
         Columns ``complex.id``, ``peptide``, ``potential``, ``score`` sorted by
         ``complex.id`` then ascending ``score``.
     """
+    if contact_weight not in ("residue", "atomic"):
+        raise ValueError(f"contact_weight must be 'residue' or 'atomic', got {contact_weight!r}")
     side = substituted_side or _PEPTIDE_SIDE[interface]
     if side not in ("to", "from"):
         raise ValueError(f"substituted_side must be 'to' or 'from', got {side!r}")
@@ -62,6 +70,16 @@ def score_peptides(
     pos = np.asarray(iface[f"pos.{side}"].to_list(), dtype=np.int64)
     fixed_aa = iface[f"residue.aa.{fixed}"].to_list()
     fixed_idx = np.array([index.get(a, -1) for a in fixed_aa], dtype=np.int64)
+
+    if contact_weight == "atomic":
+        if "n_atom_contacts" not in iface.columns:
+            raise ValueError(
+                "contact_weight='atomic' needs the n_atom_contacts column; build the "
+                "contact map with ContactMap.from_structure(..., count_atoms=True)"
+            )
+        weights = np.asarray(iface["n_atom_contacts"].to_list(), dtype=np.float64)
+    else:
+        weights = np.ones(len(pos), dtype=np.float64)
 
     candidates = list(candidates)
     rows = []
@@ -79,7 +97,7 @@ def score_peptides(
         else:
             rows_idx, cols_idx = subst_idx, fixed_idx
         valid = (rows_idx >= 0) & (cols_idx >= 0)
-        vals = matrix[rows_idx[valid], cols_idx[valid]]
+        vals = matrix[rows_idx[valid], cols_idx[valid]] * weights[valid]
         # Pairs absent from the potential (e.g. Cys on the 'from' axis) are dropped,
         # exactly as the inner join in run_TCRen.R drops unmatched rows.
         score = float(np.nansum(vals))

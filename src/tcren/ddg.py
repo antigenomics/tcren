@@ -24,10 +24,12 @@ def _score_one(
     potential: Potential,
     interface: Interface,
     tcr_regions: str,
+    contact_weight: str = "residue",
 ) -> float:
     """Score a single peptide and return its scalar energy."""
     res = score_peptides(
-        contact_map, [peptide], potential, interface=interface, tcr_regions=tcr_regions
+        contact_map, [peptide], potential, interface=interface,
+        tcr_regions=tcr_regions, contact_weight=contact_weight,
     )
     if res.height == 0:
         raise ValueError(
@@ -45,6 +47,7 @@ def ddg(
     *,
     interface: Interface = "tcr_peptide",
     tcr_regions: str = "all",
+    contact_weight: str = "residue",
 ) -> float:
     """ΔΔG of a peptide mutation as ``E(native) - E(mutant)``.
 
@@ -56,12 +59,18 @@ def ddg(
         interface: Which interface to score over (default ``"tcr_peptide"``).
         tcr_regions: Which TCR regions to keep on the TCR side (passed through to
             ``score_peptides``).
+        contact_weight: ``"residue"`` (default) or ``"atomic"``; passed through to
+            ``score_peptides``.
 
     Returns:
         ``E(native) - E(mutant)``; positive means the mutation is destabilising.
     """
-    e_native = _score_one(contact_map, native, potential, interface, tcr_regions)
-    e_mutant = _score_one(contact_map, mutant, potential, interface, tcr_regions)
+    e_native = _score_one(
+        contact_map, native, potential, interface, tcr_regions, contact_weight
+    )
+    e_mutant = _score_one(
+        contact_map, mutant, potential, interface, tcr_regions, contact_weight
+    )
     return e_native - e_mutant
 
 
@@ -72,6 +81,7 @@ def alanine_scan(
     *,
     interface: Interface = "tcr_peptide",
     tcr_regions: str = "all",
+    contact_weight: str = "residue",
 ) -> pl.DataFrame:
     """Alanine scan of the native peptide.
 
@@ -84,17 +94,23 @@ def alanine_scan(
         potential: Pairwise potential to score with.
         interface: Which interface to score over (default ``"tcr_peptide"``).
         tcr_regions: Which TCR regions to keep on the TCR side.
+        contact_weight: ``"residue"`` (default) or ``"atomic"``; passed through to
+            ``score_peptides``.
 
     Returns:
         Columns ``pos`` (0-based), ``wt_aa`` (native residue at that position) and
         ``ddG`` (``E(native) - E(Ala@pos)``). Positions without TCR contacts yield
         ``ddG == 0.0``.
     """
-    e_native = _score_one(contact_map, native, potential, interface, tcr_regions)
+    e_native = _score_one(
+        contact_map, native, potential, interface, tcr_regions, contact_weight
+    )
     rows = []
     for pos, wt in enumerate(native):
         mutant = native[:pos] + "A" + native[pos + 1 :]
-        e_mut = _score_one(contact_map, mutant, potential, interface, tcr_regions)
+        e_mut = _score_one(
+            contact_map, mutant, potential, interface, tcr_regions, contact_weight
+        )
         rows.append({"pos": pos, "wt_aa": wt, "ddG": e_native - e_mut})
     return pl.DataFrame(rows, schema={"pos": pl.Int64, "wt_aa": pl.Utf8, "ddG": pl.Float64})
 

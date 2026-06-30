@@ -28,6 +28,7 @@ re-scored twice within a sweep.
 
 from __future__ import annotations
 
+import tempfile
 from functools import lru_cache
 from pathlib import Path
 
@@ -37,7 +38,7 @@ import polars as pl
 from tcren import summarize_structure
 from tcren.ddg import alanine_scan
 from tcren.paths import reference_structure_path
-from tcren.potential import Potential, derive_tcren_loo
+from tcren.potential import Potential, derive_tcren, derive_tcren_loo
 
 # --- manuscript oracle CSVs (absolute, as supplied by the task) -----------------------
 _ORACLE = Path("/Users/mikesh/vcs/manuscripts/2026-tcren2/data/oracle")
@@ -68,6 +69,7 @@ def cognate_rank_auc(
     ids: list[str],
     n_decoy: int = 1000,
     seed: int = 0,
+    contact_weight: str = "residue",
 ) -> dict:
     """Leave-one-out cognate-epitope rank vs anchor-preserving random decoys.
 
@@ -79,16 +81,25 @@ def cognate_rank_auc(
 
     Args:
         contacts: Cached TCR↔peptide contact table (from ``annotate_structure_set``);
-            must carry ``pos.to``/``chain.type.from``/``residue.aa.from``.
+            must carry ``pos.to``/``chain.type.from``/``residue.aa.from`` (and
+            ``n_atom_contacts`` when ``contact_weight="atomic"``).
         markup: Cached per-structure markup with ``pdb.id``/``peptide``.
         ids: Non-redundant αβ ``pdb.id`` set (the LOO inclusion set).
         n_decoy: Number of random decoys per structure (default 1000).
         seed: RNG seed.
+        contact_weight: ``"residue"`` (default, each contact counts once) or ``"atomic"``
+            (each contact weighted by its ``n_atom_contacts`` heavy-atom-pair count).
 
     Returns:
         ``{"median_rank_pct", "rank_auc", "n"}`` — median cognate rank (%), rank-based
         AUC (``mean(1 - rank/100)``), and the number of scored structures.
     """
+    if contact_weight not in ("residue", "atomic"):
+        raise ValueError(f"contact_weight must be 'residue' or 'atomic', got {contact_weight!r}")
+    if contact_weight == "atomic" and "n_atom_contacts" not in contacts.columns:
+        raise ValueError(
+            "contact_weight='atomic' needs an n_atom_contacts column on the contacts table"
+        )
     rng = np.random.default_rng(seed)
     ids = sorted(ids)
     loo = derive_tcren_loo(contacts, ids)
@@ -113,8 +124,12 @@ def cognate_rank_auc(
         sub = ab.filter(pl.col("pdb.id") == pid)
         pos = np.array(sub["pos.to"].to_list())
         tcr = np.array([_AIDX.get(a, -1) for a in sub["residue.aa.from"].to_list()])
+        if contact_weight == "atomic":
+            wgt = np.array(sub["n_atom_contacts"].to_list(), dtype=np.float64)
+        else:
+            wgt = np.ones(len(pos), dtype=np.float64)
         keep = (pos >= 0) & (pos < len(cog)) & (tcr >= 0)
-        pos, tcr = pos[keep], tcr[keep]
+        pos, tcr, wgt = pos[keep], tcr[keep], wgt[keep]
         if len(pos) == 0:
             continue
         L = len(cog)
@@ -124,7 +139,7 @@ def cognate_rank_auc(
         dec[:, L - 1] = cogv[L - 1]
         allp = np.vstack([cogv[None, :], dec])  # (N+1, L), row 0 = cognate
         contact_aa = allp[:, pos]  # (N+1, K)
-        sc = m[tcr[None, :], contact_aa].sum(axis=1)  # (N+1,)
+        sc = (m[tcr[None, :], contact_aa] * wgt[None, :]).sum(axis=1)  # (N+1,)
         ranks.append(float((sc[1:] < sc[0]).mean() * 100))
 
     if not ranks:
@@ -140,11 +155,15 @@ def cognate_rank_auc(
 # regenerate the candidate's per-structure tcr_peptide energy (cached per candidate)
 # =====================================================================================
 @lru_cache(maxsize=None)
-def _tcr_peptide_energy(structure_name: str, candidate_csv: str) -> float | None:
+def _tcr_peptide_energy(
+    structure_name: str, candidate_csv: str, contact_weight: str = "residue"
+) -> float | None:
     """tcr_peptide energy of a structure under a candidate TCRen potential, or ``None``.
 
     ``None`` when the structure is not a deposited Native2026 PDB or annotation fails.
-    Cached per ``(structure_name, candidate_csv)`` so a candidate is scored once.
+    Cached per ``(structure_name, candidate_csv, contact_weight)`` so a candidate is
+    scored once. ``contact_weight="atomic"`` weights each contact by its heavy-atom-pair
+    count (the substitution is byte-equal to the legacy energy under ``"residue"``).
     """
     try:
         pdb = reference_structure_path(structure_name)
@@ -156,6 +175,7 @@ def _tcr_peptide_energy(structure_name: str, candidate_csv: str) -> float | None
             superimpose=False,
             potentials={"tcr_peptide": candidate_csv},
             background=10,
+            contact_weight=contact_weight,
         )
     except Exception:
         return None
@@ -186,31 +206,104 @@ def _ols_r2(df: pl.DataFrame, response: str, predictors: list[str]) -> dict:
 # =====================================================================================
 # (b) n=199 ergodicity refit — regenerate ONLY the tcren column per candidate
 # =====================================================================================
-def n199_r2(candidate_csv: str | Path, oracle_csv: str | Path = N199_CSV) -> dict:
+def _loo_potential_csv(
+    contacts: pl.DataFrame,
+    derivation_ids: list[str],
+    leave_out: str,
+    workdir: Path,
+    **derive_kwargs,
+) -> str:
+    """Derive a leave-one-out TCRen potential (excluding ``leave_out``) and write it.
+
+    Derives from ``derivation_ids`` minus ``leave_out`` via :func:`derive_tcren`, writes a
+    wide ``residue.aa.from, residue.aa.to, TCRen`` CSV (the layout ``Potential.from_csv``
+    reads) under ``workdir``, and returns its path.
+    """
+    include = [i for i in derivation_ids if i != leave_out]
+    pot = derive_tcren(contacts, include=include, **derive_kwargs)
+    out = pot.matrix.rename({"value": "TCRen"})
+    path = workdir / f"tcren_loo_{leave_out}.csv"
+    out.write_csv(str(path))
+    return str(path)
+
+
+def n199_r2(
+    candidate_csv: str | Path | None = None,
+    oracle_csv: str | Path = N199_CSV,
+    *,
+    contact_weight: str = "residue",
+    loo: bool = False,
+    contacts: pl.DataFrame | None = None,
+    derivation_ids: list[str] | None = None,
+    **derive_kwargs,
+) -> dict:
     """Refit ``sum_lj_coul ~ tcren + mj_hla_peptide + mj_cdr_hla`` for a candidate.
 
-    Regenerates ONLY the ``tcren`` column (candidate TCRen as the ``tcr_peptide``
-    potential, via ``summarize_structure``) over the regenerable structures of the
-    manuscript ``lj_coul_tcren_mj.csv`` oracle, keeps the oracle's physical response and
-    MJ predictors, and refits HC3 OLS.
+    Two derivation modes share the same refit:
+
+    * **non-LOO** (default) — regenerate the ``tcren`` column with a single fixed
+      ``candidate_csv`` (the candidate TCRen as the ``tcr_peptide`` potential) over the
+      regenerable structures of the ``lj_coul_tcren_mj.csv`` oracle.
+    * **LOO** (``loo=True``) — for each regenerable structure, derive a TCRen potential
+      from ``derivation_ids`` *excluding that structure* (``derive_tcren(contacts,
+      include=derivation_ids \\ {id})``), score the structure with that held-out
+      potential, then refit. Requires ``contacts`` and ``derivation_ids``.
+
+    Either mode keeps the oracle's physical response and MJ predictors and refits HC3 OLS.
+
+    Args:
+        candidate_csv: Fixed candidate TCRen CSV (non-LOO mode). Ignored when ``loo``.
+        oracle_csv: The ``lj_coul_tcren_mj.csv`` oracle (default :data:`N199_CSV`).
+        contact_weight: ``"residue"`` (default) or ``"atomic"``; threaded into scoring so
+            the regenerated ``tcren`` column can use atomic weighting.
+        loo: When ``True`` derive a held-out potential per structure (leave-one-out).
+        contacts: Annotated contact table fed to :func:`derive_tcren` (LOO only).
+        derivation_ids: Derivation inclusion set; each structure is left out in turn
+            (LOO only).
+        **derive_kwargs: Extra keyword args forwarded to :func:`derive_tcren` (LOO only),
+            e.g. ``variant``, ``weights``.
 
     Returns:
         ``{"r2", "n", "coefficients"}`` where ``coefficients`` maps each predictor to its
         ``coef``/``sign``/``p``/``significant``.
     """
-    candidate_csv = str(candidate_csv)
     oracle = pl.read_csv(oracle_csv)
     rows = []
-    for r in oracle.iter_rows(named=True):
-        e = _tcr_peptide_energy(r["structure_name"], candidate_csv)
-        if e is None:
-            continue
-        rows.append({
-            "sum_lj_coul": r["sum_lj_coul"],
-            "tcren": e,
-            "mj_hla_peptide": r["mj_hla_peptide"],
-            "mj_cdr_hla": r["mj_cdr_hla"],
-        })
+
+    if loo:
+        if contacts is None or derivation_ids is None:
+            raise ValueError("loo=True requires both contacts and derivation_ids")
+        with tempfile.TemporaryDirectory() as tmp:
+            workdir = Path(tmp)
+            for r in oracle.iter_rows(named=True):
+                name = r["structure_name"]
+                csv = _loo_potential_csv(
+                    contacts, derivation_ids, name, workdir, **derive_kwargs
+                )
+                e = _tcr_peptide_energy(name, csv, contact_weight)
+                if e is None:
+                    continue
+                rows.append({
+                    "sum_lj_coul": r["sum_lj_coul"],
+                    "tcren": e,
+                    "mj_hla_peptide": r["mj_hla_peptide"],
+                    "mj_cdr_hla": r["mj_cdr_hla"],
+                })
+    else:
+        if candidate_csv is None:
+            raise ValueError("non-LOO mode requires candidate_csv")
+        candidate_csv = str(candidate_csv)
+        for r in oracle.iter_rows(named=True):
+            e = _tcr_peptide_energy(r["structure_name"], candidate_csv, contact_weight)
+            if e is None:
+                continue
+            rows.append({
+                "sum_lj_coul": r["sum_lj_coul"],
+                "tcren": e,
+                "mj_hla_peptide": r["mj_hla_peptide"],
+                "mj_cdr_hla": r["mj_cdr_hla"],
+            })
+
     df = pl.DataFrame(rows)
     return _ols_r2(
         df, "sum_lj_coul", ["tcren", "mj_hla_peptide", "mj_cdr_hla"]

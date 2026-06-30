@@ -38,11 +38,18 @@ class ContactMap:
     peptide_length: int | None = None
 
     @classmethod
-    def from_structure(cls, structure: Structure, cutoff: float = 5.0) -> "ContactMap":
-        """Build a contact map from an (annotated) structure."""
-        df = tidy_contacts(structure, cutoff=cutoff).with_columns(
-            pl.lit(structure.pdb_id).alias("pdb.id")
-        )
+    def from_structure(
+        cls, structure: Structure, cutoff: float = 5.0, count_atoms: bool = False
+    ) -> "ContactMap":
+        """Build a contact map from an (annotated) structure.
+
+        When ``count_atoms`` is set, the annotated table carries an ``n_atom_contacts``
+        per-residue-pair heavy-atom count column (needed for atomic-weighted scoring).
+        Default ``False`` keeps the contacts table byte-identical to the legacy output.
+        """
+        df = tidy_contacts(
+            structure, cutoff=cutoff, count_atoms=count_atoms
+        ).with_columns(pl.lit(structure.pdb_id).alias("pdb.id"))
         peptide_length = next(
             (len(c.residues) for c in structure.chains if c.chain_type == PEPTIDE_TYPE),
             None,
