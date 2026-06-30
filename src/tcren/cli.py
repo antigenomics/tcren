@@ -19,7 +19,7 @@ import typer
 
 from . import __version__
 from .annotation import classify_chains
-from .contactmap import ContactMap
+from .contactmap import TCR_REGIONS, ContactMap
 from .potential import Potential, derive_tcren, derive_tcren_loo, keskin, mj, tcren
 from .scoring import score_peptides
 from .structure import iter_structures, parse_structure
@@ -134,14 +134,19 @@ def contacts(
     out: Path = typer.Option("contacts.csv", "-o", "--out"),
     cutoff: float = typer.Option(5.0, "--cutoff"),
     interface: str = typer.Option("tcr_peptide", "--interface", help="tcr_peptide|tcr_mhc|peptide_mhc|all"),
+    regions: str = typer.Option("all", "--regions", help="TCR regions on the TCR side: all|cdr|cdr+fr (default: all)"),
     organism: str = typer.Option("human", "--organism"),
 ) -> None:
     """Compute and emit an annotated contact table."""
+    if regions not in TCR_REGIONS:
+        raise typer.BadParameter("--regions must be one of all|cdr|cdr+fr")
     frames = []
     for _pid, s in iter_structures(structures, importer=parse_structure):
         classify_chains(s, organism=organism)
         cm = ContactMap.from_structure(s, cutoff=cutoff)
-        frames.append(cm.contacts if interface == "all" else cm.interface(interface))
+        frames.append(
+            cm.contacts if interface == "all" else cm.interface(interface, tcr_regions=regions)
+        )
     pl.concat(frames).write_csv(str(out))
     typer.echo(f"wrote {out}")
 
@@ -290,17 +295,20 @@ def score(
     potential: str | None = typer.Option(None, "-p", "--potential", help="potential CSV (default: bundled TCRen)"),
     out: Path = typer.Option("candidate_epitopes_TCRen.csv", "-o", "--out"),
     interface: str = typer.Option("tcr_peptide", "--interface"),
+    regions: str = typer.Option("all", "--regions", help="TCR regions on the TCR side: all|cdr|cdr+fr (default: all)"),
     organism: str = typer.Option("human", "--organism"),
     cutoff: float = typer.Option(5.0, "--cutoff"),
 ) -> None:
     """Score candidate epitopes against input structures (end-to-end pipeline)."""
+    if regions not in TCR_REGIONS:
+        raise typer.BadParameter("--regions must be one of all|cdr|cdr+fr")
     pot = _load_potential(potential)
     cands = _read_candidates(candidates)
     frames = []
     for _pid, s in iter_structures(structures, importer=parse_structure):
         classify_chains(s, organism=organism)
         cm = ContactMap.from_structure(s, cutoff=cutoff)
-        frames.append(score_peptides(cm, cands, pot, interface=interface))
+        frames.append(score_peptides(cm, cands, pot, interface=interface, tcr_regions=regions))
     result = pl.concat(frames) if frames else pl.DataFrame()
     result.write_csv(str(out))
     typer.echo(f"The ranked list of candidate epitopes can be found in {out}")
@@ -317,6 +325,7 @@ def pipeline(
     tcr_peptide_potential: str = typer.Option(None, "--tcr-peptide-potential", help="potential for the TCR↔peptide interface: bundled name (tcren|mj|keskin) or CSV path (default: tcren)"),
     tcr_mhc_potential: str = typer.Option(None, "--tcr-mhc-potential", help="potential for the TCR↔MHC interface: bundled name or CSV path (default: mj)"),
     peptide_mhc_potential: str = typer.Option(None, "--peptide-mhc-potential", help="potential for the peptide↔MHC interface: bundled name or CSV path (default: mj)"),
+    regions: str = typer.Option("all", "--regions", help="TCR regions on the TCR side: all|cdr|cdr+fr (default: all)"),
 ) -> None:
     """Run the full pipeline and write per-interface energies for each structure.
 
@@ -328,6 +337,8 @@ def pipeline(
     """
     from .pipeline import run as run_pipeline, score_row
 
+    if regions not in TCR_REGIONS:
+        raise typer.BadParameter("--regions must be one of all|cdr|cdr+fr")
     potentials = {
         "tcr_peptide": tcr_peptide_potential,
         "tcr_mhc": tcr_mhc_potential,
@@ -337,7 +348,8 @@ def pipeline(
     for _pid, s in iter_structures(structures, importer=parse_structure):
         try:
             res = run_pipeline(s, organism=organism, superimpose=not no_superimpose,
-                               db_dir=db, cutoff=cutoff, potentials=potentials)
+                               db_dir=db, cutoff=cutoff,
+                               potentials=potentials, tcr_regions=regions)
             rows.append(score_row(res))
         except Exception as exc:  # noqa: BLE001 - keep the batch resilient
             rows.append({"pdb.id": s.pdb_id, "total": None,

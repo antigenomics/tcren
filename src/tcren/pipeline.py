@@ -102,6 +102,7 @@ def run(
     db_dir: str | Path | None = None,
     cutoff: float = 5.0,
     potentials: dict[str, str | Potential | None] | None = None,
+    tcr_regions: str = "all",
 ) -> PipelineResult:
     """Run the full pipeline on one structure (path or parsed :class:`Structure`).
 
@@ -116,6 +117,9 @@ def run(
             a bundled name (``"tcren"``/``"mj"``/``"keskin"``), a CSV path, or ``None``.
             ``None`` (or a missing entry) keeps the default family for that interface, so
             the default output is unchanged.
+        tcr_regions: which TCR regions to keep on the TCR side of the TCR-containing
+            interfaces (``"all"`` default = no filter = legacy behaviour; ``"cdr"`` or
+            ``"cdr+fr"`` to restrict).
 
     Returns:
         A :class:`PipelineResult` with the markup, contacts, per-interface scores and (if
@@ -135,7 +139,9 @@ def run(
     cm = ContactMap.from_structure(s, cutoff=cutoff)
     resolved = _resolve_potentials(potentials)
     scores = {
-        iface: _interface_energy(cm.interface(iface), resolved[iface])
+        iface: _interface_energy(
+            cm.interface(iface, tcr_regions=tcr_regions), resolved[iface]
+        )
         for iface in _INTERFACE_POTENTIAL
     }
     scores["total"] = sum(scores.values())
