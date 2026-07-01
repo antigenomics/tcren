@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from tcren.binder import BINDER_MODEL, binder_score
 
 
@@ -23,3 +25,16 @@ def test_score_monotone_in_burial():
     base = {"pm_cov_ntcr": 26, "chain_balance": 0.33, "n_hbond": 7, "dSASA": 1950, "pp_combo": 0.0}
     more = {**base, "dSASA": 2600}
     assert binder_score(more) > binder_score(base)  # more burial -> more binder-like (w_dSASA>0)
+
+
+@pytest.mark.slow
+def test_binder_features_end_to_end():
+    pytest.importorskip("arda")
+    pytest.importorskip("tcren._geom")
+    from tcren.binder import binder_features
+    from tcren.paths import reference_structure_path
+
+    feats = binder_features(reference_structure_path("1ao7"))
+    assert set(feats) == set(BINDER_MODEL["features"])
+    assert feats["pm_cov_ntcr"] > 0 and feats["dSASA"] > 0  # a real TCR-pMHC has a buried interface
+    assert 0.0 <= binder_score(feats) <= 1.0
