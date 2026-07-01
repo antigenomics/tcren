@@ -42,6 +42,7 @@ from tcren.pipeline import _interface_energy
 from tcren.potential import Potential
 from tcren.potential import mj as mj_potential
 from tcren.scoring import score_peptides
+from tcren.scoring_rank import percentile_rank
 from tcren.structure import import_structure
 
 _MJ = mj_potential()  # fixed MJ for the two MHC interfaces (candidate-independent)
@@ -182,45 +183,43 @@ def cpl_benchmark(cpl_dir: Path, pots: dict[str, Potential]) -> None:
 # --------------------------------------------------------------------------------------
 # TCRvdb: binder (padj<1e-5) vs non-binder
 # --------------------------------------------------------------------------------------
-def tcrvdb_benchmark(labels_csv: Path, structs_dir: Path | None, pots: dict[str, Potential]) -> None:
-    print("\n=== TCRvdb benchmark — padj<1e-5 = binder ===")
+def tcrvdb_benchmark(
+    labels_csv: Path, structs_dir: Path | None, pots: dict[str, Potential], n_background: int = 1000
+) -> None:
+    """Authoritative TCRvdb binder-ID on the modelled structures (`isalgo/tcren_structures/tcrvdb/`).
+
+    Labels = ``data/tcrvdb/tcrvdb_validation.csv`` (``TCR_hash``, ``is_binder`` = padj<1e-5,
+    ``epitope_aa``); structures = ``<TCR_hash>.pdb`` (bootstrap ``--only tcrvdb``). For each
+    structure computes, per candidate, both scores of the epitope on the TCR:peptide interface:
+    the **raw energy** and the **%-rank** vs a random-peptide background (the manuscript's binder-ID
+    metric — normalizes the per-structure baseline the raw energy can't). Reports AUC of
+    binder-vs-non for both, pooled and per-epitope. Lower energy / lower %-rank = more binder-like.
+    """
+    print("\n=== TCRvdb binder-ID — padj<1e-5 = binder (authoritative set) ===")
     if not labels_csv.exists():
         print(f"  labels not found: {labels_csv}")
         return
     lab = pl.read_csv(labels_csv, infer_schema_length=5000)
-    lab = lab.with_columns(pl.col("padj").cast(pl.Float64, strict=False))
-    labelled = lab.filter(pl.col("padj").is_not_null())
-    binders = labelled.filter(pl.col("padj") < 1e-5)
-    print(
-        f"  labels: {labelled.height} rows with padj  "
-        f"(binders padj<1e-5: {binders.height}, non-binders: {labelled.height - binders.height})"
-    )
-
+    if "TCR_hash" not in lab.columns or "is_binder" not in lab.columns:
+        print(f"  {labels_csv.name} lacks TCR_hash/is_binder — expected tcrvdb_validation.csv")
+        return
+    info = {
+        r["TCR_hash"]: (bool(r["is_binder"]), r.get("epitope_aa", "?"))
+        for r in lab.iter_rows(named=True)
+    }
     pdbs = sorted(structs_dir.glob("*.pdb")) if structs_dir and structs_dir.is_dir() else []
+    nb = sum(1 for v in info.values() if v[0])
+    print(f"  labels: {len(info)} clonotypes (binders {nb}, non {len(info) - nb}); "
+          f"structures present: {len(pdbs)}")
     if not pdbs:
-        loc = structs_dir if structs_dir else "(no --tcrvdb-structs given)"
-        print(f"  structures present: 0 under {loc}")
-        print("  -> SCORING GATED: TCRvdb structures are not on HF yet (root tree has no")
-        print("     tcrvdb folder); pull /projects/structures/TCRvdb from aldan3, name each")
-        print("     <TCR_hash>.pdb, and re-run with --tcrvdb-structs to complete this row.")
+        print("  no structures — run: python3 scripts/bootstrap_data.py --only tcrvdb --refresh")
         return
 
-    # join structure hash -> is_validated. The hash join key is documented in
-    # tcr_vdb_cleaned.ipynb (sha256 of cdr3a+va+ja+cdr3b+vb+jb+mhca+mhcb+epitope). If the
-    # labels file already carries a matching key column we join on it; otherwise the caller
-    # must supply a hash->label map. Here we expect a `TCR_hash` column alongside padj.
-    if "TCR_hash" not in labelled.columns:
-        print("  labels file has no TCR_hash column — cannot join structures to padj here.")
-        print("  (the hash map lives in tcr_vdb_cleaned.ipynb; add TCR_hash to the padj CSV")
-        print("   or pass a joined table to complete TCRvdb scoring.)")
-        return
-
-    is_val = {r["TCR_hash"]: (r["padj"] < 1e-5) for r in labelled.iter_rows(named=True)}
-    rows: dict[str, list[tuple[float, bool]]] = {c: [] for c in pots}
+    recs: list[dict] = []  # {binder, epitope, tp:{cand:energy}, rank:{cand:rank_pct}}
     scored = skipped = 0
     for pdb in pdbs:
         h = pdb.stem
-        if h not in is_val:
+        if h not in info:
             skipped += 1
             continue
         got = contacts_of(pdb)
@@ -228,26 +227,38 @@ def tcrvdb_benchmark(labels_csv: Path, structs_dir: Path | None, pots: dict[str,
             skipped += 1
             continue
         cm, native = got
-        scored += 1
+        binder, epitope = info[h]
+        rec = {"binder": binder, "epitope": epitope, "tp": {}, "rank": {}}
         for c, pot in pots.items():
-            e = energy(cm, native, pot)
-            if e is not None:
-                rows[c].append((e, is_val[h]))
+            rec["tp"][c] = iface_e(cm, pot, "tcr_peptide")
+            rec["rank"][c] = percentile_rank(
+                cm, native, pot, interface="tcr_peptide", n_background=n_background, seed=0
+            )["rank_pct"]
+        recs.append(rec)
+        scored += 1
+    print(f"  scored {scored} ({skipped} skipped); background n={n_background}")
 
-    print(f"  scored {scored} structures ({skipped} skipped)")
-    for c in pots:
-        pairs = rows[c]
-        if not pairs:
-            print(f"    {c:<16} n=0")
-            continue
-        e = np.array([p[0] for p in pairs])
-        v = np.array([p[1] for p in pairs])
-        a = auc(-e, v)
-        if v.sum() and (~v).sum():
-            mw = mannwhitneyu(e[v], e[~v], alternative="two-sided").pvalue
-        else:
-            mw = float("nan")
-        print(f"    {c:<16} AUC={a:.3f}  MannWhitney_p={mw:.2e}  (binders={int(v.sum())}, non={int((~v).sum())})")
+    def auc_over(rows: list[dict], score) -> float:
+        if not rows:
+            return float("nan")
+        s = np.array([score(r) for r in rows])
+        lab_ = np.array([r["binder"] for r in rows])
+        return auc(s, lab_)  # score already signed so higher = more binder-like
+
+    cols = list(pots)
+
+    def report(rows: list[dict], title: str) -> None:
+        b = sum(r["binder"] for r in rows)
+        print(f"\n  --- {title} (n={len(rows)}, binders={b}, non={len(rows) - b}) ---")
+        print(f"    {'metric':<18}" + "".join(f"{c:>15}" for c in cols))
+        print(f"    {'raw energy AUC':<18}"
+              + "".join(f"{auc_over(rows, lambda r, c=c: -r['tp'][c]):>15.3f}" for c in cols))
+        print(f"    {'%-rank AUC':<18}"
+              + "".join(f"{auc_over(rows, lambda r, c=c: -r['rank'][c]):>15.3f}" for c in cols))
+
+    report(recs, "POOLED")
+    for ep in sorted({r["epitope"] for r in recs}):
+        report([r for r in recs if r["epitope"] == ep], f"epitope {ep}")
 
 
 def verify_fast_path(cpl_dir: Path, pots: dict[str, Potential]) -> None:
@@ -281,8 +292,10 @@ def verify_fast_path(cpl_dir: Path, pots: dict[str, Potential]) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--cpl-dir", type=Path, default=_MS / "data" / "cpl" / "pdb_cpl")
-    ap.add_argument("--tcrvdb-labels", type=Path, default=_MS / "data" / "tcrvdb" / "tcrvdb_padj.csv")
-    ap.add_argument("--tcrvdb-structs", type=Path, default=_MS / "data" / "tcrvdb" / "structures")
+    ap.add_argument("--tcrvdb-labels", type=Path, default=_MS / "data" / "tcrvdb" / "tcrvdb_validation.csv")
+    ap.add_argument("--tcrvdb-structs", type=Path, default=_MS / "data" / "tcrvdb")
+    ap.add_argument("--tcrvdb-nbg", type=int, default=1000, help="random background size for %-rank")
+    ap.add_argument("--skip-cpl", action="store_true", help="run only the TCRvdb benchmark")
     ap.add_argument("--verify", action="store_true", help="check the fast path then exit")
     args = ap.parse_args()
 
@@ -296,8 +309,9 @@ def main() -> None:
     if args.verify:
         verify_fast_path(args.cpl_dir, pots)
         return
-    cpl_benchmark(args.cpl_dir, pots)
-    tcrvdb_benchmark(args.tcrvdb_labels, args.tcrvdb_structs, pots)
+    if not args.skip_cpl:
+        cpl_benchmark(args.cpl_dir, pots)
+    tcrvdb_benchmark(args.tcrvdb_labels, args.tcrvdb_structs, pots, n_background=args.tcrvdb_nbg)
     print(f"\nelapsed {time.perf_counter() - t0:.1f}s")
 
 
