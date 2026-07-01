@@ -21,4 +21,8 @@ target_compile_options(_align PRIVATE -O3)
 pybind11_add_module(_refine src/_refine/refine.cpp)
 target_compile_options(_refine PRIVATE -O3)
 
-install(TARGETS _align _refine DESTINATION tcren)
+# CCD loop-closure kernel for open-source anchor-restrained peptide modelling. See src/_fold/fold.cpp.
+pybind11_add_module(_fold src/_fold/fold.cpp)
+target_compile_options(_fold PRIVATE -O3)
+
+install(TARGETS _align _refine _fold DESTINATION tcren)
