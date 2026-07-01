@@ -90,6 +90,54 @@ def test_alanine_scan_position_matches_independent_ddg():
         assert scan.filter(pl.col("pos") == pos)["ddG"][0] == pytest.approx(expected)
 
 
+def _toy_tcr_mhc_contact_map() -> ContactMap:
+    # TCR 'A' contacts MHC within-region pos 0; TCR 'L' contacts MHC pos 2.
+    # The peptide is NOT part of this interface, so a peptide mutation must not
+    # change any score. residue.aa.to are MHC residues ('K', 'A'); were the
+    # candidate peptide threaded onto pos.to (the bug), it would substitute these.
+    contacts = pl.DataFrame(
+        {
+            "chain.type.from": ["TRA", "TRB"],
+            "chain.type.to": ["MHCa", "MHCa"],
+            "residue.aa.from": ["A", "L"],
+            "residue.aa.to": ["K", "A"],
+            "region.type.from": ["CDR3", "CDR3"],
+            "residue.index.from": [10, 20],
+            "residue.index.to": [0, 2],
+            "region.start.from": [8, 18],
+            "region.start.to": [0, 0],
+            "pdb.id": ["toy", "toy"],
+        }
+    )
+    return ContactMap(pdb_id="toy", contacts=contacts, peptide_length=3)
+
+
+def test_ddg_tcr_mhc_is_zero():
+    # A peptide mutation cannot affect the TCR-MHC interface (no peptide on it).
+    cm, pot = _toy_tcr_mhc_contact_map(), _toy_potential()
+    assert ddg(cm, "AGK", "AGA", pot, interface="tcr_mhc") == 0.0
+    # Same when the peptide is unchanged.
+    assert ddg(cm, "AGK", "AGK", pot, interface="tcr_mhc") == 0.0
+
+
+def test_alanine_scan_tcr_mhc_all_zero():
+    # Every per-position ΔΔG must be exactly 0 for an interface without the peptide.
+    cm, pot = _toy_tcr_mhc_contact_map(), _toy_potential()
+    native = "AGK"
+    scan = alanine_scan(cm, native, pot, interface="tcr_mhc")
+    assert scan.columns == ["pos", "wt_aa", "ddG"]
+    assert scan.height == len(native)
+    assert scan["pos"].to_list() == [0, 1, 2]
+    assert scan["wt_aa"].to_list() == list(native)
+    assert scan["ddG"].to_list() == [0.0, 0.0, 0.0]
+
+
+def test_neoantigen_ddg_tcr_mhc_all_zero():
+    cm, pot = _toy_tcr_mhc_contact_map(), _toy_potential()
+    df = neoantigen_ddg(cm, "AGK", ["AGA", "KKK"], pot, interface="tcr_mhc")
+    assert df["ddG"].to_list() == [0.0, 0.0]
+
+
 def test_neoantigen_ddg():
     cm, pot = _toy_contact_map(), _toy_potential()
     native = "AGK"
