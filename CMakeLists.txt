@@ -29,4 +29,8 @@ target_compile_options(_fold PRIVATE -O3)
 pybind11_add_module(_geom src/_geom/geom.cpp)
 target_compile_options(_geom PRIVATE -O3)
 
-install(TARGETS _align _refine _fold _geom DESTINATION tcren)
+# Interface energy + sampling for native ΔΔG (FlexPepDock/InterfaceAnalyzer replacement). See src/_relax/relax.cpp.
+pybind11_add_module(_relax src/_relax/relax.cpp)
+target_compile_options(_relax PRIVATE -O3)
+
+install(TARGETS _align _refine _fold _geom _relax DESTINATION tcren)
