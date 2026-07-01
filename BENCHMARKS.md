@@ -90,3 +90,28 @@ backbone RMSD ≈ the displacement itself (it is a repack step, to be paired wit
 
 The true accuracy ceiling is the FlexPepDock oracle; the native C++ engines (`CPP_REWRITE.md`) are
 validated against it. These smoke numbers characterise pipeline behaviour, not final accuracy.
+
+### Cross-peptide docking accuracy (the honest test)
+
+`scripts/fold_crossdock_benchmark.py` measures the real question, not self-reconstruction: take pMHC
+structure **A**, replace its peptide with a *different* peptide **P_B** that binds the same MHC allele
+and whose native complex **B** is known, model P_B into A's groove, and measure RMSD to P_B's **true**
+pose in B (MHC-groove superposition A→B). Pairs are same-allele, same-length (class-I 9-mers dominate).
+
+**40 pairs** (148 structures indexed, 2798 candidate pairs), peptide backbone RMSD to native P_B:
+
+| Method | median | mean | p75 | vs baseline (per-pair) |
+|--------|--------|------|-----|------------------------|
+| baseline (P_B threaded on A, no refine) | **0.98 Å** | 0.97 | 1.25 | — |
+| ccd | 0.98 Å | 0.97 | 1.25 | identical (0/40 differ) |
+| promod3 | 0.98 Å | 0.97 | 1.25 | identical (repack only) |
+| openmm | 0.98 Å | 0.97 | 1.25 | ≤ 0.001 Å (backbone unmoved) |
+| dope | 1.03 Å | 1.01 | 1.22 | worse (+0.04 mean, 20/40 drift) |
+| flexpep (oracle) | *excluded* | | | **no-op** — see `oracle_flexpep.py` |
+
+Per-pair range 0.22 Å (near-identical peptides) to 1.18 Å. **Finding:** same-allele backbone transfer is
+a ~1.0 Å baseline (MHC-I 9-mer backbones are groove-conserved), and none of the runnable engines beat
+it — they are refiners, not pose predictors. `dope` is slightly worse (rigid MC drifts toward its own
+energy optimum). The FlexPepDock oracle is currently a no-op on these 5-chain complexes (FoldTree/jump
+setup needed), so the one method that might beat the baseline is not yet measured. The open problem for
+the C++ rewrite is de-novo pocket/pose prediction, not refinement speed.

@@ -11,6 +11,14 @@ Either way this is an **oracle**, never a shipped tcren dependency: the RMSD Fle
 displaced start is the lower bound on error the license-free engines (ccd/dope/openmm) should approach
 (see ``CPP_REWRITE.md``). Refinement is slow (tens of seconds to minutes per structure), so the oracle
 column in ``fold_benchmark.py`` is meant for a subset, not the full sweep.
+
+KNOWN ISSUE (2026-07): via the PyRosetta path below, ``FlexPepDockingProtocol().apply(pose)`` is a
+**no-op** on our 5-chain TCR-pMHC complexes — the dumped pose equals the input (peptide RMSD Δ=0.000
+vs the un-refined baseline across every test pair). FlexPepDock refine needs the receptor↔peptide jump /
+FoldTree set up (the command-line app infers it from the last-chain-peptide convention; bare protocol
+construction here does not). The oracle is therefore currently NON-FUNCTIONAL and its numbers must NOT
+be reported as FlexPepDock accuracy. Fix by configuring the FlexPepDock FoldTree + ``-flexPepDocking``
+flags (or use the external binary path) before trusting the column.
 """
 
 from __future__ import annotations
