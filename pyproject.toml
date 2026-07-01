@@ -27,7 +27,7 @@ dependencies = [
     "typer>=0.12",
     "requests>=2.31",
     "huggingface_hub>=0.20",  # lazy fetch of canonical reference structures for orientation
-    "arda-mapper>=2.0.1",  # TCR annotation backend (PyPI dist of antigenomics/arda; imports as `arda`)
+    "arda-mapper>=2.0.3",  # TCR annotation backend (PyPI dist of antigenomics/arda; imports as `arda`). >=2.0.3 needs no ARDA_HOME (auto-fetches its reference on first use).
 ]
 
 [project.optional-dependencies]
