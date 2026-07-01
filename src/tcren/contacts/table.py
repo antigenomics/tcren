@@ -69,14 +69,22 @@ def symmetrize(contacts: pl.DataFrame) -> pl.DataFrame:
     return pl.concat([contacts, swapped])
 
 
-def tidy_contacts(structure: Structure, cutoff: float = 5.0) -> pl.DataFrame:
+def tidy_contacts(
+    structure: Structure, cutoff: float = 5.0, count_atoms: bool = False
+) -> pl.DataFrame:
     """Symmetrised, fully annotated contact table for a structure.
 
     Each inter-chain residue contact appears in both directions, with chain type,
     region type, region start and amino acid attached on both the ``from`` and ``to``
     sides — the input to :class:`tcren.contactmap.ContactMap`.
+
+    When ``count_atoms`` is set, the ``n_atom_contacts`` per-residue-pair heavy-atom
+    count is carried through (it is symmetric, so it survives the from/to swap
+    unchanged). Default ``False`` keeps the table byte-identical to the legacy output.
     """
-    contacts = symmetrize(all_atom_contacts(structure, cutoff=cutoff))
+    contacts = symmetrize(
+        all_atom_contacts(structure, cutoff=cutoff, count_atoms=count_atoms)
+    )
     ann = residue_annotation(structure)
 
     from_ann = ann.rename(

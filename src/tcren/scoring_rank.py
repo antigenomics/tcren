@@ -85,6 +85,7 @@ def percentile_rank(
     seed: int = 0,
     tcr_regions: str = "all",
     background: Iterable[str] | None = None,
+    contact_weight: str = "residue",
 ) -> dict:
     """Percentile rank of a peptide's energy against a random pMHC background.
 
@@ -105,6 +106,8 @@ def percentile_rank(
             ``"cdr"`` or ``"cdr+fr"``); passed through to ``score_peptides``.
         background: Explicit background peptides; when ``None`` a uniform-random
             background of length ``len(peptide)`` is generated.
+        contact_weight: ``"residue"`` (default) or ``"atomic"``; passed through to
+            ``score_peptides`` (``"atomic"`` needs an ``n_atom_contacts`` contact map).
 
     Returns:
         Mapping with keys ``peptide``, ``score`` (native energy), ``rank_pct``
@@ -116,7 +119,8 @@ def percentile_rank(
         bg = list(background)
 
     scored = score_peptides(
-        contact_map, [peptide] + bg, potential, interface=interface, tcr_regions=tcr_regions
+        contact_map, [peptide] + bg, potential, interface=interface,
+        tcr_regions=tcr_regions, contact_weight=contact_weight,
     )
     by_peptide = dict(zip(scored["peptide"], scored["score"]))
     if peptide not in by_peptide:

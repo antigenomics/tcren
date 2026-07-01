@@ -39,17 +39,29 @@ def _atom_arrays(structure: Structure):
     )
 
 
-def all_atom_contacts(structure: Structure, cutoff: float = 5.0) -> pl.DataFrame:
+def all_atom_contacts(
+    structure: Structure, cutoff: float = 5.0, count_atoms: bool = False
+) -> pl.DataFrame:
     """Closest inter-chain atom contact for each residue pair within ``cutoff`` Å.
 
     For every pair of residues on different chains that have at least one heavy-atom
     pair within ``cutoff`` (inclusive, matching the legacy ``dist <= 5``), the row with
     the minimum atom–atom distance is kept.
 
+    Args:
+        structure: The (parsed) structure.
+        cutoff: Contact distance threshold (Å, inclusive).
+        count_atoms: When ``True`` add an extra ``n_atom_contacts`` column = the count
+            of heavy-atom pairs within ``cutoff`` for that residue pair (always ``>= 1``
+            for any kept row, and ``>=`` the single closest-atom row this function keeps).
+            Default ``False`` keeps the schema and every value byte-identical to the
+            legacy output.
+
     Returns:
         Columns: ``chain.id.from``, ``residue.index.from``, ``chain.id.to``,
         ``residue.index.to``, ``residue.aa.from``, ``residue.aa.to``,
-        ``atom.from``, ``atom.to``, ``dist``. Each unordered residue pair appears once,
+        ``atom.from``, ``atom.to``, ``dist`` (plus ``n_atom_contacts`` when
+        ``count_atoms`` is set). Each unordered residue pair appears once,
         in ``(chain.id, residue.index)`` lexicographic order.
     """
     coords, chain_ids, res_idx, res_aa, atom_names = _atom_arrays(structure)
@@ -64,6 +76,8 @@ def all_atom_contacts(structure: Structure, cutoff: float = 5.0) -> pl.DataFrame
         "atom.to": pl.Utf8,
         "dist": pl.Float64,
     }
+    if count_atoms:
+        schema["n_atom_contacts"] = pl.UInt32
     if len(coords) == 0:
         return pl.DataFrame(schema=schema)
 
@@ -102,15 +116,14 @@ def all_atom_contacts(structure: Structure, cutoff: float = 5.0) -> pl.DataFrame
             "dist": dist,
         }
     )
+    group_keys = [
+        "chain.id.from", "residue.index.from", "chain.id.to", "residue.index.to",
+    ]
+    if count_atoms:
+        # One row per atom-atom pair, so the group size is the heavy-atom-pair count.
+        df = df.with_columns(pl.len().over(group_keys).alias("n_atom_contacts"))
     # Keep the closest atom pair per residue pair.
-    df = (
-        df.sort("dist")
-        .group_by(
-            ["chain.id.from", "residue.index.from", "chain.id.to", "residue.index.to"],
-            maintain_order=True,
-        )
-        .first()
-    )
+    df = df.sort("dist").group_by(group_keys, maintain_order=True).first()
     return df.select(list(schema.keys()))
 
 

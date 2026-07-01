@@ -82,14 +82,32 @@ class PipelineResult:
     extra: dict = field(default_factory=dict)
 
 
-def _interface_energy(contacts: pl.DataFrame, potential: Potential) -> float:
-    """Sum the residue-pair ``potential`` over an interface's contacts (unknown residues skipped)."""
+def _interface_energy(
+    contacts: pl.DataFrame, potential: Potential, contact_weight: str = "residue"
+) -> float:
+    """Sum the residue-pair ``potential`` over an interface's contacts (unknown residues skipped).
+
+    With ``contact_weight="residue"`` (default, legacy) each contacting residue pair adds
+    ``potential[a, b]``. With ``contact_weight="atomic"`` each pair is multiplied by its
+    ``n_atom_contacts`` heavy-atom-pair count (which the contacts table must carry).
+    """
     if contacts.is_empty():
         return 0.0
+    if contact_weight == "atomic":
+        if "n_atom_contacts" not in contacts.columns:
+            raise ValueError(
+                "contact_weight='atomic' needs the n_atom_contacts column; build the "
+                "contact map with count_atoms=True"
+            )
+        weights = contacts["n_atom_contacts"].to_list()
+    else:
+        weights = [1] * contacts.height
     total = 0.0
-    for a, b in zip(contacts["residue.aa.from"], contacts["residue.aa.to"]):
+    for a, b, w in zip(
+        contacts["residue.aa.from"], contacts["residue.aa.to"], weights
+    ):
         try:
-            total += potential.value(a, b)
+            total += potential.value(a, b) * w
         except (KeyError, IndexError):  # X / non-standard residue not in the potential
             continue
     return total
@@ -103,6 +121,7 @@ def run(
     cutoff: float = 5.0,
     potentials: dict[str, str | Potential | None] | None = None,
     tcr_regions: str = "all",
+    contact_weight: str = "residue",
 ) -> PipelineResult:
     """Run the full pipeline on one structure (path or parsed :class:`Structure`).
 
@@ -120,11 +139,18 @@ def run(
         tcr_regions: which TCR regions to keep on the TCR side of the TCR-containing
             interfaces (``"all"`` default = no filter = legacy behaviour; ``"cdr"`` or
             ``"cdr+fr"`` to restrict).
+        contact_weight: ``"residue"`` (default, legacy) weights each contacting residue
+            pair by 1 on **all three** interfaces; ``"atomic"`` weights each pair by its
+            ``n_atom_contacts`` heavy-atom-pair count (the contact map is then built with
+            ``count_atoms=True``). Applies to ``tcr_peptide``, ``tcr_mhc`` and
+            ``peptide_mhc`` alike.
 
     Returns:
         A :class:`PipelineResult` with the markup, contacts, per-interface scores and (if
         requested) the canonical-frame oriented structure.
     """
+    if contact_weight not in ("residue", "atomic"):
+        raise ValueError(f"contact_weight must be 'residue' or 'atomic', got {contact_weight!r}")
     s = structure if isinstance(structure, Structure) else import_structure(structure)
     classify_chains(s, organism=organism)
     calls = annotate_mhc(s)
@@ -136,11 +162,15 @@ def run(
         oriented, info = _superimpose(s, db_dir=db_dir, organism=organism)
         rmsd = info.rmsd
 
-    cm = ContactMap.from_structure(s, cutoff=cutoff)
+    cm = ContactMap.from_structure(
+        s, cutoff=cutoff, count_atoms=(contact_weight == "atomic")
+    )
     resolved = _resolve_potentials(potentials)
     scores = {
         iface: _interface_energy(
-            cm.interface(iface, tcr_regions=tcr_regions), resolved[iface]
+            cm.interface(iface, tcr_regions=tcr_regions),
+            resolved[iface],
+            contact_weight=contact_weight,
         )
         for iface in _INTERFACE_POTENTIAL
     }

@@ -30,6 +30,7 @@ def derive_tcren(
     variant: str = "classic",
     beta: float = 44.0,
     drop_cys: bool | None = None,
+    weights: dict[str, float] | None = None,
 ) -> Potential:
     """Derive a TCRen potential from a table of residue contacts.
 
@@ -44,6 +45,12 @@ def derive_tcren(
             Cys retained).
         beta: Temperature divisor used by the ``"am"`` variant.
         drop_cys: Override the per-variant default for dropping ``from == "C"`` rows.
+        weights: Optional per-structure weights ``{pdb.id: weight}``. When given, each
+            structure's contributions to the aa-pair counts are multiplied by its weight
+            (rows whose ``pdb.id`` is absent from the map default to weight ``1.0``);
+            this down-weights redundancy while keeping all data (see
+            :func:`tcren.potential.redundancy.cluster_weights`). ``None`` (default) is
+            unweighted and byte-identical to the legacy derivation.
 
     Returns:
         The derived :class:`Potential`. For ``"am"`` the long matrix additionally
@@ -57,15 +64,27 @@ def derive_tcren(
         df = df.filter(pl.col("pdb.id").is_in(include))
     if exclude is not None:
         df = df.filter(~pl.col("pdb.id").is_in(exclude))
-    n_contacts = df.height
 
     alphabet = _AA20_CLASSIC if variant == "classic" else AA21
     if drop_cys is None:
         drop_cys = variant == "classic"
 
-    counts = df.group_by("residue.aa.from", "residue.aa.to").agg(
-        pl.len().alias("count")
-    )
+    if weights is None:
+        # Unweighted: one row = one count (byte-identical to the legacy path).
+        n_contacts = df.height
+        counts = df.group_by("residue.aa.from", "residue.aa.to").agg(
+            pl.len().alias("count")
+        )
+    else:
+        # Weighted: each row contributes its structure's weight (default 1.0).
+        w = df["pdb.id"].replace_strict(
+            weights, default=1.0, return_dtype=pl.Float64
+        )
+        df = df.with_columns(w.alias("_w"))
+        n_contacts = float(df["_w"].sum())
+        counts = df.group_by("residue.aa.from", "residue.aa.to").agg(
+            pl.col("_w").sum().alias("count")
+        )
     if variant == "am":
         # The gap/gap cell is seeded with the total number of contacts, mirroring the
         # rbind(tibble("-","-", count = nrow(res))) line in tcren_am.Rmd.
