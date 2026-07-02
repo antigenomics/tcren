@@ -38,4 +38,6 @@ jobs:
           pip install biopython scipy numpy polars typer requests huggingface_hub rapidfuzz \
                       pytest pytest-cov matplotlib
       - name: Run unit tests (arda/mmseqs-backed tests skip without arda)
-        run: pytest -m "not slow" -ra
+        # Coverage gate: the lean unit suite covers ~58% of src/tcren; fail below 50%
+        # to catch large drops without flaking on which optional (C++/arda) tests run.
+        run: pytest -m "not slow" -ra --cov=tcren --cov-report=term-missing --cov-fail-under=50

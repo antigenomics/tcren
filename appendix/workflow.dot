@@ -1,0 +1,51 @@
+// tcren2 workflow. Render: dot -Tpdf workflow.dot -o workflow.pdf
+// Parameter values annotated on the nodes are the code defaults (see the parameter table).
+digraph tcren2 {
+  rankdir=TB;
+  graph [fontname="Helvetica", nodesep=0.30, ranksep=0.42];
+  node  [fontname="Helvetica", fontsize=10, shape=box, style="rounded,filled",
+         fillcolor="#f5f5f2", color="#555555", margin="0.13,0.08"];
+  edge  [fontname="Helvetica", fontsize=9, color="#555555", arrowsize=0.7];
+
+  input [label="TCR:pMHC structure\nPDB / mmCIF", shape=folder, fillcolor="#e6edf3"];
+  cand  [label="candidate peptide(s)\nequal length", shape=folder, fillcolor="#e6edf3"];
+
+  subgraph cluster_pipe {
+    label="tcren pipeline  (single call)";
+    labeljust="l"; fontname="Helvetica-Bold"; fontsize=10;
+    color="#aaaaaa"; style="rounded"; bgcolor="#fbfbf9";
+    imp [label="import\nC-gene trimmed"];
+    ann [label="annotate\nTCR loci + CDRs (arda)\nMHC allele / class / role + groove"];
+    ori [label="superimpose  (optional)\ncanonical Cα frame"];
+    con [label="contact map\nclosest heavy atom ≤ 5 Å\none pair / residue pair\n3 interfaces + region markup"];
+    sco [label="score interfaces\nTCRen: TCR–peptide\nMJ (Keskin): TCR–MHC, peptide–MHC\nΦ = Σ φ(a_i, a_j) over contacts"];
+    imp -> ann -> ori -> con -> sco;
+  }
+
+  subgraph cluster_virtual {
+    label="virtual outputs  (no atom moved)";
+    labeljust="l"; fontname="Helvetica-Bold"; fontsize=10;
+    color="#aaaaaa"; style="rounded"; bgcolor="#fbfbf9";
+    rnk [label="percentile rank\nnative vs 1000 random /\nshuffled-epitope background"];
+    ddg [label="ΔΔG = E(native) − E(mutant)\nre-scored on same map"];
+  }
+
+  subgraph cluster_coord {
+    label="coordinate operations";
+    labeljust="l"; fontname="Helvetica-Bold"; fontsize=10;
+    color="#aaaaaa"; style="rounded"; bgcolor="#fbfbf9";
+    sub [label="substitute\nkeep backbone + Cβ"];
+    ref [label="DOPE refine\nMetropolis MC, harmonic restraint w_r"];
+    fpd [label="FlexPepDock  (external)\nref2015 full-atom", style="rounded,dashed,filled", fillcolor="#efefec"];
+    sub -> ref -> fpd;
+  }
+
+  mec [label="interface mechanics\nENM springs ≤ 8 Å (inv-dist²)\ntensile stiffness K_tens → k_off"];
+
+  input -> imp;
+  cand  -> sco [style=dashed, label="thread onto\nnative contacts"];
+  sco -> rnk;
+  sco -> ddg;
+  con -> sub [constraint=false];
+  ori -> mec [constraint=false];
+}

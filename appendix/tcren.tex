@@ -3,6 +3,7 @@
 \usepackage[margin=1in]{geometry}
 \usepackage{amsmath,amsthm}
 \usepackage{mathtools}
+\usepackage{booktabs}
 \usepackage{graphicx}
 % Old-style journal look matching the mhcmatch appendix (OldStandard text+math, small-caps
 % headings, run-in paragraph leaders). Requires lualatex -- pinned in .latexmkrc / Makefile.
@@ -14,6 +15,9 @@
 
 \linespread{1.15}
 \setlength{\parindent}{2em}
+% allow a large top float (the full-width workflow diagram) near where it is referenced
+\renewcommand{\topfraction}{0.9}
+\renewcommand{\floatpagefraction}{0.8}
 \titleformat{\section}{\normalfont\large\scshape\bfseries}{\thesection.}{0.6em}{}
 \titleformat{\subsection}{\normalfont\scshape\bfseries}{\thesubsection.}{0.5em}{}
 \titleformat{\paragraph}[runin]{\bfseries\scshape}{}{0pt}{}[.]
@@ -33,8 +37,7 @@
 \newcommand{\Cset}{\mathcal{C}}
 \newcommand{\xref}{x^{0}}
 
-\title{\scshape Backbone-preserving peptide substitution and potential-guided
-refinement of TCR--peptide--MHC structures}
+\title{\scshape tcren2 --- a methods reference:\\ contact-potential scoring, ranking, and structure operations}
 \author{Mikhail Shugay\textsuperscript{1}\thanks{Correspondence:
   \href{mailto:mikhail.shugay@gmail.com}{mikhail.shugay@gmail.com}}}
 \date{%
@@ -47,37 +50,114 @@ refinement of TCR--peptide--MHC structures}
 \maketitle
 
 \begin{abstract}
-\texttt{tcren} ranks candidate epitopes for a fixed TCR--peptide--MHC structure by summing a
-residue-level pairwise statistical potential over the observed contact map~\cite{Karnaukhov2024};
-because the potential depends only on residue identity and the closest-atom contact geometry, a
-candidate is scored \emph{virtually}---its amino acids are threaded onto the native contacts with no
-atom moved. This appendix documents two coordinate-level extensions that the virtual score does not
-need but downstream re-docking does: (i) a backbone-preserving \emph{peptide substitution} that
-produces the coordinates of a new equal-length epitope on the native scaffold, and (ii) a
-knowledge-based \emph{potential-guided refinement} of the peptide pose---the \textsc{dope} atom-level
-distance-dependent statistical potential~\cite{Shen2006} plus a harmonic restraint to the input pose,
-sampled by rigid-body Metropolis Monte Carlo~\cite{Metropolis1953,Kirkpatrick1983} and implemented as
-a \texttt{pybind11}/C++ kernel. The refinement potential is deliberately \emph{distinct} from the
-TCRen / Miyazawa--Jernigan potentials \texttt{tcren} \emph{scores} epitopes with: refining a pose
-against the same quantity one then reports would be circular, so the pose is optimised under an
-independent, more physical energy. We give the energy function, prove that the restraint is necessary
-(without it the rigid-body minimiser drifts the peptide out of its pocket), and state the sampler and
-its cost. The method is knowledge-based, in the spirit of distance-dependent potentials of mean
-force~\cite{Sippl1990,Miyazawa1996,Shen2006}; it is \emph{not} a physics force field. Physics-grade
-relaxation is delegated to Rosetta FlexPepDock~\cite{Raveh2010,London2011}.
+\texttt{tcren} scores a candidate epitope for a fixed TCR--peptide--MHC structure by summing a
+residue-level pairwise statistical potential over the observed contact map~\cite{Karnaukhov2024}. The
+score depends only on residue identity and the closest-atom contact geometry, so a candidate is scored
+\emph{virtually}: its amino acids are threaded onto the native contacts with no atom moved. This
+appendix is the implementation-level companion to the method's biophysical synopsis --- it states, as
+the code computes them, the contact map, the statistical potentials and their derivation, the per-task
+readouts (epitope ranking, percentile rank, mutational $\Delta\Delta G$), the two coordinate-level
+operations (backbone-preserving substitution and knowledge-based pose refinement), and the interface
+mechanics. Every default parameter is collected in Table~\ref{tab:params}; the formulas are the exact
+quantities evaluated.
 \end{abstract}
 
-\section{Scope}\label{sec:scope}
-For a chain-typed complex \texttt{tcren} builds the inter-chain contact map---closest heavy-atom
-pairs at a $5\,\text{\AA}$ cutoff, reduced to one pair per residue pair---and scores a candidate
-peptide $s$ on the TCR$\leftrightarrow$peptide interface as $\sum_{(i,j)} \phi(a_i, s_{\pi(j)})$,
-where $\phi$ is the TCRen statistical potential, $a_i$ the fixed partner residue and $\pi$ the
-contact's peptide position~\cite{Karnaukhov2024}. This is a fixed-backbone, fixed-contact-set
-approximation: the native pose stands in for every candidate. It is fast (microseconds per peptide)
-and is the basis of all ranking in \texttt{tcren}. The two operations below relax that
-approximation when a candidate's \emph{geometry}---not just its score on the native contacts---is
-required, e.g.\ to seed re-docking, to relieve a clash introduced by substitution, or to compare
-poses across candidates.
+\section{Workflow}\label{sec:workflow}
+Figure~\ref{fig:workflow} is the end-to-end pipeline. A single call (\texttt{tcren pipeline}) takes a
+structure through: \textbf{(1)~import} (C-gene-trimmed parse of PDB / mmCIF); \textbf{(2)~annotate} ---
+TCR loci and CDR/framework regions by germline alignment (\textsc{arda}), MHC allele, class, chain role
+and groove positions; \textbf{(3)~superimpose} (optional) onto the canonical database, placing the
+complex in a common MHC-groove $\mathrm C_\alpha$ frame so downstream geometry is comparable across
+complexes; \textbf{(4)~contacts} --- the $5\,\text{\AA}$ heavy-atom contact map with a per-residue
+region markup; and \textbf{(5)~score} --- each interface summed under its potential. Candidate epitopes,
+percentile ranks and $\Delta\Delta G$ are read \emph{virtually} off the resulting map; substitution,
+refinement and mechanics operate on coordinates. The same operations are exposed as subcommands
+(\texttt{annotate}, \texttt{orient}, \texttt{contacts}, \texttt{score}, \texttt{rank}, \texttt{ddg},
+\texttt{refine}) and as a Python API.
+
+\begin{figure}[tbp]\centering
+\includegraphics[width=0.9\linewidth]{workflow.pdf}
+\caption{The \texttt{tcren2} workflow. The single-call pipeline parses, annotates, orients and builds
+the $5\,\text{\AA}$ contact map, then scores each interface (TCRen on TCR--peptide, Miyazawa--Jernigan
+on the presentation interfaces). Candidate peptides thread onto the native contacts for virtual scoring,
+percentile ranking and $\Delta\Delta G$ (no atom moved); the coordinate operations (substitute, DOPE
+refine, external FlexPepDock relaxation) and the interface-mechanics off-rate proxy consume the oriented
+structure. Node annotations are the code defaults of Table~\ref{tab:params}.}
+\label{fig:workflow}
+\end{figure}
+
+\section{Contact map}\label{sec:contacts}
+For a chain-typed complex \texttt{tcren} builds the inter-chain contact map: two residues on different
+chains are in contact when their closest heavy-atom pair lies within the cutoff $r_c=5\,\text{\AA}$,
+reduced to \emph{one} pair per residue pair (the closest). Partitioning by chain type gives the three
+interfaces of the ternary complex,
+\[
+  \Cset = \Cset_{\mathrm{TCR:pep}} \,\cup\, \Cset_{\mathrm{TCR:MHC}} \,\cup\, \Cset_{\mathrm{pep:MHC}} .
+\]
+Each contact carries the two residue identities and, optionally, its heavy-atom-pair count
+$n^{\mathrm{atoms}}_{ij}$ (built with \texttt{count\_atoms=True}). The map is the single object every
+downstream step consumes; the contact energy is orientation-invariant, while the optional canonical
+frame (step~3) is what makes \emph{geometry} comparable across complexes.
+
+\section{Statistical potentials}\label{sec:potentials}
+\paragraph{TCRen} The TCRen potential is the Boltzmann inversion of observed TCR--peptide contact
+frequencies against an independent-pairing reference~\cite{Karnaukhov2024,Sippl1990}. From the contact
+table, with $n_{ab}$ the count of directed contacts between partner residue $a$ and peptide residue $b$
+(each incremented by a pseudocount $\kappa$), row/column/grand totals $N_a=\sum_b n_{ab}$,
+$N_b=\sum_a n_{ab}$, $N=\sum_{ab}n_{ab}$,
+\begin{equation}\label{eq:tcren}
+  \mathrm{odds}_{ab}=\frac{n_{ab}\,N}{N_a\,N_b},
+  \qquad
+  \phi^{\mathrm{TCRen}}_{ab}=-\ln\mathrm{odds}_{ab}
+\end{equation}
+(lower is more favourable). The grid enumerates the twenty amino acids; cysteine is dropped from the
+partner (``from'') axis \emph{after} the log-odds, a data convention of the reference derivation. An
+alignment-matrix variant replaces $-\ln$ by $-\log_2(\cdot)/\beta$ over 21 symbols (a gap included),
+$\beta=44$; the classic natural-log form above is the shipped default and reproduces
+\texttt{TCRen\_potential.csv} exactly. Optional per-structure weights down-weight redundant complexes in
+the counts while keeping all data.
+
+\paragraph{Presentation interfaces} The peptide--MHC and TCR--MHC interfaces are scored with the
+Miyazawa--Jernigan quasi-chemical contact potential~\cite{Miyazawa1996} (Keskin parameterisation), the
+same log-odds construction \eqref{eq:tcren} applied to a generic protein-contact reference. Using an
+independent potential per interface --- TCRen where thymic selection shaped the statistics, MJ where it
+did not --- is the combination the benchmarks favour.
+
+\section{Scoring, ranking, and \texorpdfstring{$\Delta\Delta G$}{ddG}}\label{sec:scoring}
+\paragraph{Interface energy} A candidate peptide $s$ is scored on an interface by threading its residues
+onto the contacted peptide positions and summing the potential,
+\begin{equation}\label{eq:score}
+  \Phi_{XY}(s)=\!\!\sum_{(i,j)\in\Cset_{XY}}\!\! w_{ij}\,\phi\bigl(a_i,\,s_{\pi(j)}\bigr),
+\end{equation}
+where $\phi$ is the interface's potential, $a_i$ the fixed partner residue, $\pi(j)$ the contact's
+peptide position, and the weight is $w_{ij}=1$ (default, \emph{residue} weighting) or
+$w_{ij}=n^{\mathrm{atoms}}_{ij}$ (\emph{atomic} weighting, which tracks the LJ$+$Coulomb atom-pair sum
+more closely). Pairs absent from the potential (e.g.\ a cysteine partner) contribute nothing. The total
+complex energy is
+$\Phi=\Phi_{\mathrm{TCR:pep}}(\text{TCRen})+\Phi_{\mathrm{TCR:MHC}}(\text{MJ})+\Phi_{\mathrm{pep:MHC}}(\text{MJ})$.
+Scoring is fixed-backbone and fixed-contact-set --- the native pose stands in for every candidate --- so
+a whole library ranks from one structure in microseconds per peptide.
+
+\paragraph{Percentile rank} To turn a raw energy into a calibrated rank, the native peptide is scored
+against a background of $N_{\mathrm{bg}}=1000$ peptides of the same length --- uniform-random over the
+twenty amino acids, or position-shuffled draws from a supplied epitope list --- and its percentile
+reported,
+\begin{equation}\label{eq:rank}
+  \mathrm{rank\%}=\frac{1}{N_{\mathrm{bg}}}\bigl|\{\,b:\Phi(b)\le\Phi(\text{native})\,\}\bigr| .
+\end{equation}
+A small \texttt{rank\_pct} marks a strong binder relative to chance; the background seed is fixed
+(default $0$) for reproducibility.
+
+\paragraph{Mutational $\Delta\Delta G$} A peptide point mutation is scored \emph{virtually} --- no atom
+moves, no re-docking --- by re-scoring the mutant on the same contact map,
+\begin{equation}\label{eq:ddg}
+  \Delta\Delta G=\Phi(\text{native})-\Phi(\text{mutant}),
+\end{equation}
+so a positive value flags a destabilising mutation. Only contacts touching the mutated position survive
+the difference; an interface without the peptide (TCR--MHC) contributes identically zero. This is the
+fast triage matrix (\texttt{alanine\_scan}, \texttt{neoantigen\_ddg}); a quantitative,
+sampling-dependent $\Delta\Delta G$ is left to the coordinate path below and, ultimately, to full
+relaxation.
 
 \section{Backbone-preserving peptide substitution}\label{sec:sub}
 \begin{definition}[Substitution]\label{def:sub}
@@ -108,7 +188,7 @@ $y\in\R^{3M'}$ for the fixed partner (TCR\,$+$\,MHC) heavy atoms. Each heavy ato
 distance-dependent potential of mean force for the class pair $(c,c')$~\cite{Shen2006}, tabulated on
 $29$ knots at $0.75$--$14.75\,\text{\AA}$ ($0.5\,\text{\AA}$ spacing), linearly interpolated, and set
 to $0$ beyond $d_{\max}=14.75\,\text{\AA}$. Crucially $\varphi$ is \emph{not} TCRen or
-Miyazawa--Jernigan---those score the final epitope (\S\ref{sec:scope}), so reusing them to refine
+Miyazawa--Jernigan---those score the final epitope (\S\ref{sec:scoring}), so reusing them to refine
 would optimise the pose against the very quantity reported. \textsc{dope} is a single, chain-agnostic,
 atom-resolved potential applied uniformly to every peptide$\leftrightarrow$partner pair.
 \begin{definition}[Refinement energy]\label{def:energy}
@@ -157,6 +237,54 @@ libraries (\texttt{atmcls-mf.lib}, \texttt{dist-mf.lib}) as redistributed by the
 project.\footnote{\url{https://github.com/pymodproject/altmod} (\textsc{dope} libraries from MODELLER;
 \cite{Shen2006}).} A native pose is a fixed point of the move set up to thermal noise (it barely
 moves); a clashed or displaced input relaxes locally.
+
+\section{Interface mechanics}\label{sec:mechanics}
+The affinity-adjacent quantity a native structure actually predicts is not the equilibrium free energy
+but the dissociation \emph{rate} $k_{\mathrm{off}}$, which sets the bond lifetime a T~cell reads through
+kinetic proofreading. \texttt{tcren} models it mechanically (\texttt{tcren.mechanics}): heavy-atom
+interface contacts within $8\,\text{\AA}$ become elastic-network springs with inverse-square-distance
+stiffness, and the interface is pulled along the TCR$\leftrightarrow$pMHC dissociation axis. The tensile
+stiffness $K_{\mathrm{tens}}$ (\texttt{stiffness\_tensor}) tracks experimental $\log k_{\mathrm{off}}$
+--- a stiffer interface ruptures more slowly (Bell--Evans) --- while a breakable-spring variant records
+the peak resisting force and work past a strain threshold (\texttt{rupture}). These consume the oriented
+structure only; no potential or sequence enters.
+
+\section{Parameter reference}\label{sec:params}
+Table~\ref{tab:params} collects every default. Values are the code defaults (function signatures / CLI
+options); the last column points to the formula or section that uses each.
+
+\begin{table}[ht]\centering\small
+\caption{Default parameters of the \texttt{tcren2} computations. One value per cell; parenthesised names
+are the CLI options.}
+\label{tab:params}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Quantity & Default & Where \\
+\midrule
+Contact cutoff $r_c$ & $5\,\text{\AA}$ (\texttt{-{}-cutoff}) & \S\ref{sec:contacts} \\
+Contact reduction & closest heavy-atom pair, one per residue pair & \S\ref{sec:contacts} \\
+Contact weight & \texttt{residue} ($w{=}1$), or \texttt{atomic} ($w{=}n^{\mathrm{atoms}}$) & \eqref{eq:score} \\
+TCRen potential & $-\ln\mathrm{odds}$, 20 aa (classic) & \eqref{eq:tcren} \\
+Pseudocount $\kappa$ & $1$ (\texttt{-{}-pseudocount}) & \eqref{eq:tcren} \\
+Cysteine & dropped from ``from'' axis (classic) & \eqref{eq:tcren} \\
+am-variant temperature $\beta$ & $44$ & \S\ref{sec:potentials} \\
+Presentation potential & Miyazawa--Jernigan (Keskin) & \S\ref{sec:potentials} \\
+Background size $N_{\mathrm{bg}}$ & $1000$ (\texttt{-{}-background}) & \eqref{eq:rank} \\
+Background seed & $0$ & \eqref{eq:rank} \\
+$\Delta\Delta G$ & $\Phi(\text{nat})-\Phi(\text{mut})$, peptide interfaces & \eqref{eq:ddg} \\
+Substitution frame & backbone $\{\mathrm N,\mathrm C_\alpha,\mathrm C,\mathrm O\}+\mathrm C_\beta$ & Def.~\ref{def:sub} \\
+\textsc{dope} atom classes & $158$ MODELLER mean-force types & \S\ref{sec:refine} \\
+\textsc{dope} knots & $29$ at $0.75$--$14.75\,\text{\AA}$, $0.5\,\text{\AA}$ spacing & \S\ref{sec:refine} \\
+\textsc{dope} cutoff $d_{\max}$ & $14.75\,\text{\AA}$ ($\varphi{=}0$ beyond) & \S\ref{sec:refine} \\
+Restraint weight $w_{\mathrm r}$ & $0.5$ (\texttt{-{}-restraint}) & Def.~\ref{def:energy} \\
+Monte-Carlo steps & $2000$ (\texttt{-{}-steps}) & \S\ref{sec:refine} \\
+Partner shell & $12\,\text{\AA}$ around the peptide & \S\ref{sec:refine} \\
+Mechanics cutoff & $8\,\text{\AA}$ & \S\ref{sec:mechanics} \\
+Spring stiffness & inverse-distance$^2$ & \S\ref{sec:mechanics} \\
+Pull direction & tensile (dissociation axis) & \S\ref{sec:mechanics} \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \section{Assumptions and limitations}\label{sec:limits}
 The peptide is treated as a \emph{rigid} body: there is no backbone flexibility and no side-chain
