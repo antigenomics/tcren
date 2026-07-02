@@ -18,6 +18,7 @@ from .pipeline import PipelineResult
 from .pipeline import run as run_pipeline
 from .potential import Potential, derive_tcren, derive_tcren_loo
 from .refine import check_register, fix_register, refine_peptide, substitute_peptide
+from .refine.interface import interface_energy
 from .scoring import score_peptides, score_structures
 from .scoring_rank import background_peptides, percentile_rank
 from .structure import Structure, import_structure, parse_structure
@@ -48,6 +49,7 @@ __all__ = [
     "stiffness_tensor",
     "rupture",
     "coupling_residues",
+    "interface_energy",
     "interface_clashes",
     "has_clashes",
     "ClashReport",

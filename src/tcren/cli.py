@@ -7,6 +7,8 @@ Scoring & prediction
     * ``tcren rank`` — percentile-rank a peptide's energy against a random pMHC background.
     * ``tcren ddg`` — ΔΔG of peptide mutations (fast virtual-matrix path; alanine scan / neoantigens).
     * ``tcren binder`` — TCR binder vs non-binder from AF-orthogonal interface geometry.
+    * ``tcren energy`` — DOPE atom-level interface interaction energy (the ΔΔG ``e_native`` scorer).
+    * ``tcren mechanics`` — interface mechanics (stiffness / rupture / coupling) — the koff proxies.
     * ``tcren pipeline`` — full pipeline → per-interface energies (TCRen + MJ) + total.
 
 Annotation & contacts
@@ -530,6 +532,81 @@ def pipeline(
             rows.append(score_row(res))
         except Exception as exc:  # noqa: BLE001 - keep the batch resilient
             rows.append({"pdb.id": s.pdb_id, "total": None,
+                         "error": f"{type(exc).__name__}: {str(exc)[:80]}"})
+    pl.DataFrame(rows).write_csv(str(out))
+    typer.echo(f"wrote {out}")
+
+
+@app.command(rich_help_panel=_P_SCORE)
+def energy(
+    structures: str = typer.Option(..., "-s", "--structures", help="structure file, directory, .tar.gz, or glob"),
+    out: Path = typer.Option("energy.csv", "-o", "--out", help="per-structure DOPE interface-energy table"),
+    relax: bool = typer.Option(False, "--relax", help="also report the energy after DOPE refinement + the gap"),
+    shell: float = typer.Option(12.0, "--shell", help="partner atoms within this many Å of the peptide (DOPE range)"),
+    organism: str = typer.Option("human", "--organism"),
+    seed: int = typer.Option(0, "--seed", help="refinement seed (with --relax)"),
+) -> None:
+    """DOPE atom-level interaction energy across the peptide↔partner interface (the ``_relax`` kernel).
+
+    Sums the DOPE potential over peptide↔partner heavy-atom pairs — the interface ΔG contribution of the
+    peptide (lower = more favourable). With ``--relax`` it also reports the energy after a rigid-body DOPE
+    refinement (:func:`tcren.refine_peptide`) and the relaxation ``gap`` = e_native − e_relax. This is the
+    single-structure scorer behind the ΔΔG benchmark (``e_native``/``e_relax``).
+    """
+    from .refine import interface_energy, refine_peptide
+    from .structure.io import import_structure
+
+    rows = []
+    for pid, s in iter_structures(structures, importer=import_structure):
+        try:
+            classify_chains(s, organism=organism)
+            row = {"pdb.id": pid, "e_native": interface_energy(s, shell=shell)}
+            if relax:
+                row["e_relax"] = interface_energy(refine_peptide(s, seed=seed)[0], shell=shell)
+                row["gap"] = row["e_native"] - row["e_relax"]
+            rows.append(row)
+        except Exception as exc:  # noqa: BLE001 - keep the batch resilient
+            rows.append({"pdb.id": pid, "e_native": None,
+                         "error": f"{type(exc).__name__}: {str(exc)[:80]}"})
+    pl.DataFrame(rows).write_csv(str(out))
+    typer.echo(f"wrote {out}")
+
+
+@app.command(rich_help_panel=_P_SCORE)
+def mechanics(
+    structures: str = typer.Option(..., "-s", "--structures", help="structure file, directory, .tar.gz, or glob"),
+    out: Path = typer.Option("mechanics.csv", "-o", "--out", help="per-structure interface-mechanics table"),
+    cutoff: float = typer.Option(8.0, "--cutoff", help="heavy-atom contact cutoff (Å) defining a spring"),
+    weight: str = typer.Option("invdist2", "--weight", help="spring stiffness model: unit|count|invdist2"),
+    direction: str = typer.Option("tensile", "--direction", help="rupture pull: tensile|shear|auto"),
+    break_strain: float = typer.Option(0.5, "--break-strain", help="fractional extension at which a spring breaks"),
+    organism: str = typer.Option("human", "--organism"),
+) -> None:
+    """Interface mechanics — the koff proxies: stiffness tensor + steered rupture + coupling residues.
+
+    Treats the TCR↔pMHC contact map as a network of breakable springs and reports, per structure:
+    ``n_spring``, ``S_tot``/``K_tens``/``K_shear``/``aniso`` (stiffness tensor), ``rupture_force``/
+    ``rupture_work`` (steered unbinding), and ``couple_pep``/``couple_total`` (coupling residues).
+    Validated on ATLAS: the tensile stiffness / rupture resistance track the dissociation off-rate
+    (koff) far better than the equilibrium ΔG/Kd (Bell–Evans; the TCR is a mechanosensor).
+    """
+    from .mechanics import WEIGHTS, coupling_residues, rupture, stiffness_tensor
+
+    if weight not in WEIGHTS:
+        raise typer.BadParameter(f"--weight must be one of {'|'.join(WEIGHTS)}")
+    if direction not in ("tensile", "shear", "auto"):
+        raise typer.BadParameter("--direction must be one of tensile|shear|auto")
+    rows = []
+    for pid, s in iter_structures(structures, importer=parse_structure):
+        try:
+            classify_chains(s, organism=organism)
+            row = {"pdb.id": pid, **stiffness_tensor(s, cutoff=cutoff, weight=weight)}
+            row.update(rupture(s, direction=direction, cutoff=cutoff, weight=weight,
+                               break_strain=break_strain))
+            row.update(coupling_residues(s))
+            rows.append(row)
+        except Exception as exc:  # noqa: BLE001 - keep the batch resilient
+            rows.append({"pdb.id": pid, "K_tens": None,
                          "error": f"{type(exc).__name__}: {str(exc)[:80]}"})
     pl.DataFrame(rows).write_csv(str(out))
     typer.echo(f"wrote {out}")

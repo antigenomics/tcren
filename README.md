@@ -46,9 +46,10 @@ From one TCR–peptide–MHC structure (crystal or model), each task is one comm
 | Interface contact table (5/8/12 Å) | `tcren contacts` | `ContactMap`, `multi_contacts` |
 | Orient into the canonical MHC frame | `tcren superimpose` / `orient` | `superimpose`, `canonicalize_structure` |
 | Substitute a peptide + refine its pose | `tcren refine` | `substitute_peptide`, `refine_peptide` |
+| DOPE interface energy (ΔΔG `e_native`) | `tcren energy` | `interface_energy` |
+| Interface mechanics — koff proxies (stiffness / rupture) | `tcren mechanics` | `stiffness_tensor`, `rupture`, `coupling_residues` |
 | Re-derive the statistical potential | `tcren derive-potential` | `derive_tcren` |
 | Steric-clash / wrong-register QC | — | `interface_clashes`, `check_register` |
-| Interface stiffness / rupture mechanics | — | `interface_springs`, `stiffness_tensor`, `rupture` |
 | 2D complementarity map + 3D pocket/CDR view | — | `render_complementarity_map`, `view_pocket_cdr` |
 
 ## Install
@@ -65,10 +66,11 @@ bash setup.sh              # creates the `tcren` conda env, installs arda + tcre
 conda activate tcren
 ```
 
-tcren ships three small **pybind11/C++ extensions**, built on install by `scikit-build-core`:
+tcren ships five small **pybind11/C++ extensions**, built on install by `scikit-build-core`:
 `tcren._align` (MHC-pseudosequence fitting alignment; a Biopython fallback runs if unbuilt),
-`tcren._refine` (DOPE atom-level Monte-Carlo peptide refinement) and `tcren._fold` (CCD loop
-closure). TCR annotation is provided by [`arda`](https://github.com/antigenomics/arda), a runtime
+`tcren._refine` (DOPE atom-level Monte-Carlo peptide refinement), `tcren._relax` (DOPE interface
+energy for `tcren energy` / ΔΔG), `tcren._fold` (CCD loop closure) and `tcren._geom` (interface
+geometry for `tcren binder`). TCR annotation is provided by [`arda`](https://github.com/antigenomics/arda), a runtime
 dependency published to PyPI as [`arda-mapper`](https://pypi.org/project/arda-mapper/) (it imports
 as `arda`); `pip`/`setup.sh` pull it automatically, and from `arda-mapper >= 2.0.3` it auto-fetches
 its own reference on first use (no `ARDA_HOME` to set). `setup.sh` also runs `tcren fetch-data` to
