@@ -203,6 +203,14 @@ tcren.mechanics module
    :undoc-members:
    :show-inheritance:
 
+tcren.clashes module
+~~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: tcren.clashes
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 tcren.pipeline module
 ~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -228,6 +236,11 @@ tcren.refine package
    :show-inheritance:
 
 .. automodule:: tcren.refine.substitute
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. automodule:: tcren.refine.register
    :members:
    :undoc-members:
    :show-inheritance:

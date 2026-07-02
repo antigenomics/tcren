@@ -101,6 +101,24 @@ Reference: `arda.annotate_sequences([(id, seq), ...])` — one call, threads int
 - `tcren refine -s … -o … [--substitute PEP] [--steps N] [--restraint W]`. Native pose ≈ stays
   (RMSD ~0.2 Å); a buried/clashed peptide relaxes locally. Deterministic given `seed`.
 
+## Clash detection + register fix — `tcren.clashes`, `tcren.refine.register`
+
+QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses are routinely non-physical
+(forced poses), which corrupts the contact energy the score reads.
+- `interface_clashes(structure, tolerance=0.4, severe=0.6) -> ClashReport` — **numpy-only, no kernel**.
+  Heavy-atom vdW overlaps (Bondi radii) between the peptide chain and its partners, broken down by
+  partner `chain_type` (`by_partner`), with `n_clashes`/`n_severe`/`max_overlap`/`clash_score` + the
+  worst residue pairs. `has_clashes(structure)` is the bool convenience. Self-check `python -m tcren.clashes`.
+- `check_register(model, reference=None) -> RegisterReport` — always reports the clash burden; with a
+  correctly-registered `reference` (crystal / trusted pose) it adds the **anchor-Cα RMSD** in the
+  MHC-groove frame (`peptide_rmsd`) → `wrong_register` (True/False; `None` without a reference).
+  **A heavy clash burden alone is NOT a register call** — AF swap models are routinely clashy; register
+  needs the reference. (The ila1 CPL lesson: forced pose → raw TCRen ROC 0.35, recovered to ≈0.77 on the crystal register.)
+- `fix_register(model, template, engine="ccd") -> ModelResult` — re-threads the model's peptide sequence
+  onto `template`'s correctly-registered backbone and re-refines via `model_peptide` (the
+  FlexPepDock-functional path; needs the `_refine`/`_fold` kernel). Equal peptide length required.
+  Template-free re-docking (CCD to canonical anchor targets) is the future extension.
+
 ## Interface mechanics — `tcren.mechanics` (koff/kinetics, NOT ΔG)
 
 - The TCR↔pMHC contact map as a network of breakable Cα-anchored Hookean springs (per-contact
