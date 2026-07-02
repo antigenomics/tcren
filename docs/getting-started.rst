@@ -4,14 +4,26 @@ Getting started
 Installation
 ------------
 
+From PyPI (binary wheels ship the C++ extensions and pull in the TCR-annotation backend):
+
+.. code-block:: console
+
+   $ pip install tcren
+
+For development — the conda toolchain, an editable install, and the reference data fetched
+into ``data/``:
+
 .. code-block:: console
 
    $ bash setup.sh
    $ conda activate tcren
 
-``setup.sh`` creates the ``tcren`` conda environment and installs ``tcren`` in editable mode.
-The TCR-annotation backend ``arda`` (mmseqs2-based) is pulled in automatically as a pinned
-git dependency (tag ``2.0.1``); its C++ extension builds against the conda toolchain.
+The TCR-annotation backend ``arda`` (mmseqs2-based) is a normal dependency, published to PyPI as
+`arda-mapper <https://pypi.org/project/arda-mapper/>`_ (it imports as ``arda``); ``pip``/``setup.sh``
+pull it in automatically. From ``arda-mapper >= 2.0.3`` it auto-fetches its own reference on first
+use — no ``ARDA_HOME`` to set. ``tcren`` also builds three small pybind11/C++ kernels on install
+(``tcren._align`` MHC-pseudosequence alignment, ``tcren._refine`` DOPE refinement, ``tcren._fold``
+CCD loop closure).
 
 Command line
 ------------
@@ -72,6 +84,44 @@ validated to have all five required chains):
 .. code-block:: console
 
    $ tcren fetch-recent --discover --after 2024-01-01
+
+What tcren can answer
+---------------------
+
+From a single TCR–peptide–MHC structure (crystal or model), each task is one command:
+
+=================================================  ==========================================================
+question                                           command
+=================================================  ==========================================================
+Which candidate epitopes does this TCR recognise?  ``tcren score -s c.pdb -c candidates.txt -o ranked.csv``
+Is this peptide a strong binder for this TCR?       ``tcren rank -s c.pdb -o rank.csv``
+How does a mutation change recognition (ΔΔG)?       ``tcren ddg -s c.pdb --native EPI --alanine-scan``
+Is this modelled TCR a binder or a non-binder?      ``tcren binder -s model.pdb -o binder.csv``
+Full three-interface energy breakdown?              ``tcren pipeline -s c.pdb -o scores.csv``
+Substitute a peptide and relax its pose?            ``tcren refine -s c.pdb --substitute KQWLVWLFL -o out/``
+=================================================  ==========================================================
+
+Case studies
+------------
+
+* **Screen candidate epitopes.** ``tcren score`` ranks a candidate list by TCRen energy on the
+  native contact map (no re-docking) — the drop-in for the original ``run_TCRen.R``. Add
+  ``tcren rank`` to place the top hit's energy in a random-background percentile.
+
+* **Neoantigen / alanine ΔΔG.** ``tcren ddg`` re-scores mutants on the native contacts:
+  ``--alanine-scan`` for a per-position sensitivity profile, or ``--mutant`` (repeatable) for
+  specific neoantigen substitutions. Positive ΔΔG = destabilising.
+
+* **Rank candidate TCRs against a fixed pMHC.** ``tcren binder`` scores AlphaFold/TCRmodel2 models
+  from interface geometry (size, dual-chain balance, H-bonds, buried ΔSASA) plus a CDR1/2-vs-CDR3α
+  TCRen term — AlphaFold-orthogonal signal that ranks binders above non-binders using no external
+  tool. See :func:`tcren.binder.binder_score`.
+
+* **Substitute + refine a pose.** ``tcren refine --substitute`` threads a new equal-length peptide
+  onto the backbone and runs a knowledge-based Monte-Carlo refinement scored by the DOPE atom-level
+  potential — deliberately *independent* of the TCRen/MJ scoring potentials so the pose is not
+  optimised against the quantity it is later scored with. This is not physics relaxation; use Rosetta
+  FlexPepDock for that.
 
 Library
 -------

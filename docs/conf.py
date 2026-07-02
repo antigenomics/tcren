@@ -20,7 +20,16 @@ if _NB_SRC.is_dir():
 
 project = "tcren"
 author = "ISALGO laboratory"
-release = "0.1.0"
+
+# Single-source the version from the package so the published docs never drift (the old
+# hardcoded "0.1.0" was left stale while the package moved to 2.1.x). Read the string
+# without importing tcren — its heavy deps are only mocked during the autodoc pass, not
+# at conf-import time — so parse ``__version__`` straight from the source file.
+import re as _re  # noqa: E402
+
+_init_src = (Path(__file__).resolve().parent.parent / "src" / "tcren" / "__init__.py").read_text()
+release = _re.search(r'^__version__\s*=\s*["\']([^"\']+)["\']', _init_src, _re.M).group(1)
+version = ".".join(release.split(".")[:2])
 
 extensions = [
     "sphinx.ext.autodoc",
@@ -38,7 +47,10 @@ autodoc_typehints = "description"
 nbsphinx_execute = "never"
 
 # Heavy / optional dependencies mocked at doc-build time.
-autodoc_mock_imports = ["arda", "scipy", "Bio", "matplotlib"]
+autodoc_mock_imports = [
+    "arda", "scipy", "Bio", "matplotlib",
+    "py3Dmol", "openmm", "pdbfixer", "promod3", "ost",  # optional viz / refinement engines
+]
 
 templates_path = ["_templates"]
 exclude_patterns = ["_build", "**.ipynb_checkpoints"]

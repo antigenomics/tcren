@@ -160,6 +160,14 @@ tcren.potential.derive module
    :undoc-members:
    :show-inheritance:
 
+tcren.potential.redundancy module
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: tcren.potential.redundancy
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Scoring
 -------
 
@@ -203,6 +211,14 @@ tcren.mechanics module
    :undoc-members:
    :show-inheritance:
 
+tcren.clashes module
+~~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: tcren.clashes
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 tcren.pipeline module
 ~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -228,6 +244,31 @@ tcren.refine package
    :show-inheritance:
 
 .. automodule:: tcren.refine.substitute
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. automodule:: tcren.refine.register
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. automodule:: tcren.refine.anchors
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. automodule:: tcren.refine.rmsd
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. automodule:: tcren.refine.interface
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. automodule:: tcren.refine.model
    :members:
    :undoc-members:
    :show-inheritance:
@@ -301,6 +342,84 @@ tcren.orient.docking module
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. automodule:: tcren.orient.docking
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+2D projection & visualization
+-----------------------------
+
+tcren.project2d.frame module
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: tcren.project2d.frame
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+tcren.project2d.tables module
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: tcren.project2d.tables
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+tcren.project2d.pockets module
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: tcren.project2d.pockets
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+tcren.viz.svg2d module
+~~~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: tcren.viz.svg2d
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+tcren.viz.pocket3d module
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: tcren.viz.pocket3d
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+tcren.viz.palette module
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: tcren.viz.palette
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+Reference data & reproduction
+-----------------------------
+
+tcren.recent module
+~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: tcren.recent
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+tcren.paper.bootstrap module
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: tcren.paper.bootstrap
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+tcren.paper.helpers module
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: tcren.paper.helpers
    :members:
    :undoc-members:
    :show-inheritance:

@@ -1,8 +1,9 @@
 # Dedicated conda environment for the tcren Python library.
 #
 # Provides Python, the MMseqs2 binary (used by arda and by Phase-B MHC mapping), and a
-# C++ toolchain so the arda extension can be built on install. arda is a pinned git
-# dependency of tcren (see pyproject.toml), pulled in by `pip install -e .`.
+# C++ toolchain so tcren's own extensions build on install. The TCR-annotation backend
+# arda ships on PyPI as `arda-mapper` (a tcren dependency in pyproject.toml, imports as
+# `arda`) and is pulled in automatically by `pip install -e .`.
 #
 #   conda env create -f environment.yml
 #   conda activate tcren
@@ -25,8 +26,8 @@ dependencies:
       - polars>=1.0
       - typer>=0.12
       - requests>=2.31
-      # arda's C++ extension build deps (the conda cxx-compiler/cmake above do the build).
-      # arda itself is a pinned git dependency in pyproject.toml, installed by pip install -e .
+      # Build deps for tcren's C++ extensions (the conda cxx-compiler/cmake above do the build).
+      # arda-mapper (imports as `arda`) is a normal PyPI dependency in pyproject.toml.
       - scikit-build-core>=0.10
       - pybind11>=2.12
 

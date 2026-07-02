@@ -18,6 +18,7 @@ import numpy as np
 
 from ..structure.model import PEPTIDE_TYPE, Atom, Chain, Residue, Structure
 from .anchors import Decomposition, native_peptide, predict_anchors
+from .register import RegisterReport, check_register, fix_register
 from .rmsd import PeptideRMSD, peptide_rmsd
 from .substitute import substitute_peptide
 
@@ -25,6 +26,7 @@ __all__ = [
     "substitute_peptide", "refine_peptide",
     "predict_anchors", "native_peptide", "Decomposition",
     "peptide_rmsd", "PeptideRMSD",
+    "check_register", "fix_register", "RegisterReport",
     "model_peptide", "available_engines",
 ]
 

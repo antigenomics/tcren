@@ -31,6 +31,26 @@ While the original tcren focused on TCR:peptide contacts, the new version brings
 score TCR:MHC and peptide:MHC interactions, required to get full picture of TCR:pMHC binding 
 mechanics and estimate ddG values.
 
+## What it does
+
+From one TCR–peptide–MHC structure (crystal or model), each task is one command or one call:
+
+| task | command | library |
+|---|---|---|
+| Score candidate epitopes for a TCR | `tcren score` | `score_peptides` |
+| Percentile-rank a peptide vs background | `tcren rank` | `percentile_rank` |
+| ΔΔG of mutations (alanine scan / neoantigen) | `tcren ddg` | `alanine_scan`, `neoantigen_ddg` |
+| Binder vs non-binder for a TCR model | `tcren binder` | `binder_score` |
+| Three-interface energy breakdown + total | `tcren pipeline` | `run_pipeline` |
+| Annotate chains + region markup | `tcren annotate` | `classify_chains`, `annotate_mhc` |
+| Interface contact table (5/8/12 Å) | `tcren contacts` | `ContactMap`, `multi_contacts` |
+| Orient into the canonical MHC frame | `tcren superimpose` / `orient` | `superimpose`, `canonicalize_structure` |
+| Substitute a peptide + refine its pose | `tcren refine` | `substitute_peptide`, `refine_peptide` |
+| Re-derive the statistical potential | `tcren derive-potential` | `derive_tcren` |
+| Steric-clash / wrong-register QC | — | `interface_clashes`, `check_register` |
+| Interface stiffness / rupture mechanics | — | `interface_springs`, `stiffness_tensor`, `rupture` |
+| 2D complementarity map + 3D pocket/CDR view | — | `render_complementarity_map`, `view_pocket_cdr` |
+
 ## Install
 
 ```fish
@@ -45,14 +65,15 @@ bash setup.sh              # creates the `tcren` conda env, installs arda + tcre
 conda activate tcren
 ```
 
-tcren ships a small **pybind11/C++ extension** (`tcren._align`) for the MHC-pseudosequence
-fitting-alignment hot path, built on install by `scikit-build-core` (a Biopython fallback runs if
-it is not built). TCR annotation is provided by
-[`arda`](https://github.com/antigenomics/arda), a runtime dependency published to PyPI as
-[`arda-mapper`](https://pypi.org/project/arda-mapper/) (it imports as `arda`); `pip`/`setup.sh`
-pull it automatically. `setup.sh` also runs `tcren fetch-data` to populate `data/` with the
-reference structure sets (`Native2026`, `Canonical2026`) used by `orient`/`superimpose` (set
-`TCREN_NO_FETCH=1` to skip).
+tcren ships three small **pybind11/C++ extensions**, built on install by `scikit-build-core`:
+`tcren._align` (MHC-pseudosequence fitting alignment; a Biopython fallback runs if unbuilt),
+`tcren._refine` (DOPE atom-level Monte-Carlo peptide refinement) and `tcren._fold` (CCD loop
+closure). TCR annotation is provided by [`arda`](https://github.com/antigenomics/arda), a runtime
+dependency published to PyPI as [`arda-mapper`](https://pypi.org/project/arda-mapper/) (it imports
+as `arda`); `pip`/`setup.sh` pull it automatically, and from `arda-mapper >= 2.0.3` it auto-fetches
+its own reference on first use (no `ARDA_HOME` to set). `setup.sh` also runs `tcren fetch-data` to
+populate `data/` with the reference structure sets (`Native2026`, `Canonical2026`) used by
+`orient`/`superimpose` (set `TCREN_NO_FETCH=1` to skip).
 
 ## Command line
 
@@ -184,6 +205,25 @@ region_pair_summary(s, kind="closest")        # contacts per region pair + bond 
 view_pocket_cdr(s).show()                      # interactive 3D pocket + CDR overlay (py3Dmol)
 ```
 
+## Modules
+
+| module | what it does |
+|---|---|
+| `tcren.structure` | parse/write `.pdb`/`.cif`(`.gz`)/`.tar.gz`; the `Atom`/`Residue`/`Chain`/`Structure` model; `iter_structures` |
+| `tcren.annotation` | chain typing — TCR loci/CDRs via `arda`, peptide, MHC; αβ/γδ C-gene call |
+| `tcren.mhc` | map MHC chains to allele/class/role; partition the groove (helices/floor); NetMHCpan pseudosequence |
+| `tcren.contacts` / `contactmap` | closest-atom 5 Å contacts, Cα distances, multi-layer (5/8/12 Å) contact tables, interface partitioning |
+| `tcren.potential` | `Potential` (TCRen/MJ/Keskin); `derive_tcren` (classic/AM/LOO) with non-redundancy filtering |
+| `tcren.scoring` / `scoring_rank` | substitution scoring of candidate peptides; percentile rank vs a background |
+| `tcren.ddg` | fast virtual-matrix ΔΔG — alanine scan, neoantigen mutants |
+| `tcren.binder` | binder/non-binder classifier from AF-orthogonal interface geometry |
+| `tcren.orient` | canonical frame, `superimpose` onto the canonical DB, docking angles, reverse-dock detection |
+| `tcren.refine` | peptide substitution + refinement (DOPE MC; CCD/OpenMM/ProMod3/FlexPepDock engines); register QC |
+| `tcren.clashes` / `mechanics` | steric-clash report; interface spring-network stiffness + rupture model |
+| `tcren.project2d` / `viz` | project the interface onto the groove plane; SVG complementarity maps + 3D pocket/CDR views |
+| `tcren.pipeline` / `oracle` | one-call end-to-end runs (`run_pipeline`, `summarize_structure`) |
+| `tcren.paper` | Nat Comput Sci 2022 reproduction (HF bootstrap, batch annotation, legacy comparison) |
+
 ## Data
 
 Structures live in the Hugging Face dataset
@@ -216,21 +256,31 @@ Runnable examples under [`notebooks/`](notebooks/) (rendered in the
 
 ## Performance
 
-Per-stage timings on a TCR-pMHC complex (1ao7), Apple M3, single thread (`RUN_BENCHMARK=1 pytest
--k benchmark -s` to reproduce):
+Per-stage wall time (best of *n*) on a TCR-pMHC complex (1ao7), Apple M-series, single thread
+(`RUN_BENCHMARK=1 pytest -k benchmark -s` to reproduce the core stages):
 
 | stage | time | notes |
 |---|---|---|
-| parse a gzipped structure | ~19 ms | `.pdb.gz` / `.cif.gz` |
+| parse a gzipped structure | ~17 ms | `.pdb.gz` / `.cif.gz` |
 | contact map (5 Å, cKDTree) | ~9 ms | per structure |
-| score 1000 candidate peptides | ~8 ms | ~8 µs/peptide (vectorised) |
-| **annotate (TCR + MHC), batched** | **~213 ms/structure** | one mmseqs2 call for the whole set; vs ~1.5 s/structure unbatched |
-| peak RSS, single-structure pipeline | ~195 MB | |
+| score 1000 candidate peptides | ~11 ms | ~10 µs/peptide (vectorised) |
+| ΔΔG alanine scan (9-mer) | ~11 ms | virtual-matrix; no atoms move |
+| binder P(bind) (features + model) | ~49 ms | native geometry, no external tool |
+| peptide refine (2000-step DOPE MC) | ~320 ms | knowledge-based rigid-body refinement |
+| annotate (MHC map, 1 structure) | ~670 ms | one mmseqs2 search |
+| **annotate (TCR + MHC), batched** | **~0.2 s/structure** | one mmseqs2 call for the whole set; vs ~1.5 s/structure unbatched |
+| superimpose onto the canonical DB (per query) | ~2.8 s | aligns to every same-class DB structure |
+
+| peak RSS | value | notes |
+|---|---|---|
+| single-structure pipeline (no orient) | ~200 MB | parse → annotate → contacts → score → refine |
+| + `superimpose` (loads canonical DB) | ~780 MB | holds Canonical2026 in RAM; skip with `--no-superimpose` |
 
 Annotation is the only network/compute-heavy step and is always **batched** (one mmseqs2 search over
 all chains; mmseqs2 parallelises internally — never per-structure, never Python-threaded). Threads are
 used only for the embarrassingly-parallel, mmseqs-free stages (structural alignment, write, rendering):
-`tcren orient -t N`.
+`tcren orient -t N`. Screening a peptide/TCR panel is embarrassingly parallel — references are
+annotated and oriented **once**, so the hot loop is just refine + contacts + score per complex.
 
 ## Tests
 
