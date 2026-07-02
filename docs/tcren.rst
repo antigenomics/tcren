@@ -171,6 +171,14 @@ tcren.scoring module
    :undoc-members:
    :show-inheritance:
 
+tcren.mechanics module
+~~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: tcren.mechanics
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 tcren.pipeline module
 ~~~~~~~~~~~~~~~~~~~~~~~
 
