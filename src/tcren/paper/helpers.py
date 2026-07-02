@@ -28,20 +28,31 @@ _CONTACT_RENAME = {
 }
 
 
-def contact_table(structure: Structure, cutoff: float = 5.0) -> pl.DataFrame:
+def contact_table(
+    structure: Structure, cutoff: float = 5.0, count_atoms: bool = False
+) -> pl.DataFrame:
     """TCR↔peptide contact table for an annotated structure (the mir-replacement).
 
     The structure must already be chain-typed (``classify_chains``) and MHC-annotated
     (``annotate_mhc``). Returns the columns the R benchmarks use:
     ``pdb.id, chain.type.from, region.type.from, residue.index.from, residue.index.to,
     pos.from, pos.to, residue.aa.from, residue.aa.to``.
+
+    When ``count_atoms`` is set, an extra ``n_atom_contacts`` column (the heavy-atom-pair
+    count per residue pair) is carried through for atomic-weighted scoring. Default
+    ``False`` keeps the schema byte-identical to the legacy output.
     """
-    tp = ContactMap.from_structure(structure, cutoff=cutoff).tcr_peptide()
-    return tp.select(list(_CONTACT_RENAME)).unique()
+    tp = ContactMap.from_structure(
+        structure, cutoff=cutoff, count_atoms=count_atoms
+    ).tcr_peptide()
+    cols = list(_CONTACT_RENAME)
+    if count_atoms:
+        cols.append("n_atom_contacts")
+    return tp.select(cols).unique()
 
 
 def annotate_structure_set(
-    struct_dir: str | Path, on_error: str = "skip"
+    struct_dir: str | Path, on_error: str = "skip", count_atoms: bool = False
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
     """Run the tcren pipeline over a folder of PDBs → ``(contacts, markup)`` tables.
 
@@ -52,6 +63,9 @@ def annotate_structure_set(
     across the whole folder are annotated in a single mmseqs call per organism (the
     per-call process overhead dominates, so dataset-level batching is far faster than
     per-structure annotation).
+
+    When ``count_atoms`` is set, each contact row carries an ``n_atom_contacts``
+    heavy-atom-pair count (needed for atomic-weighted scoring).
     """
     from ..annotation import classify_chains
     from ..annotation.arda_adapter import _import_arda
@@ -80,7 +94,7 @@ def annotate_structure_set(
         try:
             classify_chains(s, organism="human", autodetect_species=True,
                             precomputed_records=records_by_struct[idx])
-            ct = contact_table(s)
+            ct = contact_table(s, count_atoms=count_atoms)
             if ct.height:
                 contacts.append(ct)
 
