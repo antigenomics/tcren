@@ -76,6 +76,11 @@ tcren rank -s complex.pdb -o rank.csv
 # Fast ΔΔG of peptide point mutations (virtual-matrix path: no atoms move, no re-docking).
 tcren ddg -s complex.pdb -o ddg.csv
 
+# Binder vs non-binder P(binder) from AF-orthogonal interface geometry + the CDR1/2-vs-CDR3a
+# TCRen term — ranks candidate TCRs against a fixed pMHC, beating AlphaFold/TCRmodel2 confidence
+# (denoised AUC 0.928 vs 0.872) with no external tool. See tcren.binder.binder_score.
+tcren binder -s complex.pdb -o binder.csv
+
 # End-to-end candidate-epitope scoring from a structure
 tcren score -s complex.pdb -c candidates.txt -o ranked.csv
 

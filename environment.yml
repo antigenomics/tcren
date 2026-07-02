@@ -29,3 +29,12 @@ dependencies:
       # arda itself is a pinned git dependency in pyproject.toml, installed by pip install -e .
       - scikit-build-core>=0.10
       - pybind11>=2.12
+
+# --- Optional peptide-modelling engines (tcren.refine.engines) -----------------------------------
+# The built-in `dope` and `ccd` engines need nothing beyond the above. The physics (`openmm`) and
+# loop-modelling (`promod3`) engines are the open replacements for FlexPepDock / MODELLER and are
+# heavy native deps, so they are NOT installed by default. Enable them per env when needed:
+#   conda install -n tcren -c conda-forge openmm pdbfixer        # openmm engine
+#   conda install -n tcren -c bioconda openstructure promod3     # promod3 engine
+# The FlexPepDock oracle (tcren.refine.oracle_flexpep) is an external licensed binary — point
+# $ROSETTA_BIN at it; it is never bundled.

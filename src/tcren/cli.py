@@ -207,21 +207,52 @@ def superimpose(
 
 @app.command("derive-potential")
 def derive_potential(
-    contact_maps: Path = typer.Option(..., "-i", "--contact-maps", help="contact-map CSV"),
+    contact_maps: Path | None = typer.Option(None, "-i", "--contact-maps", help="contact-map CSV"),
     out: Path = typer.Option("TCRen_potential.csv", "-o", "--out"),
     summary: Path | None = typer.Option(None, "--summary", help="summary CSV with a nonred flag"),
     nonred: bool = typer.Option(False, "--nonred", help="restrict to non-redundant structures"),
+    structure_dir: Path | None = typer.Option(
+        None, "--structure-dir",
+        help="folder of PDBs to assemble contacts from (PDBs→contacts) when no -i CSV is given",
+    ),
+    redundancy_t: float | None = typer.Option(
+        None, "--redundancy-t",
+        help="non-redundancy clustering cutoff over αβ structures (off by default; "
+             "requires markup, available with --structure-dir)",
+    ),
     variant: str = typer.Option("classic", "--variant", help="classic|am"),
     pseudocount: int = typer.Option(1, "--pseudocount"),
     loo: bool = typer.Option(False, "--loo", help="emit leave-one-out potentials instead"),
 ) -> None:
-    """Derive a TCRen potential from observed contacts."""
-    contacts = pl.read_csv(contact_maps)
+    """Derive a TCRen potential from observed contacts.
+
+    Provide contacts either as a precomputed ``-i`` CSV or as a ``--structure-dir`` of
+    PDBs (assembled via ``annotate_structure_set``); pass exactly one. With a structure
+    directory, ``--redundancy-t`` additionally restricts derivation to one representative
+    per non-redundant cluster of αβ complexes (PDBs→contacts→cluster→derive in one call).
+    """
+    if (contact_maps is None) == (structure_dir is None):
+        raise typer.BadParameter("pass exactly one of -i/--contact-maps or --structure-dir")
+
+    markup = None
+    if structure_dir is not None:
+        from .paper import annotate_structure_set
+        contacts, markup = annotate_structure_set(structure_dir)
+    else:
+        contacts = pl.read_csv(contact_maps)
+
     include = None
     if nonred:
         if summary is None:
             raise typer.BadParameter("--nonred requires --summary")
         include = pl.read_csv(summary).filter(pl.col("nonred"))["pdb.id"].to_list()
+    if redundancy_t is not None:
+        from .potential import alphabeta_ids, nonredundant_ids
+        if markup is None:
+            raise typer.BadParameter("--redundancy-t requires markup (use --structure-dir)")
+        ab = alphabeta_ids(contacts)
+        include = nonredundant_ids(markup.filter(pl.col("pdb.id").is_in(ab)), t=redundancy_t)
+
     if loo:
         ids = include or contacts["pdb.id"].unique().to_list()
         derive_tcren_loo(contacts, ids, variant=variant, pseudocount=pseudocount).write_csv(str(out))
@@ -402,6 +433,34 @@ def rank(
             res = percentile_rank(cm, pep, pot, interface=interface, n_background=background,
                                   seed=seed, tcr_regions=regions, background=bg)
             rows.append({"complex.id": cm.pdb_id, **res})
+    pl.DataFrame(rows).write_csv(str(out))
+    typer.echo(f"wrote {out}")
+
+
+@app.command()
+def binder(
+    structures: Path = typer.Option(..., "-s", "--structures", help="TCR-pMHC model file, directory, or .tar.gz"),
+    out: Path = typer.Option("binder.csv", "-o", "--out", help="per-structure descriptor + P(bind) table"),
+    organism: str = typer.Option("human", "--organism"),
+    cutoff: float = typer.Option(5.0, "--cutoff", help="contact cutoff (Å)"),
+    features_only: bool = typer.Option(False, "--features-only", help="emit the 5 descriptors, skip P(bind)"),
+) -> None:
+    """Predict TCR binder/non-binder from AF-orthogonal interface geometry (native _geom + frozen model).
+
+    Scores each complex from interface size, dual-chain balance, H-bonds, buried ΔSASA and the
+    CDR1/2-vs-CDR3α TCRen potential — signal that beats AlphaFold/TCRmodel2 confidence for ranking
+    candidate TCRs against a fixed pMHC. All descriptors are computed natively (no PyRosetta/Biopython
+    SASA/sklearn). Low ``p_bind`` = unlikely binder.
+    """
+    from .binder import binder_features, binder_score
+
+    rows = []
+    for _pid, s in iter_structures(structures, importer=parse_structure):
+        feats = binder_features(s, organism=organism, cutoff=cutoff)
+        row = {"complex.id": s.pdb_id, **feats}
+        if not features_only:
+            row["p_bind"] = binder_score(feats)
+        rows.append(row)
     pl.DataFrame(rows).write_csv(str(out))
     typer.echo(f"wrote {out}")
 

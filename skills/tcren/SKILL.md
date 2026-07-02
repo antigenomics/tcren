@@ -8,8 +8,9 @@ description: tcren — TCR-pMHC contact potential (TCRen) pipeline; conventions 
 `tcren` reproduces and extends the TCRen contact-energy potential (Nat Comput Sci 2022)
 on a pure-Python pipeline (structure parsing → contacts → TCR/MHC annotation → potential
 derivation → epitope-ranking benchmarks). Annotation uses the `arda` package
-(mmseqs2-backed), a runtime dependency published to PyPI as `arda-mapper` (imports as `arda`) — no separate
-checkout. Conda env `tcren` (`bash setup.sh`).
+(mmseqs2-backed), a runtime dependency published to PyPI as `arda-mapper` (imports as `arda`,
+`>=2.0.3`) — no separate checkout and **no `ARDA_HOME`** (arda auto-fetches its reference into
+`~/.cache/arda` on first use). Conda env `tcren` (`bash setup.sh`).
 
 ## Batch annotation — never loop (mmseqs2 is the parallel layer)
 
@@ -99,6 +100,30 @@ Reference: `arda.annotate_sequences([(id, seq), ...])` — one call, threads int
   `scripts/build_dope.py` from the pymod/altmod MODELLER libraries; `tcren.refine._dope()` loads it.
 - `tcren refine -s … -o … [--substitute PEP] [--steps N] [--restraint W]`. Native pose ≈ stays
   (RMSD ~0.2 Å); a buried/clashed peptide relaxes locally. Deterministic given `seed`.
+
+## Interface mechanics — `tcren.mechanics` (koff/kinetics, NOT ΔG)
+
+- The TCR↔pMHC contact map as a network of breakable Cα-anchored Hookean springs (per-contact
+  stiffness from heavy-atom-pair multiplicity; default `weight="invdist2"` = multiplicity/dist²).
+  Pure-numpy, single structure, no MD. Public API:
+  - `interface_springs(structure, cutoff=8.0, weight='invdist2') -> InterfaceSprings(a, b, k, rest, axis)`
+    — the TCR-side/pMHC-side Cα anchors, spring stiffnesses, rest lengths, and the unit docking axis
+    (TCR→pMHC). Raises if no peptide chain.
+  - `stiffness_tensor(structure, cutoff, weight) -> dict` — linear-response `K = Σ kᵢ ûᵢ⊗ûᵢ`:
+    `S_tot` (trace), `K_tens` (along docking axis), `K_shear` (`S_tot − K_tens`), `aniso`
+    (`K_shear/K_tens`), `lam_max`/`lam_min`, `n_spring`. All `nan` if < 3 springs.
+  - `rupture(structure, direction='tensile'|'shear'|'auto', cutoff, weight, break_strain=0.5, steps=80) -> dict`
+    — steered-unbinding cartoon (rigidly pull pMHC off, break springs past strain): `rupture_force`
+    (peak resisting force), `rupture_work` (∫ force·displacement), `n_spring`, `break_strain`.
+    `"auto"` = min-force of tensile/shear.
+  - `coupling_residues(structure, cutoff=5.0) -> dict` — residues in both an intra-body scaffold
+    contact and the interface: `couple_pep`/`couple_mhc`/`couple_tcr`, `couple_total`, `n_interface`.
+- **Caveat: these track the dissociation off-rate koff / kinetic stability (Bell–Evans rupture
+  resistance ~ r0.5 on ATLAS), NOT the equilibrium ΔG/Kd** — rupture reflects the dissociation
+  barrier, not the well depth (physically apt for the TCR mechanosensor / catch bonds). Use them
+  **between structures** (one value per complex) to rank/compare; do not pool many per-residue or
+  per-spring rows from one structure as independent samples — that is pseudo-replication.
+- Self-check (no PDB): `conda run -n tcren-fold python -m tcren.mechanics`.
 
 ## MHC mapping speed — `mhc.reference.reference_db()`
 

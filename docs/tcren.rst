@@ -171,6 +171,38 @@ tcren.scoring module
    :undoc-members:
    :show-inheritance:
 
+tcren.scoring_rank module
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: tcren.scoring_rank
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+tcren.ddg module
+~~~~~~~~~~~~~~~~~
+
+.. automodule:: tcren.ddg
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+tcren.binder module
+~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: tcren.binder
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+tcren.mechanics module
+~~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: tcren.mechanics
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 tcren.pipeline module
 ~~~~~~~~~~~~~~~~~~~~~~~
 

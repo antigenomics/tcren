@@ -21,4 +21,16 @@ target_compile_options(_align PRIVATE -O3)
 pybind11_add_module(_refine src/_refine/refine.cpp)
 target_compile_options(_refine PRIVATE -O3)
 
-install(TARGETS _align _refine DESTINATION tcren)
+# CCD loop-closure kernel for open-source anchor-restrained peptide modelling. See src/_fold/fold.cpp.
+pybind11_add_module(_fold src/_fold/fold.cpp)
+target_compile_options(_fold PRIVATE -O3)
+
+# Interface-geometry descriptors (SASA, shape, H-bonds, size/balance) for binder ranking. See src/_geom/geom.cpp.
+pybind11_add_module(_geom src/_geom/geom.cpp)
+target_compile_options(_geom PRIVATE -O3)
+
+# Interface energy + sampling for native ΔΔG (FlexPepDock/InterfaceAnalyzer replacement). See src/_relax/relax.cpp.
+pybind11_add_module(_relax src/_relax/relax.cpp)
+target_compile_options(_relax PRIVATE -O3)
+
+install(TARGETS _align _refine _fold _geom _relax DESTINATION tcren)

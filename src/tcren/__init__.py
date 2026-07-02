@@ -7,9 +7,11 @@ fast ΔΔG, and a one-call oracle facade composing these for the paper notebooks
 """
 
 from . import potential
+from .binder import BINDER_MODEL, binder_score
 from .contactmap import ContactMap
 from .contacts import all_atom_contacts, ca_distance_matrix
 from .ddg import alanine_scan, ddg, neoantigen_ddg
+from .mechanics import coupling_residues, interface_springs, rupture, stiffness_tensor
 from .oracle import summarize_structure
 from .pipeline import PipelineResult
 from .pipeline import run as run_pipeline
@@ -19,7 +21,7 @@ from .scoring import score_peptides, score_structures
 from .scoring_rank import background_peptides, percentile_rank
 from .structure import Structure, import_structure, parse_structure
 
-__version__ = "2.0.1"
+__version__ = "2.1.0"
 
 __all__ = [
     "potential",
@@ -39,6 +41,12 @@ __all__ = [
     "ddg",
     "alanine_scan",
     "neoantigen_ddg",
+    "binder_score",
+    "BINDER_MODEL",
+    "interface_springs",
+    "stiffness_tensor",
+    "rupture",
+    "coupling_residues",
     "summarize_structure",
     "run_pipeline",
     "PipelineResult",

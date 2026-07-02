@@ -50,6 +50,7 @@ def summarize_structure(
     background: int = 1000,
     seed: int = 0,
     alanine: bool = False,
+    contact_weight: str = "residue",
 ) -> dict[str, pl.DataFrame]:
     """Summarise one TCR-pMHC structure into a bundle of tables.
 
@@ -73,6 +74,11 @@ def summarize_structure(
         alanine: When ``True``, compute the per-position alanine scan (S4) for the
             ``ddg`` frame. When ``False`` (default) the scan is skipped and ``ddg`` is an
             empty frame with the same schema.
+        contact_weight: ``"residue"`` (default, legacy: each contacting residue pair
+            contributes ``potential[a, b] x 1``) or ``"atomic"`` (each pair contributes
+            ``potential[a, b] x n_atom_contacts``). Applies to all three interfaces of the
+            ``scores`` frame and to the ``rank``/``ddg`` frames. ``"residue"`` keeps every
+            output byte-identical to the legacy facade.
 
     Returns:
         Mapping with five polars frames:
@@ -96,6 +102,7 @@ def summarize_structure(
         superimpose=superimpose,
         potentials=potentials,
         tcr_regions=tcr_regions,
+        contact_weight=contact_weight,
     )
     native = _native_peptide(s)
 
@@ -103,7 +110,7 @@ def summarize_structure(
     # pipeline does so an override is honoured consistently across all three frames.
     tcr_peptide_pot = _resolve_tcr_peptide_potential(potentials)
 
-    cm = ContactMap.from_structure(s)
+    cm = ContactMap.from_structure(s, count_atoms=(contact_weight == "atomic"))
 
     scores = pl.DataFrame(
         {"pdb.id": result.pdb_id, "rmsd": result.rmsd, **result.scores}
@@ -116,11 +123,15 @@ def summarize_structure(
         n_background=background,
         seed=seed,
         tcr_regions=tcr_regions,
+        contact_weight=contact_weight,
     )
     rank = pl.DataFrame({"pdb.id": result.pdb_id, **rank_row})
 
     if alanine:
-        ddg = alanine_scan(cm, native, tcr_peptide_pot, tcr_regions=tcr_regions)
+        ddg = alanine_scan(
+            cm, native, tcr_peptide_pot, tcr_regions=tcr_regions,
+            contact_weight=contact_weight,
+        )
     else:
         ddg = pl.DataFrame(schema=_DDG_SCHEMA)
 
