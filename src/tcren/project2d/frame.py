@@ -147,8 +147,6 @@ def project_structure(
 
     Args:
         structure: A chain-typed, MHC-annotated structure.
-        db: Native database for the canonical reference (native frame). If ``None`` the
-            default database is used; falls back to PCA if it is unavailable.
         reference_id: Canonical reference complex id (defaults per MHC class).
         force_pca: Skip the native frame and fit the plane by PCA.
 
