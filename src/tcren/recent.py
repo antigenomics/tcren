@@ -7,6 +7,7 @@ Two entry points, both gzipping validated mmCIF into the destination:
   released after a date / excluding ids we already have), to surface *new* structures.
 
 Robustness notes baked in per the PDB's current state:
+
 * IDs may be **longer than 4 characters** (extended ``pdb_0000XXXX`` accessions) — handled.
 * The PDB is **deprecating split ``.pdb`` files** for large structures, so we always pull
   **mmCIF** (``.cif.gz``), which tcren reads natively.

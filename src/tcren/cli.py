@@ -1,13 +1,31 @@
 """Command-line interface for tcren.
 
-Subcommands:
+Commands are grouped in ``tcren --help``:
 
-* ``tcren info`` — environment / dependency check.
-* ``tcren annotate`` — chain typing + region markup (TCR/MHC/peptide; ``--regions`` to filter,
-  ``--pseudo`` for MHC pseudosequence residues) for input structures.
-* ``tcren contacts`` — annotated contact table for input structures.
-* ``tcren derive-potential`` — derive a TCRen potential from a contact-map table.
-* ``tcren score`` — end-to-end candidate scoring (drop-in for ``run_TCRen.R``).
+Scoring & prediction
+    * ``tcren score`` — end-to-end candidate-epitope scoring (drop-in for ``run_TCRen.R``).
+    * ``tcren rank`` — percentile-rank a peptide's energy against a random pMHC background.
+    * ``tcren ddg`` — ΔΔG of peptide mutations (fast virtual-matrix path; alanine scan / neoantigens).
+    * ``tcren binder`` — TCR binder vs non-binder from AF-orthogonal interface geometry.
+    * ``tcren pipeline`` — full pipeline → per-interface energies (TCRen + MJ) + total.
+
+Annotation & contacts
+    * ``tcren annotate`` — chain typing + region markup (TCR CDR/FR, MHC groove, peptide; ``--pseudo``).
+    * ``tcren contacts`` — annotated residue-pair contact table for an interface.
+
+Orientation & refinement
+    * ``tcren superimpose`` — orient structure(s) onto the canonical database by MHC.
+    * ``tcren refine`` — potential-guided peptide-pose refinement (DOPE MC; optional ``--substitute``).
+
+Reference data & potentials
+    * ``tcren orient`` — build a canonical database from native complexes.
+    * ``tcren derive-potential`` — derive a TCRen potential from a contact-map table.
+    * ``tcren fetch-data`` / ``fetch-recent`` — fetch reference sets / recent RCSB TCR-pMHC entries.
+    * ``tcren build-mhc-ref`` — build the IMGT/HLA + mouse MHC allele reference.
+
+Info
+    * ``tcren info`` — version + dependency check.
+    * ``tcren paper …`` — Nat Comput Sci 2022 reproduction helpers.
 """
 
 from __future__ import annotations
@@ -26,8 +44,16 @@ from .structure import iter_structures, parse_structure
 
 app = typer.Typer(
     add_completion=True,  # `tcren --install-completion` for bash/zsh/fish; --show-completion to print
-    help="Structure-based TCR–epitope recognition scoring.",
+    help="Structure-based TCR–epitope recognition: score epitopes, rank binders, ΔΔG, "
+         "orient/refine poses, and derive potentials from TCR:pMHC structures.",
 )
+
+# Help panels grouping the commands in `tcren --help` (rich_help_panel below).
+_P_SCORE = "Scoring & prediction"
+_P_ANNOT = "Annotation & contacts"
+_P_ORIENT = "Orientation & refinement"
+_P_DATA = "Reference data & potentials"
+_P_INFO = "Info"
 paper_app = typer.Typer(add_completion=False, help="Nat Comput Sci 2022 reproduction.")
 app.add_typer(paper_app, name="paper")
 
@@ -68,7 +94,7 @@ def _read_candidates(path: Path) -> list[str]:
     return [line for line in lines if line.lower() != "peptide"]
 
 
-@app.command()
+@app.command(rich_help_panel=_P_INFO)
 def info() -> None:
     """Show version and dependency availability."""
     typer.echo(f"tcren {__version__}")
@@ -77,7 +103,7 @@ def info() -> None:
 
         arda_status = f"available ({Path(arda.__file__).parent})"
     except ImportError:
-        arda_status = "NOT available — run: bash setup.sh (installs arda@2.0.1)"
+        arda_status = "NOT available — run: pip install arda-mapper (or bash setup.sh)"
     typer.echo(f"arda: {arda_status}")
     typer.echo(f"bundled TCRen potential: {tcren().matrix.height} pairs")
 
@@ -89,7 +115,7 @@ _REGION_CHAINS = {
 }
 
 
-@app.command()
+@app.command(rich_help_panel=_P_ANNOT)
 def annotate(
     structures: Path = typer.Option(..., "-s", "--structures", help="structure file, directory, or .tar.gz (.pdb/.cif/.pdb.gz/.cif.gz)"),
     out: Path = typer.Option("markup.csv", "-o", "--out", help="output residue-markup CSV"),
@@ -128,7 +154,7 @@ def annotate(
     typer.echo(f"wrote {out}")
 
 
-@app.command()
+@app.command(rich_help_panel=_P_ANNOT)
 def contacts(
     structures: Path = typer.Option(..., "-s", "--structures", help="structure file, directory, or .tar.gz (.pdb/.cif/.pdb.gz/.cif.gz)"),
     out: Path = typer.Option("contacts.csv", "-o", "--out"),
@@ -151,7 +177,7 @@ def contacts(
     typer.echo(f"wrote {out}")
 
 
-@app.command()
+@app.command(rich_help_panel=_P_DATA)
 def orient(
     structures: Path = typer.Option(..., "-s", "--structures", help="PDB/CIF file or directory of native complexes"),
     out: Path = typer.Option("oriented", "-o", "--out", help="output dir for oriented structures"),
@@ -176,7 +202,7 @@ def orient(
                mmcif=mmcif, compress=compress)
 
 
-@app.command()
+@app.command(rich_help_panel=_P_ORIENT)
 def superimpose(
     structures: str = typer.Option(..., "-s", "--structures", help="structure file, directory, .tar.gz, or a glob ('data/*.pdb')"),
     out: Path = typer.Option("superimposed", "-o", "--out", help="output directory, or a single structure file (one input)"),
@@ -205,7 +231,7 @@ def superimpose(
         raise typer.BadParameter(str(exc)) from exc
 
 
-@app.command("derive-potential")
+@app.command("derive-potential", rich_help_panel=_P_DATA)
 def derive_potential(
     contact_maps: Path | None = typer.Option(None, "-i", "--contact-maps", help="contact-map CSV"),
     out: Path = typer.Option("TCRen_potential.csv", "-o", "--out"),
@@ -262,7 +288,7 @@ def derive_potential(
     typer.echo(f"wrote {out}")
 
 
-@app.command("fetch-data")
+@app.command("fetch-data", rich_help_panel=_P_DATA)
 def fetch_data(
     canonical: bool = typer.Option(True, "--canonical/--no-canonical", help="also fetch Canonical2026"),
 ) -> None:
@@ -281,7 +307,7 @@ def fetch_data(
         typer.echo(f"{k}: {v} structures")
 
 
-@app.command("build-mhc-ref")
+@app.command("build-mhc-ref", rich_help_panel=_P_DATA)
 def build_mhc_ref(
     species: str = typer.Option("human,mouse", "--species", help="comma-separated"),
     force_download: bool = typer.Option(False, "--force-download"),
@@ -295,7 +321,7 @@ def build_mhc_ref(
     typer.echo(f"MHC reference written to {fasta}")
 
 
-@app.command("fetch-recent")
+@app.command("fetch-recent", rich_help_panel=_P_DATA)
 def fetch_recent(
     dest: Path = typer.Option(None, "--dest", help="output dir (default: data/pdb_recent)"),
     discover: bool = typer.Option(False, "--discover", help="also RCSB-search new TCR-pMHC entries"),
@@ -319,7 +345,7 @@ def fetch_recent(
         typer.echo(f"{k}: {v}")
 
 
-@app.command()
+@app.command(rich_help_panel=_P_SCORE)
 def score(
     structures: Path = typer.Option(..., "-s", "--structures", help="structure file, directory, or .tar.gz (.pdb/.cif/.pdb.gz/.cif.gz)"),
     candidates: Path = typer.Option(..., "-c", "--candidates", help="candidate epitopes file"),
@@ -345,7 +371,7 @@ def score(
     typer.echo(f"The ranked list of candidate epitopes can be found in {out}")
 
 
-@app.command("ddg")
+@app.command("ddg", rich_help_panel=_P_SCORE)
 def ddg_cmd(
     structures: Path = typer.Option(..., "-s", "--structures", help="structure file, directory, or .tar.gz (.pdb/.cif/.pdb.gz/.cif.gz)"),
     native: str = typer.Option(..., "--native", help="native peptide sequence"),
@@ -384,7 +410,7 @@ def ddg_cmd(
     typer.echo(f"wrote {out}")
 
 
-@app.command()
+@app.command(rich_help_panel=_P_SCORE)
 def rank(
     structures: Path = typer.Option(..., "-s", "--structures", help="structure file, directory, or .tar.gz (.pdb/.cif/.pdb.gz/.cif.gz)"),
     candidates: Path = typer.Option(None, "-c", "--candidates", help="peptides to rank; default: each structure's native peptide"),
@@ -437,7 +463,7 @@ def rank(
     typer.echo(f"wrote {out}")
 
 
-@app.command()
+@app.command(rich_help_panel=_P_SCORE)
 def binder(
     structures: Path = typer.Option(..., "-s", "--structures", help="TCR-pMHC model file, directory, or .tar.gz"),
     out: Path = typer.Option("binder.csv", "-o", "--out", help="per-structure descriptor + P(bind) table"),
@@ -465,7 +491,7 @@ def binder(
     typer.echo(f"wrote {out}")
 
 
-@app.command()
+@app.command(rich_help_panel=_P_SCORE)
 def pipeline(
     structures: Path = typer.Option(..., "-s", "--structures", help="structure file, directory, or .tar.gz"),
     out: Path = typer.Option("pipeline_scores.csv", "-o", "--out", help="per-structure interface-score table"),
@@ -509,7 +535,7 @@ def pipeline(
     typer.echo(f"wrote {out}")
 
 
-@app.command()
+@app.command(rich_help_panel=_P_ORIENT)
 def refine(
     structures: str = typer.Option(..., "-s", "--structures", help="structure file, directory, .tar.gz, or glob"),
     out: Path = typer.Option("refined", "-o", "--out", help="output directory for refined structures"),
