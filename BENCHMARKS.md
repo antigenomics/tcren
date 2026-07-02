@@ -115,3 +115,21 @@ it — they are refiners, not pose predictors. `dope` is slightly worse (rigid M
 energy optimum). The FlexPepDock oracle is currently a no-op on these 5-chain complexes (FoldTree/jump
 setup needed), so the one method that might beat the baseline is not yet measured. The open problem for
 the C++ rewrite is de-novo pocket/pose prediction, not refinement speed.
+
+## Binder identification (`tcren.binder`)
+
+Ranking candidate TCRs against a fixed pMHC on generated (AlphaFold/TCRmodel2) structures. The raw
+TCR:peptide contact energy is at chance there (ROC-AUC ≈ 0.44, the forced-pose problem: the generator
+seats every TCR in a plausible pose). The shipped 5-feature model — AF-orthogonal interface geometry
+(interface size, dual-chain balance, H-bonds, buried ΔSASA; native `tcren._geom` C kernel) plus the
+CDR1/2−CDR3α TCRen potential term — recovers it:
+
+| model | denoised ROC-AUC | note |
+|-------|------------------|------|
+| **tcren.binder (5-feature)** | **0.928** | native, no external tool |
+| AlphaFold/TCRmodel2 ipTM (confidence) | 0.872 | the baseline to beat |
+| raw TCR:peptide TCRen energy | ≈ 0.44 | forced pose (below chance) |
+
+TCRvdb (2 epitopes, HLA-A\*02:01; sequence-cluster-denoised labels). The model is ~ipTM-independent and
+uses no generator-reported metric. Caveat: coefficients frozen from a 2-epitope training set;
+cross-allele/epitope generalization untested (re-fit via `scripts/binder_validate.py`).
