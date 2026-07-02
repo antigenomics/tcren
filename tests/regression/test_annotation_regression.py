@@ -19,12 +19,22 @@ from tcren.annotation import classify_chains
 
 arda = pytest.importorskip("arda")
 
-pytestmark = pytest.mark.slow  # invokes arda / mmseqs per structure
-
 REPO = Path(__file__).resolve().parents[2]
 PDB_DIR = REPO / "tests" / "assets" / "pdb"
 CONTACT_MAPS = REPO / "legacy" / "data" / "contact_maps_PDB.csv"
 SUMMARY = REPO / "legacy" / "data" / "summary_PDB_structures.csv"
+
+# invokes arda / mmseqs per structure, and compares against the legacy mir oracle CSVs; skip
+# (do not fail) when those un-fetched reference files are absent from the checkout, mirroring the
+# arda importorskip above.
+pytestmark = [
+    pytest.mark.slow,
+    pytest.mark.skipif(
+        not (SUMMARY.exists() and CONTACT_MAPS.exists()),
+        reason="legacy oracle data (legacy/data/summary_PDB_structures.csv, contact_maps_PDB.csv) "
+        "not present in this checkout",
+    ),
+]
 
 _FULL_KEYS = [
     "chain.type.from",
