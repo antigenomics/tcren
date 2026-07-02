@@ -21,9 +21,10 @@ into ``data/``:
 The TCR-annotation backend ``arda`` (mmseqs2-based) is a normal dependency, published to PyPI as
 `arda-mapper <https://pypi.org/project/arda-mapper/>`_ (it imports as ``arda``); ``pip``/``setup.sh``
 pull it in automatically. From ``arda-mapper >= 2.0.3`` it auto-fetches its own reference on first
-use — no ``ARDA_HOME`` to set. ``tcren`` also builds three small pybind11/C++ kernels on install
-(``tcren._align`` MHC-pseudosequence alignment, ``tcren._refine`` DOPE refinement, ``tcren._fold``
-CCD loop closure).
+use — no ``ARDA_HOME`` to set. ``tcren`` also builds five small pybind11/C++ kernels on install:
+``tcren._align`` (MHC-pseudosequence alignment), ``tcren._refine`` (DOPE Monte-Carlo refinement),
+``tcren._relax`` (DOPE interface energy), ``tcren._fold`` (CCD loop closure) and ``tcren._geom``
+(binder interface geometry).
 
 Command line
 ------------
@@ -122,6 +123,21 @@ Case studies
   potential — deliberately *independent* of the TCRen/MJ scoring potentials so the pose is not
   optimised against the quantity it is later scored with. This is not physics relaxation; use Rosetta
   FlexPepDock for that.
+
+* **Interface energy and koff mechanics.** ``tcren energy`` reports the DOPE interaction energy across
+  the peptide↔partner interface (``e_native``; add ``--relax`` for the post-refinement energy and the
+  gap — the ΔΔG scorer). ``tcren mechanics`` treats the contact map as a network of breakable springs
+  and reports the stiffness tensor (``K_tens``/``K_shear``), a steered-rupture force/work, and coupling
+  residues. On ATLAS these mechanical measures track the dissociation off-rate (``koff``, a Bell–Evans
+  rupture quantity) better than the equilibrium ΔG/Kd — the physically apt axis for the TCR
+  mechanosensor. Both are also library calls:
+
+  .. code-block:: python
+
+     from tcren import interface_energy, stiffness_tensor, rupture
+     e = interface_energy(structure)               # DOPE interface energy (lower = more favourable)
+     k = stiffness_tensor(structure)               # {"K_tens": ..., "K_shear": ..., "n_spring": ...}
+     r = rupture(structure, direction="tensile")   # {"rupture_force": ..., "rupture_work": ...}
 
 Library
 -------
