@@ -28,6 +28,7 @@ dependencies = [
     "requests>=2.31",
     "huggingface_hub>=0.20",  # lazy fetch of canonical reference structures for orientation
     "arda-mapper>=2.0.3",  # TCR annotation backend (PyPI dist of antigenomics/arda; imports as `arda`). >=2.0.3 needs no ARDA_HOME (auto-fetches its reference on first use).
+    "rapidfuzz>=3.0",  # CDR3 clustering in potential.redundancy — imported at package-import time (potential/__init__), so core, not optional.
 ]
 
 [project.optional-dependencies]

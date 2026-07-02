@@ -22,6 +22,10 @@
 #include <unordered_set>
 #include <vector>
 
+#ifndef M_PI  // MSVC does not define M_PI without _USE_MATH_DEFINES
+#define M_PI 3.14159265358979323846
+#endif
+
 namespace py = pybind11;
 
 namespace {
