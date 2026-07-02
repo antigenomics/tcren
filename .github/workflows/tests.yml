@@ -31,9 +31,11 @@ jobs:
         # arda (PyPI: arda-mapper) is a real runtime dependency, but the non-slow suite imports it
         # lazily (importorskip) and CI has no arda reference database — so install tcren --no-deps
         # and add the runtime deps explicitly, minus arda. The C++ ext is still built and tested.
+        # rapidfuzz is a pure-wheel dep (no external binary, unlike arda) needed by the redundancy
+        # clustering tests, so it is included here.
         run: |
           pip install -e . --no-deps
-          pip install biopython scipy numpy polars typer requests huggingface_hub \
+          pip install biopython scipy numpy polars typer requests huggingface_hub rapidfuzz \
                       pytest pytest-cov matplotlib
       - name: Run unit tests (arda/mmseqs-backed tests skip without arda)
         run: pytest -m "not slow" -ra

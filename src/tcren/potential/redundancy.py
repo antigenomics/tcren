@@ -17,7 +17,6 @@ from collections.abc import Sequence
 
 import numpy as np
 import polars as pl
-from rapidfuzz.distance import DamerauLevenshtein
 from scipy.cluster.hierarchy import fcluster, linkage
 from scipy.spatial.distance import squareform
 
@@ -33,6 +32,12 @@ def _cluster(
     Returns ``(ids, labels)`` where ``labels[i]`` is the cluster id of ``ids[i]``.
     For ``n <= 1`` every structure forms its own singleton cluster.
     """
+    # Imported lazily so `import tcren` does not hard-require rapidfuzz: it is only needed
+    # on the redundancy-clustering path (derivation), not for scoring/annotation. Keeps the
+    # package importable in minimal/mocked envs (docs autodoc, --no-deps CI) where rapidfuzz
+    # is absent, while remaining a real runtime dependency for anyone who derives a potential.
+    from rapidfuzz.distance import DamerauLevenshtein
+
     ids = markup["pdb.id"].to_list()
     n = len(ids)
     if n <= 1:
