@@ -267,12 +267,18 @@ def n199_r2(
         ``{"r2", "n", "coefficients"}`` where ``coefficients`` maps each predictor to its
         ``coef``/``sign``/``p``/``significant``.
     """
+    # Validate arguments before any filesystem access so misuse raises deterministically
+    # and the unit tests do not depend on the manuscript oracle CSV (N199_CSV) being present.
+    if loo:
+        if contacts is None or derivation_ids is None:
+            raise ValueError("loo=True requires both contacts and derivation_ids")
+    elif candidate_csv is None:
+        raise ValueError("non-LOO mode requires candidate_csv")
+
     oracle = pl.read_csv(oracle_csv)
     rows = []
 
     if loo:
-        if contacts is None or derivation_ids is None:
-            raise ValueError("loo=True requires both contacts and derivation_ids")
         with tempfile.TemporaryDirectory() as tmp:
             workdir = Path(tmp)
             for r in oracle.iter_rows(named=True):
@@ -290,8 +296,6 @@ def n199_r2(
                     "mj_cdr_hla": r["mj_cdr_hla"],
                 })
     else:
-        if candidate_csv is None:
-            raise ValueError("non-LOO mode requires candidate_csv")
         candidate_csv = str(candidate_csv)
         for r in oracle.iter_rows(named=True):
             e = _tcr_peptide_energy(r["structure_name"], candidate_csv, contact_weight)
