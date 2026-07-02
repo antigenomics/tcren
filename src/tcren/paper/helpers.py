@@ -14,18 +14,12 @@ import polars as pl
 from ..contactmap import ContactMap
 from ..structure.model import Structure
 
-# ContactMap.tcr_peptide() column -> R analysis column name.
-_CONTACT_RENAME = {
-    "pdb.id": "pdb.id",
-    "chain.type.from": "chain.type.from",
-    "region.type.from": "region.type.from",
-    "residue.index.from": "residue.index.from",
-    "residue.index.to": "residue.index.to",
-    "pos.from": "pos.from",
-    "pos.to": "pos.to",
-    "residue.aa.from": "residue.aa.from",
-    "residue.aa.to": "residue.aa.to",
-}
+# The ContactMap.tcr_peptide() columns the R benchmarks consume, in order.
+_CONTACT_COLS = [
+    "pdb.id", "chain.type.from", "region.type.from",
+    "residue.index.from", "residue.index.to",
+    "pos.from", "pos.to", "residue.aa.from", "residue.aa.to",
+]
 
 
 def contact_table(
@@ -45,7 +39,7 @@ def contact_table(
     tp = ContactMap.from_structure(
         structure, cutoff=cutoff, count_atoms=count_atoms
     ).tcr_peptide()
-    cols = list(_CONTACT_RENAME)
+    cols = list(_CONTACT_COLS)
     if count_atoms:
         cols.append("n_atom_contacts")
     return tp.select(cols).unique()

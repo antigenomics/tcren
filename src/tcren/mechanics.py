@@ -108,6 +108,12 @@ def interface_springs(
     return InterfaceSprings(a, b, k, rest, axis)
 
 
+def _stiffness_matrix(s: InterfaceSprings) -> np.ndarray:
+    """The 3×3 stiffness tensor ``K = Σ kᵢ ûᵢ⊗ûᵢ`` over the spring network."""
+    u = (s.b - s.a) / s.rest[:, None]
+    return (s.k[:, None, None] * u[:, :, None] * u[:, None, :]).sum(0)
+
+
 def stiffness_tensor(
     structure: Structure, *, cutoff: float = 8.0, weight: str = "invdist2"
 ) -> dict[str, float]:
@@ -124,8 +130,7 @@ def stiffness_tensor(
     if len(s) < 3:
         return {k: float("nan") for k in
                 ("S_tot", "K_tens", "K_shear", "aniso", "lam_max", "lam_min")} | {"n_spring": float(len(s))}
-    u = (s.b - s.a) / s.rest[:, None]
-    K = (s.k[:, None, None] * u[:, :, None] * u[:, None, :]).sum(0)
+    K = _stiffness_matrix(s)
     S_tot = float(np.trace(K))
     K_tens = float(s.axis @ K @ s.axis)
     evals = np.linalg.eigvalsh(K)
@@ -140,8 +145,7 @@ def _pull_direction(s: InterfaceSprings, direction: str) -> np.ndarray:
     """Unit pull direction. ``"tensile"`` = docking axis; ``"shear"`` = stiffest in-plane direction."""
     if direction == "tensile":
         return s.axis
-    u = (s.b - s.a) / s.rest[:, None]
-    K = (s.k[:, None, None] * u[:, :, None] * u[:, None, :]).sum(0)
+    K = _stiffness_matrix(s)
     evals, evecs = np.linalg.eigh(K)
     top = evecs[:, -1]
     inplane = top - (top @ s.axis) * s.axis  # remove the docking-axis component
