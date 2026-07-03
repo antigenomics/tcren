@@ -119,6 +119,18 @@ QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses ar
   FlexPepDock-functional path; needs the `_refine`/`_fold` kernel). Equal peptide length required.
   Template-free re-docking (CCD to canonical anchor targets) is the future extension.
 
+## Poly-alanine reference score — `tcren.ddg.reference_delta` (geometry-normalized TCRen)
+
+- `reference_delta(cm, peptide, pot, interface="tcr_peptide", reference_aa="A") -> float` = ΔΦ = Φ(peptide)
+  − Φ(all-`reference_aa` peptide). It is the **full-peptide alanine scan** (== sum of `alanine_scan().ddG`)
+  and subtracts the pose's identity-independent geometry baseline Φ(polyAla).
+- **Use for GENERATED poses only.** On a *fixed* contact map ΔΦ = Φ − const → ranking unchanged
+  (no-op); it differs only across candidates with their *own* structure (AF swap models). There it
+  normalizes out the per-pose interface geometry: **rescues forced/wrong-register poses** whose geometry
+  corrupts raw Φ (CPL ila1 TCR-ranking ROC **0.35 → 0.83**), but costs a little where the AF geometry is
+  itself informative (mel5/mel8) — so it is a mode, not the default. Sweep: `scripts/ala_reference_sweep.py`
+  (manuscript repo). It is **NOT** an affinity ΔΔG (dimensionless contact-preference, no free energy).
+
 ## Interface mechanics — `tcren.mechanics` (koff/kinetics, NOT ΔG)
 
 - The TCR↔pMHC contact map as a network of breakable Cα-anchored Hookean springs (per-contact
