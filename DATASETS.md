@@ -12,7 +12,7 @@ All structure sets live on HF **[isalgo/tcren_structures](https://huggingface.co
 | `Native2022`, `PolyV2022` | 2022-paper structure sets (reproduction/oracle) |
 | `tcrvdb` | 618 TCRmodel2 structures — TCR-ranking / specificity benchmark |
 | `cpl` | peptide-swap best/worst — peptide-ranking benchmark |
-| `as_case` | ankylosing-spondylitis B\*27:05/:02 — MHC-ranking benchmark |
+| `as_case` | native B\*27:05 cognate complexes — held-out ergodicity validation |
 | `Bobisse`, `Bigot` | neoantigen cohorts (see below) |
 
 ## Legacy 2022 benchmarks (reproduced with the tcren pipeline)
@@ -31,6 +31,6 @@ recomputed results in `results_new/`:
 
 ## New benchmarks (manuscript repo)
 
-CPL / TCRvdb / AS scoring + the unified three-task table live in the manuscript
+CPL / TCRvdb / native B\*27:05 held-out validation + the unified three-task table live in the manuscript
 (`2026-tcren2/scripts/{benchmark_suite.md,tcren_binder_score.py,tcrvdb_physics.py}`). ATLAS ΔΔG is
 pending upstream; MD trajectories (`md100ns_*.xtc`, ~57 GiB) pending upload.
