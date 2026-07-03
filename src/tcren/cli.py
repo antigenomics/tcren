@@ -651,5 +651,43 @@ def refine(
     typer.echo(f"refined {sum(r.get('energy') is not None for r in rows)}/{len(rows)} -> {out}")
 
 
+@app.command("substitute-tcr", rich_help_panel=_P_ORIENT)
+def substitute_tcr_cmd(
+    host: Path = typer.Option(..., "--host", help="host complex — keeps its peptide + MHC"),
+    donor: Path = typer.Option(..., "--donor", help="donor complex — its TCR is grafted on"),
+    out: Path = typer.Option("chimera.pdb", "-o", "--out",
+                             help="output structure (format from the suffix: .pdb/.cif/.pdb.gz/.cif.gz)"),
+    by: str = typer.Option("mhc", "--by",
+                           help="superposition anchor: mhc (donor keeps native docking) | tcr (inherits host pose)"),
+    organism: str = typer.Option("human", "--organism"),
+) -> None:
+    """Graft the donor TCR onto the host pMHC → a chimeric TCR:pMHC complex.
+
+    Keeps the host peptide + MHC and the donor TCR. ``--by mhc`` superposes the donor MHC groove onto
+    the host groove (the donor TCR keeps its native docking geometry); ``--by tcr`` superposes the
+    donor TCR onto the host TCR (the donor TCR inherits the host's docking pose). Both inputs are
+    chain-typed automatically (and, for ``--by mhc``, MHC-annotated).
+    """
+    if by not in ("mhc", "tcr"):
+        raise typer.BadParameter("--by must be 'mhc' or 'tcr'")
+    from .orient import substitute_tcr
+    from .structure.io import import_structure, write_structure
+
+    h = import_structure(host)
+    classify_chains(h, organism=organism)
+    d = import_structure(donor)
+    classify_chains(d, organism=organism)
+    if by == "mhc":
+        from .mhc import annotate_mhc
+        annotate_mhc(h)
+        annotate_mhc(d)
+    try:
+        chimera = substitute_tcr(h, d, by=by)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    write_structure(chimera, out)
+    typer.echo(f"grafted {d.pdb_id} TCR onto {h.pdb_id} pMHC (by {by}) -> {out}")
+
+
 if __name__ == "__main__":
     app()

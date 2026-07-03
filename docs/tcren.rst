@@ -346,6 +346,14 @@ tcren.orient.docking module
    :undoc-members:
    :show-inheritance:
 
+tcren.orient.graft module
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: tcren.orient.graft
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 2D projection & visualization
 -----------------------------
 
