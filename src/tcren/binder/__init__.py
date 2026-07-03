@@ -10,8 +10,9 @@ term is validated; the frozen classifier is available now.
 from __future__ import annotations
 
 from .model import BINDER_MODEL, FEATURES, binder_score
+from .noise import is_real_interface
 
-__all__ = ["binder_score", "BINDER_MODEL", "FEATURES"]
+__all__ = ["binder_score", "BINDER_MODEL", "FEATURES", "is_real_interface"]
 
 
 def __getattr__(name):  # lazy: features pulls in _geom + scoring, keep import light

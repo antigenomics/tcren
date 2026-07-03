@@ -7,7 +7,7 @@ fast ΔΔG, and a one-call oracle facade composing these for the paper notebooks
 """
 
 from . import potential
-from .binder import BINDER_MODEL, binder_score
+from .binder import BINDER_MODEL, binder_score, is_real_interface
 from .clashes import ClashReport, has_clashes, interface_clashes
 from .contactmap import ContactMap
 from .contacts import all_atom_contacts, ca_distance_matrix
@@ -46,6 +46,7 @@ __all__ = [
     "neoantigen_ddg",
     "binder_score",
     "BINDER_MODEL",
+    "is_real_interface",
     "interface_springs",
     "stiffness_tensor",
     "rupture",
