@@ -124,6 +124,23 @@ Case studies
   optimised against the quantity it is later scored with. This is not physics relaxation; use Rosetta
   FlexPepDock for that.
 
+* **Graft a TCR onto another pMHC (build a chimera).** ``tcren substitute-tcr`` takes a *host* and a
+  *donor* TCR:pMHC complex and returns a new complex with the **host peptide + MHC** and the **donor
+  TCR**. ``--by mhc`` superposes the two MHC grooves, so the donor TCR keeps its native docking
+  geometry; ``--by tcr`` superposes the two TCRs, so the donor TCR inherits the host's docking pose.
+  Useful for cross-docking and for building TCR:pMHC models to score. As a library call:
+
+  .. code-block:: python
+
+     from tcren import substitute_tcr
+     from tcren.annotation import classify_chains
+     from tcren.mhc import annotate_mhc
+     from tcren.structure import import_structure
+
+     host = import_structure("hostA.pdb"); classify_chains(host); annotate_mhc(host)
+     donor = import_structure("donorB.pdb"); classify_chains(donor); annotate_mhc(donor)
+     chimera = substitute_tcr(host, donor, by="mhc")   # host pMHC + donor TCR
+
 * **Interface energy and koff mechanics.** ``tcren energy`` reports the DOPE interaction energy across
   the peptide↔partner interface (``e_native``; add ``--relax`` for the post-refinement energy and the
   gap — the ΔΔG scorer). ``tcren mechanics`` treats the contact map as a network of breakable springs

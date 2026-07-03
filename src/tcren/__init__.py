@@ -14,6 +14,7 @@ from .contacts import all_atom_contacts, ca_distance_matrix
 from .ddg import alanine_scan, ddg, neoantigen_ddg
 from .mechanics import coupling_residues, interface_springs, rupture, stiffness_tensor
 from .oracle import summarize_structure
+from .orient import substitute_tcr
 from .pipeline import PipelineResult
 from .pipeline import run as run_pipeline
 from .potential import Potential, derive_tcren, derive_tcren_loo
@@ -57,6 +58,7 @@ __all__ = [
     "run_pipeline",
     "PipelineResult",
     "substitute_peptide",
+    "substitute_tcr",
     "refine_peptide",
     "check_register",
     "fix_register",
