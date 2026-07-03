@@ -11,7 +11,7 @@ import polars as pl
 import pytest
 
 from tcren.contactmap import ContactMap
-from tcren.ddg import alanine_scan, ddg, neoantigen_ddg
+from tcren.ddg import alanine_scan, ddg, neoantigen_ddg, reference_delta
 from tcren.potential import Potential
 from tcren.scoring import score_peptides
 
@@ -54,6 +54,32 @@ def test_ddg_matches_independent_two_calls():
     e_native = float(score_peptides(cm, [native], pot)["score"][0])
     e_mutant = float(score_peptides(cm, [mutant], pot)["score"][0])
     assert ddg(cm, native, mutant, pot) == pytest.approx(e_native - e_mutant)
+
+
+def test_reference_delta_is_ddg_to_polyalanine():
+    cm, pot = _toy_contact_map(), _toy_potential()
+    assert reference_delta(cm, "AGK", pot) == pytest.approx(ddg(cm, "AGK", "AAA", pot))
+
+
+def test_reference_delta_equals_alanine_scan_sum():
+    # ΔΦ = Φ(real) − Φ(polyAla) equals the sum of the per-position native→Ala ΔΔGs (Φ is a contact sum).
+    cm, pot = _toy_contact_map(), _toy_potential()
+    scan_sum = float(alanine_scan(cm, "AGK", pot)["ddG"].sum())
+    assert reference_delta(cm, "AGK", pot) == pytest.approx(scan_sum)
+
+
+def test_reference_delta_is_constant_offset_on_fixed_map():
+    # On ONE contact map, ΔΦ(p) = Φ(p) − const, so ΔΦ(p1) − ΔΦ(p2) == Φ(p1) − Φ(p2) (ranking-invariant).
+    cm, pot = _toy_contact_map(), _toy_potential()
+    d1, d2 = reference_delta(cm, "AGK", pot), reference_delta(cm, "LGA", pot)
+    phi1 = float(score_peptides(cm, ["AGK"], pot)["score"][0])
+    phi2 = float(score_peptides(cm, ["LGA"], pot)["score"][0])
+    assert (d1 - d2) == pytest.approx(phi1 - phi2)
+
+
+def test_reference_delta_zero_for_non_peptide_interface():
+    cm, pot = _toy_contact_map(), _toy_potential()
+    assert reference_delta(cm, "AGK", pot, interface="tcr_mhc") == 0.0
 
 
 def test_ddg_sign_and_value():
