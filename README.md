@@ -53,6 +53,12 @@ From one TCR–peptide–MHC structure (crystal or model), each task is one comm
 | Steric-clash / wrong-register QC | — | `interface_clashes`, `check_register` |
 | 2D complementarity map + 3D pocket/CDR view | — | `render_complementarity_map`, `view_pocket_cdr` |
 
+**Scope — ranking, not affinity.** TCRen ranks peptide/TCR *specificity* for a given receptor (and the
+`ddg` matrix is a fast triage, not a free energy). It is **not** an affinity model: on the ATLAS SPR
+benchmark neither the raw contact energy nor its poly-alanine difference predicts Kd/ΔG/koff/kon
+(|ρ|≤0.3). The one affinity-adjacent quantity a structure predicts is the off-rate koff, via interface
+mechanics (`tcren mechanics`) — not the contact sum.
+
 ## Install
 
 ```fish

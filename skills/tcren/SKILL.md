@@ -130,6 +130,12 @@ QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses ar
   corrupts raw Φ (CPL ila1 TCR-ranking ROC **0.35 → 0.83**), but costs a little where the AF geometry is
   itself informative (mel5/mel8) — so it is a mode, not the default. Sweep: `scripts/ala_reference_sweep.py`
   (manuscript repo). It is **NOT** an affinity ΔΔG (dimensionless contact-preference, no free energy).
+- **Ranking, not affinity (ATLAS).** Both raw Φ and ΔΦ are *within-receptor* peptide rankings: they order
+  a peptide panel against one fixed TCR:pMHC (Garcia B*27:05 EC50, Spearman ρ≈0.75–0.9) but predict
+  equilibrium binding *across* complexes only weakly — on ATLAS SPR raw Φ and ΔΦ track dG/Kd/koff/kon at
+  |ρ|≤0.3 (cache-free recompute, `scripts/atlas_tcren.py` + `atlas_within_series.py`, manuscript repo).
+  Turning ATLAS Garcia-like (thread a within-TCR panel on one pose) partly recovers the signal — proof
+  it's the task setup (within-receptor ranking vs cross-complex affinity), not the potential.
 
 ## Interface mechanics — `tcren.mechanics` (koff/kinetics, NOT ΔG)
 

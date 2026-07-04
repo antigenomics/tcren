@@ -185,7 +185,9 @@ def reference_delta(
     the raw contact energy (the CPL ila1 case: TCR-ranking ROC 0.35 → 0.83), at a small cost on clones
     where the generated geometry is itself informative — so it is a scoring mode for generated poses,
     not a default. It is **not** an affinity ΔΔG: a dimensionless contact-preference difference, not a
-    free energy (see :mod:`tcren.refine.register` for the geometry defect it corrects).
+    free energy (see :mod:`tcren.refine.register` for the geometry defect it corrects). Empirically both
+    raw Φ and ΔΦ are within-receptor *ranking* scores, not binding constants — on the ATLAS SPR set they
+    correlate with ΔG/Kd/koff/kon only at ρ ≤ 0.3 in magnitude (off-rate comes from :mod:`tcren.mechanics`).
 
     Args:
         contact_map: The candidate's own contact map.

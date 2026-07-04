@@ -159,6 +159,21 @@ fast triage matrix (\texttt{alanine\_scan}, \texttt{neoantigen\_ddg}); a quantit
 sampling-dependent $\Delta\Delta G$ is left to the coordinate path below and, ultimately, to full
 relaxation.
 
+\paragraph{Poly-alanine reference} Summing \eqref{eq:ddg} over every peptide position gives the
+poly-alanine reference difference $\Delta\Phi=\Phi(s)-\Phi(\mathrm A^{L})$ (\texttt{reference\_delta}) ---
+the full-peptide alanine scan, which subtracts the pose's identity-independent baseline $\Phi(\mathrm
+A^{L})$ (what the geometry scores when every peptide residue is alanine) and keeps the sequence-specific
+part. On a \emph{fixed} contact map $\Delta\Phi=\Phi(s)-\text{const}$, so it re-ranks nothing; it matters
+only across candidates that each carry their \emph{own} structure (e.g.\ AlphaFold peptide-swap models),
+where it normalises out per-pose interface geometry and rescues forced or mis-registered poses whose
+geometry corrupts the raw energy. Both $\Phi$ and $\Delta\Phi$ are \emph{relative, within-receptor}
+peptide rankings, not binding constants: they order a peptide panel against one fixed TCR:pMHC (e.g.\ the
+graded B\texttt{*}27:05 EC$_{50}$ series, Spearman $\rho\approx0.75$--$0.9$) but predict equilibrium
+affinity \emph{across} complexes only weakly --- on the ATLAS SPR set raw $\Phi$ and $\Delta\Phi$ track
+$\Delta G$, $K_d$, $k_{\mathrm{off}}$ and $k_{\mathrm{on}}$ at $|\rho|\le0.3$; the off-rate, when a
+structure predicts anything, comes from the interface mechanics of \S\ref{sec:mechanics}, not the
+contact sum.
+
 \section{Backbone-preserving peptide substitution}\label{sec:sub}
 \begin{definition}[Substitution]\label{def:sub}
 Let the native peptide chain have residues $r_1,\dots,r_L$ with heavy-atom coordinate sets
