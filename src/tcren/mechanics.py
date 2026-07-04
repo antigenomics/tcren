@@ -163,8 +163,11 @@ def rupture(
     (Hookean) and is removed once its strain exceeds ``break_strain``. Integrates until all springs break.
 
     Args:
-        direction: ``"tensile"`` (docking axis), ``"shear"`` (stiffest in-plane), or ``"auto"``
-            (the minimum-force of tensile and shear — the easiest rupture path).
+        direction: ``"tensile"`` (docking axis; the default and the right choice for affinity/koff
+            ranking), ``"shear"`` (stiffest in-plane), or ``"auto"`` (the minimum-force of tensile and
+            shear — the easiest rupture path). For affinity prediction prefer ``"tensile"`` or
+            :func:`stiffness_tensor` ``K_tens``: on ATLAS the ``"auto"``/``"shear"`` force is size-confounded
+            (its koff correlation collapses under a weighted-size control) while tensile survives it.
         break_strain: fractional extension at which a spring breaks (the tuning knob; 0.5 = 50 %).
         steps: displacement increments.
 
