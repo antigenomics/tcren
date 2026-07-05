@@ -161,6 +161,31 @@ QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses ar
   per-spring rows from one structure as independent samples — that is pseudo-replication.
 - Self-check (no PDB): `conda run -n tcren-fold python -m tcren.mechanics`.
 
+## Docking geometry — `tcren.orient.docking` + `tcren.orient.tcrdock_geometry`
+
+- **Two interpretable angles** (existing): `docking_angles(structure) -> DockingAngles(crossing_angle,
+  crossing_angle_signed, incident_angle, ...)`. `crossing_angle` = the groove-plane "scanning" angle,
+  `incident_angle` = the tilt. Computed from the Vα→Vβ axis in the groove frame; no reference DB.
+- **Full rigid-body pose** (new, `tcrdock_geometry.py`): `docking_geometry(structure) -> DockingGeometry(d,
+  torsion, tcr_unit_y, tcr_unit_z, mhc_unit_y, mhc_unit_z)` — native reimplementation of **TCRdock**
+  (phbradley/TCRdock, MIT, commit `c5a7af4`; see `THIRD_PARTY_NOTICES.md`). MHC + TCR symmetry stubs (β-sheet
+  floor / Vα-Vβ two-fold), MHC-I core by BLOSUM-align to TCRdock's template, TCR core by conserved IMGT
+  framework positions from arda region markup. Needs a chain-typed + MHC-annotated structure; **class-I only**
+  (class-II raises).
+- **What we use / provenance finding (2026-07-05, validated on 618 TCRvdb models):** the upstream AF/TCRmodel2
+  annotation table's `scanning_angle` **is** reproducible (= `crossing_angle`, r≈0.88), but its
+  **`pitch_angle` is NOT** any clean geometric angle (best correlate `d`, r≈0.42) and out-discriminates every
+  clean docking feature on TCRvdb (macro-PR≈0.72 vs `d`≈0.64 / `torsion`≈0.62 / tilt≈0.58) → its extra signal
+  is **AlphaFold-confidence contamination, not geometry**. Prefer the documented `d`/`torsion`/`crossing`/
+  `incident` over the opaque upstream `pitch_angle`.
+
+## Contact typing — `tcren.contact_types` (DSSP-style, dep-light)
+
+- `contact_type_counts(cm, interface='tcr_peptide', tcr_regions='all') -> {n_<type>, pairs_<type>}` and
+  `classify_contacts(interface_df) -> df + 'contact.type'`. Types by priority: `salt_bridge`, `hydrogen_bond`,
+  `aromatic`, `hydrophobic`, `other`, from heavy-atom geometry (no H, no external DSSP). `pairs_hydrogen_bond`
+  is the documented, reproducible replacement for the lost ad-hoc `n_hbond` (tracks it at r≈0.68).
+
 ## MHC mapping speed — `mhc.reference.reference_db()`
 
 - `easy_search(query, reference_fasta())` rebuilt the 28k-allele target DB + k-mer index on EVERY

@@ -141,6 +141,14 @@ tcren.contactmap module
    :undoc-members:
    :show-inheritance:
 
+tcren.contact_types module
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: tcren.contact_types
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Potentials
 ----------
 
@@ -342,6 +350,14 @@ tcren.orient.docking module
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. automodule:: tcren.orient.docking
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+tcren.orient.tcrdock_geometry module
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: tcren.orient.tcrdock_geometry
    :members:
    :undoc-members:
    :show-inheritance:
