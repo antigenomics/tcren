@@ -201,6 +201,13 @@ QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses ar
   But a shuffled-trained (crystal) model does **not** transfer to AF-modeled TCRvdb (0.55–0.62 vs AF 0.79) —
   crystal→AF distribution shift. Use it as a label-free recognition prior / supplementary benchmark, not as a
   drop-in TCRvdb scorer.
+- **BN classifier** (`tcren.recognition.GaussianBNClassifier`): pure-numpy conditional-linear-Gaussian Bayes
+  net — DAG over standardized features (BIC hill-climb on within-class-centred data) + class `y` and MHC class
+  as discrete parent nodes; classifies by the Gaussian log-likelihood ratio. `fit/predict_proba`, gzip-JSON
+  `save/load`, `to_dot` (graphviz). Trained model shipped at `src/tcren/data/shuffle_bn.json.gz`; the
+  reproducible appendix (train+eval, gnuplot ROC/PR + balanced metrics, graphviz BN, marginals) is
+  `appendix/shuffle_bn/` (`make`). Decoys are regenerable (`tcren shuffle --seed 0 --n 10`); manifest committed,
+  full PDBs belong on HF (351 MB).
 
 ## MHC mapping speed — `mhc.reference.reference_db()`
 

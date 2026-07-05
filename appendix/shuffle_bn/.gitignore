@@ -1,0 +1,10 @@
+# latex intermediates + regenerated data (regenerate the rest with `make`)
+*.aux
+*.log
+*.fls
+*.fdb_latexmk
+*.out
+*.synctex.gz
+figures/*.dat
+figures/*.dot
+base.txt

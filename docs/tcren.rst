@@ -219,6 +219,14 @@ tcren.shuffle module
    :undoc-members:
    :show-inheritance:
 
+tcren.recognition module
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: tcren.recognition
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 tcren.mechanics module
 ~~~~~~~~~~~~~~~~~~~~~~
 
