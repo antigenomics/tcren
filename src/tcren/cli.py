@@ -204,6 +204,29 @@ def orient(
                mmcif=mmcif, compress=compress)
 
 
+@app.command(rich_help_panel=_P_DATA)
+def shuffle(
+    structures: Path = typer.Option(..., "-s", "--structures", help="dir of ORIENTED TCR-pMHC (co-framed; run `orient`/`superimpose` first)"),
+    out: Path = typer.Option("shuffled", "-o", "--out", help="output dir for decoy complexes"),
+    n: int = typer.Option(10, "--n", help="decoys generated per pMHC"),
+    seed: int = typer.Option(0, "--seed"),
+    within_class: bool = typer.Option(True, "--within-class/--any-class", help="graft only same-MHC-class TCRs"),
+    organism: str = typer.Option("human", "--organism"),
+    compress: bool = typer.Option(False, "--compress", help="gzip the output (.gz)"),
+) -> None:
+    """Generate wrong-TCR-on-real-pMHC decoys (a Shuffled set) for recognition models.
+
+    Keeps each oriented complex's pMHC intact and grafts on ``n`` different complexes' TCRs (a within-MHC-class
+    derangement, so no decoy reproduces a real pairing). Real (label 1) vs these decoys (label 0) trains a
+    label-free TCR-recognition classifier. Inputs must be co-framed — run ``tcren orient`` first.
+    """
+    from .shuffle import run_shuffle
+
+    written = run_shuffle(structures, out, n=n, seed=seed, within_class=within_class,
+                          organism=organism, compress=compress)
+    typer.echo(f"wrote {written} decoys to {out}")
+
+
 @app.command(rich_help_panel=_P_ORIENT)
 def superimpose(
     structures: str = typer.Option(..., "-s", "--structures", help="structure file, directory, .tar.gz, or a glob ('data/*.pdb')"),

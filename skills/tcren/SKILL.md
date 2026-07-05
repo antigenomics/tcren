@@ -186,6 +186,22 @@ QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses ar
   `aromatic`, `hydrophobic`, `other`, from heavy-atom geometry (no H, no external DSSP). `pairs_hydrogen_bond`
   is the documented, reproducible replacement for the lost ad-hoc `n_hbond` (tracks it at r≈0.68).
 
+## Wrong-TCR decoys — `tcren.shuffle` (`tcren shuffle`)
+
+- `make_decoys(structures, n_per=10, within_class=True, seed=0)` / `graft_tcr(pmhc_source, tcr_source)` /
+  `run_shuffle(dir, out, n=10, ...)`. Keep each **oriented** complex's pMHC intact, graft on a **different**
+  complex's TCR (within-MHC-class derangement, no real pairing) → wrong-TCR-on-real-pMHC negatives. Real
+  (label 1) vs decoy (label 0) trains a **label-free** TCR-recognition classifier; peptide:MHC energy is
+  invariant under the graft (built-in control), TCR:peptide/TCR:MHC contacts are new.
+- **Direct chain replacement, NOT `orient.substitute_tcr`.** Inputs must be canonically oriented (one common
+  frame); the graft copies chains with no per-pair alignment, so each grafted TCR keeps its native MHC–TCR
+  docking angle → the decoy set spans the real docking-angle variance (substitute_tcr would collapse every
+  donor onto the host's MHC pose). CLI: `tcren orient -s natives/ -o oriented/ && tcren shuffle -s oriented/ -o shuffled/ --n 10`.
+- **Finding (2026-07-05):** real-vs-shuffled is learnable at **AUC 0.876** (RF; F_tcr_pep the top feature).
+  But a shuffled-trained (crystal) model does **not** transfer to AF-modeled TCRvdb (0.55–0.62 vs AF 0.79) —
+  crystal→AF distribution shift. Use it as a label-free recognition prior / supplementary benchmark, not as a
+  drop-in TCRvdb scorer.
+
 ## MHC mapping speed — `mhc.reference.reference_db()`
 
 - `easy_search(query, reference_fasta())` rebuilt the 28k-allele target DB + k-mer index on EVERY

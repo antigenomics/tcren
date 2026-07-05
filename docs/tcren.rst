@@ -211,6 +211,14 @@ tcren.binder module
    :undoc-members:
    :show-inheritance:
 
+tcren.shuffle module
+~~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: tcren.shuffle
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 tcren.mechanics module
 ~~~~~~~~~~~~~~~~~~~~~~
 

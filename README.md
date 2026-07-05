@@ -46,6 +46,7 @@ From one TCR–peptide–MHC structure (crystal or model), each task is one comm
 | Interface contact table (5/8/12 Å) | `tcren contacts` | `ContactMap`, `multi_contacts` |
 | Orient into the canonical MHC frame | `tcren superimpose` / `orient` | `superimpose`, `canonicalize_structure` |
 | Graft a TCR onto another pMHC (chimera) | `tcren substitute-tcr` | `substitute_tcr` |
+| Wrong-TCR decoy set (recognition negatives) | `tcren shuffle` | `make_decoys`, `graft_tcr` |
 | Substitute a peptide + refine its pose | `tcren refine` | `substitute_peptide`, `refine_peptide` |
 | DOPE interface energy (ΔΔG `e_native`) | `tcren energy` | `interface_energy` |
 | Interface mechanics — koff proxies (stiffness / rupture) | `tcren mechanics` | `stiffness_tensor`, `rupture`, `coupling_residues` |
@@ -113,6 +114,11 @@ tcren binder -s complex.pdb -o binder.csv
 
 # End-to-end candidate-epitope scoring from a structure
 tcren score -s complex.pdb -c candidates.txt -o ranked.csv
+
+# Wrong-TCR decoys: keep each ORIENTED complex's pMHC, graft on 10 other complexes' TCRs (within
+# MHC class, no real pairing). Real-vs-decoy trains a label-free TCR-recognition classifier.
+tcren orient -s natives/ -o oriented/          # inputs must share the canonical MHC frame
+tcren shuffle -s oriented/ -o shuffled/ --n 10
 
 # Substitute a peptide and refine its pose (knowledge-based MC scored by the DOPE atom-level
 # statistical potential — independent of the TCRen/MJ scoring potentials, restrained to the input).
