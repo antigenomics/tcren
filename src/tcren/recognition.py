@@ -148,6 +148,48 @@ class GaussianBNClassifier:
         p = 1.0 / (1.0 + np.exp(-np.clip(s, -700, 700)))
         return np.column_stack([1 - p, p])
 
+    # -- marginalization ---------------------------------------------------------------------------------
+    def _joint_gaussian(self):
+        """Reconstruct the class-conditional joint Gaussian from the DAG: shared covariance + the y/m means.
+
+        Each standardized node is ``z_j = b0_j + sum b.parents + g_j y + d_j m + eps_j``. In matrix form
+        ``z = (I-B)^{-1}(c + eps)`` for fixed (y, m), so the (homoscedastic) covariance is
+        ``Sigma = (I-B)^{-1} diag(sigma^2) (I-B)^{-T}`` and the class-mean shift is ``(I-B)^{-1} g``.
+        """
+        p = len(self.feature_names)
+        B = np.zeros((p, p)); c0 = np.zeros(p); g = np.zeros(p); d = np.zeros(p); D = np.zeros(p)
+        for j, nd in self.nodes_.items():
+            beta = np.asarray(nd["beta"]); pa = nd["parents"]
+            c0[j] = beta[0]
+            for k, a in enumerate(pa):
+                B[j, a] = beta[1 + k]
+            g[j] = beta[-2]; d[j] = beta[-1]; D[j] = nd["sigma"] ** 2
+        IB = np.linalg.inv(np.eye(p) - B)
+        return IB, c0, g, d, IB @ np.diag(D) @ IB.T
+
+    def marginal_decision(self, X, keep, mhc_class=None) -> np.ndarray:
+        """LLR ``log P(x_G|y=1) - log P(x_G|y=0)`` after **marginalizing out** every feature not in ``keep``.
+
+        ``keep`` is a list of feature names (e.g. the geometry features, energy marginalised out). Because the
+        covariance is shared across classes the marginal LLR is linear in the kept features.
+        """
+        idx = [self.feature_names.index(n) for n in keep]
+        Z = self._standardize(np.asarray(X, float))
+        m = np.zeros(len(Z)) if mhc_class is None else np.asarray(mhc_class, float)
+        IB, c0, g, d, Sigma = self._joint_gaussian()
+        Sinv = np.linalg.inv(Sigma[np.ix_(idx, idx)])
+        shift = (IB @ g)[idx]                              # mu_1 - mu_0 on the kept block (m-independent)
+        base = (IB @ (c0 + 0.5 * g))                       # the m=0 midpoint; add d*m per sample below
+        dm = (IB @ d)[idx]
+        Zk = Z[:, idx]
+        mid = base[idx][None, :] + np.outer(m, dm)         # per-sample class midpoint on kept block
+        return ((Zk - mid) @ Sinv) @ shift
+
+    def marginal_proba(self, X, keep, mhc_class=None) -> np.ndarray:
+        s = self.marginal_decision(X, keep, mhc_class)
+        p = 1.0 / (1.0 + np.exp(-np.clip(s, -700, 700)))
+        return np.column_stack([1 - p, p])
+
     # -- persistence + rendering -------------------------------------------------------------------------
     def to_dict(self) -> dict:
         return {"feature_names": self.feature_names, "max_parents": self.max_parents,

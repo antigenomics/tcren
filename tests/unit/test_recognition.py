@@ -57,6 +57,25 @@ def test_to_dot_has_class_and_mhc_nodes():
     assert "y ->" in dot          # class node influences some feature
 
 
+def test_marginal_over_all_equals_full_llr():
+    X, y, m = _data()
+    names = [f"x{i}" for i in range(5)]
+    clf = GaussianBNClassifier(names).fit(X, y, m)
+    full = clf.decision_function(X, m)
+    marg = clf.marginal_decision(X, names, m)             # marginalise nothing out
+    assert np.corrcoef(full, marg)[0, 1] > 0.999          # same joint log-likelihood ratio
+
+
+def test_marginal_subset_valid_and_separates():
+    X, y, m = _data()
+    names = [f"x{i}" for i in range(5)]
+    clf = GaussianBNClassifier(names).fit(X, y, m)
+    s = clf.marginal_decision(X, ["x0", "x2", "x4"], m)   # keep a subset, marginalise the rest
+    assert np.isfinite(s).all() and len(s) == len(y)
+    from sklearn.metrics import roc_auc_score
+    assert roc_auc_score(y, s) > 0.6                      # the kept features still carry class signal
+
+
 def test_hill_climb_empty_on_independent_data():
     rng = np.random.default_rng(1)
     Z = rng.normal(size=(500, 4))                        # independent columns
