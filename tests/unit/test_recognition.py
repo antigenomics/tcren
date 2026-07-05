@@ -5,7 +5,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from tcren.recognition import GaussianBNClassifier, _hill_climb
+from tcren.recognition import (BayesianLogisticRecognizer, GaussianBNClassifier, _hill_climb,
+                               encode_features)
 
 
 def _data(seed=0, n=400, p=5):
@@ -81,3 +82,43 @@ def test_hill_climb_empty_on_independent_data():
     Z = rng.normal(size=(500, 4))                        # independent columns
     struct = _hill_climb(Z, max_parents=2)
     assert sum(len(v) for v in struct.values()) <= 1     # ~no spurious edges
+
+
+# --- distribution-aware logistic recognizer -----------------------------------------------------------
+def test_encode_features_distribution_encodings():
+    names = ["extent", "dock_torsion", "chain_balance", "n_hbond", "burial", "dock_tcr_uy"]
+    X = np.array([[20.0, 1.5, 0.3, 5.0, 1800.0, 0.1],
+                  [10.0, 6.0, 0.5, 2.0, 1200.0, -0.4]])
+    Z, enc = encode_features(X, names)
+    assert enc == ["extent", "dock_torsion_cos", "dock_torsion_sin", "chain_balance_logit",
+                   "burial", "dock_tcr_uy"]                # torsion->cos/sin, balance->logit, n_hbond dropped
+    j = enc.index("dock_torsion_cos")
+    assert Z[0, j] == pytest.approx(np.cos(1.5))
+    k = enc.index("dock_torsion_sin")
+    assert Z[0, k] == pytest.approx(np.sin(1.5))
+    lg = enc.index("chain_balance_logit")                  # logit(2*0.5) clipped -> large positive
+    assert Z[1, lg] > 5.0
+    assert Z[:, enc.index("extent")].tolist() == [20.0, 10.0]   # counts stay linear
+
+
+def test_recognizer_predict_roundtrip_and_nan_safe(tmp_path):
+    names = ["extent", "dock_torsion", "chain_balance", "burial"]
+    X = np.array([[20.0, 1.5, 0.3, 1800.0], [10.0, 6.0, 0.0, 1200.0], [30.0, 0.3, 0.5, 2200.0]])
+    Z, enc = encode_features(X, names)
+    mean, sd = Z.mean(0), Z.std(0) + 1e-9                   # realistic train stats -> standardised O(1)
+    beta = np.linspace(-1, 1, len(enc))
+    rec = BayesianLogisticRecognizer(names, enc, mean, sd, 0.3, beta)
+    p = rec.predict_proba(X)[:, 1]
+    assert p.shape == (3,) and np.all(np.isfinite(p)) and np.all((p > 0) & (p < 1))
+    f = tmp_path / "logit.json.gz"
+    rec.save(f)
+    assert np.allclose(p, BayesianLogisticRecognizer.load(f).predict_proba(X)[:, 1])
+    Xn = X.copy(); Xn[0, 2] = np.nan                       # nan chain_balance -> nan logit -> imputed
+    assert np.isfinite(rec.predict_proba(Xn)[:, 1]).all()
+
+
+def test_recognizer_name_mismatch_raises():
+    rec = BayesianLogisticRecognizer(["extent", "burial"], ["wrong", "names"],
+                                     np.zeros(2), np.ones(2), 0.0, np.zeros(2))
+    with pytest.raises(ValueError, match="do not match"):
+        rec._design(np.zeros((1, 2)))                      # encoded names don't match the fitted model

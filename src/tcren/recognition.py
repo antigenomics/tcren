@@ -9,6 +9,11 @@ log-likelihood ratio ``log P(x | y=1) - log P(x | y=0)`` (plus the class-prior l
 Pure numpy (dep-light). Trained parameters serialise to gzipped JSON (:meth:`GaussianBNClassifier.save` /
 :meth:`load`); :meth:`to_dot` renders the network with graphviz. Trained on the Shuffled2026 decoys from
 :mod:`tcren.shuffle`.
+
+This module also provides :class:`BayesianLogisticRecognizer` — a frozen distribution-aware Bayesian logistic
+regression (fit externally with PyMC): each feature enters via its family's canonical form
+(:func:`encode_features` — circular angles as cos/sin, bounded ratios as logit, counts/continuous linearly),
+so unlike the Gaussian BN it does not mis-specify the count and angle features.
 """
 from __future__ import annotations
 
@@ -237,3 +242,100 @@ class GaussianBNClassifier:
                 lines.append(f'  mhc -> f{j} [color="#3355cc", label="{d:+.2f}", fontsize=7];')
         lines.append("}")
         return "\n".join(lines)
+
+
+# ======================================================================================================
+# Distribution-aware Bayesian logistic recognizer
+# ======================================================================================================
+# Encodings that respect each feature's natural distribution before the (linear) logistic predictor:
+#   circular angle (von Mises) -> cos/sin ; bounded ratio (Beta) -> logit ; exact duplicate -> dropped.
+# Counts (Poisson canonical) and continuous / unit-vector features already enter linearly, so a logistic
+# regression -- unlike the Gaussian BN above -- does not mis-specify them.
+_ENCODE = {"dock_torsion": "cos_sin", "chain_balance": "logit_half", "n_hbond": "drop"}
+_HALF = 0.5
+
+
+def encode_features(X, feature_names) -> tuple[np.ndarray, list[str]]:
+    """Distribution-aware design matrix (pre-standardization).
+
+    ``dock_torsion`` (circular, wraps) -> its von Mises sufficient statistics ``(cos, sin)``; ``chain_balance``
+    ([0, 0.5] Beta) -> ``logit(2x)``; ``n_hbond`` dropped (exact duplicate of ``ct_tp_hydrogen_bond``);
+    everything else (counts + continuous + unit-vector cos/sin components) enters linearly.
+
+    Args:
+        X: ``(n, len(feature_names))`` raw feature array.
+        feature_names: column names of ``X``.
+
+    Returns:
+        ``(Z, encoded_names)`` — the encoded matrix and its column names.
+    """
+    X = np.asarray(X, float)
+    idx = {n: i for i, n in enumerate(feature_names)}
+    cols, names = [], []
+    for n in feature_names:
+        enc = _ENCODE.get(n, "linear")
+        if enc == "drop":
+            continue
+        x = X[:, idx[n]]
+        if enc == "cos_sin":
+            cols += [np.cos(x), np.sin(x)]; names += [f"{n}_cos", f"{n}_sin"]
+        elif enc == "logit_half":
+            u = np.clip(x / _HALF, 1e-4, 1 - 1e-4)
+            cols.append(np.log(u / (1 - u))); names.append(f"{n}_logit")
+        else:
+            cols.append(x); names.append(n)
+    return np.column_stack(cols), names
+
+
+class BayesianLogisticRecognizer:
+    """Frozen distribution-aware Bayesian logistic (posterior-mean coefficients) — dep-light numpy predictor.
+
+    Applies :func:`encode_features`, standardizes with the stored training statistics (nan -> train mean), and
+    returns ``sigmoid(alpha + Z @ beta)``. Fit externally by PyMC (``appendix/logistic_stan/build.py``) and
+    frozen here; serialises to gzipped JSON.
+    """
+
+    def __init__(self, feature_names, encoded_names, mean, sd, alpha, beta, prior: str = "normal"):
+        self.feature_names = list(feature_names)
+        self.encoded_names = list(encoded_names)
+        self.mean = np.asarray(mean, float)
+        self.sd = np.asarray(sd, float)
+        self.alpha = float(alpha)
+        self.beta = np.asarray(beta, float)
+        self.prior = prior
+
+    def _design(self, X) -> np.ndarray:
+        Z, names = encode_features(X, self.feature_names)
+        if names != self.encoded_names:
+            raise ValueError("encoded feature names do not match the fitted model")
+        Z = np.where(np.isfinite(Z), Z, self.mean[None, :])       # nan -> train mean
+        return (Z - self.mean) / self.sd
+
+    def decision_function(self, X) -> np.ndarray:
+        return self.alpha + self._design(X) @ self.beta
+
+    def predict_proba(self, X) -> np.ndarray:
+        p = 1.0 / (1.0 + np.exp(-np.clip(self.decision_function(X), -700, 700)))
+        return np.column_stack([1 - p, p])
+
+    def to_dict(self) -> dict:
+        return {"feature_names": self.feature_names, "encoded_names": self.encoded_names,
+                "mean": self.mean.tolist(), "sd": self.sd.tolist(),
+                "alpha": self.alpha, "beta": self.beta.tolist(), "prior": self.prior}
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "BayesianLogisticRecognizer":
+        return cls(d["feature_names"], d["encoded_names"], d["mean"], d["sd"], d["alpha"], d["beta"],
+                   d.get("prior", "normal"))
+
+    def save(self, path: str | Path) -> Path:
+        path = Path(path)
+        data = json.dumps(self.to_dict()).encode()
+        (gzip.open(path, "wb") if str(path).endswith(".gz") else open(path, "wb")).write(data)
+        return path
+
+    @classmethod
+    def load(cls, path: str | Path) -> "BayesianLogisticRecognizer":
+        path = Path(path)
+        raw = (gzip.open(path, "rb") if str(path).endswith(".gz") else open(path, "rb")).read()
+        return cls.from_dict(json.loads(raw))
