@@ -119,6 +119,24 @@ QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses ar
   FlexPepDock-functional path; needs the `_refine`/`_fold` kernel). Equal peptide length required.
   Template-free re-docking (CCD to canonical anchor targets) is the future extension.
 
+## Poly-alanine reference score — `tcren.ddg.reference_delta` (geometry-normalized TCRen)
+
+- `reference_delta(cm, peptide, pot, interface="tcr_peptide", reference_aa="A") -> float` = ΔΦ = Φ(peptide)
+  − Φ(all-`reference_aa` peptide). It is the **full-peptide alanine scan** (== sum of `alanine_scan().ddG`)
+  and subtracts the pose's identity-independent geometry baseline Φ(polyAla).
+- **Use for GENERATED poses only.** On a *fixed* contact map ΔΦ = Φ − const → ranking unchanged
+  (no-op); it differs only across candidates with their *own* structure (AF swap models). There it
+  normalizes out the per-pose interface geometry: **rescues forced/wrong-register poses** whose geometry
+  corrupts raw Φ (CPL ila1 TCR-ranking ROC **0.35 → 0.83**), but costs a little where the AF geometry is
+  itself informative (mel5/mel8) — so it is a mode, not the default. Sweep: `scripts/ala_reference_sweep.py`
+  (manuscript repo). It is **NOT** an affinity ΔΔG (dimensionless contact-preference, no free energy).
+- **Ranking, not affinity (ATLAS).** Both raw Φ and ΔΦ are *within-receptor* peptide rankings: they order
+  a peptide panel against one fixed TCR:pMHC (Garcia B*27:05 EC50, Spearman ρ≈0.75–0.9) but predict
+  equilibrium binding *across* complexes only weakly — on ATLAS SPR raw Φ and ΔΦ track dG/Kd/koff/kon at
+  |ρ|≤0.3 (cache-free recompute, `scripts/atlas_tcren.py` + `atlas_within_series.py`, manuscript repo).
+  Turning ATLAS Garcia-like (thread a within-TCR panel on one pose) partly recovers the signal — proof
+  it's the task setup (within-receptor ranking vs cross-complex affinity), not the potential.
+
 ## Interface mechanics — `tcren.mechanics` (koff/kinetics, NOT ΔG)
 
 - The TCR↔pMHC contact map as a network of breakable Cα-anchored Hookean springs (per-contact
@@ -142,6 +160,63 @@ QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses ar
   **between structures** (one value per complex) to rank/compare; do not pool many per-residue or
   per-spring rows from one structure as independent samples — that is pseudo-replication.
 - Self-check (no PDB): `conda run -n tcren-fold python -m tcren.mechanics`.
+
+## Docking geometry — `tcren.orient.docking` + `tcren.orient.tcrdock_geometry`
+
+- **Two interpretable angles** (existing): `docking_angles(structure) -> DockingAngles(crossing_angle,
+  crossing_angle_signed, incident_angle, ...)`. `crossing_angle` = the groove-plane "scanning" angle,
+  `incident_angle` = the tilt. Computed from the Vα→Vβ axis in the groove frame; no reference DB.
+- **Full rigid-body pose** (new, `tcrdock_geometry.py`): `docking_geometry(structure) -> DockingGeometry(d,
+  torsion, tcr_unit_y, tcr_unit_z, mhc_unit_y, mhc_unit_z)` — native reimplementation of **TCRdock**
+  (phbradley/TCRdock, MIT, commit `c5a7af4`; see `THIRD_PARTY_NOTICES.md`). MHC + TCR symmetry stubs (β-sheet
+  floor / Vα-Vβ two-fold), MHC-I core by BLOSUM-align to TCRdock's template, TCR core by conserved IMGT
+  framework positions from arda region markup. Needs a chain-typed + MHC-annotated structure; **class-I only**
+  (class-II raises).
+- **What we use / provenance finding (2026-07-05, validated on 618 TCRvdb models):** the upstream AF/TCRmodel2
+  annotation table's `scanning_angle` **is** reproducible (= `crossing_angle`, r≈0.88), but its
+  **`pitch_angle` is NOT** any clean geometric angle (best correlate `d`, r≈0.42) and out-discriminates every
+  clean docking feature on TCRvdb (macro-PR≈0.72 vs `d`≈0.64 / `torsion`≈0.62 / tilt≈0.58) → its extra signal
+  is **AlphaFold-confidence contamination, not geometry**. Prefer the documented `d`/`torsion`/`crossing`/
+  `incident` over the opaque upstream `pitch_angle`.
+
+## Contact typing — `tcren.contact_types` (DSSP-style, dep-light)
+
+- `contact_type_counts(cm, interface='tcr_peptide', tcr_regions='all') -> {n_<type>, pairs_<type>}` and
+  `classify_contacts(interface_df) -> df + 'contact.type'`. Types by priority: `salt_bridge`, `hydrogen_bond`,
+  `aromatic`, `hydrophobic`, `other`, from heavy-atom geometry (no H, no external DSSP). `pairs_hydrogen_bond`
+  is the documented, reproducible replacement for the lost ad-hoc `n_hbond` (tracks it at r≈0.68).
+
+## Wrong-TCR decoys — `tcren.shuffle` (`tcren shuffle`)
+
+- `make_decoys(structures, n_per=10, within_class=True, seed=0)` / `graft_tcr(pmhc_source, tcr_source)` /
+  `run_shuffle(dir, out, n=10, ...)`. Keep each **oriented** complex's pMHC intact, graft on a **different**
+  complex's TCR (within-MHC-class derangement, no real pairing) → wrong-TCR-on-real-pMHC negatives. Real
+  (label 1) vs decoy (label 0) trains a **label-free** TCR-recognition classifier; peptide:MHC energy is
+  invariant under the graft (built-in control), TCR:peptide/TCR:MHC contacts are new.
+- **Direct chain replacement, NOT `orient.substitute_tcr`.** Inputs must be canonically oriented (one common
+  frame); the graft copies chains with no per-pair alignment, so each grafted TCR keeps its native MHC–TCR
+  docking angle → the decoy set spans the real docking-angle variance (substitute_tcr would collapse every
+  donor onto the host's MHC pose). CLI: `tcren orient -s natives/ -o oriented/ && tcren shuffle -s oriented/ -o shuffled/ --n 10`.
+- **Finding (2026-07-05):** real-vs-shuffled is learnable at **AUC 0.876** (RF; F_tcr_pep the top feature).
+  But a shuffled-trained (crystal) model does **not** transfer to AF-modeled TCRvdb (0.55–0.62 vs AF 0.79) —
+  crystal→AF distribution shift. Use it as a label-free recognition prior / supplementary benchmark, not as a
+  drop-in TCRvdb scorer.
+- **BN classifier** (`tcren.recognition.GaussianBNClassifier`): pure-numpy conditional-linear-Gaussian Bayes
+  net — DAG over standardized features (BIC hill-climb on within-class-centred data) + class `y` and MHC class
+  as discrete parent nodes; classifies by the Gaussian log-likelihood ratio. `fit/predict_proba`, gzip-JSON
+  `save/load`, `to_dot` (graphviz). Trained model shipped at `src/tcren/data/shuffle_bn.json.gz`; the
+  reproducible appendix (train+eval, gnuplot ROC/PR + balanced metrics, graphviz BN, marginals) is
+  `appendix/shuffle_bn/` (`make`). Decoys are regenerable (`tcren shuffle --seed 0 --n 10`); manifest committed,
+  full PDBs belong on HF (351 MB).
+- **Distribution-aware logistic** (`tcren.recognition.BayesianLogisticRecognizer` + `encode_features`): a
+  *discriminative* alternative to the BN. `encode_features` maps each feature by its natural family — circular
+  `dock_torsion` → (cos, sin) von-Mises stats, `chain_balance` → logit, counts/continuous linear, drops the
+  duplicate `n_hbond` — then a Bayesian logistic (PyMC NUTS, weakly-informative or horseshoe prior) is fit and
+  its posterior mean frozen into `src/tcren/data/shuffle_logistic.json.gz` (dep-light numpy `predict_proba`).
+  Real-vs-shuffled 5-fold CV **ROC-AUC 0.885** (matches RF, > BN 0.865 / raw-logistic 0.870). On TCRvdb a
+  *supervised* refit with the encoding gives **0.860** pooled (> AF 0.794, raw-feature logistic 0.855); the
+  frozen real-vs-shuffled transfer does NOT carry (0.53, crystal→AF shift, same as the BN). Appendix
+  `appendix/logistic_stan/` (`make PY=<pymc-venv>`; ROC/PR + posterior-forest gnuplot, encoding table).
 
 ## MHC mapping speed — `mhc.reference.reference_db()`
 

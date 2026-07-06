@@ -46,12 +46,19 @@ From one TCR–peptide–MHC structure (crystal or model), each task is one comm
 | Interface contact table (5/8/12 Å) | `tcren contacts` | `ContactMap`, `multi_contacts` |
 | Orient into the canonical MHC frame | `tcren superimpose` / `orient` | `superimpose`, `canonicalize_structure` |
 | Graft a TCR onto another pMHC (chimera) | `tcren substitute-tcr` | `substitute_tcr` |
+| Wrong-TCR decoy set (recognition negatives) | `tcren shuffle` | `make_decoys`, `graft_tcr` |
 | Substitute a peptide + refine its pose | `tcren refine` | `substitute_peptide`, `refine_peptide` |
 | DOPE interface energy (ΔΔG `e_native`) | `tcren energy` | `interface_energy` |
 | Interface mechanics — koff proxies (stiffness / rupture) | `tcren mechanics` | `stiffness_tensor`, `rupture`, `coupling_residues` |
 | Re-derive the statistical potential | `tcren derive-potential` | `derive_tcren` |
 | Steric-clash / wrong-register QC | — | `interface_clashes`, `check_register` |
 | 2D complementarity map + 3D pocket/CDR view | — | `render_complementarity_map`, `view_pocket_cdr` |
+
+**Scope — ranking, not affinity.** TCRen ranks peptide/TCR *specificity* for a given receptor (and the
+`ddg` matrix is a fast triage, not a free energy). It is **not** an affinity model: on the ATLAS SPR
+benchmark neither the raw contact energy nor its poly-alanine difference predicts Kd/ΔG/koff/kon
+(|ρ|≤0.3). The one affinity-adjacent quantity a structure predicts is the off-rate koff, via interface
+mechanics (`tcren mechanics`) — not the contact sum.
 
 ## Install
 
@@ -107,6 +114,11 @@ tcren binder -s complex.pdb -o binder.csv
 
 # End-to-end candidate-epitope scoring from a structure
 tcren score -s complex.pdb -c candidates.txt -o ranked.csv
+
+# Wrong-TCR decoys: keep each ORIENTED complex's pMHC, graft on 10 other complexes' TCRs (within
+# MHC class, no real pairing). Real-vs-decoy trains a label-free TCR-recognition classifier.
+tcren orient -s natives/ -o oriented/          # inputs must share the canonical MHC frame
+tcren shuffle -s oriented/ -o shuffled/ --n 10
 
 # Substitute a peptide and refine its pose (knowledge-based MC scored by the DOPE atom-level
 # statistical potential — independent of the TCRen/MJ scoring potentials, restrained to the input).

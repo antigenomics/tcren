@@ -319,3 +319,6 @@ data/pdb_recent/
 
 # Re-derivation sweep working dir (cached contacts/markup, candidate potentials, metrics).
 scratch/
+
+# Claude Code <-> Obsidian memory sync (machine-local absolute paths)
+.claude/obsidian-sync.json

@@ -70,7 +70,15 @@ def _resolve_potentials(
 
 @dataclass(slots=True)
 class PipelineResult:
-    """Everything the pipeline produces for one structure."""
+    """Everything the pipeline produces for one structure.
+
+    ``extra`` carries the interface-sanity flag when the complex was oriented
+    (``superimpose=True``): ``real_interface`` (``bool`` — ``False`` marks assay noise /
+    a failed dock; see :func:`tcren.binder.is_real_interface`), and the raw descriptors it
+    was computed from (``n_contacts``, ``scanning_angle``, ``pitch_angle``). With
+    ``superimpose=False`` the docking angles are unavailable, so ``real_interface`` is
+    ``None`` (``scanning_angle``/``pitch_angle`` ``None``) while ``n_contacts`` is still set.
+    """
 
     pdb_id: str
     mhc_calls: list[MhcCall]
@@ -176,9 +184,33 @@ def run(
     }
     scores["total"] = sum(scores.values())
 
+    # Interface-sanity (assay-noise) flag: a cheap pre-energy check that the TCR:peptide
+    # interface is a plausible dock (enough contacts + in-range docking geometry). The docking
+    # angles only exist once the complex is oriented, so this is a no-op (real_interface=None)
+    # when superimpose=False or the geometry is degenerate — we flag, never drop or raise.
+    n_contacts = cm.interface("tcr_peptide", tcr_regions=tcr_regions).height
+    scanning_angle = pitch_angle = None
+    real_interface = None
+    if superimpose:
+        from .binder.noise import is_real_interface
+        from .orient.docking import docking_angles
+
+        try:
+            angles = docking_angles(s)
+            scanning_angle, pitch_angle = angles.crossing_angle, angles.incident_angle
+        except ValueError:  # missing receptor pair / degenerate frame -> geometry unknown
+            pass
+        real_interface = is_real_interface(n_contacts, scanning_angle, pitch_angle)
+
     return PipelineResult(
         pdb_id=s.pdb_id, mhc_calls=calls, markup=residue_annotation(s),
         contacts=cm.contacts, scores=scores, oriented=oriented, rmsd=rmsd,
+        extra={
+            "real_interface": real_interface,
+            "n_contacts": n_contacts,
+            "scanning_angle": scanning_angle,
+            "pitch_angle": pitch_angle,
+        },
     )
 
 

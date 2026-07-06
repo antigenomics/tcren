@@ -33,6 +33,15 @@ What tcren does
 * **QC, mechanics & maps** — steric-clash and register checks, an interface spring-network /
   rupture model, and 2D complementarity maps + 3D pocket/CDR views.
 
+.. note::
+
+   **Ranking, not affinity.** TCRen ranks peptide/TCR *specificity* for a given receptor; it is not a
+   binding-affinity model. On the ATLAS SPR benchmark neither the raw contact energy nor its
+   poly-alanine difference (:func:`tcren.ddg.reference_delta`) predicts Kd/ΔG/koff/kon (ρ ≤ 0.3 in
+   magnitude). The
+   one affinity-adjacent quantity a static structure predicts is the off-rate koff, via interface
+   mechanics (:mod:`tcren.mechanics`) — not the contact sum.
+
 .. toctree::
    :maxdepth: 2
    :caption: Contents

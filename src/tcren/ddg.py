@@ -159,3 +159,49 @@ def neoantigen_ddg(
     return pl.DataFrame(
         rows, schema={"native": pl.Utf8, "mutant": pl.Utf8, "ddG": pl.Float64}
     )
+
+
+def reference_delta(
+    contact_map: ContactMap,
+    peptide: str,
+    potential: Potential,
+    *,
+    interface: Interface = "tcr_peptide",
+    reference_aa: str = "A",
+    tcr_regions: str = "all",
+    contact_weight: str = "residue",
+) -> float:
+    """Poly-alanine reference difference ΔΦ = Φ(peptide) − Φ(reference) on this contact map.
+
+    ΔΦ is the full-peptide alanine-scan difference — the sum of the per-position native→Ala ΔΔGs of
+    :func:`alanine_scan`. It subtracts the interface's identity-independent baseline Φ(reference), i.e.
+    what the *pose geometry* scores when every peptide residue is ``reference_aa``, leaving the
+    sequence-specific part.
+
+    On a **fixed** contact map this is Φ(peptide) minus a constant, so it does not change the ranking of
+    candidates threaded onto one structure. It differs from raw Φ only across candidates that each have
+    their **own** structure (e.g. AlphaFold peptide-swap models), where it normalises out the per-pose
+    interface geometry. That normalisation rescues forced / wrong-register poses whose geometry corrupts
+    the raw contact energy (the CPL ila1 case: TCR-ranking ROC 0.35 → 0.83), at a small cost on clones
+    where the generated geometry is itself informative — so it is a scoring mode for generated poses,
+    not a default. It is **not** an affinity ΔΔG: a dimensionless contact-preference difference, not a
+    free energy (see :mod:`tcren.refine.register` for the geometry defect it corrects). Empirically both
+    raw Φ and ΔΦ are within-receptor *ranking* scores, not binding constants — on the ATLAS SPR set they
+    correlate with ΔG/Kd/koff/kon only at ρ ≤ 0.3 in magnitude (off-rate comes from :mod:`tcren.mechanics`).
+
+    Args:
+        contact_map: The candidate's own contact map.
+        peptide: The candidate peptide sequence.
+        potential: Pairwise potential to score with.
+        interface: Which interface to score over (default ``"tcr_peptide"``).
+        reference_aa: The amino acid the reference peptide is made of (default alanine).
+        tcr_regions: Which TCR regions to keep on the TCR side.
+        contact_weight: ``"residue"`` (default) or ``"atomic"``.
+
+    Returns:
+        ΔΦ = Φ(peptide) − Φ(reference); more negative = the sequence adds more favourable contacts than
+        the reference baseline. ``0.0`` for interfaces without the peptide (e.g. ``"tcr_mhc"``).
+    """
+    reference = reference_aa * len(peptide)
+    return ddg(contact_map, peptide, reference, potential,
+               interface=interface, tcr_regions=tcr_regions, contact_weight=contact_weight)

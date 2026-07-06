@@ -13,6 +13,7 @@ from .pipeline import (
     run_superimpose,
 )
 from .superimpose import superimpose
+from .tcrdock_geometry import DockingGeometry, docking_geometry
 
 __all__ = [
     "CanonResult", "canonical_frame", "build_canonical_frame",
@@ -20,5 +21,6 @@ __all__ = [
     "canonicalize_structure", "align_to_canonical", "check_oriented_complex", "run_folder",
     "superimpose", "run_superimpose",
     "DockingAngles", "docking_angles", "crossing_incident_from_vector",
+    "DockingGeometry", "docking_geometry",
     "substitute_tcr",
 ]
