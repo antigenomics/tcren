@@ -9,6 +9,14 @@ from tcren.recognition import (BayesianLogisticRecognizer, GaussianBNClassifier,
                                encode_features)
 
 
+def _auc(y, score):
+    """ROC-AUC via the Mann-Whitney U statistic (scipy only; sklearn isn't in the lean CI env)."""
+    from scipy.stats import rankdata
+    y = np.asarray(y); npos = int(y.sum()); nneg = len(y) - npos
+    r = rankdata(np.asarray(score, float))               # average ranks (tie-safe)
+    return (r[y == 1].sum() - npos * (npos + 1) / 2) / (npos * nneg)
+
+
 def _data(seed=0, n=400, p=5):
     rng = np.random.default_rng(seed)
     base = rng.normal(size=(n, p))
@@ -22,9 +30,8 @@ def _data(seed=0, n=400, p=5):
 def test_fit_predict_separates_classes():
     X, y, m = _data()
     clf = GaussianBNClassifier([f"x{i}" for i in range(5)], max_parents=2).fit(X, y, m)
-    from sklearn.metrics import roc_auc_score
     p = clf.predict_proba(X, m)[:, 1]
-    assert roc_auc_score(y, p) > 0.75
+    assert _auc(y, p) > 0.75
 
 
 def test_structure_recovers_injected_edge():
@@ -73,8 +80,7 @@ def test_marginal_subset_valid_and_separates():
     clf = GaussianBNClassifier(names).fit(X, y, m)
     s = clf.marginal_decision(X, ["x0", "x2", "x4"], m)   # keep a subset, marginalise the rest
     assert np.isfinite(s).all() and len(s) == len(y)
-    from sklearn.metrics import roc_auc_score
-    assert roc_auc_score(y, s) > 0.6                      # the kept features still carry class signal
+    assert _auc(y, s) > 0.6                               # the kept features still carry class signal
 
 
 def test_hill_climb_empty_on_independent_data():
