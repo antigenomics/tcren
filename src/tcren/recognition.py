@@ -339,3 +339,207 @@ class BayesianLogisticRecognizer:
         path = Path(path)
         raw = (gzip.open(path, "rb") if str(path).endswith(".gz") else open(path, "rb")).read()
         return cls.from_dict(json.loads(raw))
+
+
+# ===================================================================================================
+# Structure -> the 35-descriptor recognition vector the frozen recognizers consume, and P(real).
+#
+# Reproduces the extractor the shipped models were trained on (the manuscript's compute_features.py):
+# docking geometry + per-interface TCRen/MJ energetics (F, poly-Ala ΔF) + contact-type tallies +
+# biopython ΔSASA burial + MHC-class indicator. Heavy imports are function-local so that a bare
+# ``import tcren`` (and ``import tcren.recognition``) stays dependency-light.
+# ===================================================================================================
+
+#: Feature names, in the order the frozen logistic recognizer's design matrix expects. The Gaussian BN
+#: uses the same list minus ``mhc_class_bin`` (which it carries as a discrete node instead).
+RECOGNITION_FEATURES = (
+    "extent", "e_tcr_mhc", "chain_balance", "pitch", "crossing", "dock_d", "dock_torsion",
+    "dock_tcr_uy", "dock_tcr_uz", "dock_mhc_uy", "dock_mhc_uz", "e_cdr12", "e_cdr3a", "e_cdr3b",
+    "F_tcr_pep", "F_tcr_mhc", "F_pep_mhc", "dF_tcr_pep", "dF_pep_mhc", "n_contacts_tp",
+    "n_pep_contacted", "n_contacts_tm", "ct_tp_salt_bridge", "ct_tm_salt_bridge",
+    "ct_tp_hydrogen_bond", "ct_tm_hydrogen_bond", "ct_tp_aromatic", "ct_tm_aromatic",
+    "ct_tp_hydrophobic", "ct_tm_hydrophobic", "ct_tp_other", "ct_tm_other", "n_hbond",
+    "burial", "mhc_class_bin",
+)
+_CT_TYPES = ("salt_bridge", "hydrogen_bond", "aromatic", "hydrophobic", "other")
+_TCR_TYPES = ("TRA", "TRB", "TRG", "TRD")
+
+
+def _extent(cm) -> float:
+    """Distinct TCR residues contacting the pMHC (interface size); default TCR-region selection."""
+    import polars as pl
+    df = pl.concat([cm.interface("tcr_peptide"), cm.interface("tcr_mhc")])
+    nodes = set()
+    if df.height:
+        for a, i in zip(df["chain.id.from"].to_list(), df["residue.index.from"].to_list()):
+            nodes.add((a, i))
+    return float(len(nodes))
+
+
+def _chain_balance(cm) -> float:
+    """min(a,b)/(a+b) over TCR:peptide contacts by TCR chain (0.5 = both chains equal, 0 = one only)."""
+    tp = cm.interface("tcr_peptide", tcr_regions="all")
+    if tp.height == 0:
+        return math.nan
+    a = b = 0
+    for t in tp["chain.type.from"].to_list():
+        a += t == "TRA"
+        b += t == "TRB"
+    return min(a, b) / (a + b) if (a + b) else math.nan
+
+
+def _burial(structure, tcr_ids, pmhc_ids) -> float:
+    """Interface ΔSASA = SASA(TCR alone) + SASA(pMHC alone) − SASA(complex) via biopython ShrakeRupley
+    (``n_points=100``), reproducing the training-time ``burial``. ΔSASA is an interface quantity, so the
+    distal TCR constant domain cancels; computed on a temp PDB of the typed chains."""
+    if not tcr_ids or not pmhc_ids:
+        return math.nan
+    import os
+    import tempfile
+    from copy import deepcopy
+
+    from Bio.PDB import PDBParser
+    from Bio.PDB.Model import Model
+    from Bio.PDB.SASA import ShrakeRupley
+    from Bio.PDB.Structure import Structure as BioStructure
+
+    from .structure.io import write_pdb
+
+    with tempfile.TemporaryDirectory() as td:
+        path = os.path.join(td, "complex.pdb")
+        write_pdb(structure, path)
+        model = PDBParser(QUIET=True).get_structure("x", path)[0]      # parsed fully into memory
+    sr = ShrakeRupley(n_points=100)
+
+    def sasa_of(ids):
+        m2 = Model(0)
+        for ch in model:
+            if ch.id in ids:
+                m2.add(deepcopy(ch))
+        s2 = BioStructure("t")
+        s2.add(m2)
+        sr.compute(s2, level="A")
+        return sum(a.sasa for ch in m2 for res in ch if res.id[0] == " " for a in res.get_atoms())
+
+    both = set(tcr_ids) | set(pmhc_ids)
+    return float((sasa_of(set(tcr_ids)) + sasa_of(set(pmhc_ids))) - sasa_of(both))
+
+
+def recognition_features(source, *, organism: str = "human", potential=None) -> dict[str, float]:
+    """Extract the 35-descriptor recognition vector from a TCR–pMHC structure (path or parsed).
+
+    Reproduces the feature set the shipped real-vs-shuffled recognizers were trained on
+    (:data:`RECOGNITION_FEATURES`): docking geometry, per-interface TCRen/MJ energies (raw ``F`` and
+    poly-alanine ``ΔF``), contact-type tallies, interface ΔSASA ``burial``, and the ``mhc_class_bin``
+    indicator. The structure is chain-typed and MHC-annotated in place. Returns a dict keyed by
+    :data:`RECOGNITION_FEATURES` (degenerate/undefined terms are ``NaN``).
+
+    Feed the result to :func:`frozen_recognizers` (or :class:`BayesianLogisticRecognizer`) for
+    ``P(real)`` — the probability the complex looks like a genuine TCR–pMHC recognition interface.
+    """
+    import polars as pl
+
+    from .annotation import classify_chains
+    from .contact_types import contact_type_counts
+    from .contactmap import ContactMap
+    from .ddg import reference_delta
+    from .mhc import annotate_mhc
+    from .oracle import _native_peptide
+    from .orient.docking import docking_angles
+    from .orient.tcrdock_geometry import docking_geometry
+    from .pipeline import _interface_energy
+    from .potential import mj as _mj
+    from .potential import tcren as _tcren
+    from .structure import Structure, import_structure
+
+    s = source if isinstance(source, Structure) else import_structure(source)
+    if all(c.chain_type is None for c in s.chains):
+        classify_chains(s, organism=organism, autodetect_species=True)
+    calls = annotate_mhc(s)
+    tcren_pot = potential or _tcren()
+    mj_pot = _mj()
+
+    cm = ContactMap.from_structure(s)
+    native = _native_peptide(s)
+    row = {k: math.nan for k in RECOGNITION_FEATURES}
+
+    try:                                                              # geometry (docking)
+        da = docking_angles(s)
+        row["pitch"], row["crossing"] = float(da.incident_angle), float(da.crossing_angle)
+    except Exception:
+        pass
+    try:
+        dg = docking_geometry(s)                                     # native TCRdock rigid-body params
+        row.update(dock_d=float(dg.d), dock_torsion=float(dg.torsion),
+                   dock_tcr_uy=float(dg.tcr_unit_y), dock_tcr_uz=float(dg.tcr_unit_z),
+                   dock_mhc_uy=float(dg.mhc_unit_y), dock_mhc_uz=float(dg.mhc_unit_z))
+    except Exception:
+        pass
+
+    tm = cm.interface("tcr_mhc", tcr_regions="all")                  # interface energetics
+    row["F_tcr_mhc"] = row["e_tcr_mhc"] = float(_interface_energy(tm, mj_pot))
+    tp = cm.interface("tcr_peptide", tcr_regions="all")
+    reg, ch = pl.col("region.type.from"), pl.col("chain.type.from")
+    row["F_tcr_pep"] = float(_interface_energy(tp, tcren_pot))
+    row["F_pep_mhc"] = float(_interface_energy(cm.interface("peptide_mhc"), mj_pot))
+    row["e_cdr12"] = float(_interface_energy(tp.filter(reg.is_in(["CDR1", "CDR2"])), tcren_pot))
+    row["e_cdr3a"] = float(_interface_energy(tp.filter((reg == "CDR3") & (ch == "TRA")), tcren_pot))
+    row["e_cdr3b"] = float(_interface_energy(tp.filter((reg == "CDR3") & (ch == "TRB")), tcren_pot))
+    if native:
+        try:
+            row["dF_tcr_pep"] = float(reference_delta(cm, native, tcren_pot, interface="tcr_peptide"))
+        except Exception:
+            pass
+        try:
+            row["dF_pep_mhc"] = float(reference_delta(cm, native, mj_pot, interface="peptide_mhc"))
+        except Exception:
+            pass
+
+    row["extent"] = _extent(cm)                                      # coverage
+    row["chain_balance"] = _chain_balance(cm)
+    row["n_contacts_tp"] = float(tp.height)
+    row["n_pep_contacted"] = float(tp.select("residue.index.to").unique().height if tp.height else 0)
+    row["n_contacts_tm"] = float(tm.height)
+
+    ctp = contact_type_counts(cm, "tcr_peptide")                     # contact types
+    ctm = contact_type_counts(cm, "tcr_mhc")
+    for t in _CT_TYPES:
+        row[f"ct_tp_{t}"] = float(ctp[f"pairs_{t}"])
+        row[f"ct_tm_{t}"] = float(ctm[f"pairs_{t}"])
+    row["n_hbond"] = float(ctp["pairs_hydrogen_bond"])
+
+    tcr_ids = [c.chain_id for c in s.chains if c.chain_type in _TCR_TYPES]
+    pmhc_ids = [c.chain_id for c in s.chains if c.chain_type is not None and c.chain_type not in _TCR_TYPES]
+    row["burial"] = _burial(s, tcr_ids, pmhc_ids)
+    row["mhc_class_bin"] = 1.0 if any(getattr(cl, "mhc_class", None) == "MHCII" for cl in calls) else 0.0
+    return row
+
+
+def frozen_recognizers():
+    """Load the shipped real-vs-shuffled recognizers ``(logistic, bn)`` from ``tcren.data``.
+
+    ``logistic`` is the headline distribution-aware :class:`BayesianLogisticRecognizer`
+    (``shuffle_logistic.json.gz``); ``bn`` is the :class:`GaussianBNClassifier`
+    (``shuffle_bn.json.gz``). Feed rows from :func:`recognition_features` to :func:`real_probability`.
+    """
+    from importlib import resources
+    d = resources.files("tcren.data")
+    lr = BayesianLogisticRecognizer.load(str(d.joinpath("shuffle_logistic.json.gz")))
+    bn = GaussianBNClassifier.load(str(d.joinpath("shuffle_bn.json.gz")))
+    return lr, bn
+
+
+def real_probability(rows, *, recognizers=None) -> dict[str, np.ndarray]:
+    """``P(real)`` for feature rows from :func:`recognition_features`.
+
+    ``rows`` is a dict or a list of dicts keyed by :data:`RECOGNITION_FEATURES`. Returns
+    ``{"logistic": p, "bn": p}`` — the headline logistic recognizer and the Gaussian BN, each an array
+    of P(genuine TCR–pMHC interface). NaN features are imputed to the training mean by each model.
+    """
+    if isinstance(rows, dict):
+        rows = [rows]
+    lr, bn = recognizers or frozen_recognizers()
+    Xlr = np.array([[r.get(k, np.nan) for k in lr.feature_names] for r in rows], float)
+    Xbn = np.array([[r.get(k, np.nan) for k in bn.feature_names] for r in rows], float)
+    m = np.array([r.get("mhc_class_bin", 0.0) for r in rows], float)
+    return {"logistic": lr.predict_proba(Xlr)[:, 1], "bn": bn.predict_proba(Xbn, m)[:, 1]}

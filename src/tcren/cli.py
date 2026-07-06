@@ -517,6 +517,47 @@ def binder(
 
 
 @app.command(rich_help_panel=_P_SCORE)
+def recognize(
+    structures: str = typer.Option(..., "-s", "--structures", help="TCR-pMHC structure file, directory, .tar.gz, or glob"),
+    out: Path = typer.Option("recognize.tsv", "-o", "--out", help="per-structure descriptors + P(real) table (TSV)"),
+    organism: str = typer.Option("human", "--organism"),
+    features_only: bool = typer.Option(False, "--features-only", help="emit the 35 descriptors, skip P(real)"),
+) -> None:
+    """Full interface descriptor table + joint P(real) for each TCR-pMHC complex (one TSV row per PDB).
+
+    One row per structure with the complete recognition feature set
+    (``tcren.recognition.RECOGNITION_FEATURES``): docking geometry (pitch, crossing, the 6
+    TCRdock rigid-body params), per-interface TCRen/MJ energies ``F_{tcr_pep,tcr_mhc,pep_mhc}`` and
+    poly-alanine ``dF``, CDR-loop energies, contact-type tallies, ΔSASA ``burial`` and the MHC-class
+    indicator — plus ``p_real`` (the distribution-aware Bayesian logistic) and ``p_real_bn`` (the
+    Gaussian BN): the joint probability the complex is a genuine recognition interface rather than a
+    wrong-TCR shuffle. ``--features-only`` skips the models. Output is TSV.
+
+    Complementary scorers on the same inputs: ``tcren ddg`` (per-mutation alanine/neoantigen ΔΔF) and
+    ``tcren mechanics`` (koff proxies — stiffness + steered rupture).
+    """
+    from .recognition import frozen_recognizers, real_probability, recognition_features
+    from .structure.io import import_structure
+
+    recs = None if features_only else frozen_recognizers()
+    rows = []
+    for pid, s in iter_structures(structures, importer=import_structure):
+        try:
+            feats = recognition_features(s, organism=organism)
+            row = {"complex.id": pid, **feats}
+            if not features_only:
+                p = real_probability(feats, recognizers=recs)
+                row["p_real"] = float(p["logistic"][0])
+                row["p_real_bn"] = float(p["bn"][0])
+            rows.append(row)
+        except Exception as exc:  # noqa: BLE001 - keep the batch resilient
+            rows.append({"complex.id": pid, "p_real": None,
+                         "error": f"{type(exc).__name__}: {str(exc)[:80]}"})
+    pl.DataFrame(rows).write_csv(str(out), separator="\t")
+    typer.echo(f"wrote {out}")
+
+
+@app.command(rich_help_panel=_P_SCORE)
 def pipeline(
     structures: Path = typer.Option(..., "-s", "--structures", help="structure file, directory, or .tar.gz"),
     out: Path = typer.Option("pipeline_scores.csv", "-o", "--out", help="per-structure interface-score table"),

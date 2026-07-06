@@ -41,6 +41,7 @@ From one TCR–peptide–MHC structure (crystal or model), each task is one comm
 | Percentile-rank a peptide vs background | `tcren rank` | `percentile_rank` |
 | ΔΔG of mutations (alanine scan / neoantigen) | `tcren ddg` | `alanine_scan`, `neoantigen_ddg` |
 | Binder vs non-binder for a TCR model | `tcren binder` | `binder_score` |
+| **All interface descriptors + joint P(real)** | `tcren recognize` | `recognition_features`, `real_probability` |
 | Three-interface energy breakdown + total | `tcren pipeline` | `run_pipeline` |
 | Annotate chains + region markup | `tcren annotate` | `classify_chains`, `annotate_mhc` |
 | Interface contact table (5/8/12 Å) | `tcren contacts` | `ContactMap`, `multi_contacts` |
@@ -112,6 +113,9 @@ tcren ddg -s complex.pdb -o ddg.csv
 # (denoised AUC 0.928 vs 0.872) with no external tool. See tcren.binder.binder_score.
 tcren binder -s complex.pdb -o binder.csv
 
+# One TSV per structure: every interface descriptor (geometry + energies) + joint P(real).
+tcren recognize -s my_pdbs/ -o recognize.tsv          # descriptors + p_real + p_real_bn, one row/PDB
+
 # End-to-end candidate-epitope scoring from a structure
 tcren score -s complex.pdb -c candidates.txt -o ranked.csv
 
@@ -159,6 +163,47 @@ tcren --install-completion        # shell tab-completion (bash/zsh/fish)
 
 `tcren orient` and `tcren superimpose` need the reference sets in `data/` (`Native2026`,
 `Canonical2026`); `setup.sh` fetches them at install via `tcren fetch-data` (re-run it any time).
+
+## One table per structure: descriptors, energies & the joint recognizer
+
+Give `tcren recognize` a list of complexes (a file, directory, `.tar.gz`, or glob) and it writes **one
+TSV row per structure** with the full interface descriptor set **and** the joint recognition
+probability `P(real)`:
+
+```fish
+tcren recognize -s my_pdbs/ -o recognize.tsv               # 35 descriptors + p_real + p_real_bn
+tcren recognize -s my_pdbs/ -o feats.tsv --features-only   # descriptors only, skip the models
+```
+
+| what you want | columns in `recognize.tsv` |
+|---|---|
+| **(a) energy** — TCRen/MJ `F` per interface + poly-alanine `dF` + loop parts | `F_tcr_pep`, `F_tcr_mhc`, `F_pep_mhc`, `dF_tcr_pep`, `dF_pep_mhc`, `e_cdr12`, `e_cdr3a`, `e_cdr3b`, `e_tcr_mhc` |
+| **(b) geometry** — every docking + interface descriptor | `pitch`, `crossing`, `dock_d`, `dock_torsion`, `dock_{tcr,mhc}_u{y,z}`, `extent`, `chain_balance`, `burial`, `n_contacts_{tp,tm}`, `n_pep_contacted`, `ct_{tp,tm}_*` |
+| **(d) joint P(real)** ~ Bayesian model over energy + geometry | `p_real` — distribution-aware Bayesian **logistic** (5-fold CV AUC 0.885); `p_real_bn` — the Gaussian **BN** variant |
+
+**Where the joint model lives.** `p_real` is the frozen recognizer we derive from real crystals vs
+wrong-TCR *shuffled* decoys: code in [`tcren.recognition`](src/tcren/recognition.py)
+(`recognition_features` → `real_probability`), coefficients shipped in
+`src/tcren/data/shuffle_logistic.json.gz`, and the full derivation (PyMC fit, encoding, ROC/PR,
+posterior forest) in the appendix [`appendix/logistic_stan/`](appendix/logistic_stan). Decoys come
+from `tcren shuffle`; the Gaussian-BN companion is `appendix/shuffle_bn/`.
+
+**(c) physics of the interaction** is heavier and mutation-/energy-specific, so it stays in its own
+commands on the same inputs:
+
+```fish
+tcren ddg       -s complex.pdb -o ddg.csv     # per-residue alanine / neoantigen ΔΔF (fast virtual matrix)
+tcren mechanics -s complex.pdb -o mech.csv    # koff proxies: interface stiffness tensor + steered rupture
+```
+
+(Per the affinity scope caveat above, structures predict the **off-rate koff** via `tcren mechanics`,
+not Kd/ΔG/kon.) From Python:
+
+```python
+from tcren.recognition import recognition_features, real_probability
+feats = recognition_features("complex.pdb")    # dict of the 35 descriptors (RECOGNITION_FEATURES)
+p = real_probability(feats)                     # {"logistic": P(real), "bn": P(real)}
+```
 
 ## Library
 
@@ -232,6 +277,7 @@ view_pocket_cdr(s).show()                      # interactive 3D pocket + CDR ove
 | `tcren.scoring` / `scoring_rank` | substitution scoring of candidate peptides; percentile rank vs a background |
 | `tcren.ddg` | fast virtual-matrix ΔΔG — alanine scan, neoantigen mutants |
 | `tcren.binder` | binder/non-binder classifier from AF-orthogonal interface geometry |
+| `tcren.recognition` | 35-descriptor extractor (`recognition_features`) + frozen real-vs-shuffled recognizers — distribution-aware Bayesian logistic + Gaussian BN — for joint `P(real)` |
 | `tcren.orient` | canonical frame, `superimpose` onto the canonical DB, docking angles, reverse-dock detection |
 | `tcren.refine` | peptide substitution + refinement (DOPE MC; CCD/OpenMM/ProMod3/FlexPepDock engines); register QC |
 | `tcren.clashes` / `mechanics` | steric-clash report; interface spring-network stiffness + rupture model |

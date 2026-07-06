@@ -217,6 +217,14 @@ QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses ar
   *supervised* refit with the encoding gives **0.860** pooled (> AF 0.794, raw-feature logistic 0.855); the
   frozen real-vs-shuffled transfer does NOT carry (0.53, crystal→AF shift, same as the BN). Appendix
   `appendix/logistic_stan/` (`make PY=<pymc-venv>`; ROC/PR + posterior-forest gnuplot, encoding table).
+- **`tcren recognize` / `recognition_features` (2026-07-06):** `recognition.recognition_features(struct)`
+  ports the manuscript's 35-descriptor extractor into tcren (docking geometry + TCRen/MJ F & poly-Ala dF +
+  contact tallies + biopython ΔSASA `burial` + `mhc_class_bin`) — verified **byte-exact** vs
+  `canonical2026_features.csv` (burial max diff 4e-11). Uses `import_structure` (C-gene trimmed) to match
+  training; **no `_geom` C-ext needed** (only arda for annotation). `frozen_recognizers()` loads both
+  shipped models; `real_probability(rows)` → `{"logistic","bn"}` P(real). CLI `tcren recognize -s pdbs/ -o
+  out.tsv` writes one TSV row/PDB = 35 descriptors + `p_real` + `p_real_bn` (`--features-only` skips models).
+  The user-facing "one TSV for a/b/d" answer; ddF (ala) stays `tcren ddg`, koff stays `tcren mechanics`.
 
 ## MHC mapping speed — `mhc.reference.reference_db()`
 

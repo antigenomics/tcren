@@ -128,3 +128,56 @@ def test_recognizer_name_mismatch_raises():
                                      np.zeros(2), np.ones(2), 0.0, np.zeros(2))
     with pytest.raises(ValueError, match="do not match"):
         rec._design(np.zeros((1, 2)))                      # encoded names don't match the fitted model
+
+
+# --- structure -> recognition features + P(real) (frozen models are pure numpy; no arda needed) --------
+def _example_feats():
+    """A plausible real-complex feature row (1ao7-like) keyed by RECOGNITION_FEATURES."""
+    return {
+        "extent": 26.0, "e_tcr_mhc": -1.5, "chain_balance": 0.36, "pitch": 25.0, "crossing": 45.0,
+        "dock_d": 25.0, "dock_torsion": 3.35, "dock_tcr_uy": 0.1, "dock_tcr_uz": 0.9,
+        "dock_mhc_uy": 0.2, "dock_mhc_uz": 0.95, "e_cdr12": 0.2, "e_cdr3a": 0.1, "e_cdr3b": -0.3,
+        "F_tcr_pep": -0.5, "F_tcr_mhc": -1.5, "F_pep_mhc": -2.0, "dF_tcr_pep": -0.4, "dF_pep_mhc": -0.6,
+        "n_contacts_tp": 30.0, "n_pep_contacted": 8.0, "n_contacts_tm": 40.0,
+        "ct_tp_salt_bridge": 1.0, "ct_tm_salt_bridge": 2.0, "ct_tp_hydrogen_bond": 5.0,
+        "ct_tm_hydrogen_bond": 6.0, "ct_tp_aromatic": 1.0, "ct_tm_aromatic": 0.0,
+        "ct_tp_hydrophobic": 8.0, "ct_tm_hydrophobic": 10.0, "ct_tp_other": 3.0, "ct_tm_other": 4.0,
+        "n_hbond": 5.0, "burial": 1950.0, "mhc_class_bin": 0.0,
+    }
+
+
+def test_recognition_features_names_complete():
+    from tcren.recognition import RECOGNITION_FEATURES
+    assert len(RECOGNITION_FEATURES) == 35
+    assert set(_example_feats()) == set(RECOGNITION_FEATURES)   # the example row covers exactly the model inputs
+
+
+def test_real_probability_from_frozen_models():
+    from tcren.recognition import real_probability
+    p = real_probability(_example_feats())                     # loads the shipped logistic + BN
+    for k in ("logistic", "bn"):
+        assert p[k].shape == (1,) and 0.0 < float(p[k][0]) < 1.0
+    p2 = real_probability([_example_feats(), _example_feats()])
+    assert p2["logistic"].shape == (2,) and p2["bn"].shape == (2,)
+
+
+def test_real_probability_nan_safe():
+    from tcren.recognition import real_probability
+    feats = _example_feats()
+    feats["burial"] = float("nan"); feats["dF_tcr_pep"] = float("nan")   # missing terms -> imputed
+    p = real_probability(feats)
+    assert 0.0 < float(p["logistic"][0]) < 1.0 and 0.0 < float(p["bn"][0]) < 1.0
+
+
+@pytest.mark.slow
+def test_recognition_features_end_to_end():
+    pytest.importorskip("arda")                             # annotation only; no _geom C-ext needed
+    from pathlib import Path
+
+    from tcren.recognition import RECOGNITION_FEATURES, real_probability, recognition_features
+
+    pdb = Path(__file__).resolve().parents[1] / "assets" / "pdb" / "1ao7.pdb"
+    feats = recognition_features(str(pdb))
+    assert set(feats) == set(RECOGNITION_FEATURES)
+    assert feats["burial"] > 0 and feats["extent"] > 0          # a real complex has a buried interface
+    assert 0.0 < float(real_probability(feats)["logistic"][0]) < 1.0
