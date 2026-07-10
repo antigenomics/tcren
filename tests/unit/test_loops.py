@@ -3,8 +3,8 @@ import numpy as np
 import pytest
 
 from tcren.loops import (
-    NECK_RANGE, block_layouts, find_junctions, frenet, is_omega_loop, kabsch_rmsd,
-    omega_stats, structural_block_position,
+    NECK_RANGE, block_layouts, find_junctions, frenet, gap_runs, is_omega_loop, is_single_block,
+    kabsch_rmsd, omega_stats, structural_align, structural_block_position,
 )
 
 
@@ -169,3 +169,55 @@ def test_structural_block_position_recovers_a_planted_insertion():
     assert len(all_rmsd) == len(base) + 1
     assert abs(best - insert_at) <= 1
     assert rmsd < 0.5
+
+
+# ---------------------------------------------------------------- model-independent alignment
+
+def test_gap_runs_and_single_block_predicate():
+    assert gap_runs("MMMM") == []
+    assert gap_runs("MMDDMM") == [("D", 2, 2)]
+    assert gap_runs("MMDMMIM") == [("D", 2, 1), ("I", 5, 1)]
+    assert is_single_block("MMMM")            # gapless
+    assert is_single_block("MMDDMM")          # one block
+    assert not is_single_block("MMDMMIM")     # two blocks -- what a single-block model cannot express
+    assert not is_single_block("MDMMMDM")     # same sequence, two blocks
+
+
+def test_structural_align_is_the_identity_on_a_rigidly_moved_copy():
+    a = _closed_loop(12)
+    theta = 0.9
+    rot = np.array([[np.cos(theta), -np.sin(theta), 0],
+                    [np.sin(theta), np.cos(theta), 0], [0, 0, 1]])
+    pairs, rmsd, ops = structural_align(a, a @ rot.T + np.array([5.0, -3.0, 2.0]))
+    assert pairs == [(i, i) for i in range(12)]
+    assert ops == "M" * 12
+    assert rmsd == pytest.approx(0.0, abs=1e-6)
+    assert is_single_block(ops)
+
+
+def test_structural_align_recovers_a_planted_insertion_as_one_block():
+    base = _closed_loop(12)
+    insert_at = 5
+    extra = (base[insert_at - 1] + base[insert_at]) / 2 + np.array([0.0, 0.0, 3.0])
+    grown = np.insert(base, insert_at, extra, axis=0)
+    pairs, rmsd, ops = structural_align(grown, base)
+    assert is_single_block(ops), ops
+    (op, start, length), = gap_runs(ops)
+    assert op == "D" and length == 1          # the extra residue of `grown` is unmatched
+    assert abs(start - insert_at) <= 1
+    assert rmsd < 0.5
+
+
+def test_structural_align_can_return_two_blocks():
+    """The oracle must be able to disagree with the single-block model, or it proves nothing."""
+    base = _closed_loop(14)
+    # remove one residue near each end: the true correspondence needs TWO gap blocks
+    trimmed = np.delete(base, [4, 9], axis=0)
+    _, _, ops = structural_align(base, trimmed)
+    assert not is_single_block(ops), f"expected two blocks, got {ops}"
+    assert len(gap_runs(ops)) == 2
+
+
+def test_structural_align_needs_six_residues():
+    with pytest.raises(ValueError):
+        structural_align(np.zeros((5, 3)), np.zeros((8, 3)))

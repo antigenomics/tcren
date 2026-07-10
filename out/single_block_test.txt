@@ -1,0 +1,59 @@
+372 typed junctions -> 199 unique sequences (1.87x crystal redundancy), 9s
+crystal noise floor (same sequence, different crystal): n=441, median CA-RMSD 0.239 A, p90 0.790 A
+  -> no structural effect smaller than this is resolvable, whatever the sample size.
+
+aligned 3,049 pairs in 7s
+
+=== G2: is one gap block enough? (model-independent oracle) ===
+  chain   d   pairs   single-block     95% CI (junction bootstrap)
+  TRA     1     400          99.8%                   [99.0, 100.0]
+  TRA     2     400          98.8%                   [97.7, 100.0]
+  TRA     3     400          95.5%                    [94.1, 99.8]
+  TRA     4     400          95.2%                   [93.5, 100.0]
+  TRB     1     400         100.0%                  [100.0, 100.0]
+  TRB     2     400          98.0%                   [97.2, 100.0]
+  TRB     3     400          96.8%                   [95.7, 100.0]
+  TRB     4     249          95.6%                   [93.5, 100.0]
+
+=== G1: what does the single-block restriction cost in CA-RMSD? ===
+  chain   d   free (A)  1-block (A)  excess (A)   excess when NOT 1-block
+  TRA     1      1.741        1.721      -0.020                     0.833
+  TRA     2      1.668        1.629      -0.039                     0.194
+  TRA     3      1.856        1.848      -0.008                     0.228
+  TRA     4      1.547        1.530      -0.017                     0.138
+  TRB     1      1.539        1.523      -0.016                       nan
+  TRB     2      1.590        1.580      -0.010                     0.131
+  TRB     3      1.622        1.622       0.000                     0.158
+  TRB     4      1.583        1.583       0.000                     0.426
+
+=== robustness: does the anchor-seeded DP agree with an exhaustive, unseeded search? ===
+  structural_block_position superposes EVERY single-block layout and takes the argmin.
+  It has no seed and no iteration. If the free DP's block matches it, the anchor seed
+  is not steering the answer.
+  chain   d  n(1-block)   exact agree   within 1
+  TRA     1         399         73.9%      83.5%
+  TRA     2         395         74.4%      88.9%
+  TRA     3         382         73.3%      93.5%
+  TRA     4         381         82.9%      95.0%
+  TRB     1         400         67.5%      78.2%
+  TRB     2         392         72.4%      87.0%
+  TRB     3         387         78.0%      92.0%
+  TRB     4         238         76.5%      97.5%
+
+=== P1: when it IS one block, where does the block start? (Cys-anchor residue offset) ===
+  chain   d     n   observed   central  germline   |obs-cen|  |obs-germ|
+  TRA     1   399        6.0       6.0       4.0        1.00        3.00
+  TRA     2   395        6.0       6.0       3.0        1.00        3.00
+  TRA     3   382        6.0       6.0       3.0        0.00        3.00
+  TRA     4   381        6.0       5.0       3.0        1.00        3.00
+  TRB     1   400        7.0       6.0       6.0        1.00        1.00
+  TRB     2   392        7.0       6.0       6.0        1.00        1.00
+  TRB     3   387        6.0       6.0       5.0        1.00        1.00
+  TRB     4   238        6.0       6.0       5.0        1.00        1.00
+
+  exact-hit rate of each rule on the single-block pairs:
+    TRA: central  42.4%   germline   0.4%   (n = 1557)
+    TRB: central  30.1%   germline  19.8%   (n = 1417)
+
+  P2 (the powered test) lives in vdjmatch: same question, n = 51,852 TRA sequences,
+  no structures needed. This crystal set can only corroborate it.

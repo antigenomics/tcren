@@ -40,6 +40,7 @@ Note: no atom pair sits at 4.5 A. Over 731 junctions the minimum Ca(C)-Ca(F/W) d
 """
 from __future__ import annotations
 
+import itertools
 import re
 from dataclasses import dataclass
 
@@ -49,6 +50,7 @@ __all__ = [
     "JUNCTION_MOTIF", "NECK_RANGE", "Junction",
     "find_junctions", "omega_stats", "is_omega_loop",
     "frenet", "kabsch_rmsd", "block_layouts", "structural_block_position",
+    "structural_align", "gap_runs", "is_single_block",
 ]
 
 #: The J-region motif that closes the junction: Phe or Trp, then Gly-X-Gly.
@@ -229,11 +231,182 @@ def structural_block_position(ca_q: np.ndarray, ca_r: np.ndarray) -> tuple[int, 
     """Gap-block position best supported by the two loops' backbones.
 
     For every layout, superposes the residue pairs it induces and reports the resulting
-    C-alpha RMSD; returns ``(best_position, best_rmsd, rmsd_per_layout)``. This is the
-    structural ground truth against which a sequence-only block choice is scored.
+    C-alpha RMSD; returns ``(best_position, best_rmsd, rmsd_per_layout)``.
+
+    .. warning::
+       This ranks positions *within* the single-gap-block family, because
+       :func:`block_layouts` enumerates only that family. It therefore cannot test whether one
+       block is enough -- it has no way to express any other answer. Use
+       :func:`structural_align` for a correspondence that makes no such assumption.
     """
     rmsds = [kabsch_rmsd(np.asarray([ca_q[x] for x, _ in pairs]),
                          np.asarray([ca_r[y] for _, y in pairs]))
              for pairs in block_layouts(len(ca_q), len(ca_r))]
     best = int(np.argmin(rmsds))
     return best, rmsds[best], rmsds
+
+
+# ---------------------------------------------------------------- model-independent alignment
+
+def _kabsch_transform(a: np.ndarray, b: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Rotation and translation carrying ``a`` onto ``b``: ``a @ rot + shift``."""
+    ca, cb = a.mean(0), b.mean(0)
+    v, _, wt = np.linalg.svd((a - ca).T @ (b - cb))
+    d = np.sign(np.linalg.det(v @ wt))
+    rot = v @ np.diag([1.0, 1.0, d]) @ wt
+    return rot, cb - ca @ rot
+
+
+def _affine_dp(score: np.ndarray, gap_open: float, gap_extend: float) -> str:
+    """Unrestricted global affine alignment maximising ``score``. Returns an op string.
+
+    Ops are ``M`` (a pair), ``D`` (a residue of the row sequence against a gap) and ``I`` (a
+    residue of the column sequence against a gap). Any number of gap blocks, anywhere -- the
+    whole point: nothing here presumes a single block.
+    """
+    m, n = score.shape
+    neg = -np.inf
+    M = np.full((m + 1, n + 1), neg)
+    X = np.full((m + 1, n + 1), neg)   # gap in the column sequence, row residue consumed
+    Y = np.full((m + 1, n + 1), neg)   # gap in the row sequence, column residue consumed
+    M[0, 0] = 0.0
+    for i in range(1, m + 1):
+        X[i, 0] = -gap_open - (i - 1) * gap_extend
+    for j in range(1, n + 1):
+        Y[0, j] = -gap_open - (j - 1) * gap_extend
+    bM = np.zeros((m + 1, n + 1), np.int8)
+    bX = np.zeros((m + 1, n + 1), np.int8)
+    bY = np.zeros((m + 1, n + 1), np.int8)
+
+    for i in range(1, m + 1):
+        for j in range(1, n + 1):
+            cand = (M[i - 1, j - 1], X[i - 1, j - 1], Y[i - 1, j - 1])
+            k = int(np.argmax(cand))
+            M[i, j] = score[i - 1, j - 1] + cand[k]
+            bM[i, j] = k
+
+            cand = (M[i - 1, j] - gap_open, X[i - 1, j] - gap_extend, Y[i - 1, j] - gap_open)
+            k = int(np.argmax(cand))
+            X[i, j] = cand[k]
+            bX[i, j] = k
+
+            cand = (M[i, j - 1] - gap_open, X[i, j - 1] - gap_open, Y[i, j - 1] - gap_extend)
+            k = int(np.argmax(cand))
+            Y[i, j] = cand[k]
+            bY[i, j] = k
+
+    i, j = m, n
+    state = int(np.argmax((M[m, n], X[m, n], Y[m, n])))
+    ops: list[str] = []
+    while i > 0 or j > 0:
+        if state == 0:
+            ops.append("M")
+            state = int(bM[i, j])
+            i, j = i - 1, j - 1
+        elif state == 1:
+            ops.append("D")
+            state = int(bX[i, j])
+            i -= 1
+        else:
+            ops.append("I")
+            state = int(bY[i, j])
+            j -= 1
+    return "".join(reversed(ops))
+
+
+def _pairs_from_ops(ops: str) -> list[tuple[int, int]]:
+    pairs, i, j = [], 0, 0
+    for op in ops:
+        if op == "M":
+            pairs.append((i, j))
+            i, j = i + 1, j + 1
+        elif op == "D":
+            i += 1
+        else:
+            j += 1
+    return pairs
+
+
+def structural_align(
+    ca_q: np.ndarray,
+    ca_r: np.ndarray,
+    d0: float = 3.0,
+    gap_open: float = 0.6,
+    gap_extend: float = 0.1,
+    max_iter: int = 20,
+) -> tuple[list[tuple[int, int]], float, str]:
+    """Residue correspondence between two C-alpha traces, with **no** gap-model assumption.
+
+    Seeds the superposition on the loop's own anchors -- the three N-terminal and three
+    C-terminal residues, whose Ca(Cys)-Ca(Phe) separation is invariant to +/- 0.48 A across
+    junctions -- then iterates *superpose, rescore, realign* to a fixed point. The realignment
+    is an unrestricted affine DP, free to open any number of gap blocks anywhere.
+
+    This is the oracle :func:`structural_block_position` cannot be: it can return a
+    correspondence that is *not* a single block, so asking how often it does is a real
+    question with a real answer.
+
+    Args:
+        ca_q: ``(m, 3)`` C-alpha coordinates.
+        ca_r: ``(n, 3)`` C-alpha coordinates.
+        d0: Distance scale of the residue similarity ``1 / (1 + (dist/d0)^2)``, in Angstrom.
+        gap_open: Similarity forfeited to open a gap block.
+        gap_extend: Similarity forfeited per additional gap column.
+        max_iter: Fixed-point iteration cap.
+
+    Returns:
+        ``(pairs, rmsd, ops)`` -- the matched residue index pairs, their superposed C-alpha
+        RMSD, and the alignment op string over ``M``/``D``/``I``.
+
+    Raises:
+        ValueError: If either trace has fewer than 6 residues (the anchor seed needs them).
+    """
+    q = np.asarray(ca_q, dtype=float)
+    r = np.asarray(ca_r, dtype=float)
+    if len(q) < 6 or len(r) < 6:
+        raise ValueError("need at least 6 C-alpha coordinates per loop to seed on the anchors")
+
+    pairs = [(0, 0), (1, 1), (2, 2),
+             (len(q) - 3, len(r) - 3), (len(q) - 2, len(r) - 2), (len(q) - 1, len(r) - 1)]
+    ops = ""
+    for _ in range(max_iter):
+        rot, shift = _kabsch_transform(np.array([q[i] for i, _ in pairs]),
+                                       np.array([r[j] for _, j in pairs]))
+        moved = q @ rot + shift
+        dist = np.linalg.norm(moved[:, None, :] - r[None, :, :], axis=-1)
+        ops_new = _affine_dp(1.0 / (1.0 + (dist / d0) ** 2), gap_open, gap_extend)
+        pairs_new = _pairs_from_ops(ops_new)
+        if len(pairs_new) < 3:
+            break
+        if pairs_new == pairs:
+            ops = ops_new
+            break
+        pairs, ops = pairs_new, ops_new
+
+    rot, shift = _kabsch_transform(np.array([q[i] for i, _ in pairs]),
+                                   np.array([r[j] for _, j in pairs]))
+    moved = np.array([q[i] for i, _ in pairs]) @ rot + shift
+    ref = np.array([r[j] for _, j in pairs])
+    rmsd = float(np.sqrt(((moved - ref) ** 2).sum(1).mean()))
+    return pairs, rmsd, ops
+
+
+def gap_runs(ops: str) -> list[tuple[str, int, int]]:
+    """Maximal runs of gap ops as ``(op, start_column, length)``."""
+    out, col = [], 0
+    for op, grp in itertools.groupby(ops):
+        n = len(list(grp))
+        if op != "M":
+            out.append((op, col, n))
+        col += n
+    return out
+
+
+def is_single_block(ops: str) -> bool:
+    """Does this alignment place all its gaps in one contiguous block of one sequence?
+
+    ``True`` for ``MMMDDMMM`` and for a gapless ``MMMM``; ``False`` for ``MMDMMIMM``, which
+    needs two blocks. This is the predicate that decides whether the single-gap-block model
+    is a restriction the data actually pays for.
+    """
+    return len(gap_runs(ops)) <= 1
