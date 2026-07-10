@@ -34,3 +34,18 @@ recomputed results in `results_new/`:
 CPL / TCRvdb / native B\*27:05 held-out validation + the unified three-task table live in the manuscript
 (`2026-tcren2/scripts/{benchmark_suite.md,tcren_binder_score.py,tcrvdb_physics.py}`). ATLAS ΔΔG is
 pending upstream; MD trajectories (`md100ns_*.xtc`, ~57 GiB) pending upload.
+
+## Derived: junction loop geometry
+
+`data/gap_prior.tsv` — **derived/computed, not experimental.** The empirical distribution of the
+structurally-correct single-gap-block position for length-different CDR3/junction pairs.
+
+- Origin: `scripts/fit_gap_prior.py`, run over `data/Canonical2026/*.pdb.gz` (374 crystal
+  TCR-pMHC complexes, already on disk; provenance above).
+- Regenerate: `python scripts/fit_gap_prior.py --d-max 3 --out data/gap_prior.tsv`
+- Content: for each block length `d` and normalised position decile, the probability the
+  best-superposing block sits there. n = 1,200 same-chain junction pairs, `1 <= d <= 3`.
+- Result: the block sits at `i/L = 0.506 ± 0.136`, i.e. essentially central. A fitted
+  per-decile table does **not** beat the analytic prior `lam * |i - L/2|` with
+  `lam = 1.5 * SubstitutionMatrix.scale()`, so `seqtree.gapblock.central_prior` ships the
+  analytic form and this table is kept only as its evidence.
