@@ -35,6 +35,39 @@ CPL / TCRvdb / native B\*27:05 held-out validation + the unified three-task tabl
 (`2026-tcren2/scripts/{benchmark_suite.md,tcren_binder_score.py,tcrvdb_physics.py}`). ATLAS ΔΔG is
 pending upstream; MD trajectories (`md100ns_*.xtc`, ~57 GiB) pending upload.
 
+## Evaluated and rejected: VDJdb template-based models (Zenodo 8143087)
+
+Shcherbinin DS, Karnaukhov VK, Zvyagin IV, Chudakov DM, Shugay M. *The database of TCR-peptide-MHC
+modeled structures from the paper: "Large-scale template-based structural modeling of T-cell
+receptors with known antigen specificity reveals complementarity features."* Zenodo, 2023-04-19.
+doi:[10.5281/zenodo.8143087](https://doi.org/10.5281/zenodo.8143087) (concept DOI
+10.5281/zenodo.7845843). CC BY 4.0.
+
+- Fetch: `curl -L -o models_annotation.csv 'https://zenodo.org/records/8143087/files/VDJdb_Models_annotation_w_new_names.csv?download=1'`
+  (structures: `Models_VDJdb.tar.gz`, 685 MB).
+- Content: 3,213 TCR-pMHC models. Columns `vdjdb.pdb.id, cdr3.alpha, cdr3.beta, orig.alpha,
+  orig.beta, vdjdb.pdb.id.from, mutation.signature, pdb.id`. **`orig.*` are booleans, not
+  sequences**; `vdjdb.pdb.id.from` is the template; `pdb.id` is the model's descriptive name.
+- Provenance: **derived/computed, not experimental.** Every model is exactly **one** point
+  mutation of its template (`mutation.signature` holds a single `pos X->Y` in all 3,213 rows),
+  applied in cascades of depth 1-3.
+
+**Not usable for gap placement or for loop-conformation claims.** Walking the cascade to its
+roots leaves **32 independent crystal backbones** carrying all 3,213 sequences (median 28
+models per root, max 890). Two consequences, both measured:
+
+- **0 of 32 roots have descendants that differ in CDR3-beta length.** There is not one modelled
+  indel anywhere in the dataset, so it carries zero information about where a gap goes.
+- Backbone conformation is inherited from the root through point mutations, and root choice is
+  made by *sequence similarity* -- which is exactly what defines a sequence island. Testing
+  "do distinct islands share a conformation" here would measure template sharing. The set is
+  also smaller than what it would supplement: 32 independent backbones against the 199 unique
+  junction sequences already in `Canonical2026`.
+
+It remains the right dataset for its own purpose -- side-chain repacking and contact
+complementarity at a fixed backbone -- and for measuring how far a single point mutation moves
+a loop.
+
 ## Derived: junction loop geometry
 
 `data/gap_prior.tsv` — **derived/computed, not experimental.** The empirical distribution of the
