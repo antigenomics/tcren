@@ -51,6 +51,7 @@ __all__ = [
     "find_junctions", "omega_stats", "is_omega_loop",
     "frenet", "kabsch_rmsd", "block_layouts", "structural_block_position",
     "structural_align", "gap_runs", "is_single_block",
+    "frenet_frame", "virtual_cb", "cb_orientation", "ramachandran",
 ]
 
 #: The J-region motif that closes the junction: Phe or Trp, then Gly-X-Gly.
@@ -191,6 +192,114 @@ def frenet(ca: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     sin_tau = np.einsum("ij,ij->i", np.cross(b[:-1], b[1:]), t[1:-1])
     tau = np.degrees(np.arctan2(sin_tau, cos_tau))
     return kappa, tau
+
+
+def frenet_frame(ca: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Orthonormal ``(t, n, b)`` frame attached to each interior C-alpha.
+
+    Built from the same tangents and binormals as :func:`frenet`: ``t_i`` is the unit bond
+    ``i -> i+1``, ``b_i`` the unit binormal ``t_{i-1} x t_i``, and ``n_i = b_i x t_i``. Defined
+    for residues ``1 .. len(ca) - 2``, so each array has ``len(ca) - 2`` rows.
+
+    The frame is what lets a side-chain direction be expressed without superposition: see
+    :func:`cb_orientation`. Rows where consecutive tangents are collinear come back as ``nan``.
+    """
+    ca = np.asarray(ca, dtype=float)
+    if len(ca) < 4:
+        raise ValueError("need at least 4 C-alpha coordinates for a Frenet frame")
+    t = np.diff(ca, axis=0)
+    t = t / np.linalg.norm(t, axis=1, keepdims=True)
+
+    cross = np.cross(t[:-1], t[1:])
+    cn = np.linalg.norm(cross, axis=1, keepdims=True)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        b = np.where(cn > 1e-8, cross / cn, np.nan)
+    tt = t[1:]                      # tangent at residue i, for i = 1 .. len(ca)-2
+    n = np.cross(b, tt)
+    return tt, n, b
+
+
+def virtual_cb(nn: np.ndarray, ca: np.ndarray, c: np.ndarray) -> np.ndarray:
+    """Idealised C-beta position from the backbone N, CA and C of the same residue.
+
+    Glycine has no C-beta, so its side-chain direction has to be constructed. Uses the standard
+    tetrahedral placement; ``scripts/cb_contacts.py`` checks it against the observed C-beta of
+    every non-Gly residue and refuses to proceed if the RMSD exceeds 0.15 A.
+    """
+    nn, ca, c = (np.asarray(x, dtype=float) for x in (nn, ca, c))
+    b = ca - nn
+    cc = c - ca
+    a = np.cross(b, cc)
+    return -0.58273431 * a + 0.56802827 * b - 0.54067466 * cc + ca
+
+
+def cb_orientation(ca: np.ndarray, cb: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Side-chain direction in the local Frenet frame, in degrees.
+
+    For each interior residue, ``u = unit(cb - ca)`` is resolved against ``(t, n, b)``:
+
+    * ``polar``   -- angle between ``u`` and the tangent, in ``[0, 180]``
+    * ``azimuth`` -- ``atan2(u . b, u . n)`` in ``(-180, 180]``, the rotation about the tangent
+
+    Both are invariant under rigid motion, so they describe *where the side chain points*
+    relative to the loop's own geometry without any superposition. The azimuth flips sign under
+    reflection, exactly as the Frenet torsion does, so it carries the chain's handedness.
+
+    .. note::
+       It does **not** help predict which junction residues touch the peptide. Over 3,883
+       interior residues in 368 crystal junctions, the azimuth alone reaches ROC-AUC 0.728, but
+       simple distance from the loop apex reaches 0.847, and adding the C-beta orientation on
+       top of position gains **+0.000** (5-fold logistic, grouped by junction). Measured by
+       ``scripts/cb_contacts.py``. Do not build a positional weight profile out of it.
+
+    Args:
+        ca: ``(n, 3)`` C-alpha coordinates.
+        cb: ``(n, 3)`` C-beta coordinates, real or from :func:`virtual_cb`.
+
+    Returns:
+        ``(polar, azimuth)``, each of length ``n - 2``.
+    """
+    ca = np.asarray(ca, dtype=float)
+    cb = np.asarray(cb, dtype=float)
+    if ca.shape != cb.shape:
+        raise ValueError(f"shape mismatch: {ca.shape} vs {cb.shape}")
+    t, n, b = frenet_frame(ca)
+    u = cb[1:-1] - ca[1:-1]
+    u = u / np.linalg.norm(u, axis=1, keepdims=True)
+    polar = np.degrees(np.arccos(np.clip(np.einsum("ij,ij->i", u, t), -1.0, 1.0)))
+    azimuth = np.degrees(np.arctan2(np.einsum("ij,ij->i", u, b), np.einsum("ij,ij->i", u, n)))
+    return polar, azimuth
+
+
+def _dihedral(p0: np.ndarray, p1: np.ndarray, p2: np.ndarray, p3: np.ndarray) -> np.ndarray:
+    b0, b1, b2 = p0 - p1, p2 - p1, p3 - p2
+    b1 = b1 / np.linalg.norm(b1, axis=-1, keepdims=True)
+    v = b0 - (b0 * b1).sum(-1, keepdims=True) * b1
+    w = b2 - (b2 * b1).sum(-1, keepdims=True) * b1
+    x = (v * w).sum(-1)
+    y = (np.cross(b1, v) * w).sum(-1)
+    return np.degrees(np.arctan2(y, x))
+
+
+def ramachandran(n: np.ndarray, ca: np.ndarray, c: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Backbone ``(phi, psi)`` in degrees, for residues ``1 .. len(ca) - 2``.
+
+    Needs N and C, which :func:`frenet` does not. Whether it *adds* anything over the C-alpha
+    curvature and torsion was measured, not assumed (``scripts/cb_contacts.py``, 3,883 residues,
+    5-fold k-NN): ``psi`` is recoverable from ``(kappa, tau)`` with circular R^2 = 0.822 and is
+    redundant; ``phi`` is not (R^2 = 0.442) and does carry independent information.
+
+    That information is nonetheless worth nothing downstream: adding ``phi`` on top of loop
+    position and shape gains **+0.000** ROC-AUC for peptide-contact prediction. Provided for
+    completeness; nothing in this package consumes it.
+    """
+    n, ca, c = (np.asarray(x, dtype=float) for x in (n, ca, c))
+    if not (len(n) == len(ca) == len(c)) or len(ca) < 3:
+        raise ValueError("need matching N, CA, C arrays of at least 3 residues")
+    i = np.arange(1, len(ca) - 1)
+    phi = _dihedral(c[i - 1], n[i], ca[i], c[i])
+    psi = _dihedral(n[i], ca[i], c[i], n[i + 1])
+    return phi, psi
 
 
 def kabsch_rmsd(a: np.ndarray, b: np.ndarray) -> float:

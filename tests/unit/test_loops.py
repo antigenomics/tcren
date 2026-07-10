@@ -3,8 +3,9 @@ import numpy as np
 import pytest
 
 from tcren.loops import (
-    NECK_RANGE, block_layouts, find_junctions, frenet, gap_runs, is_omega_loop, is_single_block,
-    kabsch_rmsd, omega_stats, structural_align, structural_block_position,
+    NECK_RANGE, block_layouts, cb_orientation, find_junctions, frenet, frenet_frame, gap_runs,
+    is_omega_loop, is_single_block, kabsch_rmsd, omega_stats, ramachandran, structural_align,
+    structural_block_position, virtual_cb,
 )
 
 
@@ -221,3 +222,100 @@ def test_structural_align_can_return_two_blocks():
 def test_structural_align_needs_six_residues():
     with pytest.raises(ValueError):
         structural_align(np.zeros((5, 3)), np.zeros((8, 3)))
+
+
+# ---------------------------------------------------------------- Cbeta on the Frenet frame
+
+def _rot(theta, axis=2):
+    c, s = np.cos(theta), np.sin(theta)
+    m = np.eye(3)
+    i, j = [(1, 2), (0, 2), (0, 1)][axis]
+    m[i, i] = m[j, j] = c
+    m[i, j], m[j, i] = -s, s
+    return m
+
+
+def test_frenet_frame_is_orthonormal_and_right_handed():
+    t, n, b = frenet_frame(_helix(10))
+    assert t.shape == n.shape == b.shape == (8, 3)
+    for v in (t, n, b):
+        assert np.allclose(np.linalg.norm(v, axis=1), 1.0)
+    assert np.allclose(np.einsum("ij,ij->i", t, n), 0, atol=1e-9)
+    assert np.allclose(np.einsum("ij,ij->i", t, b), 0, atol=1e-9)
+    assert np.allclose(np.einsum("ij,ij->i", n, b), 0, atol=1e-9)
+    assert np.allclose(np.cross(n, b), t, atol=1e-9)   # right-handed (t, n, b)
+
+
+def test_cb_orientation_is_rigid_motion_invariant():
+    """The point of expressing the side chain in the loop's own frame: no superposition needed."""
+    ca = _helix(10)
+    cb = ca + np.array([0.6, 0.9, 1.2])          # a fixed offset stands in for a side chain
+    p1, a1 = cb_orientation(ca, cb)
+    rot = _rot(0.8)
+    p2, a2 = cb_orientation(ca @ rot.T + 11.0, cb @ rot.T + 11.0)
+    assert np.allclose(p1, p2, atol=1e-8)
+    assert np.allclose(a1, a2, atol=1e-8)
+
+
+def test_cb_azimuth_flips_under_reflection():
+    """Handedness lives in the azimuth, just as it lives in the Frenet torsion."""
+    ca = _helix(10)
+    cb = ca + np.array([0.6, 0.9, 1.2])
+    mirror = np.array([1.0, 1.0, -1.0])
+    _, a1 = cb_orientation(ca, cb)
+    _, a2 = cb_orientation(ca * mirror, cb * mirror)
+    assert np.allclose(a1, -a2, atol=1e-8)
+
+
+def test_cb_orientation_rejects_mismatched_shapes():
+    with pytest.raises(ValueError):
+        cb_orientation(_helix(8), _helix(7))
+
+
+def test_virtual_cb_reproduces_ideal_tetrahedral_geometry():
+    """Bond length ~1.53 A and both N-CA-CB and C-CA-CB near the tetrahedral 110 degrees."""
+    n = np.array([[-1.458, 0.0, 0.0]])
+    ca = np.array([[0.0, 0.0, 0.0]])
+    c = np.array([[0.55, 1.42, 0.0]])
+    cb = virtual_cb(n, ca, c)
+    assert np.linalg.norm(cb - ca) == pytest.approx(1.53, abs=0.05)
+
+    def ang(u, v):
+        u, v = u / np.linalg.norm(u), v / np.linalg.norm(v)
+        return np.degrees(np.arccos(np.clip(u @ v, -1, 1)))
+
+    assert ang((n - ca)[0], (cb - ca)[0]) == pytest.approx(110.5, abs=2.0)
+    assert ang((c - ca)[0], (cb - ca)[0]) == pytest.approx(110.5, abs=2.0)
+    # CB is well off the N-CA-C plane, on the side the construction fixes. Whether that side is
+    # the one real L-amino acids use is checked against observed CB in scripts/cb_contacts.py.
+    normal = np.cross((n - ca)[0], (c - ca)[0])
+    assert abs(normal @ (cb - ca)[0]) > 1.0
+
+
+def test_ramachandran_matches_a_hand_computed_dihedral():
+    """phi_1 = dihedral(C0, N1, CA1, C1). Chosen so b0, b1, b2 are the three unit axes: -90 deg."""
+    nn = np.array([[2.0, 0.0, 0.0], [0.0, 0.0, 0.0], [1.0, 1.0, 1.0]])
+    ca = np.array([[2.0, 1.0, 0.0], [0.0, 1.0, 0.0], [1.0, 2.0, 1.0]])
+    c = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 1.0], [1.0, 2.0, 2.0]])
+    phi, psi = ramachandran(nn, ca, c)
+    assert len(phi) == len(psi) == 1
+    assert phi[0] == pytest.approx(-90.0, abs=1e-6)
+
+
+def test_ramachandran_is_rigid_invariant_and_flips_under_reflection():
+    rng = np.random.default_rng(0)
+    ca = np.cumsum(rng.normal(size=(9, 3)), axis=0)
+    nn = ca + rng.normal(scale=0.5, size=(9, 3))
+    c = ca + rng.normal(scale=0.5, size=(9, 3))
+    p1, s1 = ramachandran(nn, ca, c)
+
+    rot, shift = _rot(0.6, axis=1), np.array([2.0, -1.0, 4.0])
+    p2, s2 = ramachandran(nn @ rot.T + shift, ca @ rot.T + shift, c @ rot.T + shift)
+    assert np.allclose(p1, p2, atol=1e-8) and np.allclose(s1, s2, atol=1e-8)
+
+    m = np.array([1.0, 1.0, -1.0])            # dihedrals are chiral: reflection negates them
+    p3, s3 = ramachandran(nn * m, ca * m, c * m)
+    assert np.allclose(p1, -p3, atol=1e-8) and np.allclose(s1, -s3, atol=1e-8)
+
+    with pytest.raises(ValueError):
+        ramachandran(nn[:3], ca, c)

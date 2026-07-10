@@ -1,0 +1,37 @@
+368 junctions with a resolved peptide chain (184 TRA, 184 TRB)
+
+=== 1. virtual C-beta gate ===
+  non-Gly residues checked: 4,397   glycines needing the virtual CB: 590
+  RMSD(virtual, observed) = 0.094 A   (gate: < 0.15 A)
+  passed -- glycine can be given a side-chain direction.
+
+=== 2. does the Frenet-frame C-beta direction predict peptide contact? ===
+  contact := min heavy-atom distance to the peptide < 4.5 A
+  residues: 3,883   contacting: 1,337 (34.4%)
+
+  feature        ROC-AUC     95% CI (junction bootstrap)
+  polar            0.546                  [0.526, 0.567]
+  azimuth          0.728                  [0.712, 0.746]
+  |azimuth|        0.727                  [0.712, 0.743]
+  kappa            0.687                  [0.672, 0.706]
+  |tau|            0.747                  [0.732, 0.762]
+  relpos           0.847                  [0.834, 0.859]
+
+  relpos (distance from the loop apex) is the baseline any shape feature must beat.
+
+=== 2b. does any of it add ON TOP of position? (5-fold logistic, grouped by junction) ===
+  A marginal AUC is not evidence: every one of these features correlates with position.
+  residues 3,883, junctions 368, contacting 34.4%
+
+  feature set                            AUC    gain
+  relpos                               0.847        
+  + shape (kappa,|tau|)                0.847  +0.000
+  + Cbeta (polar,|azim|,cos azim)      0.847  +0.000
+  + Ramachandran phi                   0.847  -0.000
+
+=== 3. Ramachandran gate: is (phi, psi) recoverable from (kappa, tau)? ===
+  residues: 3,883, 5-fold k-NN (k=15) on (kappa_i, tau_i, kappa_i+1)
+    circular R^2(phi | kappa, tau) = 0.442   -> adds information
+    circular R^2(psi | kappa, tau) = 0.822   -> REDUNDANT
+
+  Gate: R^2 >= 0.80 on BOTH means Ramachandran is not built.
