@@ -70,15 +70,35 @@ a loop.
 
 ## Derived: junction loop geometry
 
-`data/gap_prior.tsv` — **derived/computed, not experimental.** The empirical distribution of the
-structurally-correct single-gap-block position for length-different CDR3/junction pairs.
+`scripts/single_block_test.py` — **derived/computed, not experimental.** Where the gap goes when
+two junctions differ in length, and whether one gap block suffices.
 
-- Origin: `scripts/fit_gap_prior.py`, run over `data/Canonical2026/*.pdb.gz` (374 crystal
-  TCR-pMHC complexes, already on disk; provenance above).
-- Regenerate: `python scripts/fit_gap_prior.py --d-max 3 --out data/gap_prior.tsv`
-- Content: for each block length `d` and normalised position decile, the probability the
-  best-superposing block sits there. n = 1,200 same-chain junction pairs, `1 <= d <= 3`.
-- Result: the block sits at `i/L = 0.506 ± 0.136`, i.e. essentially central. A fitted
-  per-decile table does **not** beat the analytic prior `lam * |i - L/2|` with
-  `lam = 1.5 * SubstitutionMatrix.scale()`, so `seqtree.gapblock.central_prior` ships the
-  analytic form and this table is kept only as its evidence.
+- Origin: `data/Canonical2026/*.pdb.gz` (374 crystal TCR-pMHC complexes) + `markup_2026.csv`.
+- Regenerate: `python scripts/single_block_test.py --d-max 4 --per-cell 400`
+- Method: `scripts/_harvest.py` types each junction by which curated CDR3 it reproduces and
+  collapses crystal redundancy (372 junctions → **199 unique sequences**, 1.87×), so pairs are
+  resampled by junction, never by pair. `tcren.loops.structural_align` supplies a correspondence
+  with **no** single-block assumption.
+- Results: the true correspondence is a single contiguous block in **95.2–100%** of pairs for
+  both chains and every `d = 1..4`; forcing one block costs no median CA-RMSD. The block starts
+  at Cys-offset 6 (TRA) and 6–7 (TRB) — the loop apex — and does **not** drift with `d`.
+  `central_prior`'s argmin hits it exactly 42.4% (TRA) / 30.1% (TRB) of the time; a
+  germline untemplated-span rule hits 0.4% / 19.8% and is rejected.
+
+`scripts/shape_noise_floor.py` — the resolution limit of this structure set. Between two crystals
+of the **same** junction sequence (n = 441 pairs): CA-RMSD median **0.239 Å**, (κ,τ) median
+**4.447°**. Nothing smaller is measurable here, at any sample size.
+
+**Removed:** `scripts/fit_gap_prior.py` and `data/gap_prior.tsv`. Superseded and wrong in three
+ways — λ was chosen by in-sample argmax on the pairs it was evaluated on; the ~29k pairs it drew
+from come from only ~200 independent junctions, so its intervals were anticonservative by several
+fold; and its ground truth (`structural_block_position`) is an argmin over the single-gap-block
+family, so it could rank block positions but could never test whether one block was enough.
+`single_block_test.py` answers both questions with an oracle that can disagree.
+
+**Removed:** `scripts/island_conformation.py` → `scripts/shape_noise_floor.py`. Its finding
+("distinct sequence islands for one epitope share a (κ,τ) conformation", −3.470°, p = 0.004) is
+**withdrawn**: it compared κ/τ over the shared *prefix* of two loops (the wrong correspondence)
+while its CA-RMSD sibling used the gap-block one on a different subset; its islands came from a
+fixed threshold at which random control junctions cluster *harder* than real ones; and both
+claimed effects are smaller than the crystal noise floor above (0.78× and 0.31×).

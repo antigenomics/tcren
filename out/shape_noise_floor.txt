@@ -1,0 +1,16 @@
+372 junctions, 199 unique sequences, 70 of them crystallised more than once
+
+=== noise floor: the SAME junction sequence, in two different crystals (n = 441 pairs) ===
+  metric                  median       p90       max
+  CA-RMSD (A)              0.239     0.790     1.757
+  (kappa,tau) (deg)        4.447    18.731    37.493
+
+=== the retracted effects, against that floor ===
+  metric                claimed effect  floor (median)    ratio
+  CA-RMSD (A)                    0.073           0.239    0.31x
+  (kappa,tau) (deg)              3.470           4.447    0.78x
+
+  Both claimed effects are SMALLER than the disagreement between two crystal
+  structures of the identical molecule. They were never resolvable, at any n.
+
+  Nothing below 4.45 deg of (kappa,tau), or 0.239 A of CA-RMSD, is measurable from this set.
