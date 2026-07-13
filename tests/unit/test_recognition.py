@@ -5,8 +5,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from tcren.recognition import (BayesianLogisticRecognizer, GaussianBNClassifier, _hill_climb,
-                               encode_features)
+from tcren.recognition import (BayesianLogisticRecognizer, CDR3_FRAME_FEATURES, FORCED_POSE_MODEL,
+                               FULL_FEATURES, GaussianBNClassifier, MATRIX_SWAP_FEATURES,
+                               RECOGNITION_FEATURES, _hill_climb, encode_features, forced_pose_score)
 
 
 def _auc(y, score):
@@ -121,6 +122,53 @@ def test_recognizer_predict_roundtrip_and_nan_safe(tmp_path):
     assert np.allclose(p, BayesianLogisticRecognizer.load(f).predict_proba(X)[:, 1])
     Xn = X.copy(); Xn[0, 2] = np.nan                       # nan chain_balance -> nan logit -> imputed
     assert np.isfinite(rec.predict_proba(Xn)[:, 1]).all()
+
+
+# --- full feature vector (core + CDR3-frame + matrix-swap) ---------------------------------------------
+def test_full_feature_schema():
+    assert len(RECOGNITION_FEATURES) == 35
+    assert len(CDR3_FRAME_FEATURES) == 18 and len(MATRIX_SWAP_FEATURES) == 12
+    assert FULL_FEATURES == RECOGNITION_FEATURES + CDR3_FRAME_FEATURES + MATRIX_SWAP_FEATURES
+    assert len(set(FULL_FEATURES)) == len(FULL_FEATURES) == 65      # no duplicate column names
+    # the FramePose strain trio (the forced-pose signal) is present
+    assert {"cdr3b_topep", "cdr3b_reach", "cdr3b_ext"} <= set(CDR3_FRAME_FEATURES)
+
+
+def test_forced_pose_model_shape_and_formula():
+    m = FORCED_POSE_MODEL
+    assert m["features"] == ("dock_d", "cdr3b_reach", "cdr3b_topep", "cdr3a_ext",
+                             "extent_per_ct", "chain_balance")
+    assert len(m["coef"]) == 6 and m["cv_auc"] == pytest.approx(0.762)
+    feats = {"dock_d": 25.0, "cdr3b_reach": 12.0, "cdr3b_topep": 4.0, "cdr3a_ext": 6.0,
+             "extent": 26.0, "n_contacts_tp": 40.0, "chain_balance": 0.4}
+    # reproduce the explicit sigmoid (pins the frozen coefficients + extent_per_ct derivation)
+    vals = [feats["dock_d"], feats["cdr3b_reach"], feats["cdr3b_topep"], feats["cdr3a_ext"],
+            feats["extent"] / feats["n_contacts_tp"], feats["chain_balance"]]
+    z = m["intercept"] + sum(w * v for w, v in zip(m["coef"], vals))
+    assert forced_pose_score(feats) == pytest.approx(1.0 / (1.0 + np.exp(-z)))
+    assert 0.0 <= forced_pose_score(feats) <= 1.0
+
+
+def test_forced_pose_score_nan_safe():
+    assert np.isnan(forced_pose_score({"dock_d": float("nan")}))          # missing features -> NaN
+    assert np.isnan(forced_pose_score({"extent": 26.0, "n_contacts_tp": 0.0}))  # zero contacts -> NaN
+
+
+@pytest.mark.slow
+def test_recognition_features_full_end_to_end():
+    pytest.importorskip("arda")
+    from tcren.paths import reference_structure_path
+    from tcren.recognition import recognition_features
+
+    f = recognition_features(reference_structure_path("1ao7"), full=True)
+    assert set(f) == set(FULL_FEATURES)
+    # matrix-swap tcren_* duplicates the core loop energies by construction
+    assert f["tcren_tp"] == pytest.approx(f["F_tcr_pep"])
+    assert f["tcren_cdr3a"] == pytest.approx(f["e_cdr3a"])
+    assert f["d_tp"] == pytest.approx(f["tcren_tp"] - f["mj_tp"])
+    # a real crystal complex has both CDR3 loops engaging the peptide
+    assert np.isfinite(f["cdr3b_topep"]) and f["cdr3b_topep"] > 0
+    assert np.isfinite(f["cdr3a_reach"]) and f["cdr3a_reach"] > 0
 
 
 def test_recognizer_name_mismatch_raises():

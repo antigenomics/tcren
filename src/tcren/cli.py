@@ -521,7 +521,9 @@ def recognize(
     structures: str = typer.Option(..., "-s", "--structures", help="TCR-pMHC structure file, directory, .tar.gz, or glob"),
     out: Path = typer.Option("recognize.tsv", "-o", "--out", help="per-structure descriptors + P(real) table (TSV)"),
     organism: str = typer.Option("human", "--organism"),
-    features_only: bool = typer.Option(False, "--features-only", help="emit the 35 descriptors, skip P(real)"),
+    features_only: bool = typer.Option(False, "--features-only", help="emit the descriptors, skip P(real)"),
+    full: bool = typer.Option(False, "--full", help="add the 18 CDR3-frame + 12 matrix-swap descriptors (65 features total)"),
+    scores: bool = typer.Option(False, "--scores", help="also append p_bind (binder-ID) + p_forced (forced-pose); implies --full"),
 ) -> None:
     """Full interface descriptor table + joint P(real) for each TCR-pMHC complex (one TSV row per PDB).
 
@@ -531,30 +533,21 @@ def recognize(
     poly-alanine ``dF``, CDR-loop energies, contact-type tallies, ΔSASA ``burial`` and the MHC-class
     indicator — plus ``p_real`` (the distribution-aware Bayesian logistic) and ``p_real_bn`` (the
     Gaussian BN): the joint probability the complex is a genuine recognition interface rather than a
-    wrong-TCR shuffle. ``--features-only`` skips the models. Output is TSV.
+    wrong-TCR shuffle. ``--full`` also emits the 18 CDR3-local frame descriptors (the FramePose strain
+    layer) and the 12 matrix-swap TCRen−MJ contrasts. ``--features-only`` skips the models. Output is TSV.
 
     Complementary scorers on the same inputs: ``tcren ddg`` (per-mutation alanine/neoantigen ΔΔF) and
     ``tcren mechanics`` (koff proxies — stiffness + steered rupture).
     """
-    from .recognition import frozen_recognizers, real_probability, recognition_features
+    from .recognition import recognition_table
     from .structure.io import import_structure
 
-    recs = None if features_only else frozen_recognizers()
-    rows = []
-    for pid, s in iter_structures(structures, importer=import_structure):
-        try:
-            feats = recognition_features(s, organism=organism)
-            row = {"complex.id": pid, **feats}
-            if not features_only:
-                p = real_probability(feats, recognizers=recs)
-                row["p_real"] = float(p["logistic"][0])
-                row["p_real_bn"] = float(p["bn"][0])
-            rows.append(row)
-        except Exception as exc:  # noqa: BLE001 - keep the batch resilient
-            rows.append({"complex.id": pid, "p_real": None,
-                         "error": f"{type(exc).__name__}: {str(exc)[:80]}"})
+    full = full or scores                                             # p_forced needs the CDR3-frame feats
+    items = list(iter_structures(structures, importer=import_structure))
+    rows = recognition_table(items, organism=organism, full=full, scores=scores,
+                             with_p_real=not features_only)
     pl.DataFrame(rows).write_csv(str(out), separator="\t")
-    typer.echo(f"wrote {out}")
+    typer.echo(f"wrote {out} ({len(rows)} rows)")
 
 
 @app.command(rich_help_panel=_P_SCORE)

@@ -364,6 +364,38 @@ RECOGNITION_FEATURES = (
 _CT_TYPES = ("salt_bridge", "hydrogen_bond", "aromatic", "hydrophobic", "other")
 _TCR_TYPES = ("TRA", "TRB", "TRG", "TRD")
 
+#: CDR3-local frame features (18), the FramePose layer the whole-TCR :data:`RECOGNITION_FEATURES` miss.
+#: Per loop, relative to the pMHC groove frame (u, w, n; origin = peptide Cα centroid):
+#: ``reach`` = |loop centroid − origin|; ``o{u,w,n}`` = unit(centroid−origin)·(u,w,n) (where over the
+#: groove the loop sits); ``a{u,w,n}`` = unit(Cα_N→Cα_C)·(u,w,n) (loop orientation over the groove);
+#: ``topep`` = min Cα-Cα distance loop→peptide (engagement depth); ``ext`` = |Cα_C − Cα_N| (extension).
+_CDR3_FRAME_KEYS = ("reach", "ou", "ow", "on", "au", "aw", "an", "topep", "ext")
+CDR3_FRAME_FEATURES = tuple(f"{loop}_{k}" for loop in ("cdr3a", "cdr3b") for k in _CDR3_FRAME_KEYS)
+
+#: Matrix-swap features (12): the same TCR:peptide contacts scored under TCRen vs the generic MJ
+#: potential, per interface group. ``tcren_{g}``/``mj_{g}`` are the two energies and ``d_{g}`` their
+#: difference (the recognition-specific component; generic packing cancels). ``g`` ∈ {tp, cdr12, cdr3a,
+#: cdr3b}. Note ``tcren_tp``/``tcren_cdr12``/``tcren_cdr3a``/``tcren_cdr3b`` duplicate the core
+#: ``F_tcr_pep``/``e_cdr12``/``e_cdr3a``/``e_cdr3b`` by construction (kept for full parity).
+_MATRIX_SWAP_GROUPS = ("tp", "cdr12", "cdr3a", "cdr3b")
+MATRIX_SWAP_FEATURES = tuple(f"{pre}_{g}" for g in _MATRIX_SWAP_GROUPS for pre in ("tcren", "mj", "d"))
+
+#: The full feature vector: the 35 core recognition descriptors + the 18 CDR3-frame + 12 matrix-swap.
+FULL_FEATURES = RECOGNITION_FEATURES + CDR3_FRAME_FEATURES + MATRIX_SWAP_FEATURES
+
+#: Frozen "forced-pose" classifier: P(this pose is an AF-forced interface rather than a crystal-natural
+#: one). A raw-feature logistic (no standardization) over interface *strain* — stretched CDR3 loops and
+#: thin contacts. Trained ONLY on provenance (Canonical2026 crystals = 0 vs AF/TCRmodel2 models = 1;
+#: n=2681, 268 crystal / 2413 forced), so it is independent of any binder label; 5-fold CV AUC 0.762.
+#: High ``p_forced`` marks a "too-good-to-be-true" pose; the score grades crystal < AF-real < AF-decoy.
+FORCED_POSE_MODEL = {
+    "features": ("dock_d", "cdr3b_reach", "cdr3b_topep", "cdr3a_ext", "extent_per_ct", "chain_balance"),
+    "coef": (-0.46517433874162056, 0.14437146872011086, -0.31411562068257676,
+             -2.114810136001524, 1.198769596894963, -0.6237422800760706),
+    "intercept": 26.11747560652168,
+    "cv_auc": 0.762,
+}
+
 
 def _extent(cm) -> float:
     """Distinct TCR residues contacting the pMHC (interface size); default TCR-region selection."""
@@ -425,7 +457,79 @@ def _burial(structure, tcr_ids, pmhc_ids) -> float:
     return float((sasa_of(set(tcr_ids)) + sasa_of(set(pmhc_ids))) - sasa_of(both))
 
 
-def recognition_features(source, *, organism: str = "human", potential=None) -> dict[str, float]:
+def _cdr3_frame_features(structure) -> dict[str, float]:
+    """The 18 CDR3-local frame descriptors (:data:`CDR3_FRAME_FEATURES`) for a chain-typed structure.
+
+    Both CDR3 loops are projected onto the pMHC groove frame (see :data:`CDR3_FRAME_FEATURES`). The
+    structure must already be chain-typed (``classify_chains``) so its CDR3 regions are populated.
+    Undefined terms (no groove frame, missing peptide, or a loop with < 3 Cα) are ``NaN``.
+    """
+    from .orient.docking import _chain_ca, _groove_frame
+
+    out = {k: math.nan for k in CDR3_FRAME_FEATURES}
+    try:
+        u, w, n = _groove_frame(structure)
+    except Exception:
+        return out
+    pep = _chain_ca(structure, ("PEPTIDE",))
+    if len(pep) < 2:
+        return out
+    origin = pep.mean(axis=0)
+    basis = np.stack([u, w, n])                                        # rows = groove basis
+    for loop, ctype in (("cdr3a", "TRA"), ("cdr3b", "TRB")):
+        cas = None
+        for c in structure.chains:
+            if c.chain_type != ctype:
+                continue
+            for reg in getattr(c, "regions", []) or []:
+                if reg.region_type == "CDR3":
+                    pts = [r.ca for r in reg.residues if r.ca is not None]
+                    if len(pts) >= 3:
+                        cas = np.asarray(pts)
+                    break
+        if cas is None:
+            continue
+        d = cas.mean(axis=0) - origin
+        reach = float(np.linalg.norm(d))
+        off = basis @ (d / (reach + 1e-9))
+        av = cas[-1] - cas[0]
+        ax = basis @ (av / (np.linalg.norm(av) + 1e-9))
+        topep = float(np.linalg.norm(cas[:, None, :] - pep[None, :, :], axis=2).min())
+        ext = float(np.linalg.norm(cas[-1] - cas[0]))
+        for k, v in zip(_CDR3_FRAME_KEYS, (reach, *off, *ax, topep, ext)):
+            out[f"{loop}_{k}"] = float(v)
+    return out
+
+
+def _matrix_swap_features(cm, tcren_pot, mj_pot) -> dict[str, float]:
+    """The 12 matrix-swap descriptors (:data:`MATRIX_SWAP_FEATURES`) from a contact map.
+
+    Scores the TCR:peptide contacts (whole interface + the CDR1/2, CDR3α, CDR3β groups) under both the
+    TCRen and the generic MJ potential; the per-group difference ``d`` isolates the recognition-specific
+    component (generic packing cancels since both potentials read the identical contacts).
+    """
+    import polars as pl
+
+    from .pipeline import _interface_energy
+
+    tp = cm.interface("tcr_peptide", tcr_regions="all")
+    reg, ch = pl.col("region.type.from"), pl.col("chain.type.from")
+    groups = {
+        "tp": tp,
+        "cdr12": tp.filter(reg.is_in(["CDR1", "CDR2"])),
+        "cdr3a": tp.filter((reg == "CDR3") & (ch == "TRA")),
+        "cdr3b": tp.filter((reg == "CDR3") & (ch == "TRB")),
+    }
+    out: dict[str, float] = {}
+    for name, df in groups.items():
+        et = float(_interface_energy(df, tcren_pot))
+        em = float(_interface_energy(df, mj_pot))
+        out[f"tcren_{name}"], out[f"mj_{name}"], out[f"d_{name}"] = et, em, et - em
+    return out
+
+
+def recognition_features(source, *, organism: str = "human", potential=None,
+                         full: bool = False, annotate: bool = True) -> dict[str, float]:
     """Extract the 35-descriptor recognition vector from a TCR–pMHC structure (path or parsed).
 
     Reproduces the feature set the shipped real-vs-shuffled recognizers were trained on
@@ -436,6 +540,9 @@ def recognition_features(source, *, organism: str = "human", potential=None) -> 
 
     Feed the result to :func:`frozen_recognizers` (or :class:`BayesianLogisticRecognizer`) for
     ``P(real)`` — the probability the complex looks like a genuine TCR–pMHC recognition interface.
+
+    With ``full=True`` the row is extended with the 18 CDR3-frame (:data:`CDR3_FRAME_FEATURES`) and 12
+    matrix-swap (:data:`MATRIX_SWAP_FEATURES`) descriptors — the complete :data:`FULL_FEATURES` vector.
     """
     import polars as pl
 
@@ -453,15 +560,16 @@ def recognition_features(source, *, organism: str = "human", potential=None) -> 
     from .structure import Structure, import_structure
 
     s = source if isinstance(source, Structure) else import_structure(source)
-    if all(c.chain_type is None for c in s.chains):
-        classify_chains(s, organism=organism, autodetect_species=True)
-    calls = annotate_mhc(s)
+    if annotate:                                                      # skip if pre-annotated (batch path)
+        if all(c.chain_type is None for c in s.chains):
+            classify_chains(s, organism=organism, autodetect_species=True)
+        annotate_mhc(s)
     tcren_pot = potential or _tcren()
     mj_pot = _mj()
 
     cm = ContactMap.from_structure(s)
     native = _native_peptide(s)
-    row = {k: math.nan for k in RECOGNITION_FEATURES}
+    row = {k: math.nan for k in (FULL_FEATURES if full else RECOGNITION_FEATURES)}
 
     try:                                                              # geometry (docking)
         da = docking_angles(s)
@@ -511,8 +619,73 @@ def recognition_features(source, *, organism: str = "human", potential=None) -> 
     tcr_ids = [c.chain_id for c in s.chains if c.chain_type in _TCR_TYPES]
     pmhc_ids = [c.chain_id for c in s.chains if c.chain_type is not None and c.chain_type not in _TCR_TYPES]
     row["burial"] = _burial(s, tcr_ids, pmhc_ids)
-    row["mhc_class_bin"] = 1.0 if any(getattr(cl, "mhc_class", None) == "MHCII" for cl in calls) else 0.0
+    row["mhc_class_bin"] = 1.0 if any(getattr(c, "chain_supertype", None) == "MHCII"
+                                      for c in s.chains) else 0.0
+
+    if full:                                                          # FramePose CDR3 layer + matrix-swap
+        row.update(_cdr3_frame_features(s))
+        row.update(_matrix_swap_features(cm, tcren_pot, mj_pot))
     return row
+
+
+def recognition_table(items, *, organism: str = "human", full: bool = False, scores: bool = False,
+                      with_p_real: bool = True) -> list[dict]:
+    """Batched feature (+score) extraction for a whole set of TCR–pMHC structures.
+
+    ``items`` is an iterable of ``(id, structure-or-path)``. The set is annotated with a **single**
+    arda call per organism (:func:`tcren.paper.helpers._batch_annotate`) and a **single** mmseqs MHC
+    search (:func:`tcren.mhc.annotate_mhc_batch`) — the dataset-scale path that avoids the per-structure
+    annotation cost — then :func:`recognition_features` (``full=``) is extracted for each. With
+    ``with_p_real`` the ``p_real`` / ``p_real_bn`` recognizer columns are added; with ``scores`` the
+    ``p_forced`` (forced-pose) and ``p_bind`` (binder-ID) columns too. Returns one row dict per
+    structure (``complex.id`` + features [+ scores]); a structure that fails yields
+    ``{"complex.id": id, "error": ...}`` so the batch stays resilient.
+    """
+    from .annotation import classify_chains
+    from .annotation.arda_adapter import _import_arda
+    from .mhc import annotate_mhc_batch
+    from .paper.helpers import _batch_annotate
+    from .structure import Structure, import_structure
+
+    ids, structs, rows = [], [], []
+    for id_, src in items:
+        try:
+            structs.append(src if isinstance(src, Structure) else import_structure(src))
+            ids.append(id_)
+        except Exception as exc:  # noqa: BLE001
+            rows.append({"complex.id": id_, "error": f"{type(exc).__name__}: {str(exc)[:80]}"})
+
+    if structs:                                                       # one arda + one mmseqs for the set
+        recs = _batch_annotate(structs, _import_arda(), organisms=(organism, "mouse"))
+        for i, s in enumerate(structs):
+            try:
+                classify_chains(s, organism=organism, autodetect_species=True,
+                                precomputed_records=recs[i])
+            except Exception:  # noqa: BLE001 - MHC-only / unannotatable chains stay unset
+                pass
+        annotate_mhc_batch(structs)
+
+    recognizers = frozen_recognizers() if with_p_real else None
+    if scores:
+        from .binder import binder_features, binder_score
+
+    for id_, s in zip(ids, structs):
+        try:
+            feats = recognition_features(s, organism=organism, full=full, annotate=False)
+            row = {"complex.id": id_, **feats}
+            if with_p_real:
+                p = real_probability(feats, recognizers=recognizers)
+                row["p_real"], row["p_real_bn"] = float(p["logistic"][0]), float(p["bn"][0])
+            if scores:
+                row["p_forced"] = forced_pose_score(feats)
+                try:
+                    row["p_bind"] = float(binder_score(binder_features(s)))
+                except Exception:  # noqa: BLE001 - binder ext optional
+                    row["p_bind"] = math.nan
+            rows.append(row)
+        except Exception as exc:  # noqa: BLE001
+            rows.append({"complex.id": id_, "error": f"{type(exc).__name__}: {str(exc)[:80]}"})
+    return rows
 
 
 def frozen_recognizers():
@@ -543,3 +716,23 @@ def real_probability(rows, *, recognizers=None) -> dict[str, np.ndarray]:
     Xbn = np.array([[r.get(k, np.nan) for k in bn.feature_names] for r in rows], float)
     m = np.array([r.get("mhc_class_bin", 0.0) for r in rows], float)
     return {"logistic": lr.predict_proba(Xlr)[:, 1], "bn": bn.predict_proba(Xbn, m)[:, 1]}
+
+
+def forced_pose_score(feats: dict[str, float]) -> float:
+    """``P(forced)`` — probability a pose is an AF-forced interface, from :data:`FORCED_POSE_MODEL`.
+
+    ``feats`` is a row from :func:`recognition_features` with ``full=True`` (it needs the CDR3-frame
+    ``cdr3b_reach``/``cdr3b_topep``/``cdr3a_ext`` plus core ``dock_d``/``extent``/``n_contacts_tp``/
+    ``chain_balance``). ``extent_per_ct`` is derived as ``extent / n_contacts_tp``. Returns ``NaN`` if
+    any required feature is missing/undefined. High = "too good to be true" (see :data:`FORCED_POSE_MODEL`).
+    """
+    m = FORCED_POSE_MODEL
+    nc = feats.get("n_contacts_tp", math.nan)
+    derived = {"extent_per_ct": feats.get("extent", math.nan) / nc if nc else math.nan}
+    z = m["intercept"]
+    for name, w in zip(m["features"], m["coef"]):
+        v = derived.get(name, feats.get(name, math.nan))
+        if not (isinstance(v, (int, float)) and math.isfinite(v)):
+            return math.nan
+        z += w * float(v)
+    return 1.0 / (1.0 + math.exp(-max(-700.0, min(700.0, z))))
