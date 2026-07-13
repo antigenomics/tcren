@@ -1,11 +1,16 @@
 # tcren — project status & TODO
 
 Status of the Python re-implementation of TCRen (`src/tcren/`). The legacy R/Java pipeline
-is preserved (tag `legacy-r-1.0`) and serves as the numerical oracle. Current release: **v2.0.0**
-(configurable potentials, TCR framework regions, percentile rank, fast ΔΔG, oracle facade).
-Gitflow: `master` = released, `develop` = integration, feature branches off `develop` (merged
-`--no-ff`). See [BENCHMARKS.md](BENCHMARKS.md) for achieved accuracy/performance and the plan in
-`docs/` for design detail.
+is preserved (tag `legacy-r-1.0`) and serves as the numerical oracle. Current release: **v2.2.0**
+(feature table + AF-orthogonal kit: `recognize --full --scores`, `kit_score`, `forced_pose_score`,
+interface mechanics, binder identification, configurable potentials, fast ΔΔG).
+See **[CHANGELOG.md](CHANGELOG.md)** for the authoritative per-release record, [BENCHMARKS.md](BENCHMARKS.md)
+for achieved accuracy, and `docs/` (`features.rst`, `kit.rst`) for the current API.
+
+> Note: the detailed "Done"/"TODO" sections below are **historical** (they predate v2.1+) and describe an
+> earlier module layout — the `native/` module is now `orient/`, FlexPepDock lives in
+> `refine/oracle_flexpep.py`, and the standalone `tcren mhc` command was removed. Treat CHANGELOG.md +
+> README.md + SKILL.md as the current source of truth.
 
 ## Done
 
