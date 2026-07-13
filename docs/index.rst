@@ -52,6 +52,7 @@ What tcren does
    getting-started
    oracle
    features
+   kit
    performance
    modules
 

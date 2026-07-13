@@ -237,6 +237,12 @@ QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses ar
   vs AF-forced, 5-fold AUC 0.762 — the "too-good-to-be-true" hallucination flag). Cohort-relative z-combos
   (Φ_bind, the crystal<af_real<af_decoy strain gradient) stay analysis-side, computed from these features.
   Full column reference: `docs/features.rst`.
+- **`kit_score` — AF×tcren synergy (2026-07-13):** `recognition.kit_score(p_bind, iptm)` = cohort-relative
+  `z(p_bind)+z(iptm)`, the fixed no-fit combination of the tcren binder score with the AF ipTM. On TCRvdb raw
+  labels it beats **either alone** at precision (macro-PR 0.847 vs 0.782/0.804; P@10% 0.969; Δ vs ipTM +0.041
+  CI [+0.006,+0.074]) and corrects AF errors (strain flags AF false-positives 0.633; p_bind rescues AF
+  false-negatives 0.732>ipTM 0.697). The "kit for AI-generated structures" decision procedure is `docs/kit.rst`.
+  (No synergy on VDJdb real-vs-mock — there tcren's role is the forced-pose gradient, not discrimination.)
 
 ## MHC mapping speed — `mhc.reference.reference_db()`
 

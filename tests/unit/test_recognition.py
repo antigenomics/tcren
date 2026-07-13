@@ -7,7 +7,8 @@ import pytest
 
 from tcren.recognition import (BayesianLogisticRecognizer, CDR3_FRAME_FEATURES, FORCED_POSE_MODEL,
                                FULL_FEATURES, GaussianBNClassifier, MATRIX_SWAP_FEATURES,
-                               RECOGNITION_FEATURES, _hill_climb, encode_features, forced_pose_score)
+                               RECOGNITION_FEATURES, _hill_climb, encode_features, forced_pose_score,
+                               kit_score)
 
 
 def _auc(y, score):
@@ -152,6 +153,17 @@ def test_forced_pose_model_shape_and_formula():
 def test_forced_pose_score_nan_safe():
     assert np.isnan(forced_pose_score({"dock_d": float("nan")}))          # missing features -> NaN
     assert np.isnan(forced_pose_score({"extent": 26.0, "n_contacts_tp": 0.0}))  # zero contacts -> NaN
+
+
+def test_kit_score_combines_and_orders():
+    p_bind = np.array([0.2, 0.5, 0.9, 0.6])
+    iptm = np.array([0.6, 0.7, 0.85, 0.4])
+    k = kit_score(p_bind, iptm)
+    assert k.shape == (4,)
+    # equal-weight z-sum: the structure high on both ranks top, low on both ranks bottom
+    assert k.argmax() == 2 and k.argmin() == 0
+    # translation/scale invariance of each z term (only relative ordering matters)
+    assert np.allclose(kit_score(p_bind, iptm), kit_score(p_bind * 10 + 3, iptm - 1))
 
 
 @pytest.mark.slow
