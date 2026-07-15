@@ -24,7 +24,7 @@ from .scoring import score_peptides, score_structures
 from .scoring_rank import background_peptides, percentile_rank
 from .structure import Structure, import_structure, parse_structure
 
-__version__ = "2.2.0"
+__version__ = "2.2.1"
 
 __all__ = [
     "potential",
