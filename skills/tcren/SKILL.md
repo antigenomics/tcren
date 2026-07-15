@@ -9,7 +9,7 @@ description: tcren — TCR-pMHC contact potential (TCRen) pipeline; conventions 
 on a pure-Python pipeline (structure parsing → contacts → TCR/MHC annotation → potential
 derivation → epitope-ranking benchmarks). Annotation uses the `arda` package
 (mmseqs2-backed), a runtime dependency published to PyPI as `arda-mapper` (imports as `arda`,
-`>=2.0.3`) — no separate checkout and **no `ARDA_HOME`** (arda auto-fetches its reference into
+`>=2.5.6`) — no separate checkout and **no `ARDA_HOME`** (arda auto-fetches its reference into
 `~/.cache/arda` on first use). Conda env `tcren` (`bash setup.sh`).
 
 ## Batch annotation — never loop (mmseqs2 is the parallel layer)

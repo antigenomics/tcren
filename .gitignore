@@ -316,6 +316,8 @@ notebooks/data/PolyV2022/
 notebooks/data/Bobisse/
 notebooks/data/Bigot/
 data/pdb_recent/
+# Point-mutant / CPL structure set (mutagenesis + relaxation) — large; syncs to the Hub, not git.
+data/cpl/
 
 # Re-derivation sweep working dir (cached contacts/markup, candidate potentials, metrics).
 scratch/

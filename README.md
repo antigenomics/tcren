@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: light)" srcset="assets/tcren_light.svg">
-    <img alt="tcren" src="assets/tcren_dark.svg" width="340">
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/antigenomics/tcren/master/assets/tcren_dark.png">
+    <img alt="tcren" src="https://raw.githubusercontent.com/antigenomics/tcren/master/assets/tcren_light.png" width="340">
   </picture>
 </p>
 
@@ -81,7 +81,7 @@ tcren ships five small **pybind11/C++ extensions**, built on install by `scikit-
 energy for `tcren energy` / ΔΔG), `tcren._fold` (CCD loop closure) and `tcren._geom` (interface
 geometry for `tcren binder`). TCR annotation is provided by [`arda`](https://github.com/antigenomics/arda), a runtime
 dependency published to PyPI as [`arda-mapper`](https://pypi.org/project/arda-mapper/) (it imports
-as `arda`); `pip`/`setup.sh` pull it automatically, and from `arda-mapper >= 2.0.3` it auto-fetches
+as `arda`); `pip`/`setup.sh` pull it automatically, and from `arda-mapper >= 2.5.6` it auto-fetches
 its own reference on first use (no `ARDA_HOME` to set). `setup.sh` also runs `tcren fetch-data` to
 populate `data/` with the reference structure sets (`Native2026`, `Canonical2026`) used by
 `orient`/`superimpose` (set `TCREN_NO_FETCH=1` to skip).
