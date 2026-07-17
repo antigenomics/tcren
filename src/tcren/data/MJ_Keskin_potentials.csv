@@ -5,8 +5,8 @@ R,A,Keskin,-3.26
 R,A,MJ,0.24
 R,R,Keskin,-3.98
 R,R,MJ,0.19
-V,1,Keskin,-2.06
-V,1,MJ,0.15
+N,A,Keskin,-2.06
+N,A,MJ,0.15
 N,R,Keskin,-2.67
 N,R,MJ,0.1
 N,N,Keskin,-1.99
@@ -421,8 +421,8 @@ V,V,Keskin,-4.86
 V,V,MJ,-0.65
 A,R,Keskin,-3.26
 A,R,MJ,0.24
-1,V,Keskin,-2.06
-1,V,MJ,0.15
+A,N,Keskin,-2.06
+A,N,MJ,0.15
 R,N,Keskin,-2.67
 R,N,MJ,0.1
 A,D,Keskin,-2.74
