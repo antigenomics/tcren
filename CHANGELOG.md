@@ -3,6 +3,35 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
+## [2.2.2] — 2026-07-17
+
+Two data-integrity fixes. Both change output: MJ-based scores and MHC pseudosequence lookups
+that previously failed silently now resolve correctly.
+
+### Fixed
+- **A–N pair in the bundled MJ/Keskin potentials** (`tcren/data/MJ_Keskin_potentials.csv`). The
+  4th lower-triangle slot and its mirror carried a literal `1` where `N`/`A` belong, so the A–N
+  pair was absent and a phantom `1` entered the inferred alphabet: `mj()` and `keskin()` built a
+  21×21 matrix with 41 `NaN` cells instead of a complete 20×20. Because `as_matrix()` pre-fills
+  `NaN` and `scoring.py` sums with `np.nansum`, **every Ala–Asn contact silently contributed 0
+  energy** rather than raising. MJ is the default `tcr_mhc`/`peptide_mhc` potential, so MJ-based
+  scores shift for any structure with an A–N interface contact. TCRen (a separate file) is
+  unaffected, so headline TCRen results do not change. A–N is now 0.15 (MJ) / −2.06 (Keskin);
+  the Keskin value is corroborated by `tests/assets/oracle/data/source_data/fig3.csv`, and the
+  MJ value matches seqtree 0.6.0's `MJ_CONTACT`. Also regenerates the tracked
+  `notebooks/natcompsci2022/data_legacy/MJ_Keskin_potentials.csv.gz` snapshot, which carried the
+  identical corruption.
+- **Collapsed-allele index in `build_pseudo_fasta.py`** — alleles sharing a 34-mer groove
+  pseudosequence were collapsed to `alleles[0]`, discarding the rest (68% of `MHC_pseudo.dat`,
+  80% of `pseudosequence.2023.all.X.dat` headers lost), so non-representative alleles such as
+  HLA-B\*14:02 and C\*03:04 were unresolvable. Headers are now `>ALLELE [ALLELE ...]|n=<count>`.
+  Separately, `_pseudo_index` never split headers on `|`, so 100% of its keys carried the suffix
+  and every exact lookup missed.
+
+### Added
+- `build_pseudo_fasta.py --imgt-alignments` — derives class-I pseudosequences directly from
+  IPD-IMGT/HLA 3.65.0 for alleles NetMHCpan does not cover (it lags IMGT and omits HLA-F).
+
 ## [2.2.0] — 2026-07-13
 
 Feature table + AlphaFold-orthogonal scoring kit for AI-generated TCR–pMHC structures.
