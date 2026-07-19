@@ -14,7 +14,7 @@ scipy, no compiled kernel.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import numpy as np
 
@@ -124,8 +124,6 @@ def interface_clashes(
     score = 0.0
     by_partner: dict[str, int] = {}
     pairs: list[ClashPair] = []
-    # A clash needs distance < r_i + r_j − tol ≤ 2·max_radius − tol; prefilter partner atoms to that shell.
-    shell = 2.0 * _MAX_RADIUS - tolerance
 
     for chain in structure.chains:
         if chain is pep:

@@ -7,7 +7,7 @@ import polars as pl
 import pytest
 
 from tcren.potential import Potential, derive_tcren, keskin, mj, tcren
-from tcren.potential.derive import _AA20_CLASSIC
+from tcren.potential.model import AA20
 
 
 def _independent_classic(contacts: pl.DataFrame, pseudocount: int = 1) -> dict[tuple[str, str], float]:
@@ -16,7 +16,7 @@ def _independent_classic(contacts: pl.DataFrame, pseudocount: int = 1) -> dict[t
     Pins the orientation of total.from (sum over 'to' for fixed 'from') and total.to
     (sum over 'from' for fixed 'to'), independently of the polars implementation.
     """
-    aa = list(_AA20_CLASSIC)
+    aa = list(AA20)
     idx = {a: i for i, a in enumerate(aa)}
     n = len(aa)
     counts = np.zeros((n, n))

@@ -22,7 +22,8 @@ def _mean_y(structure: Structure, types, rotation, translation) -> float | None:
            for r in c.residues if r.ca is not None]
     if not pts:
         return None
-    transformed = np.asarray(pts) @ rotation + translation
+    from ._transform import apply_rigid
+    transformed = apply_rigid(pts, rotation, translation)
     return float(transformed[:, 1].mean())
 
 

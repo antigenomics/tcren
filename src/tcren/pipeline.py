@@ -18,6 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import numpy as np
 import polars as pl
 
 from .annotation import classify_chains
@@ -107,18 +108,21 @@ def _interface_energy(
                 "contact_weight='atomic' needs the n_atom_contacts column; build the "
                 "contact map with count_atoms=True"
             )
-        weights = contacts["n_atom_contacts"].to_list()
+        weights = np.asarray(contacts["n_atom_contacts"].to_list(), dtype=np.float64)
     else:
-        weights = [1] * contacts.height
-    total = 0.0
-    for a, b, w in zip(
-        contacts["residue.aa.from"], contacts["residue.aa.to"], weights
-    ):
-        try:
-            total += potential.value(a, b) * w
-        except (KeyError, IndexError):  # X / non-standard residue not in the potential
-            continue
-    return total
+        weights = np.ones(contacts.height, dtype=np.float64)
+    # Vectorized gather off the dense matrix instead of a per-row polars filter
+    # (Potential.value): O(contacts) lookups, not O(contacts × potential_rows). Pairs whose
+    # residue is outside the alphabet, or absent from the matrix (nan), are dropped — exactly
+    # as the per-row path skipped KeyError/IndexError.
+    matrix, index = potential.as_matrix()
+    rows_idx = np.array([index.get(a, -1) for a in contacts["residue.aa.from"].to_list()],
+                        dtype=np.int64)
+    cols_idx = np.array([index.get(b, -1) for b in contacts["residue.aa.to"].to_list()],
+                        dtype=np.int64)
+    valid = (rows_idx >= 0) & (cols_idx >= 0)
+    vals = matrix[rows_idx[valid], cols_idx[valid]] * weights[valid]
+    return float(np.nansum(vals))
 
 
 def run(

@@ -10,7 +10,7 @@ env: it is the standard `tcren` environment plus the analysis/viz packages the n
 in `pyproject.toml`. `arda` (and `tcren` itself) come from that editable install, pinned to
 `arda@2.0.1` — no separate checkout.
 
-```fish
+```bash
 bash setup.sh        # creates/updates the tcren-nb env, editable installs, Jupyter kernel
 ```
 

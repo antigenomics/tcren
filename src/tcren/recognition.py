@@ -20,11 +20,34 @@ from __future__ import annotations
 import gzip
 import json
 import math
+from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
 
 _EPS = 1e-9
+
+
+def _sigmoid(x: np.ndarray) -> np.ndarray:
+    """Numerically-safe logistic (clips the exponent to avoid overflow warnings)."""
+    return 1.0 / (1.0 + np.exp(-np.clip(x, -700, 700)))
+
+
+def _dump_json_gz(d: dict, path: str | Path) -> Path:
+    """Serialise ``d`` to JSON at ``path`` (gzip-compressed iff the name ends in ``.gz``)."""
+    path = Path(path)
+    opener = gzip.open if str(path).endswith(".gz") else open
+    with opener(path, "wb") as fh:
+        fh.write(json.dumps(d).encode())
+    return path
+
+
+def _load_json_gz(path: str | Path) -> dict:
+    """Inverse of :func:`_dump_json_gz`."""
+    path = Path(path)
+    opener = gzip.open if str(path).endswith(".gz") else open
+    with opener(path, "rb") as fh:
+        return json.loads(fh.read())
 
 
 def _bic_local(Z: np.ndarray, j: int, parents: list[int]) -> float:
@@ -150,7 +173,7 @@ class GaussianBNClassifier:
         s = self.decision_function(X, mhc_class)
         if not balanced:
             s = s + math.log(self.prior_ / (1 - self.prior_ + _EPS))
-        p = 1.0 / (1.0 + np.exp(-np.clip(s, -700, 700)))
+        p = _sigmoid(s)
         return np.column_stack([1 - p, p])
 
     # -- marginalization ---------------------------------------------------------------------------------
@@ -192,7 +215,7 @@ class GaussianBNClassifier:
 
     def marginal_proba(self, X, keep, mhc_class=None) -> np.ndarray:
         s = self.marginal_decision(X, keep, mhc_class)
-        p = 1.0 / (1.0 + np.exp(-np.clip(s, -700, 700)))
+        p = _sigmoid(s)
         return np.column_stack([1 - p, p])
 
     # -- persistence + rendering -------------------------------------------------------------------------
@@ -211,16 +234,11 @@ class GaussianBNClassifier:
         return obj
 
     def save(self, path: str | Path) -> Path:
-        path = Path(path)
-        data = json.dumps(self.to_dict()).encode()
-        (gzip.open(path, "wb") if str(path).endswith(".gz") else open(path, "wb")).write(data)
-        return path
+        return _dump_json_gz(self.to_dict(), path)
 
     @classmethod
     def load(cls, path: str | Path) -> "GaussianBNClassifier":
-        path = Path(path)
-        raw = (gzip.open(path, "rb") if str(path).endswith(".gz") else open(path, "rb")).read()
-        return cls.from_dict(json.loads(raw))
+        return cls.from_dict(_load_json_gz(path))
 
     def to_dot(self, coef_threshold: float = 0.15) -> str:
         """Graphviz DAG: feature-feature edges (partial slopes) + class/MHC covariate edges above threshold."""
@@ -315,7 +333,7 @@ class BayesianLogisticRecognizer:
         return self.alpha + self._design(X) @ self.beta
 
     def predict_proba(self, X) -> np.ndarray:
-        p = 1.0 / (1.0 + np.exp(-np.clip(self.decision_function(X), -700, 700)))
+        p = _sigmoid(self.decision_function(X))
         return np.column_stack([1 - p, p])
 
     def to_dict(self) -> dict:
@@ -329,16 +347,11 @@ class BayesianLogisticRecognizer:
                    d.get("prior", "normal"))
 
     def save(self, path: str | Path) -> Path:
-        path = Path(path)
-        data = json.dumps(self.to_dict()).encode()
-        (gzip.open(path, "wb") if str(path).endswith(".gz") else open(path, "wb")).write(data)
-        return path
+        return _dump_json_gz(self.to_dict(), path)
 
     @classmethod
     def load(cls, path: str | Path) -> "BayesianLogisticRecognizer":
-        path = Path(path)
-        raw = (gzip.open(path, "rb") if str(path).endswith(".gz") else open(path, "rb")).read()
-        return cls.from_dict(json.loads(raw))
+        return cls.from_dict(_load_json_gz(path))
 
 
 # ===================================================================================================
@@ -688,8 +701,9 @@ def recognition_table(items, *, organism: str = "human", full: bool = False, sco
     return rows
 
 
+@lru_cache(maxsize=None)
 def frozen_recognizers():
-    """Load the shipped real-vs-shuffled recognizers ``(logistic, bn)`` from ``tcren.data``.
+    """Load the shipped real-vs-shuffled recognizers ``(logistic, bn)`` from ``tcren.data`` (cached).
 
     ``logistic`` is the headline distribution-aware :class:`BayesianLogisticRecognizer`
     (``shuffle_logistic.json.gz``); ``bn`` is the :class:`GaussianBNClassifier`

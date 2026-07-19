@@ -39,25 +39,28 @@ class OrientationResult:
     reference_id: str
 
 
-def _groove_ca_by_seq(structure: Structure) -> dict[str, list[tuple[int, np.ndarray]]]:
-    """Map each MHC role -> [(position-in-chain-sequence, Cα coord)] over groove residues.
+def _groove_ca_by_seq(
+    structure: Structure,
+) -> dict[str, tuple[str, list[tuple[int, np.ndarray]]]]:
+    """Map each MHC role -> (chain sequence, [(position-in-chain-sequence, Cα coord)]) over groove residues.
 
-    Position is the residue's index within its chain (for cross-structure alignment).
+    Position is the residue's index within its chain (for cross-structure alignment); the
+    sequence is carried alongside so callers can align the two structures' groove residues.
     """
-    out: dict[str, list[tuple[int, np.ndarray]]] = {}
+    out: dict[str, tuple[str, list[tuple[int, np.ndarray]]]] = {}
     for chain in structure.chains:
         if chain.chain_type not in ("MHCa", "MHCb"):
             continue
         index_of = {r.seq_index: i for i, r in enumerate(chain.residues)}
-        anchors = []
+        anchors: list[tuple[int, np.ndarray]] = []
         for region in chain.regions:
             if region.region_type not in _GROOVE:
                 continue
             for res in region.residues:
                 if res.ca is not None:
-                    anchors.append((index_of[res.seq_index], res.ca, chain.sequence()))
+                    anchors.append((index_of[res.seq_index], res.ca))
         if anchors:
-            out[chain.chain_type] = (chain.sequence(), [(p, c) for p, c, _ in anchors])
+            out[chain.chain_type] = (chain.sequence(), anchors)
     return out
 
 
@@ -101,7 +104,7 @@ def align_to_native(
     :func:`tcren.mhc.annotate_mhc`). The reference (default a canonical complex for the
     structure's MHC class) is loaded from the ``Native2026`` dataset (``tcren.paths``).
     """
-    from Bio.SVDSuperimposer import SVDSuperimposer
+    from ._transform import kabsch
 
     mhc_class = next(
         (c.chain_supertype for c in structure.chains if c.chain_type in ("MHCa", "MHCb")),
@@ -115,14 +118,11 @@ def align_to_native(
         raise ValueError(
             f"too few matched groove Cα anchors ({len(mob_pts)}) to orient {structure.pdb_id}"
         )
-    sup = SVDSuperimposer()
-    sup.set(ref_pts, mob_pts)  # reference is fixed; map mobile onto it
-    sup.run()
-    rot, tran = sup.get_rotran()
+    rot, tran, rmsd = kabsch(mob_pts, ref_pts)
     return OrientationResult(
         rotation=rot,
         translation=tran,
-        rmsd=float(sup.get_rms()),
+        rmsd=rmsd,
         n_anchor_atoms=len(mob_pts),
         reference_id=reference_id,
     )

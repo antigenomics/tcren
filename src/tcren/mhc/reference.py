@@ -8,6 +8,7 @@ commit-FASTA / build-index-on-demand split).
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import polars as pl
@@ -54,14 +55,21 @@ def build(
         alleles += imgt.parse_mouse(mouse, human_b2m)
 
     out_dir.mkdir(parents=True, exist_ok=True)
+    # Write via a temp file + os.replace so a concurrent reader never sees a half-written
+    # reference (its presence is the "already built" gate in reference_fasta()).
     fasta = out_dir / "alleles.aa.fasta"
-    with fasta.open("w") as fh:
+    tmp_fasta = fasta.with_name(fasta.name + ".tmp")
+    with tmp_fasta.open("w") as fh:
         for al in alleles:
             fh.write(f">{_header(al)}\n{al.sequence}\n")
+    os.replace(tmp_fasta, fasta)
 
+    meta = out_dir / "metadata.tsv"
+    tmp_meta = meta.with_name(meta.name + ".tmp")
     pl.DataFrame(
         {f: [getattr(a, f) for a in alleles] for f in _META_FIELDS}
-    ).write_csv(out_dir / "metadata.tsv", separator="\t")
+    ).write_csv(tmp_meta, separator="\t")
+    os.replace(tmp_meta, meta)
     return fasta
 
 
@@ -84,23 +92,36 @@ def reference_db(cache_dir: Path = CACHE_DIR) -> Path:
     prefilter index, so we also run `createindex` once. Reusing this DB cuts a single-structure MHC
     search from ~4.5 s to ~0.9 s. Built into the gitignored ``data/mhc_cache`` when missing or older
     than the FASTA.
+
+    The build is serialized through :func:`arda._locking.build_lock`: tcren is routinely run
+    concurrently against the same cache (one process per SLURM-array task / Nextflow sample), and
+    an unguarded ``createdb`` + ``createindex`` into the shared path would let every other process
+    search a half-written index. The ``createindex`` marker is written last, so its freshness gates
+    completeness.
     """
     import tempfile
 
     import arda.mmseqs as mmseqs
+    from arda._locking import build_lock
 
     fasta = reference_fasta()
     db = cache_dir / "alleles_db"
     db_marker = db.with_name(db.name + ".dbtype")        # createdb output
-    idx_marker = db.with_name(db.name + ".idx.dbtype")   # createindex output
-    fasta_mtime = fasta.stat().st_mtime
-    stale = (not db_marker.exists() or db_marker.stat().st_mtime < fasta_mtime
-             or not idx_marker.exists() or idx_marker.stat().st_mtime < fasta_mtime)
-    if stale:
-        cache_dir.mkdir(parents=True, exist_ok=True)
-        mmseqs.createdb(fasta, db, dbtype=1)
-        with tempfile.TemporaryDirectory() as tmp:
-            mmseqs.run(["createindex", str(db), tmp, "--search-type", "1"])
+    idx_marker = db.with_name(db.name + ".idx.dbtype")   # createindex output (written last)
+
+    def _fresh() -> bool:
+        fasta_mtime = fasta.stat().st_mtime
+        return (db_marker.exists() and db_marker.stat().st_mtime >= fasta_mtime
+                and idx_marker.exists() and idx_marker.stat().st_mtime >= fasta_mtime)
+
+    if _fresh():
+        return db
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    with build_lock(cache_dir / ".alleles_db.lock", done=_fresh) as ours:
+        if ours:
+            mmseqs.createdb(fasta, db, dbtype=1)
+            with tempfile.TemporaryDirectory() as tmp:
+                mmseqs.run(["createindex", str(db), tmp, "--search-type", "1"])
     return db
 
 

@@ -14,9 +14,9 @@ Reproduce with `pytest` (fast) and `RUN_BENCHMARK=1 pytest` (full-dataset sweeps
 | TCR annotation sweep (mir set) | contacts reproduced / full-exact | **0 missing**, 278 full-exact, 31 region-label-only / 312 | `test_annotation_concordance_sweep` |
 | MHC class + locus | sample concordance | **30 / 30**; 1ao7/5m01/4ozg exact | `test_mhc_regression` |
 | MHC groove topology | TCR-on-helices / peptide-on-floor | satisfied (class I + II) | `test_mhc_groove` |
-| TCR3D ground truth (60) | V-gene / CDR3 / class | **0.97 / 0.90 / 0.97** | `test_native_concordance_sweep` |
+| TCR3D ground truth (60) | V-gene / CDR3 / class | **0.97 / 0.90 / 0.97** | — (annotation reproduction covered by `test_annotation_concordance_sweep`) |
 | TCR3D epitope | concordance | 0.72 (CIF-content-bounded, see notes) | — |
-| Canonical alignment | self / 1bd2→1ao7 groove RMSD | **0.000 / 0.44 Å** | `test_native_uses` |
+| Canonical alignment | self / 1bd2→1ao7 groove RMSD | **0.000 / 0.44 Å** | `test_orient` |
 | αβ/γδ from C-gene | 1ao7 / 1hxm | **ab (TRBC2) / gd (TRDC+TRGC1)** | `test_cgene` |
 | Re-derived TCRen (analysis) | max\|Δ\| vs published | **< 1e-9** | `test_analysis` |
 | v2 configurable potentials (default) | per-interface scores vs built-in families | **byte-identical** | `test_default_equals_explicit_equal_mapping` |
@@ -28,7 +28,7 @@ follows the J segment — TCR3D's 1bd2 `TRDJ1` is a mislabel; class-II TCR3D use
 Epitope < 1.0 is driven by domain-split/multi-copy TCR3D CIFs lacking a separable peptide
 chain plus ±1 unresolved terminal residues — not a tcren error.
 
-## Performance (Apple M3, base anaconda Python 3.12)
+## Performance (Apple M3, uv-managed CPython 3.12)
 
 | Operation | Scale | Time |
 |-----------|-------|------|
@@ -36,8 +36,8 @@ chain plus ±1 unresolved terminal residues — not a tcren error.
 | Full contact sweep | 312 structures | ~13 s |
 | arda annotation | 1 TCR chain | ~1 s |
 | MHC mapping (mmseqs `easy_search`) | 1 structure | ~7 s (per-call index build — TODO prebuild) |
-| Fast test suite (`-m "not slow"`) | 74 tests | **~4 s** |
-| Slow test suite (`-m slow`) | 25 tests | **~22 min** (arda/mmseqs per structure) |
+| Fast test suite (`-m "not slow"`) | ~291 tests | **~75 s** |
+| Slow test suite (`-m slow`) | ~46 tests | **~22 min** (arda/mmseqs per structure) |
 | Annotation concordance sweep | 312 structures | ~20 min |
 | Analysis notebook | full `contact_maps_PDB.csv` | < 30 s (no arda) |
 

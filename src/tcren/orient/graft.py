@@ -56,15 +56,12 @@ def _tcr_ca_matched(mobile: Structure, reference: Structure):
 
 def _superpose(mob_pts: np.ndarray, ref_pts: np.ndarray, what: str) -> OrientationResult:
     """Kabsch transform mapping ``mob_pts`` onto ``ref_pts`` (needs ≥ 3 matched anchors)."""
-    from Bio.SVDSuperimposer import SVDSuperimposer
+    from ._transform import kabsch
 
     if len(mob_pts) < 3:
         raise ValueError(f"too few matched {what} Cα anchors ({len(mob_pts)}) to superpose")
-    sup = SVDSuperimposer()
-    sup.set(ref_pts, mob_pts)  # reference is fixed; map mobile onto it
-    sup.run()
-    rot, tran = sup.get_rotran()
-    return OrientationResult(rotation=rot, translation=tran, rmsd=float(sup.get_rms()),
+    rot, tran, rmsd = kabsch(mob_pts, ref_pts)
+    return OrientationResult(rotation=rot, translation=tran, rmsd=rmsd,
                              n_anchor_atoms=len(mob_pts), reference_id="")
 
 
