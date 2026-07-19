@@ -10,7 +10,7 @@ structure set with the current pipeline.
 These notebooks use the shared `tcren-nb` conda env for all notebooks. Set it up once from the
 parent `notebooks/` directory:
 
-```fish
+```bash
 cd .. ; bash setup.sh        # creates the tcren-nb env + editable installs + Jupyter kernel
 ```
 
@@ -51,7 +51,7 @@ Rmd 7 (modelled structures + Bigot).
 Run top-to-bottom from a clean kernel. Notebook 01 must run before 02/03 (they read
 `results_new/`). If executing headless, pass the kernel explicitly:
 
-```fish
+```bash
 jupyter nbconvert --to notebook --execute --inplace \
   --ExecutePreprocessor.kernel_name=tcren-nb 03_benchmark_yeast_display.ipynb
 ```

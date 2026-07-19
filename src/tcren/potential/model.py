@@ -9,7 +9,8 @@ the project (wide and long) and exported to a dense matrix for fast scoring.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from functools import lru_cache
 from importlib import resources
 from pathlib import Path
 
@@ -45,6 +46,10 @@ class Potential:
     name: str
     matrix: pl.DataFrame
     alphabet: tuple[str, ...]
+    # Lazily-built dense form (see as_matrix); not part of identity/repr.
+    _matrix_cache: tuple[np.ndarray, dict[str, int]] | None = field(
+        default=None, init=False, repr=False, compare=False
+    )
 
     def value(self, aa_from: str, aa_to: str) -> float:
         """Return the energy for an ordered residue pair.
@@ -70,8 +75,12 @@ class Potential:
         """Return a dense ``(n, n)`` matrix and an amino-acid → index map.
 
         Rows are indexed by ``residue.aa.from``, columns by ``residue.aa.to``. Missing
-        pairs are filled with ``nan``.
+        pairs are filled with ``nan``. The dense form is cached (the table is immutable), so
+        repeated scoring/energy calls over one potential rebuild it once. Callers treat the
+        returned array as read-only.
         """
+        if self._matrix_cache is not None:
+            return self._matrix_cache
         index = {aa: i for i, aa in enumerate(self.alphabet)}
         n = len(self.alphabet)
         dense = np.full((n, n), np.nan, dtype=np.float64)
@@ -79,7 +88,8 @@ class Potential:
             fr, to = row["residue.aa.from"], row["residue.aa.to"]
             if fr in index and to in index:
                 dense[index[fr], index[to]] = row["value"]
-        return dense, index
+        self._matrix_cache = (dense, index)
+        return self._matrix_cache
 
     def to_csv(self, path: str | Path) -> None:
         """Write the potential to a long-form CSV (``from, to, value``)."""
@@ -158,16 +168,19 @@ def _bundled(filename: str) -> Path:
     return resources.files("tcren.data").joinpath(filename)
 
 
+@lru_cache(maxsize=None)
 def tcren() -> Potential:
-    """Load the bundled classic TCRen potential."""
+    """Load the bundled classic TCRen potential (cached; treat as read-only)."""
     return Potential.from_csv(_bundled("TCRen_potential.csv"), name="TCRen")
 
 
+@lru_cache(maxsize=None)
 def mj() -> Potential:
-    """Load the bundled Miyazawa–Jernigan potential."""
+    """Load the bundled Miyazawa–Jernigan potential (cached; treat as read-only)."""
     return Potential.from_csv(_bundled("MJ_Keskin_potentials.csv"), name="MJ")
 
 
+@lru_cache(maxsize=None)
 def keskin() -> Potential:
-    """Load the bundled Keskin contact potential."""
+    """Load the bundled Keskin contact potential (cached; treat as read-only)."""
     return Potential.from_csv(_bundled("MJ_Keskin_potentials.csv"), name="Keskin")

@@ -55,18 +55,13 @@ def peptide_rmsd(
     by their shared groove Cα; the peptide RMSDs are then computed over atoms (and residues) present
     in both. ``anchors`` are 0-based peptide residue indices for the anchor-Cα RMSD.
     """
-    from Bio.SVDSuperimposer import SVDSuperimposer
-
+    from ..orient._transform import apply_rigid, kabsch
     from ..orient.align import _matched_anchors
 
     mob_pts, ref_pts = _matched_anchors(model, reference)
     if len(mob_pts) < 3:
         raise ValueError(f"too few matched groove Cα to superpose {model.pdb_id!r}")
-    sup = SVDSuperimposer()
-    sup.set(ref_pts, mob_pts)
-    sup.run()
-    rot, tran = sup.get_rotran()
-    groove_rmsd = float(sup.get_rms())
+    rot, tran, groove_rmsd = kabsch(mob_pts, ref_pts)
 
     mod_atoms = _peptide_atoms(model, _BACKBONE)
     ref_atoms = _peptide_atoms(reference, _BACKBONE)
@@ -74,19 +69,19 @@ def peptide_rmsd(
     if not shared:
         raise ValueError("no shared peptide backbone atoms between model and reference")
 
-    bb_m = np.array([np.dot(mod_atoms[k], rot) + tran for k in shared])
+    bb_m = apply_rigid(np.array([mod_atoms[k] for k in shared]), rot, tran)
     bb_r = np.array([ref_atoms[k] for k in shared])
     bb_rmsd = float(np.sqrt(((bb_m - bb_r) ** 2).sum(1).mean()))
 
     ca_keys = [k for k in shared if k[1] == "CA"]
-    ca_m = np.array([np.dot(mod_atoms[k], rot) + tran for k in ca_keys])
+    ca_m = apply_rigid(np.array([mod_atoms[k] for k in ca_keys]), rot, tran)
     ca_r = np.array([ref_atoms[k] for k in ca_keys])
     ca_rmsd = float(np.sqrt(((ca_m - ca_r) ** 2).sum(1).mean()))
 
     anchor_set = set(anchors)
     anc_keys = [k for k in ca_keys if k[0] in anchor_set]
     if anc_keys:
-        a_m = np.array([np.dot(mod_atoms[k], rot) + tran for k in anc_keys])
+        a_m = apply_rigid(np.array([mod_atoms[k] for k in anc_keys]), rot, tran)
         a_r = np.array([ref_atoms[k] for k in anc_keys])
         anchor_rmsd = float(np.sqrt(((a_m - a_r) ** 2).sum(1).mean()))
     else:

@@ -3,6 +3,24 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
+## [2.2.3] — 2026-07-19
+
+### Changed
+- **Install is now `uv`-based, no conda.** `setup.sh` creates a repo-local `.venv` with `uv` and
+  runs `uv pip install -e .`; `environment.yml` removed. The only host requirement is a C++
+  compiler — `arda-mapper` auto-fetches a static `mmseqs2` binary on first use, so no bioconda.
+- Bumped `arda-mapper` pin to `>=2.5.7`.
+
+### Fixed
+- **Concurrency (SLURM array / Nextflow per-sample).** The on-demand MHC-reference mmseqs index
+  build (`tcren.mhc.reference.reference_db`) now serializes through `arda._locking.build_lock`, so
+  parallel jobs against a shared `data/mhc_cache` no longer race into a half-written index.
+
+### Internal
+- Audit pass: removed duplicated superposition / potential-sum / sigmoid / model-persistence code;
+  vectorized the per-interface energy sum (`Potential.as_matrix` gather) on the recognition/pipeline
+  hot path; cached bundled potentials and frozen recognizers; assorted docstring/doc fixes.
+
 ## [2.2.2] — 2026-07-17
 
 Two data-integrity fixes. Both change output: MJ-based scores and MHC pseudosequence lookups
@@ -31,6 +49,12 @@ that previously failed silently now resolve correctly.
 ### Added
 - `build_pseudo_fasta.py --imgt-alignments` — derives class-I pseudosequences directly from
   IPD-IMGT/HLA 3.65.0 for alleles NetMHCpan does not cover (it lags IMGT and omits HLA-F).
+
+## [2.2.1] — 2026-07-15
+
+### Changed
+- Bumped the default `arda-mapper` pin to `>=2.5.6`.
+- PyPI-safe PNG logos in the README (raw SVG does not render on the PyPI project page).
 
 ## [2.2.0] — 2026-07-13
 

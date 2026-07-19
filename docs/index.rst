@@ -22,9 +22,9 @@ What tcren does
   (virtual-matrix, no re-docking).
 * **Binder classification** — ``binder``: binder vs non-binder for AlphaFold/TCRmodel2 models from
   AF-orthogonal interface geometry.
-* **Interface feature table** — ``recognize``: one flat per-structure table of all 65 interface
-  descriptors plus the frozen ``p_real`` / ``p_bind`` / ``p_forced`` scores (see
-  :doc:`features`).
+* **Interface feature table** — ``recognize``: one flat per-structure table — 35 core interface
+  descriptors + ``p_real`` / ``p_real_bn`` by default (``--full`` expands to 65 features;
+  ``--scores`` adds the frozen ``p_bind`` / ``p_forced``; see :doc:`features`).
 * **Annotation & contacts** — ``annotate`` / ``contacts``: TCR CDR/FR, MHC groove helices/floor and
   peptide markup; multi-layer (5/8/12 Å) contact tables.
 * **Canonical orientation** — ``orient`` / ``superimpose``: one common MHC frame, docking angles,

@@ -8,7 +8,7 @@ interface is the central object for scoring and reproduces the schema of
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
@@ -36,6 +36,9 @@ class ContactMap:
     pdb_id: str
     contacts: pl.DataFrame
     peptide_length: int | None = None
+    # Per-(interface, tcr_regions) result cache; the table is immutable and the recognition
+    # path re-requests the same interface many times per structure.
+    _iface_cache: dict = field(default_factory=dict, init=False, repr=False, compare=False)
 
     @classmethod
     def from_structure(
@@ -82,18 +85,25 @@ class ContactMap:
         """
         if tcr_regions not in TCR_REGIONS:
             raise ValueError(f"unknown tcr_regions {tcr_regions!r}")
+        key = (which, tcr_regions)
+        cached = self._iface_cache.get(key)
+        if cached is not None:
+            return cached
         if which == "tcr_peptide":
             sel = self._interface(RECEPTOR_TYPES, (PEPTIDE_TYPE,))
         elif which == "tcr_mhc":
             sel = self._interface(RECEPTOR_TYPES, MHC_TYPES)
         elif which == "peptide_mhc":
-            return self._interface((PEPTIDE_TYPE,), MHC_TYPES)
+            sel = self._interface((PEPTIDE_TYPE,), MHC_TYPES)
+            self._iface_cache[key] = sel
+            return sel
         else:
             raise ValueError(f"unknown interface {which!r}")
 
         keep = TCR_REGIONS[tcr_regions]
         if keep is not None:  # TCR is on the 'from' side for these interfaces
             sel = sel.filter(pl.col("region.type.from").is_in(list(keep)))
+        self._iface_cache[key] = sel
         return sel
 
     def tcr_peptide(self) -> pl.DataFrame:

@@ -9,8 +9,8 @@ description: tcren — TCR-pMHC contact potential (TCRen) pipeline; conventions 
 on a pure-Python pipeline (structure parsing → contacts → TCR/MHC annotation → potential
 derivation → epitope-ranking benchmarks). Annotation uses the `arda` package
 (mmseqs2-backed), a runtime dependency published to PyPI as `arda-mapper` (imports as `arda`,
-`>=2.5.6`) — no separate checkout and **no `ARDA_HOME`** (arda auto-fetches its reference into
-`~/.cache/arda` on first use). Conda env `tcren` (`bash setup.sh`).
+`>=2.5.7`) — no separate checkout and **no `ARDA_HOME`** (arda auto-fetches its reference and a
+static mmseqs binary on first use). Repo-local `.venv` via uv, no conda (`bash setup.sh`).
 
 ## Batch annotation — never loop (mmseqs2 is the parallel layer)
 
@@ -66,14 +66,16 @@ Reference: `arda.annotate_sequences([(id, seq), ...])` — one call, threads int
   and peptide↔MHC, plus `total` (sum of the residue-pair potential over each interface's
   contacts). CLI `tcren pipeline -s … -o scores.csv` writes one row per structure.
 
-## Compiled extensions — `tcren._align`, `tcren._refine` (pybind11 / scikit-build-core)
+## Compiled extensions — `_align`, `_refine`, `_relax`, `_fold`, `_geom` (pybind11 / scikit-build-core)
 
-- TWO C++ exts, both in `CMakeLists.txt` (`pybind11_add_module` each, `install(TARGETS _align
-  _refine …)`): `src/_align/align.cpp` (MHC pseudoseq fitting alignment) and `src/_refine/refine.cpp`
-  (potential-guided peptide refinement). Adding a third = same pattern.
+- FIVE C++ exts, all in `CMakeLists.txt` (`pybind11_add_module` each, `install(TARGETS _align
+  _refine _fold _geom _relax …)`): `src/_align/align.cpp` (MHC pseudoseq fitting alignment),
+  `src/_refine/refine.cpp` (potential-guided peptide refinement), `src/_relax/relax.cpp` (DOPE
+  interface energy for `tcren energy`/ΔΔG), `src/_fold/fold.cpp` (CCD loop closure) and
+  `src/_geom/geom.cpp` (interface geometry for `tcren binder`). Adding a sixth = same pattern.
 - The MHC-pseudosequence fitting-alignment hot path is a C++ ext (`src/_align/align.cpp`,
-  `CMakeLists.txt`). Build backend is `scikit-build-core` (not hatchling); `pip install -e .`
-  builds it (editable.rebuild on import). Funcs: `fitting_score`, `best_hit` (GIL released over
+  `CMakeLists.txt`). Build backend is `scikit-build-core` (not hatchling); `uv pip install -e .`
+  builds it once at install. Funcs: `fitting_score`, `best_hit` (GIL released over
   candidates), `align` (traceback). Scoring matches Bio.Align's fitting config EXACTLY (BLOSUM62,
   placed-gap open -11/extend -1, free target + end gaps), so `tcren.mhc.pseudo` falls back to
   Biopython transparently when the ext is absent. ~40 ms vs Bio 59 ms vs pure-Python 15 s for 4k

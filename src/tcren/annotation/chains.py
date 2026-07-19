@@ -1,7 +1,8 @@
-"""Chain classification: TRA/TRB (via arda), PEPTIDE, and (provisional) MHC.
+"""Chain classification: receptor chains (via arda), PEPTIDE, and (provisional) MHC.
 
-Precise MHC sub-typing (MHCa/MHCb/B2M, class I/II) is added in Phase B; here MHC chains
-are left with the generic type ``"MHC"`` so the TCR↔peptide scoring path is complete.
+``classify_chains`` tags MHC chains with the generic type ``"MHC"`` so the TCR↔peptide
+scoring path is complete. Precise MHC sub-typing (MHCa/MHCb/B2M, class I/II, allele) is a
+separate step in :mod:`tcren.mhc` (``annotate_mhc`` / ``mhc.mapper``).
 """
 
 from __future__ import annotations
@@ -52,8 +53,9 @@ def classify_chains(
 ) -> None:
     """Classify every chain of ``structure`` in place.
 
-    TRA/TRB are assigned from arda's locus call; the shortest remaining chains (length
-    ≤ ``peptide_max_len``) become PEPTIDE; longer remaining chains are tagged ``"MHC"``.
+    Receptor chains are assigned from arda's locus call (TCR TRA/TRB and, for BCR inputs,
+    IGH/IGK/IGL); the shortest remaining chains (length ≤ ``peptide_max_len``) become
+    PEPTIDE; longer remaining chains are tagged ``"MHC"``.
 
     Args:
         structure: Structure to annotate (mutated in place).

@@ -45,7 +45,7 @@ from .scoring import score_peptides
 from .structure import iter_structures, parse_structure
 
 app = typer.Typer(
-    add_completion=True,  # `tcren --install-completion` for bash/zsh/fish; --show-completion to print
+    add_completion=True,  # `tcren --install-completion` for bash/zsh; --show-completion to print
     help="Structure-based TCR–epitope recognition: score epitopes, rank binders, ΔΔG, "
          "orient/refine poses, and derive potentials from TCR:pMHC structures.",
 )
