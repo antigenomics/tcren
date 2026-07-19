@@ -330,3 +330,8 @@ scratch/
 
 # Claude Code <-> Obsidian memory sync (machine-local absolute paths)
 .claude/obsidian-sync.json
+
+# scripts/legacy/ Native2026 -> vdjdb_structure_models reformat (all except scripts + logs ignored)
+scripts/legacy/data_dump/
+scripts/legacy/data_patch/
+scripts/legacy/*.sav
