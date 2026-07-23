@@ -2,7 +2,8 @@
 import numpy as np
 import pytest
 
-from tcren.cohort import Q_FEATURES, STRAIN_TERMS, phi_bind, q_score, strain_z, zscore
+from tcren.cohort import (Q_FEATURES, Q_FEATURES_CORE, STRAIN_TERMS, phi_bind, q_score, strain_z,
+                          zscore)
 
 
 def _table(n=120, seed=0, **shift):
@@ -18,8 +19,9 @@ def _table(n=120, seed=0, **shift):
 
 def test_scores_are_one_value_per_row():
     t = _table()
-    for fn in (q_score, phi_bind, strain_z):
-        assert fn(t).shape == (120,)
+    assert q_score(t).shape == strain_z(t).shape == (120,)
+    with pytest.warns(DeprecationWarning):
+        assert phi_bind(t).shape == (120,)
 
 
 def test_zscore_is_standardised():
@@ -49,9 +51,17 @@ def test_strain_signs_match_the_documented_physics():
     assert dict(STRAIN_TERMS)["cdr3b_reach"] == +1.0     # reaching away = more forced
 
 
-def test_phi_bind_adds_the_docking_axis_to_q():
+def test_phi_bind_is_deprecated():
+    with pytest.warns(DeprecationWarning, match="q_score"):
+        phi_bind(_table())
+
+
+def test_q_core_drops_n_pep_contacted_and_still_scores():
     t = _table()
-    assert not np.allclose(phi_bind(t), q_score(t))
+    assert "n_pep_contacted" not in Q_FEATURES_CORE and len(Q_FEATURES_CORE) == 4
+    # the core score is a valid one-per-row score and differs from the 5-term default
+    assert q_score(t, features=Q_FEATURES_CORE).shape == (120,)
+    assert not np.allclose(q_score(t, features=Q_FEATURES_CORE), q_score(t))
 
 
 def test_missing_column_names_itself():

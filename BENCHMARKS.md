@@ -120,19 +120,26 @@ the C++ rewrite is de-novo pocket/pose prediction, not refinement speed.
 
 Ranking candidate TCRs against a fixed pMHC on generated (AlphaFold/TCRmodel2) structures. The raw
 TCR:peptide contact energy is at chance there (ROC-AUC ≈ 0.44, the forced-pose problem: the generator
-seats every TCR in a plausible pose). The shipped 5-feature model — AF-orthogonal interface geometry
-(interface size, dual-chain balance, H-bonds, buried ΔSASA; native `tcren._geom` C kernel) plus the
-CDR1/2−CDR3α TCRen potential term — recovers it:
+seats every TCR in a plausible pose). AF-orthogonal interface geometry (interface size, dual-chain
+balance, H-bonds, buried ΔSASA; native `tcren._geom` C kernel) plus the CDR1/2−CDR3α TCRen contrast
+recovers it:
 
 | model | macro ROC-AUC | pooled ROC-AUC | note |
 |-------|------------------|----------------|------|
-| **tcren.binder (5-feature)** | **0.796** | **0.810** | native, no external tool |
+| **`cohort.q_score` (Q, fit-free)** | **~0.80** | **~0.81** | **recommended** — equal-weight, no training set, generalises across cohorts |
+| tcren.binder (5-feature fitted `p_bind`) | 0.796 | 0.810 | matches Q in-sample; does **not** transfer across cohorts |
 | AlphaFold/TCRmodel2 ranking confidence | 0.795 | — | the strongest AF confidence here |
 | AlphaFold/TCRmodel2 ipTM | 0.794 | 0.793 | the baseline usually quoted |
 | raw TCR:peptide TCRen energy | 0.49 | 0.44 | forced pose (at/below chance) |
 
-TCRvdb (2 epitopes, HLA-A\*02:01), **raw labels** (`padj < 1e-5`, no label cleaning). The model is
-~ipTM-independent and uses no generator-reported metric.
+TCRvdb (2 epitopes, HLA-A\*02:01), **raw labels** (`padj < 1e-5`, no label cleaning). Both scores are
+~ipTM-independent and use no generator-reported metric.
+
+> **Prefer the fit-free `Q` (`tcren.cohort.q_score`) over the fitted `p_bind`.** They match in-sample,
+> but a logistic trained on one cohort learns that cohort's epitope composition and does not transfer
+> (benchmark ledger C25); `Q` has no training set and nothing to transfer. With ipTM, the fit-free
+> `z(ipTM) + z(Q)` reaches macro 0.83 vs ipTM 0.79 — and the 2D (ipTM, Q) allowed region shows *why*:
+> a forced pose is confident but geometry-poor, the corner `Q` catches and a sum blurs.
 
 > **Pick the baseline deliberately.** ipTM is the weakest of AlphaFold's three confidences on this
 > task, so a margin quoted against it flatters tcren. The 5-feature model leads all three, but only

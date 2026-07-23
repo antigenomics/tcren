@@ -262,8 +262,10 @@ both potentials read the identical contacts). Groups ``g`` ∈ {``tp`` (whole TC
 Scores (``--scores``)
 ---------------------
 
-The frozen per-structure "good-results" scores. ``p_real`` / ``p_real_bn`` come from ``recognize`` by
-default; ``p_bind`` and ``p_forced`` are added by ``--scores``. All are probabilities in [0, 1].
+``p_real`` / ``p_real_bn`` come from ``recognize`` by default. ``--scores`` adds the **recommended
+fit-free** cohort scores ``q_bind`` / ``s_strain`` (see :mod:`tcren.cohort`) plus the fitted
+``p_bind`` / ``p_forced`` (retained for reproducibility). The frozen models are probabilities in
+[0, 1]; ``q_bind`` / ``s_strain`` are cohort z-scores (unbounded, centred on the input set).
 
 .. list-table::
    :header-rows: 1
@@ -279,14 +281,24 @@ default; ``p_bind`` and ``p_forced`` are added by ``--scores``. All are probabil
    * - ``p_real_bn``
      - Same, via a conditional-linear-Gaussian Bayes net.
      - :class:`tcren.recognition.GaussianBNClassifier`.
+   * - ``q_bind``
+     - Binder vs non-binder (screen many TCRs against one epitope). **Recommended.**
+     - Fit-free :func:`tcren.cohort.q_score` (``Q``): equal-weight mean of 5 within-cohort z-scores.
+       TCRvdb **raw-label** macro AUC ~0.80 vs AlphaFold ipTM 0.794; generalises across cohorts where
+       ``p_bind`` does not (benchmark ledger C25).
+   * - ``s_strain``
+     - Crystal-natural vs AF-forced pose. **Recommended.**
+     - Fit-free :func:`tcren.cohort.strain_z` (``S_strain``): signed z of the strain terms, grading
+       crystal < AF-real < AF-decoy. Reproducible; no training set.
    * - ``p_bind``
-     - Binder vs non-binder (screen many TCRs against one epitope).
-     - Frozen 5-feature logistic (:func:`tcren.binder.binder_score`); TCRvdb **raw-label** macro AUC 0.796 vs
-       AlphaFold ipTM 0.867.
+     - Binder vs non-binder — the fitted counterpart of ``q_bind``.
+     - Frozen 5-feature logistic (:func:`tcren.binder.binder_score`); TCRvdb **raw-label** macro AUC
+       0.796 vs AlphaFold ipTM 0.794. Matches ``Q`` in-sample but does not transfer; prefer ``q_bind``.
    * - ``p_forced``
-     - Crystal-natural vs AF-forced pose ("too good to be true" hallucination).
+     - Crystal-natural vs AF-forced pose — the fitted counterpart of ``s_strain``.
      - Frozen 6-feature strain logistic (:func:`tcren.recognition.forced_pose_score`,
-       :data:`~tcren.recognition.FORCED_POSE_MODEL`); crystal-vs-AF 5-fold AUC 0.762.
+       :data:`~tcren.recognition.FORCED_POSE_MODEL`); crystal-vs-AF 5-fold AUC 0.762. Coefficients
+       not re-derivable (ledger C23); prefer ``s_strain``.
 
 .. note::
 

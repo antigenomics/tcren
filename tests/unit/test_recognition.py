@@ -241,3 +241,20 @@ def test_recognition_features_end_to_end():
     assert set(feats) == set(RECOGNITION_FEATURES)
     assert feats["burial"] > 0 and feats["extent"] > 0          # a real complex has a buried interface
     assert 0.0 < float(real_probability(feats)["logistic"][0]) < 1.0
+
+
+def test_add_cohort_scores_batch_and_error_rows():
+    # `recognize --scores` appends the fit-free cohort scores over the whole batch; error rows
+    # (structures that failed to parse) must be left untouched.
+    from tcren.recognition import _add_cohort_scores
+    rows = [{"complex.id": f"c{i}", "burial": 1.0 + i, "n_pep_contacted": 2.0 + i % 3,
+             "chain_balance": 0.3 + 0.05 * i, "n_hbond": 5.0 + i, "e_cdr12": 1.0 - 0.2 * i,
+             "e_cdr3a": 0.5 + 0.1 * i, "cdr3b_topep": 1.0 + i, "cdr3b_reach": 2.0 - 0.3 * i,
+             "extent": 10.0 + i, "n_contacts_tp": 5.0 + i} for i in range(6)]
+    rows.append({"complex.id": "bad", "error": "boom"})
+    _add_cohort_scores(rows)
+    assert all("q_bind" in r and "s_strain" in r for r in rows if "error" not in r)
+    assert "q_bind" not in rows[-1]                              # error row untouched
+    # cohort scores are within-batch z-like: not all equal, finite
+    qs = [r["q_bind"] for r in rows if "error" not in r]
+    assert len(set(round(q, 6) for q in qs)) > 1

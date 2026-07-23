@@ -402,6 +402,11 @@ FULL_FEATURES = RECOGNITION_FEATURES + CDR3_FRAME_FEATURES + MATRIX_SWAP_FEATURE
 #: n=2681, 268 crystal / 2413 forced), so it is independent of any binder label; 5-fold CV AUC 0.762.
 #: High ``p_forced`` marks a "too-good-to-be-true" pose; the score grades crystal < AF-real < AF-decoy.
 #:
+#: .. note::
+#:    For new work prefer the fit-free :func:`tcren.cohort.strain_z` (``S_strain``). It grades the
+#:    same crystal < AF-real < AF-decoy provenance gradient by signed standardization of the strain
+#:    terms, with no training set — so it is fully reproducible, unlike the coefficients below.
+#:
 #: .. warning::
 #:    These coefficients are **frozen and not re-derivable** -- the n=2681 training set no longer
 #:    exists. ``models/fit_frozen.py::forced_pose`` in the benchmark repo recovers the *procedure*
@@ -658,7 +663,8 @@ def recognition_table(items, *, organism: str = "human", full: bool = False, sco
     search (:func:`tcren.mhc.annotate_mhc_batch`) — the dataset-scale path that avoids the per-structure
     annotation cost — then :func:`recognition_features` (``full=``) is extracted for each. With
     ``with_p_real`` the ``p_real`` / ``p_real_bn`` recognizer columns are added; with ``scores`` the
-    ``p_forced`` (forced-pose) and ``p_bind`` (binder-ID) columns too. Returns one row dict per
+    fit-free cohort scores ``q_bind`` / ``s_strain`` (**recommended**, see :mod:`tcren.cohort`) plus
+    the fitted ``p_forced`` / ``p_bind`` (retained for reproducibility). Returns one row dict per
     structure (``complex.id`` + features [+ scores]); a structure that fails yields
     ``{"complex.id": id, "error": ...}`` so the batch stays resilient.
     """
@@ -706,7 +712,32 @@ def recognition_table(items, *, organism: str = "human", full: bool = False, sco
             rows.append(row)
         except Exception as exc:  # noqa: BLE001
             rows.append({"complex.id": id_, "error": f"{type(exc).__name__}: {str(exc)[:80]}"})
+
+    if scores:                                                        # fit-free cohort scores (recommended)
+        _add_cohort_scores(rows)
     return rows
+
+
+def _add_cohort_scores(rows: list[dict]) -> None:
+    """Append the fit-free cohort scores ``q_bind`` (:func:`tcren.cohort.q_score`) and ``s_strain``
+    (:func:`tcren.cohort.strain_z`) in place. Cohort-relative, so they are computed over the whole
+    batch at once and are the **recommended** binder / forced-pose scores (see :mod:`tcren.cohort`).
+    Needs the ``full`` CDR3-frame features; NaN where a structure lacks them.
+    """
+    from . import cohort
+    ok = [r for r in rows if "error" not in r]
+    if len(ok) < 2:                                                   # cohort scores are undefined for <2
+        for r in ok:
+            r["q_bind"] = r["s_strain"] = math.nan
+        return
+    table = {k: [r.get(k, math.nan) for r in ok]
+             for k in set().union(*(r.keys() for r in ok)) if k != "complex.id"}
+    try:
+        q, s = cohort.q_score(table), cohort.strain_z(table)
+    except KeyError:                                                  # missing full features -> skip cleanly
+        return
+    for i, r in enumerate(ok):
+        r["q_bind"], r["s_strain"] = float(q[i]), float(s[i])
 
 
 @lru_cache(maxsize=None)

@@ -1,27 +1,56 @@
-"""Cohort-relative recognition scores: ``Q``, ``Phi_bind``, ``S_strain``, ``kit_score``.
+"""Cohort-relative recognition scores — the **recommended, fit-free** screening layer.
 
-These are the manuscript's headline screening scores. They are **cohort-relative**: each
-standardizes a feature over *the set being ranked*, so they are defined for a candidate set, not
-for one structure. That is precisely why they used to live in analysis scratch — and why the
-paper's headline numbers were not regenerable from ``tcren`` alone. They are here now; the
-division of labour is scores in ``tcren``, evaluation (ROC/PR/CI) downstream.
+Prefer these over the fitted :func:`tcren.binder.binder_score` (``p_bind``) and
+:func:`tcren.recognition.forced_pose_score` (``p_forced``). Those carry trained coefficients; the
+functions here carry none — no logistic, no fit, no training set — so they cannot leak, cannot go
+stale, and there is nothing to re-derive. The benchmark repo settled the trade-off empirically
+(ledger C24/C25/C26):
+
+* :func:`q_score` matches or beats the fitted ``p_bind`` and, unlike it, **generalises across
+  cohorts** — a logistic trained on one cohort learns that cohort's epitope composition and does not
+  transfer, whereas ``Q`` has nothing to transfer. With ipTM it reproduces the headline synergy
+  fit-free: ``z(ipTM) + z(Q)`` reaches macro ROC 0.83 on TCRvdb against ipTM's 0.79.
+* :func:`strain_z` grades pose forcedness (crystal < AF-real < AF-decoy) reproducibly, unlike
+  ``FORCED_POSE_MODEL`` whose training rows are lost.
+
+They are **cohort-relative**: each standardizes a feature over *the set being ranked*, so they are
+defined for a candidate set, not for one structure. Score a whole batch together
+(``tcren recognize`` over a directory), never one structure at a time. The division of labour is
+scores in ``tcren``, evaluation (ROC/PR/CI) downstream.
 
 All functions take the table ``tcren recognize --full`` emits (a mapping of column name to
 sequence, a ``polars``/``pandas`` frame, or a dict of arrays) and return one value per row.
 
 Sign convention: every term is oriented so that **higher = more binder-like** for
-:func:`q_score`/:func:`phi_bind`, and **higher = more forced/strained** for :func:`strain_z`.
+:func:`q_score`, and **higher = more forced/strained** for :func:`strain_z`.
+
+.. note::
+   :func:`phi_bind` is **deprecated** — every term it adds to ``Q`` lowers ranking accuracy
+   (benchmark ledger C19b), and its ``z(-pitch)`` term is both below chance on its own and derived
+   from an AlphaFold-contaminated angle. Use :func:`q_score`.
 """
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 
-__all__ = ["zscore", "q_score", "phi_bind", "strain_z", "Q_FEATURES", "STRAIN_TERMS"]
+__all__ = ["zscore", "q_score", "phi_bind", "strain_z", "Q_FEATURES", "Q_FEATURES_CORE",
+           "STRAIN_TERMS"]
 
 #: The five interface-quality descriptors, equal-weighted in :func:`q_score`. Each is oriented
-#: positive-is-better as given. ``pp_combo`` is the CDR1/2-vs-CDR3alpha potential contrast.
+#: positive-is-better as given. ``pp_combo`` is the CDR1/2-vs-CDR3alpha TCRen contrast — the one
+#: energy term robust to the forced-pose inversion (benchmark ledger C27), since it is a *contrast*
+#: rather than an absolute contact energy. Per-term macro AUROC on TCRvdb: burial 0.73, n_hbond 0.69,
+#: pp_combo 0.66, n_pep_contacted 0.62, chain_balance 0.61; the terms are near-independent
+#: (mean |Spearman| 0.20).
 Q_FEATURES = ("burial", "n_pep_contacted", "chain_balance", "n_hbond", "pp_combo")
+
+#: The four load-bearing descriptors. ``n_pep_contacted`` is dropped: it is the weakest term and
+#: removing it *raises* macro AUROC 0.795 -> 0.801 on TCRvdb (benchmark ledger, energy memo). Pass
+#: ``features=Q_FEATURES_CORE`` to :func:`q_score` for the simpler, marginally better score.
+Q_FEATURES_CORE = ("burial", "chain_balance", "n_hbond", "pp_combo")
 
 #: Crystal-calibrated interface-strain terms with their physical signs. A forced pose reaches
 #: further from the peptide with a thinner, less balanced interface.
@@ -70,31 +99,37 @@ def zscore(x, reference=None) -> np.ndarray:
     return (x - mu) / sd
 
 
-def q_score(table, reference=None) -> np.ndarray:
-    """Equal-weight interface-quality score ``Q = (1/5) * sum z(d_k)``.
+def q_score(table, reference=None, features=Q_FEATURES) -> np.ndarray:
+    """Equal-weight interface-quality score ``Q = mean_k z(d_k)`` — the recommended binder score.
 
-    No fitting and no labels: the five descriptors enter with equal weight and a label-free
-    standardization over the candidate set. Reproduces the shipped in-sample binder logistic at
-    r ~ 0.92, so nothing is trained on the benchmark it is evaluated on.
+    No fitting and no labels: the descriptors enter with equal weight and a label-free
+    standardization over the candidate set. Reproduces the shipped in-sample ``p_bind`` logistic at
+    r ~ 0.92 while carrying no training set, and — unlike ``p_bind`` — generalises across cohorts
+    (benchmark ledger C25). With ipTM, ``z(ipTM) + z(q_score(...))`` is the fit-free synergy score
+    (macro ROC 0.83 on TCRvdb vs ipTM 0.79).
+
+    Args:
+        table: the ``tcren recognize --full`` table (dict / pandas / polars).
+        reference: optional cohort to standardize against (see :func:`zscore`).
+        features: which descriptors to average. Defaults to the five :data:`Q_FEATURES`; pass
+            :data:`Q_FEATURES_CORE` for the simpler four-term score that is marginally better.
     """
     z = [zscore(_derive(table, f), None if reference is None else _derive(reference, f))
-         for f in Q_FEATURES]
+         for f in features]
     return np.nanmean(np.vstack(z), axis=0)
 
 
 def phi_bind(table, reference=None) -> np.ndarray:
-    """Screening score ``Phi_bind = Q + 0.5 * [z(-pitch) + z(-F_tcr_mhc)]``.
+    """Deprecated screening score ``Phi_bind = Q + 0.5 * [z(-pitch) + z(-F_tcr_mhc)]``.
 
-    Adds an orthogonal docking-correctness axis to :func:`q_score`: binders dock canonically (low
-    pitch) and make favourable TCR:MHC contact (low, i.e. more negative, energy).
-
-    .. warning::
-       ``pitch`` here is the **recomputed** geometric incident angle from
-       :mod:`tcren.orient.docking`. Do **not** substitute a generator-cached ``pitch_angle``
-       column: on validation it matched no clean geometric angle (best r ~ 0.42) while
-       out-discriminating every clean docking feature, i.e. it carries generator-confidence
-       leakage. Using it would silently void the predictor-independence of this score.
+    .. deprecated::
+       Use :func:`q_score`. Both terms this adds to ``Q`` *lower* ranking accuracy — on TCRvdb
+       macro ROC falls from Q's 0.795 to 0.653, and ``z(-pitch)`` alone is below chance (0.43)
+       (benchmark ledger C19b). The ``pitch`` axis also carries AlphaFold-confidence leakage
+       (ledger C19). It is retained only to reproduce older figures; do not use it for new work.
     """
+    warnings.warn("phi_bind is deprecated and degrades ranking vs q_score (benchmark ledger C19b); "
+                  "use q_score", DeprecationWarning, stacklevel=2)
     ref_pitch = None if reference is None else -_col(reference, "pitch")
     ref_tm = None if reference is None else -_col(reference, "F_tcr_mhc")
     return (q_score(table, reference)
@@ -103,14 +138,18 @@ def phi_bind(table, reference=None) -> np.ndarray:
 
 
 def strain_z(table, reference=None) -> np.ndarray:
-    """Crystal-calibrated interface strain; higher = more forced.
+    """Crystal-calibrated interface strain; higher = more forced. The recommended forced-pose score.
 
     Directional mean-z of :data:`STRAIN_TERMS` with fixed physical signs. Pass the crystal cohort
-    as ``reference`` to reproduce the provenance gradient (crystal < generated-real <
-    generated-decoy); without it the score is only relative within the input set.
+    as ``reference`` to reproduce the provenance gradient (crystal +0.02 < generated-real +0.40 <
+    generated-decoy +0.81); without it the score is only relative within the input set.
 
-    Unlike :func:`tcren.recognition.forced_pose_score` this is unfitted — no logistic, no
-    coefficients, just signed standardization — so it carries no training set at all.
+    Prefer this over :func:`tcren.recognition.forced_pose_score` (``p_forced``): it is unfitted —
+    no logistic, no coefficients, just signed standardization — so it carries no training set and
+    is fully reproducible, whereas ``FORCED_POSE_MODEL``'s coefficients were frozen from a training
+    set that no longer exists (benchmark ledger C23). It also grades forced-ness continuously, which
+    is what pairs with :func:`q_score` to catch the forced poses where the contact energy inverts
+    (ledger C27).
     """
     z = [sign * zscore(_derive(table, f),
                        None if reference is None else _derive(reference, f))
