@@ -127,11 +127,17 @@ CDR1/2−CDR3α TCRen potential term — recovers it:
 | model | macro ROC-AUC | pooled ROC-AUC | note |
 |-------|------------------|----------------|------|
 | **tcren.binder (5-feature)** | **0.796** | **0.810** | native, no external tool |
-| AlphaFold/TCRmodel2 ipTM (confidence) | 0.794 | 0.793 | the baseline to beat |
+| AlphaFold/TCRmodel2 ranking confidence | 0.795 | — | the strongest AF confidence here |
+| AlphaFold/TCRmodel2 ipTM | 0.794 | 0.793 | the baseline usually quoted |
 | raw TCR:peptide TCRen energy | 0.49 | 0.44 | forced pose (at/below chance) |
 
 TCRvdb (2 epitopes, HLA-A\*02:01), **raw labels** (`padj < 1e-5`, no label cleaning). The model is
 ~ipTM-independent and uses no generator-reported metric.
+
+> **Pick the baseline deliberately.** ipTM is the weakest of AlphaFold's three confidences on this
+> task, so a margin quoted against it flatters tcren. The 5-feature model leads all three, but only
+> just — 0.796 against 0.795 and 0.794. On macro-PR the ordering is wider apart and pLDDT (0.808) is
+> the one to beat, not ipTM (0.782).
 
 > **Label denoising is a separate algorithm and is not benchmarked here.** Filtering TCRvdb by TCRNET
 > motif-cluster consistency raises every method's score, tcren's and AlphaFold's alike; a number
