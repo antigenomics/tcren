@@ -404,7 +404,7 @@ FULL_FEATURES = RECOGNITION_FEATURES + CDR3_FRAME_FEATURES + MATRIX_SWAP_FEATURE
 #:
 #: .. warning::
 #:    These coefficients are **frozen and not re-derivable** -- the n=2681 training set no longer
-#:    exists. ``bench/fit_models.py::forced_pose`` in the benchmark repo recovers the *procedure*
+#:    exists. ``models/fit_frozen.py::forced_pose`` in the benchmark repo recovers the *procedure*
 #:    (unstandardized L2 logistic, C=0.1, which reproduces the 0.762 CV above to within 0.001) but
 #:    not the coefficients. Refitting on the surviving 1168-row fixture gives a **better** in-sample
 #:    ROC (0.769 vs 0.745), which is how we know these were fit on different rows rather than

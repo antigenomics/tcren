@@ -12,7 +12,7 @@ AlphaFold set, rounded *inward* (lower bounds up, upper bounds down): at least
 :data:`SCANNING_RANGE` and an incident (pitch) angle in :data:`PITCH_RANGE`. Any missing
 descriptor (``NaN``/``None``, i.e. an undocked or un-oriented complex) is treated as noise.
 
-The derivation is ``bench/fit_models.py::envelope`` in the benchmark repo, which reproduces all
+The derivation is ``models/fit_frozen.py::envelope`` in the benchmark repo, which reproduces all
 three constants exactly and is regression-tested there. Two caveats it records: the pitch *lower*
 bound of 0 deg is the domain floor of an unsigned angle rather than a percentile (p01 = 0.04), and
 the pitch axis is derived from a cached ``pitch_angle`` column carrying AlphaFold-confidence
