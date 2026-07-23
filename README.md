@@ -116,7 +116,9 @@ tcren ddg -s complex.pdb --native EPITOPE --alanine-scan -o ddg.csv
 
 # Binder vs non-binder P(binder) from AF-orthogonal interface geometry + the CDR1/2-vs-CDR3a
 # TCRen term — ranks candidate TCRs against a fixed pMHC, beating AlphaFold/TCRmodel2 confidence
-# (denoised AUC 0.928 vs 0.872) with no external tool. See tcren.binder.binder_score.
+# (raw-label macro AUC 0.796 vs AF ipTM 0.794; pooled 0.810 vs 0.793) with no external
+# tool. See tcren.binder.binder_score. Label denoising is a separate algorithm and is
+# not part of this benchmark.
 tcren binder -s complex.pdb -o binder.csv
 
 # One TSV per structure: every interface descriptor (geometry + energies) + joint P(real).

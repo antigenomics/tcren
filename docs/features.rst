@@ -281,7 +281,7 @@ default; ``p_bind`` and ``p_forced`` are added by ``--scores``. All are probabil
      - :class:`tcren.recognition.GaussianBNClassifier`.
    * - ``p_bind``
      - Binder vs non-binder (screen many TCRs against one epitope).
-     - Frozen 5-feature logistic (:func:`tcren.binder.binder_score`); TCRvdb denoised AUC 0.928 vs
+     - Frozen 5-feature logistic (:func:`tcren.binder.binder_score`); TCRvdb **raw-label** macro AUC 0.796 vs
        AlphaFold ipTM 0.867.
    * - ``p_forced``
      - Crystal-natural vs AF-forced pose ("too good to be true" hallucination).

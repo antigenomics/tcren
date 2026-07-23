@@ -28,8 +28,9 @@ The three questions the kit answers
    ipTM cannot give you.
 
 **2. Does this TCR bind this epitope?**
-   ``p_bind`` (:func:`tcren.binder.binder_score`) is the AF-orthogonal binder score (TCRvdb denoised AUC
-   0.928). Use it to screen many TCRs against one epitope.
+   ``p_bind`` (:func:`tcren.binder.binder_score`) is the AF-orthogonal binder score (TCRvdb
+   **raw-label** macro AUC 0.796, pooled 0.810; AF ipTM 0.794 / 0.793). Use it to screen many TCRs
+   against one epitope. Label denoising is a separate algorithm and is not benchmarked here.
 
 **3. Combined call — the synergy.**
    :func:`tcren.recognition.kit_score` = ``z(p_bind) + z(iptm)`` over the cohort — a fixed, no-fit

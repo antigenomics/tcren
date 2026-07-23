@@ -124,12 +124,20 @@ seats every TCR in a plausible pose). The shipped 5-feature model — AF-orthogo
 (interface size, dual-chain balance, H-bonds, buried ΔSASA; native `tcren._geom` C kernel) plus the
 CDR1/2−CDR3α TCRen potential term — recovers it:
 
-| model | denoised ROC-AUC | note |
-|-------|------------------|------|
-| **tcren.binder (5-feature)** | **0.928** | native, no external tool |
-| AlphaFold/TCRmodel2 ipTM (confidence) | 0.872 | the baseline to beat |
-| raw TCR:peptide TCRen energy | ≈ 0.44 | forced pose (below chance) |
+| model | macro ROC-AUC | pooled ROC-AUC | note |
+|-------|------------------|----------------|------|
+| **tcren.binder (5-feature)** | **0.796** | **0.810** | native, no external tool |
+| AlphaFold/TCRmodel2 ipTM (confidence) | 0.794 | 0.793 | the baseline to beat |
+| raw TCR:peptide TCRen energy | 0.49 | 0.44 | forced pose (at/below chance) |
 
-TCRvdb (2 epitopes, HLA-A\*02:01; sequence-cluster-denoised labels). The model is ~ipTM-independent and
-uses no generator-reported metric. Caveat: coefficients frozen from a 2-epitope training set;
+TCRvdb (2 epitopes, HLA-A\*02:01), **raw labels** (`padj < 1e-5`, no label cleaning). The model is
+~ipTM-independent and uses no generator-reported metric.
+
+> **Label denoising is a separate algorithm and is not benchmarked here.** Filtering TCRvdb by TCRNET
+> motif-cluster consistency raises every method's score, tcren's and AlphaFold's alike; a number
+> computed that way measures the two algorithms jointly and is not a tcren result. (For the record:
+> the shipped coefficients were *fit* on such a subset — see `tcren.binder.model` — so re-fitting on
+> raw labels is an open item.)
+
+Caveat: coefficients are frozen from a 2-epitope training set;
 cross-allele/epitope generalization untested (re-fit via `scripts/binder_validate.py`).
