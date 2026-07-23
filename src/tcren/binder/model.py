@@ -13,12 +13,16 @@ Label denoising (TCRNET motif-cluster consistency) is a **separate algorithm** a
 package's evaluation. Numbers computed on denoised labels measure tcren *and* that algorithm together,
 so they are not reported here.
 
-Caveats, both real:
-  * The coefficients were **fit on a denoised subset**, so the training labels went through that
-    separate algorithm even though the reported evaluation does not. Re-fitting on raw labels is an
-    open item — see ``scripts/binder_validate.py``.
-  * They are frozen from a 2-epitope (HLA-A*02:01: GLCTLVAML, YLQPRTFLL) training set;
-    cross-allele/epitope generalization is untested.
+The coefficients were **fit on a denoised subset** while the reported evaluation is on raw labels.
+That asymmetry is deliberate, not an oversight: denoised *evaluation* would measure tcren and TCRNET
+jointly and is excluded, but denoised *training* is ordinary label-noise reduction and it measurably
+helps. Training on the denoised subset generalizes **better** on raw held-out labels than training
+on raw ones — 20-seed 5-fold CV macro ROC 0.776 vs 0.761, winning 20/20 seeds — so re-fitting on raw
+labels would make this model worse. Measured by ``models/fit_pbind.py`` in the benchmark repo
+(benchmark ledger C24); the fit script is ``scripts/binder_validate.py``.
+
+Caveat: the coefficients are frozen from a 2-epitope (HLA-A*02:01: GLCTLVAML, YLQPRTFLL) training
+set; cross-allele/epitope generalization is untested.
 """
 
 from __future__ import annotations

@@ -142,8 +142,11 @@ TCRvdb (2 epitopes, HLA-A\*02:01), **raw labels** (`padj < 1e-5`, no label clean
 > **Label denoising is a separate algorithm and is not benchmarked here.** Filtering TCRvdb by TCRNET
 > motif-cluster consistency raises every method's score, tcren's and AlphaFold's alike; a number
 > computed that way measures the two algorithms jointly and is not a tcren result. (For the record:
-> the shipped coefficients were *fit* on such a subset — see `tcren.binder.model` — so re-fitting on
-> raw labels is an open item.)
+> the shipped coefficients were *fit* on such a subset — see `tcren.binder.model`. That is a
+> deliberate choice, not a gap: denoised **training** is label-noise reduction and generalises better
+> on raw held-out labels (20-seed CV macro 0.776 vs 0.761, 20/20 seeds), while denoised **evaluation**
+> would measure the two algorithms jointly. Refitting on raw labels was measured and would make the
+> model worse.)
 
 Caveat: coefficients are frozen from a 2-epitope training set;
 cross-allele/epitope generalization untested (re-fit via `scripts/binder_validate.py`).
