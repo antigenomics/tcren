@@ -40,11 +40,29 @@ def _read_source(source: str | Path) -> list[str]:
     return seqs
 
 
+def _pin(peptides: list[str], anchors: dict[int, str] | None, length: int) -> list[str]:
+    """Force ``anchors`` (1-based position -> residue) onto every peptide."""
+    if not anchors:
+        return peptides
+    bad = [k for k in anchors if not 1 <= k <= length]
+    if bad:
+        raise ValueError(f"anchor positions {bad} outside 1..{length}")
+    out = []
+    for p in peptides:
+        s = list(p)
+        for pos, aa in anchors.items():
+            s[pos - 1] = aa
+        out.append("".join(s))
+    return out
+
+
 def background_peptides(
     length: int,
     n: int = 1000,
     seed: int = 0,
     source: str | None = None,
+    anchors: dict[int, str] | None = None,
+    pool: list[str] | None = None,
 ) -> list[str]:
     """Build a background set of ``n`` peptides of the given length.
 
@@ -57,22 +75,38 @@ def background_peptides(
             sequence is also position-permuted so the background is a shuffled-epitope
             distribution rather than a verbatim copy. When ``None``, peptides are
             drawn uniformly at random over the 20 amino acids.
+        anchors: 1-based position -> fixed residue, applied after sampling. Pass the cognate
+            peptide's anchor residues (typically ``{2: p[1], length: p[-1]}``) to hold MHC
+            presentation constant so the background varies only where the TCR reads. Without
+            this, a "random peptide" background is dominated by peptides that would not be
+            presented at all, which inflates the apparent discrimination. Required to
+            reproduce the published cognate-vs-decoy benchmark.
+        pool: Explicit candidate peptides to draw from (with replacement) instead of
+            generating them -- e.g. the native epitopes of the other structures in a cohort,
+            which is the decoy set used by the crystal peptide-swap benchmark.
 
     Returns:
         A list of ``n`` upper-case peptide strings, each of length ``length``.
     """
     rng = random.Random(seed)
+    if pool is not None:
+        cand = [p for p in pool if len(p) == length]
+        if not cand:
+            raise ValueError(f"pool has no peptides of length {length}")
+        return _pin(rng.choices(cand, k=n), anchors, length)
     if source is not None:
-        pool = [s for s in _read_source(source) if len(s) == length]
-        if not pool:
+        # NB: local name must not shadow the `pool` parameter.
+        from_source = [s for s in _read_source(source) if len(s) == length]
+        if not from_source:
             raise ValueError(f"no length-{length} epitopes found in {source!r}")
         out = []
         for _ in range(n):
-            chars = list(rng.choice(pool))
+            chars = list(rng.choice(from_source))
             rng.shuffle(chars)
             out.append("".join(chars))
-        return out
-    return ["".join(rng.choice(_AMINO_ACIDS) for _ in range(length)) for _ in range(n)]
+        return _pin(out, anchors, length)
+    return _pin(["".join(rng.choice(_AMINO_ACIDS) for _ in range(length))
+                 for _ in range(n)], anchors, length)
 
 
 def percentile_rank(

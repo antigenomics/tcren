@@ -20,6 +20,7 @@ from pathlib import Path
 
 import polars as pl
 
+from .refine.anchors import native_peptide
 from .contactmap import ContactMap
 from .ddg import alanine_scan
 from .pipeline import run
@@ -32,12 +33,10 @@ from .structure.model import PEPTIDE_TYPE, Structure
 _DDG_SCHEMA = {"pos": pl.Int64, "wt_aa": pl.Utf8, "ddG": pl.Float64}
 
 
-def _native_peptide(structure: Structure) -> str:
-    """Return the one-letter sequence of the structure's peptide chain."""
-    for chain in structure.chains:
-        if chain.chain_type == PEPTIDE_TYPE:
-            return chain.sequence()
-    raise ValueError(f"no peptide chain found in {structure.pdb_id!r}")
+# Kept as a module-level alias: four downstream scripts import ``oracle._native_peptide`` by name.
+# The implementation is the public :func:`tcren.refine.anchors.native_peptide` -- this was a verbatim
+# duplicate of it.
+_native_peptide = native_peptide
 
 
 def summarize_structure(
