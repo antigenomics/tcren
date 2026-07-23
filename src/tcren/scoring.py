@@ -122,3 +122,96 @@ def score_structures(
     candidates = list(candidates)
     frames = [score_peptides(cm, candidates, potential, **kwargs) for cm in contact_maps]
     return pl.concat(frames) if frames else pl.DataFrame()
+
+
+# --- Recognition matrix: the per-position amino-acid preference landscape from F ---------------
+# Generalises the CPL positional-scan matrix to either side of an interface. Substituting the peptide
+# side gives the CPL-matrix analog (position x AA over the epitope); substituting the TCR side gives
+# the motif analog (position x AA over the CDR3) -- a physics-derived recognition matrix.
+
+from dataclasses import dataclass as _dataclass  # noqa: E402
+
+_AA20 = tuple("ACDEFGHIKLMNPQRSTVWY")
+
+
+@_dataclass(slots=True)
+class RecognitionMatrix:
+    """Per-position × amino-acid substitution-energy landscape (see :func:`recognition_matrix`).
+
+    ``energy[i, a]`` is the summed pairwise potential over position ``positions[i]``'s contacts when
+    amino acid ``aa[a]`` sits there and the other side is held fixed. **Lower = more favourable**, so a
+    per-position preference is ``-energy`` (higher = preferred). Positions with no contact are omitted.
+    Entries are ``NaN`` for amino acids the potential leaves undefined (e.g. cysteine pairs in TCRen),
+    exactly as :func:`score_peptides` drops those contacts — so reduce columns with ``np.nan*`` ops.
+    """
+
+    positions: list          #: one ``(chain_type, region, pos, native_aa)`` tuple per row of ``energy``
+    aa: tuple                #: the 20 amino-acid column order
+    energy: object           #: ``(n_positions, 20)`` float ndarray of substitution energies
+    side: str                #: which side was scanned (``"from"`` = TCR, ``"to"`` = peptide)
+    interface: str
+
+
+def recognition_matrix(
+    contact_map: ContactMap,
+    potential: Potential,
+    *,
+    interface: Interface = "tcr_peptide",
+    side: str | None = None,
+    tcr_regions: str = "all",
+) -> RecognitionMatrix:
+    """The per-position × 20-AA substitution-energy matrix for one interface side.
+
+    For ``interface="tcr_peptide"``, ``side="from"`` scans the **TCR/CDR3** (the motif-matrix analog)
+    and ``side="to"`` scans the **peptide** (the CPL-matrix analog). Each entry is the F energy summed
+    over that position's contacts with the given amino acid substituted in, the opposite side fixed —
+    the same virtual-substitution path as :func:`score_peptides`, resolved per position rather than
+    summed over the whole sequence.
+
+    Args:
+        contact_map: the structure's contact map.
+        potential: pairwise potential (TCRen for TCR:peptide).
+        interface: which interface to score over.
+        side: ``"from"`` or ``"to"``; defaults to the **non**-peptide side for ``tcr_peptide``
+            (i.e. the TCR), and to the peptide side for the presentation interfaces.
+        tcr_regions: TCR-region filter (``"all"``/``"cdr"``/``"cdr+fr"``) — use ``"cdr"`` to restrict
+            a TCR-side scan to the CDRs.
+
+    Returns:
+        A :class:`RecognitionMatrix`. Rows are the contacted positions in ``(chain, region, pos)``
+        order; columns are :data:`RecognitionMatrix.aa`.
+    """
+    if side is None:
+        side = "from" if interface == "tcr_peptide" else _PEPTIDE_SIDE[interface]
+    if side not in ("from", "to"):
+        raise ValueError(f"side must be 'from' or 'to', got {side!r}")
+    fixed = "to" if side == "from" else "from"
+    iface = contact_map.interface(interface, tcr_regions=tcr_regions)
+    matrix, index = potential.as_matrix()
+    aa_idx = np.array([index.get(a, -1) for a in _AA20], dtype=np.int64)
+
+    fixed_aa = iface[f"residue.aa.{fixed}"].to_list()
+    fixed_idx = np.array([index.get(a, -1) for a in fixed_aa], dtype=np.int64)
+    keys = list(zip(iface[f"chain.type.{side}"].to_list(), iface[f"region.type.{side}"].to_list(),
+                    iface[f"pos.{side}"].to_list(), iface[f"residue.aa.{side}"].to_list()))
+
+    order: list = []
+    rows: list = []
+    seen: dict = {}
+    for row_i, key in enumerate(keys):
+        if key not in seen:
+            seen[key] = len(order)
+            order.append(key)
+            rows.append(np.zeros(20))
+        fj = fixed_idx[row_i]
+        if fj < 0:
+            continue
+        for a in range(20):
+            ai = aa_idx[a]
+            if ai < 0:
+                continue
+            # potential is directed [from, to]; substitute on `side`, keep `fixed`.
+            rows[seen[key]][a] += matrix[ai, fj] if side == "from" else matrix[fj, ai]
+    return RecognitionMatrix(positions=order, aa=_AA20,
+                             energy=np.vstack(rows) if rows else np.zeros((0, 20)),
+                             side=side, interface=interface)
