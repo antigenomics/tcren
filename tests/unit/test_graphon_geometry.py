@@ -76,3 +76,25 @@ def test_binding_mode_hits_the_apex_and_sigma_involution(complex_1ao7):
 def test_binding_mode_keeps_loops_separate(complex_1ao7):
     m = binding_mode(complex_1ao7, contact=8.0)
     assert not math.isclose(m.y_alpha, m.y_beta)                           # never pooled — the split is the point
+
+
+# --- 04 CDR3 internal coordinates -------------------------------------------------------------
+def test_cdr3_internal_coords_lengths_and_physics(complex_1ao7):
+    ic = geometry.cdr3_internal_coords(complex_1ao7, "cdr3b")
+    n = ic.n_ca
+    assert (len(ic.bonds), len(ic.angles), len(ic.torsions)) == (n - 1, n - 2, n - 3)
+    assert np.allclose(ic.bonds, 3.8, atol=0.3)                        # Cα–Cα virtual bond ~3.8 Å
+    assert np.all((ic.angles > np.radians(80)) & (ic.angles < np.radians(150)))  # physical Cα angle
+    assert np.all((ic.torsions >= -np.pi) & (ic.torsions <= np.pi))
+
+
+def test_cdr3_internal_coords_neck_matches_endpoints(complex_1ao7):
+    from tcren.contactmap import _cdr3_ca
+    ic = geometry.cdr3_internal_coords(complex_1ao7, "cdr3b")
+    ca = _cdr3_ca(complex_1ao7, "TRB")
+    assert ic.neck == pytest.approx(float(np.linalg.norm(ca[-1] - ca[0])), abs=1e-9)
+
+
+def test_cdr3_internal_coords_rejects_unknown_loop(complex_1ao7):
+    with pytest.raises(ValueError, match="cdr3a"):
+        geometry.cdr3_internal_coords(complex_1ao7, "cdr3x")
