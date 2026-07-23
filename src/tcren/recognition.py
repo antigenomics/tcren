@@ -759,7 +759,9 @@ def kit_score(p_bind, iptm) -> np.ndarray:
     ``recognize --scores``) with the AlphaFold/TCRmodel2 **ipTM** that ships free with every model. On the
     TCRvdb raw-label benchmark this fixed no-fit combination beats **either alone** at precision
     (macro-PR 0.847 vs ipTM 0.782 / p_bind 0.804; precision 0.969 at 10% recall vs ipTM 0.861; Δ macro-PR
-    vs ipTM +0.041, 95% CI [+0.006, +0.074]). Higher = more binder-like.
+    vs ipTM +0.065, 95% CI [+0.022, +0.100], P(Δ>0)=1.00). A leave-epitope-out logistic on the same two
+    inputs gives the more conservative +0.041 [+0.005, +0.076] — a different estimator, not this score.
+    Higher = more binder-like.
 
     Cohort-relative: ``z`` standardizes over the input arrays, so pass the **whole set** of AF models you
     are ranking (not one structure). NaNs are ignored by the mean/sd and propagate to their own entries.

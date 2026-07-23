@@ -56,7 +56,10 @@ The three questions the kit answers
         - **0.969**
         - **0.939**
 
-   Δ macro-PR vs ipTM = +0.041 (95% CI [+0.006, +0.074]). The combination also **corrects AF's errors**:
+   Δ macro-PR vs ipTM = **+0.065** (95% CI [+0.022, +0.100], P(Δ>0)=1.00) for the no-fit
+   z-sum shown above. A CV-honest leave-epitope-out logistic on the same two inputs confirms it
+   more conservatively at +0.041 ([+0.005, +0.076], P=0.99) — that is a *different estimator*,
+   not this row. The combination also **corrects AF's errors**:
    strain flags AF false-positives among confident poses (AUROC 0.633), and ``p_bind`` rescues AF
    false-negatives among under-confident poses (0.732 vs ipTM 0.697).
 

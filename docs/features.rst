@@ -290,8 +290,12 @@ default; ``p_bind`` and ``p_forced`` are added by ``--scores``. All are probabil
 
 .. note::
 
-   **Cohort-relative combinations stay analysis-side.** Scores that z-standardize a feature over the
-   *set being scored* (the no-fit TCRvdb Φ_bind, the crystal < AF-real < AF-decoy strain z-gradient)
-   are not per-structure frozen models and are computed downstream from this table, not by ``tcren``.
-   ``recognize`` provides the raw features they are built from (``pitch``, ``F_tcr_mhc``, the
-   ``cdr3b_*`` strain terms, ``extent``/``n_contacts_tp``, …).
+   **Cohort-relative combinations live in** :mod:`tcren.cohort`. Scores that z-standardize a
+   feature over the *set being scored* — the no-fit :func:`~tcren.cohort.phi_bind`, the
+   interface-quality :func:`~tcren.cohort.q_score`, and the crystal-calibrated
+   :func:`~tcren.cohort.strain_z` gradient — are not per-structure frozen models, but they are
+   computed by ``tcren``, not downstream. Pass the whole cohort you are ranking; pass the crystal
+   cohort as ``reference=`` to calibrate strain against natural geometry.
+
+   (Before v2.2.3 these were declared out of scope and lived in manuscript scratch, which left the
+   published headline numbers un-regenerable from this package. That is fixed.)
