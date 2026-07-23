@@ -28,8 +28,9 @@ The three questions the kit answers
    ipTM cannot give you.
 
 **2. Does this TCR bind this epitope?**
-   ``p_bind`` (:func:`tcren.binder.binder_score`) is the AF-orthogonal binder score (TCRvdb denoised AUC
-   0.928). Use it to screen many TCRs against one epitope.
+   ``p_bind`` (:func:`tcren.binder.binder_score`) is the AF-orthogonal binder score (TCRvdb
+   **raw-label** macro AUC 0.796, pooled 0.810; AF ipTM 0.794 / 0.793). Use it to screen many TCRs
+   against one epitope. Label denoising is a separate algorithm and is not benchmarked here.
 
 **3. Combined call — the synergy.**
    :func:`tcren.recognition.kit_score` = ``z(p_bind) + z(iptm)`` over the cohort — a fixed, no-fit
@@ -56,7 +57,17 @@ The three questions the kit answers
         - **0.969**
         - **0.939**
 
-   Δ macro-PR vs ipTM = +0.041 (95% CI [+0.006, +0.074]). The combination also **corrects AF's errors**:
+   Δ macro-PR vs ipTM = **+0.065** (95% CI [+0.022, +0.100], P(Δ>0)=1.00) for the no-fit
+   z-sum shown above. A CV-honest leave-epitope-out logistic on the same two inputs confirms it
+   more conservatively at +0.041 ([+0.005, +0.076], P=0.99) — that is a *different estimator*,
+   not this row.
+
+   .. note::
+      ipTM is the **weakest** of AlphaFold's three confidences on this task. Against global pLDDT
+      (macro-PR 0.808) the margin is ``+0.039``, not ``+0.065``. Quote the baseline you measured
+      against.
+
+   The combination also **corrects AF's errors**:
    strain flags AF false-positives among confident poses (AUROC 0.633), and ``p_bind`` rescues AF
    false-negatives among under-confident poses (0.732 vs ipTM 0.697).
 

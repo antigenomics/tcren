@@ -216,10 +216,15 @@ def mhc_annotation(
     return pl.DataFrame(rows)
 
 
-def _batch_annotate(
+def annotate_batch(
     structures, arda, organisms=("human", "mouse")
 ) -> list[dict[str, dict[str, dict]]]:
     """Annotate every chain of every structure with one mmseqs call per organism.
+
+    Public since 2.3.0. Batching matters: arda/mmseqs costs seconds per call, so annotating a
+    1,000-structure cohort one at a time is minutes of pure index rebuild. Every benchmark that
+    scores a cohort needs this, which is why four downstream scripts were reaching into the private
+    name.
 
     Returns ``records[struct_idx][organism][chain_id]`` — the per-structure slices fed to
     :func:`~tcren.annotation.classify_chains` as ``precomputed_records``.
@@ -288,3 +293,7 @@ def compare(
         "matched": len(ko & kn), "only_old": len(only_old), "only_new": len(only_new),
         "max_abs_diff": max_abs, "status": status,
     }
+
+
+#: Backwards-compatible alias for the pre-2.3.0 private name.
+_batch_annotate = annotate_batch

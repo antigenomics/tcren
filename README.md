@@ -40,7 +40,7 @@ From one TCR–peptide–MHC structure (crystal or model), each task is one comm
 | Score candidate epitopes for a TCR | `tcren score` | `score_peptides` |
 | Percentile-rank a peptide vs background | `tcren rank` | `percentile_rank` |
 | ΔΔG of mutations (alanine scan / neoantigen) | `tcren ddg` | `alanine_scan`, `neoantigen_ddg` |
-| Binder vs non-binder for a TCR model | `tcren binder` | `binder_score` |
+| Binder vs non-binder for a TCR model | `tcren binder` | `cohort.q_score` (recommended), `binder_score` |
 | **All interface descriptors + joint P(real)** | `tcren recognize` | `recognition_features`, `real_probability` |
 | Three-interface energy breakdown + total | `tcren pipeline` | `run_pipeline` |
 | Annotate chains + region markup | `tcren annotate` | `classify_chains`, `annotate_mhc` |
@@ -63,32 +63,37 @@ mechanics (`tcren mechanics`) — not the contact sum.
 
 ## Install
 
-```fish
+```bash
 pip install tcren          # from PyPI — binary wheels ship the C++ extension; pulls in arda-mapper
 ```
 
-For development (editable install, conda env with the build toolchain, and the reference data
-fetched into `data/`):
+For development (a repo-local `.venv` via [`uv`](https://docs.astral.sh/uv/), an editable
+install, and the reference data fetched into `data/`):
 
-```fish
-bash setup.sh              # creates the `tcren` conda env, installs arda + tcren, fetches data/
-conda activate tcren
+```bash
+bash setup.sh                    # uv venv + editable install + arda + fetch data/ (no conda)
+source .venv/bin/activate
 ```
 
-tcren ships five small **pybind11/C++ extensions**, built on install by `scikit-build-core`:
-`tcren._align` (MHC-pseudosequence fitting alignment; a Biopython fallback runs if unbuilt),
-`tcren._refine` (DOPE atom-level Monte-Carlo peptide refinement), `tcren._relax` (DOPE interface
-energy for `tcren energy` / ΔΔG), `tcren._fold` (CCD loop closure) and `tcren._geom` (interface
-geometry for `tcren binder`). TCR annotation is provided by [`arda`](https://github.com/antigenomics/arda), a runtime
-dependency published to PyPI as [`arda-mapper`](https://pypi.org/project/arda-mapper/) (it imports
-as `arda`); `pip`/`setup.sh` pull it automatically, and from `arda-mapper >= 2.5.6` it auto-fetches
-its own reference on first use (no `ARDA_HOME` to set). `setup.sh` also runs `tcren fetch-data` to
-populate `data/` with the reference structure sets (`Native2026`, `Canonical2026`) used by
-`orient`/`superimpose` (set `TCREN_NO_FETCH=1` to skip).
+`setup.sh` needs only `uv` and a C++ compiler (macOS: `xcode-select --install`); it never
+touches conda. Pass `--tests` to run the fast suite after install.
+
+tcren ships five small **pybind11/C++ extensions**, built on install by `scikit-build-core`
+(which fetches `cmake`+`ninja` automatically): `tcren._align` (MHC-pseudosequence fitting
+alignment; a Biopython fallback runs if unbuilt), `tcren._refine` (DOPE atom-level Monte-Carlo
+peptide refinement), `tcren._relax` (DOPE interface energy for `tcren energy` / ΔΔG),
+`tcren._fold` (CCD loop closure) and `tcren._geom` (interface geometry for `tcren binder`). TCR
+annotation is provided by [`arda`](https://github.com/antigenomics/arda), a runtime dependency
+published to PyPI as [`arda-mapper`](https://pypi.org/project/arda-mapper/) (it imports as
+`arda`); `uv`/`setup.sh` pull it automatically, and from `arda-mapper >= 2.5.7` it auto-fetches
+both its own reference **and a static `mmseqs2` binary** on first use — so no conda/bioconda and
+no `ARDA_HOME` to set (override the binary with `$ARDA_MMSEQS`). `setup.sh` also runs `tcren
+fetch-data` to populate `data/` with the reference structure sets (`Native2026`, `Canonical2026`)
+used by `orient`/`superimpose` (set `TCREN_NO_FETCH=1` to skip).
 
 ## Command line
 
-```fish
+```bash
 # Full pipeline: annotate -> superimpose -> resmarkup / canonical Cα / contacts -> per-interface
 # energies (TCRen for TCR↔peptide, MJ for TCR↔MHC and peptide↔MHC) + total
 tcren pipeline -s complex.pdb -o scores.csv
@@ -106,11 +111,15 @@ tcren score -s complex.pdb -c candidates.txt -o ranked.csv --regions cdr+fr
 tcren rank -s complex.pdb -o rank.csv
 
 # Fast ΔΔG of peptide point mutations (virtual-matrix path: no atoms move, no re-docking).
-tcren ddg -s complex.pdb -o ddg.csv
+# Requires --native (the peptide) and exactly one mode: --alanine-scan or --mutant.
+tcren ddg -s complex.pdb --native EPITOPE --alanine-scan -o ddg.csv
 
-# Binder vs non-binder P(binder) from AF-orthogonal interface geometry + the CDR1/2-vs-CDR3a
-# TCRen term — ranks candidate TCRs against a fixed pMHC, beating AlphaFold/TCRmodel2 confidence
-# (denoised AUC 0.928 vs 0.872) with no external tool. See tcren.binder.binder_score.
+# Binder vs non-binder from AF-orthogonal interface geometry + the CDR1/2-vs-CDR3a TCRen term —
+# ranks candidate TCRs against a fixed pMHC, on par with AlphaFold/TCRmodel2 confidence with no
+# external tool (raw-label macro AUC ~0.80 vs AF ipTM 0.79). PREFER the fit-free Q = tcren.cohort.
+# q_score, which matches this and generalises across cohorts where the fitted p_bind does not; with
+# ipTM, z(ipTM)+z(Q) is the fit-free synergy (macro 0.83 vs 0.79). `tcren binder` emits the fitted
+# p_bind (retained for reproducibility); `tcren recognize --scores` adds q_bind + s_strain.
 tcren binder -s complex.pdb -o binder.csv
 
 # One TSV per structure: every interface descriptor (geometry + energies) + joint P(real).
@@ -158,7 +167,7 @@ tcren fetch-recent --discover --after 2024-01-01
 tcren build-mhc-ref
 
 tcren info
-tcren --install-completion        # shell tab-completion (bash/zsh/fish)
+tcren --install-completion        # shell tab-completion (bash/zsh)
 ```
 
 `tcren orient` and `tcren superimpose` need the reference sets in `data/` (`Native2026`,
@@ -170,8 +179,9 @@ Give `tcren recognize` a list of complexes (a file, directory, `.tar.gz`, or glo
 TSV row per structure** with the full interface descriptor set **and** the joint recognition
 probability `P(real)`:
 
-```fish
+```bash
 tcren recognize -s my_pdbs/ -o recognize.tsv               # 35 descriptors + p_real + p_real_bn
+tcren recognize -s my_pdbs/ -o scored.tsv --scores         # + q_bind, s_strain (recommended) + p_bind, p_forced
 tcren recognize -s my_pdbs/ -o feats.tsv --features-only   # descriptors only, skip the models
 ```
 
@@ -179,6 +189,7 @@ tcren recognize -s my_pdbs/ -o feats.tsv --features-only   # descriptors only, s
 |---|---|
 | **(a) energy** — TCRen/MJ `F` per interface + poly-alanine `dF` + loop parts | `F_tcr_pep`, `F_tcr_mhc`, `F_pep_mhc`, `dF_tcr_pep`, `dF_pep_mhc`, `e_cdr12`, `e_cdr3a`, `e_cdr3b`, `e_tcr_mhc` |
 | **(b) geometry** — every docking + interface descriptor | `pitch`, `crossing`, `dock_d`, `dock_torsion`, `dock_{tcr,mhc}_u{y,z}`, `extent`, `chain_balance`, `burial`, `n_contacts_{tp,tm}`, `n_pep_contacted`, `ct_{tp,tm}_*` |
+| **(c) fit-free scores** (`--scores`, recommended) — cohort-relative, no training set | `q_bind` — binder-ID `Q`; `s_strain` — forced-pose grade. See [`tcren.cohort`](src/tcren/cohort.py) |
 | **(d) joint P(real)** ~ Bayesian model over energy + geometry | `p_real` — distribution-aware Bayesian **logistic** (5-fold CV AUC 0.885); `p_real_bn` — the Gaussian **BN** variant |
 
 **Where the joint model lives.** `p_real` is the frozen recognizer we derive from real crystals vs
@@ -191,7 +202,7 @@ from `tcren shuffle`; the Gaussian-BN companion is `appendix/shuffle_bn/`.
 **(c) physics of the interaction** is heavier and mutation-/energy-specific, so it stays in its own
 commands on the same inputs:
 
-```fish
+```bash
 tcren ddg       -s complex.pdb -o ddg.csv     # per-residue alanine / neoantigen ΔΔF (fast virtual matrix)
 tcren mechanics -s complex.pdb -o mech.csv    # koff proxies: interface stiffness tensor + steered rupture
 ```
@@ -345,7 +356,7 @@ annotated and oriented **once**, so the hot loop is just refine + contacts + sco
 
 ## Tests
 
-```fish
+```bash
 pytest -m "not slow"          # unit + fast regression (the CI gate)
 pytest                        # add the arda/mmseqs-backed regression tests
 RUN_BENCHMARK=1 pytest -k benchmark -s

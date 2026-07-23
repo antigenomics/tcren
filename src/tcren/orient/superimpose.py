@@ -111,7 +111,7 @@ def superimpose(
     ``db_dir`` defaults to ``data/Canonical2026``. Returns the oriented, A–E renamed structure
     and the consensus :class:`~tcren.orient.align.OrientationResult` (averaged over the ensemble).
     """
-    from Bio.SVDSuperimposer import SVDSuperimposer
+    from ._transform import kabsch
 
     if annotate:
         from ..annotation import classify_chains
@@ -131,11 +131,9 @@ def superimpose(
         mob, rp = _matched_anchors(structure, ref)
         if len(mob) < 3:
             continue
-        sup = SVDSuperimposer()
-        sup.set(rp, mob)
-        sup.run()
-        transforms.append(sup.get_rotran())
-        rmsds.append(float(sup.get_rms()))
+        rot, tran, rms = kabsch(mob, rp)
+        transforms.append((rot, tran))
+        rmsds.append(rms)
     if not transforms:
         raise ValueError(f"too few matched groove anchors to superimpose {structure.pdb_id}")
 

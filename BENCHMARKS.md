@@ -14,9 +14,9 @@ Reproduce with `pytest` (fast) and `RUN_BENCHMARK=1 pytest` (full-dataset sweeps
 | TCR annotation sweep (mir set) | contacts reproduced / full-exact | **0 missing**, 278 full-exact, 31 region-label-only / 312 | `test_annotation_concordance_sweep` |
 | MHC class + locus | sample concordance | **30 / 30**; 1ao7/5m01/4ozg exact | `test_mhc_regression` |
 | MHC groove topology | TCR-on-helices / peptide-on-floor | satisfied (class I + II) | `test_mhc_groove` |
-| TCR3D ground truth (60) | V-gene / CDR3 / class | **0.97 / 0.90 / 0.97** | `test_native_concordance_sweep` |
+| TCR3D ground truth (60) | V-gene / CDR3 / class | **0.97 / 0.90 / 0.97** | — (annotation reproduction covered by `test_annotation_concordance_sweep`) |
 | TCR3D epitope | concordance | 0.72 (CIF-content-bounded, see notes) | — |
-| Canonical alignment | self / 1bd2→1ao7 groove RMSD | **0.000 / 0.44 Å** | `test_native_uses` |
+| Canonical alignment | self / 1bd2→1ao7 groove RMSD | **0.000 / 0.44 Å** | `test_orient` |
 | αβ/γδ from C-gene | 1ao7 / 1hxm | **ab (TRBC2) / gd (TRDC+TRGC1)** | `test_cgene` |
 | Re-derived TCRen (analysis) | max\|Δ\| vs published | **< 1e-9** | `test_analysis` |
 | v2 configurable potentials (default) | per-interface scores vs built-in families | **byte-identical** | `test_default_equals_explicit_equal_mapping` |
@@ -28,7 +28,7 @@ follows the J segment — TCR3D's 1bd2 `TRDJ1` is a mislabel; class-II TCR3D use
 Epitope < 1.0 is driven by domain-split/multi-copy TCR3D CIFs lacking a separable peptide
 chain plus ±1 unresolved terminal residues — not a tcren error.
 
-## Performance (Apple M3, base anaconda Python 3.12)
+## Performance (Apple M3, uv-managed CPython 3.12)
 
 | Operation | Scale | Time |
 |-----------|-------|------|
@@ -36,8 +36,8 @@ chain plus ±1 unresolved terminal residues — not a tcren error.
 | Full contact sweep | 312 structures | ~13 s |
 | arda annotation | 1 TCR chain | ~1 s |
 | MHC mapping (mmseqs `easy_search`) | 1 structure | ~7 s (per-call index build — TODO prebuild) |
-| Fast test suite (`-m "not slow"`) | 74 tests | **~4 s** |
-| Slow test suite (`-m slow`) | 25 tests | **~22 min** (arda/mmseqs per structure) |
+| Fast test suite (`-m "not slow"`) | ~291 tests | **~75 s** |
+| Slow test suite (`-m slow`) | ~46 tests | **~22 min** (arda/mmseqs per structure) |
 | Annotation concordance sweep | 312 structures | ~20 min |
 | Analysis notebook | full `contact_maps_PDB.csv` | < 30 s (no arda) |
 
@@ -120,16 +120,40 @@ the C++ rewrite is de-novo pocket/pose prediction, not refinement speed.
 
 Ranking candidate TCRs against a fixed pMHC on generated (AlphaFold/TCRmodel2) structures. The raw
 TCR:peptide contact energy is at chance there (ROC-AUC ≈ 0.44, the forced-pose problem: the generator
-seats every TCR in a plausible pose). The shipped 5-feature model — AF-orthogonal interface geometry
-(interface size, dual-chain balance, H-bonds, buried ΔSASA; native `tcren._geom` C kernel) plus the
-CDR1/2−CDR3α TCRen potential term — recovers it:
+seats every TCR in a plausible pose). AF-orthogonal interface geometry (interface size, dual-chain
+balance, H-bonds, buried ΔSASA; native `tcren._geom` C kernel) plus the CDR1/2−CDR3α TCRen contrast
+recovers it:
 
-| model | denoised ROC-AUC | note |
-|-------|------------------|------|
-| **tcren.binder (5-feature)** | **0.928** | native, no external tool |
-| AlphaFold/TCRmodel2 ipTM (confidence) | 0.872 | the baseline to beat |
-| raw TCR:peptide TCRen energy | ≈ 0.44 | forced pose (below chance) |
+| model | macro ROC-AUC | pooled ROC-AUC | note |
+|-------|------------------|----------------|------|
+| **`cohort.q_score` (Q, fit-free)** | **~0.80** | **~0.81** | **recommended** — equal-weight, no training set, generalises across cohorts |
+| tcren.binder (5-feature fitted `p_bind`) | 0.796 | 0.810 | matches Q in-sample; does **not** transfer across cohorts |
+| AlphaFold/TCRmodel2 ranking confidence | 0.795 | — | the strongest AF confidence here |
+| AlphaFold/TCRmodel2 ipTM | 0.794 | 0.793 | the baseline usually quoted |
+| raw TCR:peptide TCRen energy | 0.49 | 0.44 | forced pose (at/below chance) |
 
-TCRvdb (2 epitopes, HLA-A\*02:01; sequence-cluster-denoised labels). The model is ~ipTM-independent and
-uses no generator-reported metric. Caveat: coefficients frozen from a 2-epitope training set;
+TCRvdb (2 epitopes, HLA-A\*02:01), **raw labels** (`padj < 1e-5`, no label cleaning). Both scores are
+~ipTM-independent and use no generator-reported metric.
+
+> **Prefer the fit-free `Q` (`tcren.cohort.q_score`) over the fitted `p_bind`.** They match in-sample,
+> but a logistic trained on one cohort learns that cohort's epitope composition and does not transfer
+> (benchmark ledger C25); `Q` has no training set and nothing to transfer. With ipTM, the fit-free
+> `z(ipTM) + z(Q)` reaches macro 0.83 vs ipTM 0.79 — and the 2D (ipTM, Q) allowed region shows *why*:
+> a forced pose is confident but geometry-poor, the corner `Q` catches and a sum blurs.
+
+> **Pick the baseline deliberately.** ipTM is the weakest of AlphaFold's three confidences on this
+> task, so a margin quoted against it flatters tcren. The 5-feature model leads all three, but only
+> just — 0.796 against 0.795 and 0.794. On macro-PR the ordering is wider apart and pLDDT (0.808) is
+> the one to beat, not ipTM (0.782).
+
+> **Label denoising is a separate algorithm and is not benchmarked here.** Filtering TCRvdb by TCRNET
+> motif-cluster consistency raises every method's score, tcren's and AlphaFold's alike; a number
+> computed that way measures the two algorithms jointly and is not a tcren result. (For the record:
+> the shipped coefficients were *fit* on such a subset — see `tcren.binder.model`. That is a
+> deliberate choice, not a gap: denoised **training** is label-noise reduction and generalises better
+> on raw held-out labels (20-seed CV macro 0.776 vs 0.761, 20/20 seeds), while denoised **evaluation**
+> would measure the two algorithms jointly. Refitting on raw labels was measured and would make the
+> model worse.)
+
+Caveat: coefficients are frozen from a 2-epitope training set;
 cross-allele/epitope generalization untested (re-fit via `scripts/binder_validate.py`).

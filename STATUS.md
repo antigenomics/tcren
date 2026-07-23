@@ -1,9 +1,9 @@
 # tcren — project status & TODO
 
 Status of the Python re-implementation of TCRen (`src/tcren/`). The legacy R/Java pipeline
-is preserved (tag `legacy-r-1.0`) and serves as the numerical oracle. Current release: **v2.2.0**
+is preserved (tag `legacy-r-1.0`) and serves as the numerical oracle. Current release: **v2.2.1**
 (feature table + AF-orthogonal kit: `recognize --full --scores`, `kit_score`, `forced_pose_score`,
-interface mechanics, binder identification, configurable potentials, fast ΔΔG).
+interface mechanics, binder identification, configurable potentials, fast ΔΔG; `arda-mapper >= 2.5.7`).
 See **[CHANGELOG.md](CHANGELOG.md)** for the authoritative per-release record, [BENCHMARKS.md](BENCHMARKS.md)
 for achieved accuracy, and `docs/` (`features.rst`, `kit.rst`) for the current API.
 
@@ -29,7 +29,7 @@ for achieved accuracy, and `docs/` (`features.rst`, `kit.rst`) for the current A
 | **Native DB** | `native/` | TCR3D download/version/manifest; ground-truth comparison; align-to-canonical; potential re-derivation |
 | **2D maps** | `project2d/`, `viz/` | groove-plane projection, canonical tables, metadata-rich SVG, py3Dmol pocket+CDR |
 | **Analysis** | `analysis.py` | potential heatmaps/compare, contact distributions (per-structure/region/position) |
-| **CLI** | `cli.py` | `info/annotate/contacts/derive-potential/score/mhc/native …` |
+| **CLI** | `cli.py` | `info/annotate/contacts/derive-potential/score/rank/ddg/pipeline/recognize/orient/superimpose …` |
 | **Docs** | `docs/` | Sphinx + 3 tutorial notebooks (`notebooks/`); zero-warning build |
 
 ## TODO / pending
@@ -46,4 +46,4 @@ for achieved accuracy, and `docs/` (`features.rst`, `kit.rst`) for the current A
 
 - All bundled structure sets (`data/PDB_structures/`, TCR3D CIFs) are **variable-domain-only**; the C-gene classifier and full-complex geometry need full RCSB inputs (fixtures in `tests/assets/cgene/`).
 - TCR3D `tcr_complexes_data.tsv` mislabels some TRAV/DV J calls (e.g. 1bd2 `TRDJ1`); arda is correct (locus follows J). Locked by a test in `arda` dev.
-- arda is a runtime dependency, published to PyPI as `arda-mapper>=2.0.1` (imports as `arda`); installed by `pip install -e .` / `pip install tcren`.
+- arda is a runtime dependency, published to PyPI as `arda-mapper>=2.5.7` (imports as `arda`); installed by `pip install -e .` / `pip install tcren`. It auto-fetches its reference and a static mmseqs binary on first use (no conda).

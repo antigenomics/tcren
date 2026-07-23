@@ -120,3 +120,36 @@ def test_rank_native_missing_raises():
     with pytest.raises(ValueError):
         # wrong length -> dropped by score_peptides' length filter
         percentile_rank(cm, "AGKK", pot, background=["AGK"])
+
+
+# --- anchor-preserving and cohort-pool backgrounds (2.3.0) --------------------------------------
+def test_anchors_are_pinned_on_the_uniform_background():
+    from tcren.scoring_rank import background_peptides
+    b = background_peptides(9, n=50, seed=0, anchors={2: "L", 9: "V"})
+    assert all(p[1] == "L" and p[8] == "V" for p in b)
+    assert len({p for p in b}) > 1                      # still varies elsewhere
+
+
+def test_anchors_leave_the_default_background_untouched():
+    from tcren.scoring_rank import background_peptides
+    assert background_peptides(9, n=5, seed=0) == background_peptides(9, n=5, seed=0, anchors=None)
+
+
+def test_pool_draws_only_matching_lengths():
+    from tcren.scoring_rank import background_peptides
+    b = background_peptides(9, n=20, seed=0, pool=["AAAAAAAAA", "CCCCCCCCC", "DDDDDDDDDD"])
+    assert set(b) <= {"AAAAAAAAA", "CCCCCCCCC"}
+
+
+def test_pool_with_no_matching_length_is_an_error():
+    import pytest
+    from tcren.scoring_rank import background_peptides
+    with pytest.raises(ValueError, match="length 9"):
+        background_peptides(9, n=5, pool=["AAAAAAAAAA"])
+
+
+def test_anchor_outside_the_peptide_is_an_error():
+    import pytest
+    from tcren.scoring_rank import background_peptides
+    with pytest.raises(ValueError, match="outside 1..9"):
+        background_peptides(9, n=5, anchors={12: "A"})

@@ -45,7 +45,7 @@ from .scoring import score_peptides
 from .structure import iter_structures, parse_structure
 
 app = typer.Typer(
-    add_completion=True,  # `tcren --install-completion` for bash/zsh/fish; --show-completion to print
+    add_completion=True,  # `tcren --install-completion` for bash/zsh; --show-completion to print
     help="Structure-based TCR–epitope recognition: score epitopes, rank binders, ΔΔG, "
          "orient/refine poses, and derive potentials from TCR:pMHC structures.",
 )
@@ -523,7 +523,7 @@ def recognize(
     organism: str = typer.Option("human", "--organism"),
     features_only: bool = typer.Option(False, "--features-only", help="emit the descriptors, skip P(real)"),
     full: bool = typer.Option(False, "--full", help="add the 18 CDR3-frame + 12 matrix-swap descriptors (65 features total)"),
-    scores: bool = typer.Option(False, "--scores", help="also append p_bind (binder-ID) + p_forced (forced-pose); implies --full"),
+    scores: bool = typer.Option(False, "--scores", help="also append the fit-free q_bind + s_strain (recommended) and the fitted p_bind + p_forced; implies --full"),
 ) -> None:
     """Full interface descriptor table + joint P(real) for each TCR-pMHC complex (one TSV row per PDB).
 
@@ -534,7 +534,10 @@ def recognize(
     indicator — plus ``p_real`` (the distribution-aware Bayesian logistic) and ``p_real_bn`` (the
     Gaussian BN): the joint probability the complex is a genuine recognition interface rather than a
     wrong-TCR shuffle. ``--full`` also emits the 18 CDR3-local frame descriptors (the FramePose strain
-    layer) and the 12 matrix-swap TCRen−MJ contrasts. ``--features-only`` skips the models. Output is TSV.
+    layer) and the 12 matrix-swap TCRen−MJ contrasts. ``--scores`` adds the recommended fit-free
+    ``q_bind`` (binder-ID) and ``s_strain`` (forced-pose), computed cohort-relative over the whole
+    input set, alongside the fitted ``p_bind`` / ``p_forced``. ``--features-only`` skips the models.
+    Output is TSV.
 
     Complementary scorers on the same inputs: ``tcren ddg`` (per-mutation alanine/neoantigen ΔΔF) and
     ``tcren mechanics`` (koff proxies — stiffness + steered rupture).

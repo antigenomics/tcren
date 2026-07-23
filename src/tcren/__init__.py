@@ -8,6 +8,9 @@ fast ΔΔG, and a one-call oracle facade composing these for the paper notebooks
 
 from . import potential
 from .binder import BINDER_MODEL, binder_score, is_real_interface
+from .paper.helpers import annotate_batch
+from .refine.anchors import native_peptide
+from .cohort import phi_bind, q_score, strain_z, zscore
 from .clashes import ClashReport, has_clashes, interface_clashes
 from .contactmap import ContactMap
 from .contacts import all_atom_contacts, ca_distance_matrix
@@ -24,9 +27,11 @@ from .scoring import score_peptides, score_structures
 from .scoring_rank import background_peptides, percentile_rank
 from .structure import Structure, import_structure, parse_structure
 
-__version__ = "2.2.1"
+__version__ = "2.2.3"
 
 __all__ = [
+    "annotate_batch", "native_peptide",
+    "q_score", "phi_bind", "strain_z", "zscore",
     "potential",
     "Potential",
     "derive_tcren",

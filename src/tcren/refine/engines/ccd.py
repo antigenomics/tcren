@@ -5,6 +5,7 @@ pocket centroids) while the rest of the backbone follows as a kinematic linkage.
 license-free geometric path: no Rosetta, no MODELLER, only the bundled stdlib-only ``_fold`` kernel.
 
 Draft scope (ponytail: marked so the simplification reads as intent, not ignorance):
+
 - Operates on the **Cα trace** with consecutive-Cα rotatable bonds, and writes the closed pose back by
   rigid per-residue translation (each residue's atoms shift by its Cα displacement). The kernel
   preserves Cα–Cα distances exactly, but because adjacent residues receive *different* translations

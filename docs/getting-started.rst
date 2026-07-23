@@ -10,18 +10,20 @@ From PyPI (binary wheels ship the C++ extensions and pull in the TCR-annotation 
 
    $ pip install tcren
 
-For development — the conda toolchain, an editable install, and the reference data fetched
-into ``data/``:
+For development — a repo-local ``.venv`` via `uv <https://docs.astral.sh/uv/>`_, an editable
+install, and the reference data fetched into ``data/`` (no conda; needs only ``uv`` and a C++
+compiler):
 
 .. code-block:: console
 
    $ bash setup.sh
-   $ conda activate tcren
+   $ source .venv/bin/activate
 
 The TCR-annotation backend ``arda`` (mmseqs2-based) is a normal dependency, published to PyPI as
-`arda-mapper <https://pypi.org/project/arda-mapper/>`_ (it imports as ``arda``); ``pip``/``setup.sh``
-pull it in automatically. From ``arda-mapper >= 2.5.6`` it auto-fetches its own reference on first
-use — no ``ARDA_HOME`` to set. ``tcren`` also builds five small pybind11/C++ kernels on install:
+`arda-mapper <https://pypi.org/project/arda-mapper/>`_ (it imports as ``arda``); ``uv``/``setup.sh``
+pull it in automatically. From ``arda-mapper >= 2.5.7`` it auto-fetches its own reference **and a
+static mmseqs2 binary** on first use — no conda/bioconda and no ``ARDA_HOME`` to set. ``tcren`` also
+builds five small pybind11/C++ kernels on install:
 ``tcren._align`` (MHC-pseudosequence alignment), ``tcren._refine`` (DOPE Monte-Carlo refinement),
 ``tcren._relax`` (DOPE interface energy), ``tcren._fold`` (CCD loop closure) and ``tcren._geom``
 (binder interface geometry).

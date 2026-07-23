@@ -293,6 +293,8 @@ __pycache__/
 .eggs/
 build/
 dist/
+.venv/
+uv.lock
 .pytest_cache/
 .ruff_cache/
 .coverage
@@ -300,6 +302,10 @@ htmlcov/
 docs/_build/
 data/mhc_cache/
 database/mhc/
+# arda runtime caches written into the tree on first use (reference DB, IMGT germlines, mmseqs DBs).
+database/vdj/
+data/imgt/
+data/mmseqs_db/
 
 docs/notebooks/
 
@@ -324,3 +330,8 @@ scratch/
 
 # Claude Code <-> Obsidian memory sync (machine-local absolute paths)
 .claude/obsidian-sync.json
+
+# scripts/legacy/ Native2026 -> vdjdb_structure_models reformat (all except scripts + logs ignored)
+scripts/legacy/data_dump/
+scripts/legacy/data_patch/
+scripts/legacy/*.sav

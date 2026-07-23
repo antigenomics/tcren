@@ -6,10 +6,17 @@ is out of the physiological range (a failed pose lands the TCR at an implausible
 tilt). :func:`is_real_interface` rejects both from three cheap descriptors so the downstream
 energy score is only ever asked about interfaces that could plausibly be binders.
 
-The thresholds are the ~p01-p99 range of real (binder) interfaces from the TCRvdb AlphaFold
-set: at least :data:`N_CONTACTS_MIN` TCR:peptide residue contacts, a crossing (scanning) angle
-in :data:`SCANNING_RANGE` and an incident (pitch) angle in :data:`PITCH_RANGE`. Any missing
+The thresholds are the p01-p99 range of the 309 real (binder) interfaces from the TCRvdb
+AlphaFold set, rounded *inward* (lower bounds up, upper bounds down): at least
+:data:`N_CONTACTS_MIN` TCR:peptide residue contacts, a crossing (scanning) angle in
+:data:`SCANNING_RANGE` and an incident (pitch) angle in :data:`PITCH_RANGE`. Any missing
 descriptor (``NaN``/``None``, i.e. an undocked or un-oriented complex) is treated as noise.
+
+The derivation is ``models/fit_frozen.py::envelope`` in the benchmark repo, which reproduces all
+three constants exactly and is regression-tested there. Two caveats it records: the pitch *lower*
+bound of 0 deg is the domain floor of an unsigned angle rather than a percentile (p01 = 0.04), and
+the pitch axis is derived from a cached ``pitch_angle`` column carrying AlphaFold-confidence
+leakage -- the scanning and contact-count axes are clean.
 """
 
 from __future__ import annotations

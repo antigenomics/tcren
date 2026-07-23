@@ -11,7 +11,7 @@ mmseqs/local search can't find them — there is no shared k-mer to seed on. Ins
 candidate 34-mer through the chain with a **fitting alignment** (gaps in the chain are free, the
 pseudosequence may not gap), which recovers the positions because NetMHCpan lists them N→C. The
 best-scoring pseudosequence is chosen (one hit), and its identically-matched residues are marked —
-across MHCa only for class I, split across MHCa+MHCb for class II, never β2m. Scoring all ~4k
+across MHCa only for class I, split across MHCa+MHCb for class II, never β2m. Scoring all ~5.4k
 pseudosequences this way is ~0.1 s, so no prebuilt index is needed.
 """
 
@@ -50,13 +50,22 @@ def _pseudo_aligner():
 
 @lru_cache(maxsize=2)
 def _pseudo_index(mhc_class: str) -> dict[str, str]:
-    """``header-id -> 34-mer`` for the bundled pseudosequence FASTA of a class."""
+    """``representative-allele -> 34-mer``, one entry per unique pseudosequence.
+
+    A header is ``<allele> [<allele> ...]|n=<count>``: every allele sharing the 34-mer is listed.
+    Only the first is keyed — this index feeds :func:`_best_pseudo_hit`, which scores *sequences*,
+    so the extra names are labels we do not need and would make it score each 34-mer ``n`` times.
+    (``mhcmatch`` keys all of them; it looks alleles up by name, which is the opposite need.)
+
+    The ``|n=`` suffix must be stripped: splitting on whitespace alone keyed a singleton record as
+    ``'HLA-A02:01|n=1'``, which no lookup could ever match.
+    """
     fasta = Path(str(resources.files("tcren.data").joinpath(_PSEUDO_FA[mhc_class])))
     index: dict[str, str] = {}
     header = None
     for line in fasta.read_text().splitlines():
         if line.startswith(">"):
-            header = line[1:].split()[0]
+            header = line[1:].split("|")[0].split()[0]
         elif header is not None:
             index[header] = line.strip()
     return index

@@ -52,7 +52,7 @@ deps. Guard: `RUN_BENCHMARK=1`.
 The three oracles are installed in a **dedicated** env so the primary `tcren-nb` env stays pristine.
 Recipe used (osx-arm64, all three have arm64 builds):
 
-```fish
+```bash
 conda create -y -n tcren-fold -c conda-forge -c bioconda \
     python=3.11 pip cmake cxx-compiler mmseqs2 "numpy>=1.26" "scipy>=1.11" "biopython>=1.84" \
     openmm pdbfixer openstructure promod3           # OpenMM 8.5.2, OST 2.11.1, ProMod3 3.6.0

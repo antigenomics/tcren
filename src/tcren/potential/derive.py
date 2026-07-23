@@ -15,11 +15,8 @@ import polars as pl
 from .model import AA20, AA21, Potential
 
 # Classic derivation enumerates the 20 standard amino acids (Cys included in the
-# grid; dropped from the *from* axis only after the log-odds are computed).
-_AA20_CLASSIC: tuple[str, ...] = (
-    "L", "F", "I", "M", "V", "W", "Y", "C", "H", "A",
-    "G", "P", "T", "S", "Q", "N", "D", "E", "R", "K",
-)
+# grid; dropped from the *from* axis only after the log-odds are computed) — the
+# same tuple/order as ``model.AA20``.
 
 
 def derive_tcren(
@@ -65,7 +62,7 @@ def derive_tcren(
     if exclude is not None:
         df = df.filter(~pl.col("pdb.id").is_in(exclude))
 
-    alphabet = _AA20_CLASSIC if variant == "classic" else AA21
+    alphabet = AA20 if variant == "classic" else AA21
     if drop_cys is None:
         drop_cys = variant == "classic"
 

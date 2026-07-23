@@ -297,6 +297,36 @@ tcren.refine package
    :undoc-members:
    :show-inheritance:
 
+.. automodule:: tcren.refine.oracle_flexpep
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. automodule:: tcren.refine.engines.base
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. automodule:: tcren.refine.engines.dope
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. automodule:: tcren.refine.engines.ccd
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. automodule:: tcren.refine.engines.openmm_engine
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. automodule:: tcren.refine.engines.promod3_engine
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Data paths
 ----------
 
@@ -326,6 +356,14 @@ tcren.orient.align module
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. automodule:: tcren.orient.align
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+tcren.orient.superimpose module
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: tcren.orient.superimpose
    :members:
    :undoc-members:
    :show-inheritance:

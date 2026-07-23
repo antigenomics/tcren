@@ -68,8 +68,6 @@ def _dsasa(structure):
 
 def _pp_combo(structure, potential, cutoff):
     """CDR1/2-vs-CDR3α TCRen potential term: z(ΣJ over CDR1/2:pep) − z(ΣJ over CDR3α:pep)."""
-    import polars as pl
-
     from ..contactmap import ContactMap
     from .model import BINDER_MODEL
 

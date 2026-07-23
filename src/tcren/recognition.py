@@ -20,11 +20,34 @@ from __future__ import annotations
 import gzip
 import json
 import math
+from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
 
 _EPS = 1e-9
+
+
+def _sigmoid(x: np.ndarray) -> np.ndarray:
+    """Numerically-safe logistic (clips the exponent to avoid overflow warnings)."""
+    return 1.0 / (1.0 + np.exp(-np.clip(x, -700, 700)))
+
+
+def _dump_json_gz(d: dict, path: str | Path) -> Path:
+    """Serialise ``d`` to JSON at ``path`` (gzip-compressed iff the name ends in ``.gz``)."""
+    path = Path(path)
+    opener = gzip.open if str(path).endswith(".gz") else open
+    with opener(path, "wb") as fh:
+        fh.write(json.dumps(d).encode())
+    return path
+
+
+def _load_json_gz(path: str | Path) -> dict:
+    """Inverse of :func:`_dump_json_gz`."""
+    path = Path(path)
+    opener = gzip.open if str(path).endswith(".gz") else open
+    with opener(path, "rb") as fh:
+        return json.loads(fh.read())
 
 
 def _bic_local(Z: np.ndarray, j: int, parents: list[int]) -> float:
@@ -150,7 +173,7 @@ class GaussianBNClassifier:
         s = self.decision_function(X, mhc_class)
         if not balanced:
             s = s + math.log(self.prior_ / (1 - self.prior_ + _EPS))
-        p = 1.0 / (1.0 + np.exp(-np.clip(s, -700, 700)))
+        p = _sigmoid(s)
         return np.column_stack([1 - p, p])
 
     # -- marginalization ---------------------------------------------------------------------------------
@@ -192,7 +215,7 @@ class GaussianBNClassifier:
 
     def marginal_proba(self, X, keep, mhc_class=None) -> np.ndarray:
         s = self.marginal_decision(X, keep, mhc_class)
-        p = 1.0 / (1.0 + np.exp(-np.clip(s, -700, 700)))
+        p = _sigmoid(s)
         return np.column_stack([1 - p, p])
 
     # -- persistence + rendering -------------------------------------------------------------------------
@@ -211,16 +234,11 @@ class GaussianBNClassifier:
         return obj
 
     def save(self, path: str | Path) -> Path:
-        path = Path(path)
-        data = json.dumps(self.to_dict()).encode()
-        (gzip.open(path, "wb") if str(path).endswith(".gz") else open(path, "wb")).write(data)
-        return path
+        return _dump_json_gz(self.to_dict(), path)
 
     @classmethod
     def load(cls, path: str | Path) -> "GaussianBNClassifier":
-        path = Path(path)
-        raw = (gzip.open(path, "rb") if str(path).endswith(".gz") else open(path, "rb")).read()
-        return cls.from_dict(json.loads(raw))
+        return cls.from_dict(_load_json_gz(path))
 
     def to_dot(self, coef_threshold: float = 0.15) -> str:
         """Graphviz DAG: feature-feature edges (partial slopes) + class/MHC covariate edges above threshold."""
@@ -315,7 +333,7 @@ class BayesianLogisticRecognizer:
         return self.alpha + self._design(X) @ self.beta
 
     def predict_proba(self, X) -> np.ndarray:
-        p = 1.0 / (1.0 + np.exp(-np.clip(self.decision_function(X), -700, 700)))
+        p = _sigmoid(self.decision_function(X))
         return np.column_stack([1 - p, p])
 
     def to_dict(self) -> dict:
@@ -329,16 +347,11 @@ class BayesianLogisticRecognizer:
                    d.get("prior", "normal"))
 
     def save(self, path: str | Path) -> Path:
-        path = Path(path)
-        data = json.dumps(self.to_dict()).encode()
-        (gzip.open(path, "wb") if str(path).endswith(".gz") else open(path, "wb")).write(data)
-        return path
+        return _dump_json_gz(self.to_dict(), path)
 
     @classmethod
     def load(cls, path: str | Path) -> "BayesianLogisticRecognizer":
-        path = Path(path)
-        raw = (gzip.open(path, "rb") if str(path).endswith(".gz") else open(path, "rb")).read()
-        return cls.from_dict(json.loads(raw))
+        return cls.from_dict(_load_json_gz(path))
 
 
 # ===================================================================================================
@@ -388,6 +401,19 @@ FULL_FEATURES = RECOGNITION_FEATURES + CDR3_FRAME_FEATURES + MATRIX_SWAP_FEATURE
 #: thin contacts. Trained ONLY on provenance (Canonical2026 crystals = 0 vs AF/TCRmodel2 models = 1;
 #: n=2681, 268 crystal / 2413 forced), so it is independent of any binder label; 5-fold CV AUC 0.762.
 #: High ``p_forced`` marks a "too-good-to-be-true" pose; the score grades crystal < AF-real < AF-decoy.
+#:
+#: .. note::
+#:    For new work prefer the fit-free :func:`tcren.cohort.strain_z` (``S_strain``). It grades the
+#:    same crystal < AF-real < AF-decoy provenance gradient by signed standardization of the strain
+#:    terms, with no training set — so it is fully reproducible, unlike the coefficients below.
+#:
+#: .. warning::
+#:    These coefficients are **frozen and not re-derivable** -- the n=2681 training set no longer
+#:    exists. ``models/fit_frozen.py::forced_pose`` in the benchmark repo recovers the *procedure*
+#:    (unstandardized L2 logistic, C=0.1, which reproduces the 0.762 CV above to within 0.001) but
+#:    not the coefficients. Refitting on the surviving 1168-row fixture gives a **better** in-sample
+#:    ROC (0.769 vs 0.745), which is how we know these were fit on different rows rather than
+#:    overfit to what survives. Do not replace them with a refit without re-basing the benchmarks.
 FORCED_POSE_MODEL = {
     "features": ("dock_d", "cdr3b_reach", "cdr3b_topep", "cdr3a_ext", "extent_per_ct", "chain_balance"),
     "coef": (-0.46517433874162056, 0.14437146872011086, -0.31411562068257676,
@@ -637,7 +663,8 @@ def recognition_table(items, *, organism: str = "human", full: bool = False, sco
     search (:func:`tcren.mhc.annotate_mhc_batch`) — the dataset-scale path that avoids the per-structure
     annotation cost — then :func:`recognition_features` (``full=``) is extracted for each. With
     ``with_p_real`` the ``p_real`` / ``p_real_bn`` recognizer columns are added; with ``scores`` the
-    ``p_forced`` (forced-pose) and ``p_bind`` (binder-ID) columns too. Returns one row dict per
+    fit-free cohort scores ``q_bind`` / ``s_strain`` (**recommended**, see :mod:`tcren.cohort`) plus
+    the fitted ``p_forced`` / ``p_bind`` (retained for reproducibility). Returns one row dict per
     structure (``complex.id`` + features [+ scores]); a structure that fails yields
     ``{"complex.id": id, "error": ...}`` so the batch stays resilient.
     """
@@ -685,11 +712,37 @@ def recognition_table(items, *, organism: str = "human", full: bool = False, sco
             rows.append(row)
         except Exception as exc:  # noqa: BLE001
             rows.append({"complex.id": id_, "error": f"{type(exc).__name__}: {str(exc)[:80]}"})
+
+    if scores:                                                        # fit-free cohort scores (recommended)
+        _add_cohort_scores(rows)
     return rows
 
 
+def _add_cohort_scores(rows: list[dict]) -> None:
+    """Append the fit-free cohort scores ``q_bind`` (:func:`tcren.cohort.q_score`) and ``s_strain``
+    (:func:`tcren.cohort.strain_z`) in place. Cohort-relative, so they are computed over the whole
+    batch at once and are the **recommended** binder / forced-pose scores (see :mod:`tcren.cohort`).
+    Needs the ``full`` CDR3-frame features; NaN where a structure lacks them.
+    """
+    from . import cohort
+    ok = [r for r in rows if "error" not in r]
+    if len(ok) < 2:                                                   # cohort scores are undefined for <2
+        for r in ok:
+            r["q_bind"] = r["s_strain"] = math.nan
+        return
+    table = {k: [r.get(k, math.nan) for r in ok]
+             for k in set().union(*(r.keys() for r in ok)) if k != "complex.id"}
+    try:
+        q, s = cohort.q_score(table), cohort.strain_z(table)
+    except KeyError:                                                  # missing full features -> skip cleanly
+        return
+    for i, r in enumerate(ok):
+        r["q_bind"], r["s_strain"] = float(q[i]), float(s[i])
+
+
+@lru_cache(maxsize=None)
 def frozen_recognizers():
-    """Load the shipped real-vs-shuffled recognizers ``(logistic, bn)`` from ``tcren.data``.
+    """Load the shipped real-vs-shuffled recognizers ``(logistic, bn)`` from ``tcren.data`` (cached).
 
     ``logistic`` is the headline distribution-aware :class:`BayesianLogisticRecognizer`
     (``shuffle_logistic.json.gz``); ``bn`` is the :class:`GaussianBNClassifier`
@@ -745,7 +798,9 @@ def kit_score(p_bind, iptm) -> np.ndarray:
     ``recognize --scores``) with the AlphaFold/TCRmodel2 **ipTM** that ships free with every model. On the
     TCRvdb raw-label benchmark this fixed no-fit combination beats **either alone** at precision
     (macro-PR 0.847 vs ipTM 0.782 / p_bind 0.804; precision 0.969 at 10% recall vs ipTM 0.861; Δ macro-PR
-    vs ipTM +0.041, 95% CI [+0.006, +0.074]). Higher = more binder-like.
+    vs ipTM +0.065, 95% CI [+0.022, +0.100], P(Δ>0)=1.00). A leave-epitope-out logistic on the same two
+    inputs gives the more conservative +0.041 [+0.005, +0.076] — a different estimator, not this score.
+    Higher = more binder-like.
 
     Cohort-relative: ``z`` standardizes over the input arrays, so pass the **whole set** of AF models you
     are ranking (not one structure). NaNs are ignored by the mean/sd and propagate to their own entries.
