@@ -14,6 +14,7 @@ from .cohort import phi_bind, q_score, strain_z, zscore
 from .clashes import ClashReport, has_clashes, interface_clashes
 from . import geometry
 from .contactmap import ContactMap, ModeCentroid, binding_mode, registered_map
+from .geometry import LoopInternalCoords, cdr3_internal_coords
 from .contacts import all_atom_contacts, ca_distance_matrix
 from .ddg import alanine_scan, ddg, neoantigen_ddg, reference_delta
 from .mechanics import coupling_residues, interface_springs, rupture, stiffness_tensor
@@ -43,6 +44,7 @@ __all__ = [
     "all_atom_contacts",
     "ca_distance_matrix",
     "ContactMap", "ModeCentroid", "binding_mode", "registered_map", "geometry",
+    "cdr3_internal_coords", "LoopInternalCoords",
     "score_peptides", "recognition_matrix", "RecognitionMatrix",
     "score_structures",
     "percentile_rank",
