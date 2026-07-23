@@ -14,15 +14,18 @@ package's evaluation. Numbers computed on denoised labels measure tcren *and* th
 so they are not reported here.
 
 The coefficients were **fit on a denoised subset** while the reported evaluation is on raw labels.
-That asymmetry is deliberate, not an oversight: denoised *evaluation* would measure tcren and TCRNET
-jointly and is excluded, but denoised *training* is ordinary label-noise reduction and it measurably
-helps. Training on the denoised subset generalizes **better** on raw held-out labels than training
-on raw ones — 20-seed 5-fold CV macro ROC 0.776 vs 0.761, winning 20/20 seeds — so re-fitting on raw
-labels would make this model worse. Measured by ``models/fit_pbind.py`` in the benchmark repo
-(benchmark ledger C24); the fit script is ``scripts/binder_validate.py``.
+That asymmetry is deliberate: denoised *evaluation* would measure tcren and TCRNET jointly and is
+excluded, while denoised *training* is ordinary label-noise reduction. There is no reason to refit on
+raw labels. The fit script is ``scripts/binder_validate.py``.
 
-Caveat: the coefficients are frozen from a 2-epitope (HLA-A*02:01: GLCTLVAML, YLQPRTFLL) training
-set; cross-allele/epitope generalization is untested.
+.. warning::
+   **These numbers are within-cohort and do not generalize across cohorts.** The training set is two
+   HLA-A*02:01 epitopes (GLCTLVAML, YLQPRTFLL), so a random split interpolates inside two clouds.
+   Under a proper cross-dataset split the model does not transfer: trained on VDJdb-AF real-vs-mock
+   it scores macro ROC 0.47 on TCRvdb (below chance), and the reverse direction reaches 0.54 —
+   against 0.81 for within-TCRvdb CV. Treat ``p_bind`` as calibrated for cohorts resembling its
+   training set, not as a general binder classifier. Benchmark ledger C25,
+   ``models/fit_crossdataset.py``.
 """
 
 from __future__ import annotations
