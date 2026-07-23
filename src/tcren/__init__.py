@@ -12,7 +12,8 @@ from .paper.helpers import annotate_batch
 from .refine.anchors import native_peptide
 from .cohort import phi_bind, q_score, strain_z, zscore
 from .clashes import ClashReport, has_clashes, interface_clashes
-from .contactmap import ContactMap
+from . import geometry
+from .contactmap import ContactMap, ModeCentroid, binding_mode, registered_map
 from .contacts import all_atom_contacts, ca_distance_matrix
 from .ddg import alanine_scan, ddg, neoantigen_ddg, reference_delta
 from .mechanics import coupling_residues, interface_springs, rupture, stiffness_tensor
@@ -41,7 +42,7 @@ __all__ = [
     "Structure",
     "all_atom_contacts",
     "ca_distance_matrix",
-    "ContactMap",
+    "ContactMap", "ModeCentroid", "binding_mode", "registered_map", "geometry",
     "score_peptides",
     "score_structures",
     "percentile_rank",
