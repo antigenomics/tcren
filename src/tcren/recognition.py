@@ -401,6 +401,14 @@ FULL_FEATURES = RECOGNITION_FEATURES + CDR3_FRAME_FEATURES + MATRIX_SWAP_FEATURE
 #: thin contacts. Trained ONLY on provenance (Canonical2026 crystals = 0 vs AF/TCRmodel2 models = 1;
 #: n=2681, 268 crystal / 2413 forced), so it is independent of any binder label; 5-fold CV AUC 0.762.
 #: High ``p_forced`` marks a "too-good-to-be-true" pose; the score grades crystal < AF-real < AF-decoy.
+#:
+#: .. warning::
+#:    These coefficients are **frozen and not re-derivable** -- the n=2681 training set no longer
+#:    exists. ``bench/fit_models.py::forced_pose`` in the benchmark repo recovers the *procedure*
+#:    (unstandardized L2 logistic, C=0.1, which reproduces the 0.762 CV above to within 0.001) but
+#:    not the coefficients. Refitting on the surviving 1168-row fixture gives a **better** in-sample
+#:    ROC (0.769 vs 0.745), which is how we know these were fit on different rows rather than
+#:    overfit to what survives. Do not replace them with a refit without re-basing the benchmarks.
 FORCED_POSE_MODEL = {
     "features": ("dock_d", "cdr3b_reach", "cdr3b_topep", "cdr3a_ext", "extent_per_ct", "chain_balance"),
     "coef": (-0.46517433874162056, 0.14437146872011086, -0.31411562068257676,
