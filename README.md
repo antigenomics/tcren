@@ -40,7 +40,7 @@ From one TCR–peptide–MHC structure (crystal or model), each task is one comm
 | Score candidate epitopes for a TCR | `tcren score` | `score_peptides` |
 | Percentile-rank a peptide vs background | `tcren rank` | `percentile_rank` |
 | ΔΔG of mutations (alanine scan / neoantigen) | `tcren ddg` | `alanine_scan`, `neoantigen_ddg` |
-| Binder vs non-binder for a TCR model | `tcren binder` | `binder_score` |
+| Binder vs non-binder for a TCR model | `tcren binder` | `cohort.q_score` (recommended), `binder_score` |
 | **All interface descriptors + joint P(real)** | `tcren recognize` | `recognition_features`, `real_probability` |
 | Three-interface energy breakdown + total | `tcren pipeline` | `run_pipeline` |
 | Annotate chains + region markup | `tcren annotate` | `classify_chains`, `annotate_mhc` |
@@ -114,11 +114,12 @@ tcren rank -s complex.pdb -o rank.csv
 # Requires --native (the peptide) and exactly one mode: --alanine-scan or --mutant.
 tcren ddg -s complex.pdb --native EPITOPE --alanine-scan -o ddg.csv
 
-# Binder vs non-binder P(binder) from AF-orthogonal interface geometry + the CDR1/2-vs-CDR3a
-# TCRen term — ranks candidate TCRs against a fixed pMHC, beating AlphaFold/TCRmodel2 confidence
-# (raw-label macro AUC 0.796 vs AF ipTM 0.794; pooled 0.810 vs 0.793) with no external
-# tool. See tcren.binder.binder_score. Label denoising is a separate algorithm and is
-# not part of this benchmark.
+# Binder vs non-binder from AF-orthogonal interface geometry + the CDR1/2-vs-CDR3a TCRen term —
+# ranks candidate TCRs against a fixed pMHC, on par with AlphaFold/TCRmodel2 confidence with no
+# external tool (raw-label macro AUC ~0.80 vs AF ipTM 0.79). PREFER the fit-free Q = tcren.cohort.
+# q_score, which matches this and generalises across cohorts where the fitted p_bind does not; with
+# ipTM, z(ipTM)+z(Q) is the fit-free synergy (macro 0.83 vs 0.79). `tcren binder` emits the fitted
+# p_bind (retained for reproducibility); `tcren recognize --scores` adds q_bind + s_strain.
 tcren binder -s complex.pdb -o binder.csv
 
 # One TSV per structure: every interface descriptor (geometry + energies) + joint P(real).
@@ -180,6 +181,7 @@ probability `P(real)`:
 
 ```bash
 tcren recognize -s my_pdbs/ -o recognize.tsv               # 35 descriptors + p_real + p_real_bn
+tcren recognize -s my_pdbs/ -o scored.tsv --scores         # + q_bind, s_strain (recommended) + p_bind, p_forced
 tcren recognize -s my_pdbs/ -o feats.tsv --features-only   # descriptors only, skip the models
 ```
 
@@ -187,6 +189,7 @@ tcren recognize -s my_pdbs/ -o feats.tsv --features-only   # descriptors only, s
 |---|---|
 | **(a) energy** — TCRen/MJ `F` per interface + poly-alanine `dF` + loop parts | `F_tcr_pep`, `F_tcr_mhc`, `F_pep_mhc`, `dF_tcr_pep`, `dF_pep_mhc`, `e_cdr12`, `e_cdr3a`, `e_cdr3b`, `e_tcr_mhc` |
 | **(b) geometry** — every docking + interface descriptor | `pitch`, `crossing`, `dock_d`, `dock_torsion`, `dock_{tcr,mhc}_u{y,z}`, `extent`, `chain_balance`, `burial`, `n_contacts_{tp,tm}`, `n_pep_contacted`, `ct_{tp,tm}_*` |
+| **(c) fit-free scores** (`--scores`, recommended) — cohort-relative, no training set | `q_bind` — binder-ID `Q`; `s_strain` — forced-pose grade. See [`tcren.cohort`](src/tcren/cohort.py) |
 | **(d) joint P(real)** ~ Bayesian model over energy + geometry | `p_real` — distribution-aware Bayesian **logistic** (5-fold CV AUC 0.885); `p_real_bn` — the Gaussian **BN** variant |
 
 **Where the joint model lives.** `p_real` is the frozen recognizer we derive from real crystals vs

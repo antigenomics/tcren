@@ -1,5 +1,11 @@
 """Frozen binder/non-binder classifier over the native interface descriptors.
 
+.. note::
+   For new work prefer the fit-free :func:`tcren.cohort.q_score` (``Q``). It uses the same five
+   descriptors with equal weights and no training set, matches this model in-sample (r ~ 0.92), and
+   **generalises across cohorts where this fitted model does not** (benchmark ledger C25). This
+   module is retained to reproduce the published ``p_bind`` numbers.
+
 A 5-feature standardized logistic regression (StandardScaler -> LogisticRegression) frozen to fixed
 coefficients — no sklearn at inference, just ``P = sigmoid(b + Σ wᵢ (fᵢ − μᵢ)/σᵢ)``. The features are
 AF-orthogonal interface geometry + the CDR1/2-vs-CDR3α TCRen potential term; shape complementarity is

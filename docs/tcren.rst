@@ -149,6 +149,22 @@ tcren.contact_types module
    :undoc-members:
    :show-inheritance:
 
+tcren.geometry module
+~~~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: tcren.geometry
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+tcren.cohort module
+~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: tcren.cohort
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Potentials
 ----------
 
@@ -239,6 +255,14 @@ tcren.clashes module
 ~~~~~~~~~~~~~~~~~~~~~~
 
 .. automodule:: tcren.clashes
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+tcren.stability module
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: tcren.stability
    :members:
    :undoc-members:
    :show-inheritance:

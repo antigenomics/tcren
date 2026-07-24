@@ -8,8 +8,10 @@ separation is shorter than the sum of their Bondi vdW radii by more than a toler
 
 This is a structure-quality check: a generated complex with a heavy clash burden is geometrically
 non-physical, so its contact energy is read off a distorted interface (see
-:mod:`tcren.refine.register` for the register-specific diagnostic and correction). numpy-only --- no
-scipy, no compiled kernel.
+:mod:`tcren.refine.register` for the register-specific diagnostic and correction). The pairwise
+overlap scan is a native ``_geom`` kernel; the numpy implementation behind it
+(:func:`_clash_pairs_numpy`) is kept as the reference and as a fallback where the extension is
+unavailable.
 """
 
 from __future__ import annotations
@@ -19,6 +21,11 @@ from dataclasses import dataclass
 import numpy as np
 
 from .structure.model import PEPTIDE_TYPE, Structure
+
+try:
+    from . import _geom  # native clash kernel (built by scikit-build-core)
+except ImportError:  # pragma: no cover - pure-Python fallback if the extension is unavailable
+    _geom = None
 
 #: Bondi van der Waals radii (Å) by element symbol; ``_DEFAULT_RADIUS`` covers anything unlisted.
 BONDI_RADII: dict[str, float] = {
@@ -81,6 +88,26 @@ def _heavy_atoms(residues, chain_label: str):
             yield a.coord, _radius(a.element), label, chain_label
 
 
+def _clash_pairs(P, Pr, Q, Qr, tolerance):
+    """Clashing ``(P_index, Q_index, overlap)`` triples between two heavy-atom groups.
+
+    Uses the native ``_geom`` kernel when available and falls back to :func:`_clash_pairs_numpy`.
+    A pair clashes when ``Pr[i] + Qr[j] - dist > tolerance``.
+    """
+    if _geom is not None:
+        d = _geom.interface_clashes(P, Pr, Q, Qr, tolerance)
+        return np.asarray(d["i"], int), np.asarray(d["j"], int), np.asarray(d["overlap"], float)
+    return _clash_pairs_numpy(P, Pr, Q, Qr, tolerance)
+
+
+def _clash_pairs_numpy(P, Pr, Q, Qr, tolerance):
+    """Pure-numpy reference for :func:`_clash_pairs` (validated against the native kernel)."""
+    dist = np.sqrt(((P[:, None, :] - Q[None, :, :]) ** 2).sum(-1))
+    overlap = (Pr[:, None] + Qr[None, :]) - dist
+    ii, jj = np.where(overlap > tolerance)
+    return ii, jj, overlap[ii, jj]
+
+
 def interface_clashes(
     structure: Structure,
     *,
@@ -136,20 +163,17 @@ def interface_clashes(
             continue
         Q = np.asarray(qx, float)
         Qr = np.asarray(qr, float)
-        # pairwise distances, peptide (rows) × partner (cols)
-        d = np.sqrt(((P[:, None, :] - Q[None, :, :]) ** 2).sum(-1))
-        overlap = (Pr[:, None] + Qr[None, :]) - d
-        hit = overlap > tolerance
-        if not hit.any():
+        # peptide (rows) × partner (cols) heavy-atom clashes, via the native kernel
+        ii, jj, ov = _clash_pairs(P, Pr, Q, Qr, tolerance)
+        if len(ii) == 0:
             continue
-        cnt = int(hit.sum())
-        n += cnt
-        by_partner[ctype] = by_partner.get(ctype, 0) + cnt
-        n_sev += int((overlap > severe).sum())
-        score += float(overlap[hit].sum())
-        max_ov = max(max_ov, float(overlap[hit].max()))
-        for i, j in zip(*np.where(hit)):
-            pairs.append(ClashPair(pep_lab[i], ql[j], ctype, float(overlap[i, j])))
+        n += len(ii)
+        by_partner[ctype] = by_partner.get(ctype, 0) + len(ii)
+        n_sev += int((ov > severe).sum())
+        score += float(ov.sum())
+        max_ov = max(max_ov, float(ov.max()))
+        for i, j, o in zip(ii, jj, ov):
+            pairs.append(ClashPair(pep_lab[i], ql[j], ctype, float(o)))
 
     pairs.sort(key=lambda p: p.overlap, reverse=True)
     return ClashReport(

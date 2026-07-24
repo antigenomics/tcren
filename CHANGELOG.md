@@ -3,6 +3,40 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
+## [2.3.0] — 2026-07-24
+
+### Added
+- **`tcren.cohort` is the recommended fit-free scoring layer.** `q_score` (interface-quality `Q`),
+  `strain_z` (crystal-calibrated forced-pose strain), `zscore`, `Q_FEATURES`/`Q_FEATURES_CORE`. Prefer
+  these over the fitted `binder.binder_score` (`p_bind`) and `recognition.forced_pose_score`
+  (`p_forced`): they carry no training set, so they cannot leak or go stale, and — unlike the fitted
+  `p_bind` — `Q` generalises across cohorts. `tcren recognize --scores` now also emits `q_bind` and
+  `s_strain` (cohort-relative over the input batch).
+- **`tcren.recognition_matrix`** — the per-position × amino-acid substitution-energy landscape, the
+  CPL/motif-matrix generalisation of `score_peptides` (either interface side; decomposes the full
+  interface score exactly).
+- **Graphon / loop geometry featurisation** (`structure → descriptor`, not binder scores):
+  `contactmap.registered_map`, `contactmap.binding_mode` (`ModeCentroid`), and `tcren.geometry`
+  (`reach_max`, `reachability_floor`, `span_saturation`, `cdr3_internal_coords` / `LoopInternalCoords`).
+- **`tcren.stability.contact_stability`** — TCR:peptide contact fragility read straight off the contact
+  map: per-contact margin `5 − dmin` to the cutoff, `mean_margin`, `frac_robust`, and `exp_lost` (expected
+  contacts lost under a 1 Å shift) — a coordinate-only interface positional-confidence readout.
+- **Native `_geom` kernels for interface quality.** `_geom.interface_clashes` (heavy-atom vdW-overlap
+  scan, now backing `tcren.clashes`; numpy kept as the reference) and `_geom.contact_stability`.
+- **`tcren recognize` emits five interface-quality columns** — `n_clashes`, `clash_score`, `exp_lost`,
+  `mean_margin`, `frac_robust` (extra output columns, not part of the 35 model features).
+
+### Changed
+- `README`, `BENCHMARKS.md`, `docs/features.rst`, `docs/kit.rst` lead with the fit-free `Q` and disclose
+  the AlphaFold baseline choice (ipTM is the weakest of the three confidences on the receptor task).
+- Documented that `p_bind` and `FORCED_POSE_MODEL` are fit on labels/rows that no longer fully exist and
+  that the fit-free `cohort` scores are the reproducible, transfer-robust alternatives.
+
+### Deprecated
+- **`cohort.phi_bind`** now raises `DeprecationWarning`: extending `Q` with the docking-angle term
+  degrades ranking (the `z(-pitch)` term is below chance and derived from an AlphaFold-contaminated
+  angle). Use `q_score`.
+
 ## [2.2.3] — 2026-07-19
 
 ### Changed

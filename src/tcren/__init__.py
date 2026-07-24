@@ -12,7 +12,10 @@ from .paper.helpers import annotate_batch
 from .refine.anchors import native_peptide
 from .cohort import phi_bind, q_score, strain_z, zscore
 from .clashes import ClashReport, has_clashes, interface_clashes
-from .contactmap import ContactMap
+from .stability import StabilityReport, contact_stability
+from . import geometry
+from .contactmap import ContactMap, ModeCentroid, binding_mode, registered_map
+from .geometry import LoopInternalCoords, cdr3_internal_coords
 from .contacts import all_atom_contacts, ca_distance_matrix
 from .ddg import alanine_scan, ddg, neoantigen_ddg, reference_delta
 from .mechanics import coupling_residues, interface_springs, rupture, stiffness_tensor
@@ -23,11 +26,11 @@ from .pipeline import run as run_pipeline
 from .potential import Potential, derive_tcren, derive_tcren_loo
 from .refine import check_register, fix_register, refine_peptide, substitute_peptide
 from .refine.interface import interface_energy
-from .scoring import score_peptides, score_structures
+from .scoring import RecognitionMatrix, recognition_matrix, score_peptides, score_structures
 from .scoring_rank import background_peptides, percentile_rank
 from .structure import Structure, import_structure, parse_structure
 
-__version__ = "2.2.3"
+__version__ = "2.3.0"
 
 __all__ = [
     "annotate_batch", "native_peptide",
@@ -41,8 +44,9 @@ __all__ = [
     "Structure",
     "all_atom_contacts",
     "ca_distance_matrix",
-    "ContactMap",
-    "score_peptides",
+    "ContactMap", "ModeCentroid", "binding_mode", "registered_map", "geometry",
+    "cdr3_internal_coords", "LoopInternalCoords",
+    "score_peptides", "recognition_matrix", "RecognitionMatrix",
     "score_structures",
     "percentile_rank",
     "background_peptides",
@@ -61,6 +65,8 @@ __all__ = [
     "interface_clashes",
     "has_clashes",
     "ClashReport",
+    "contact_stability",
+    "StabilityReport",
     "summarize_structure",
     "run_pipeline",
     "PipelineResult",
