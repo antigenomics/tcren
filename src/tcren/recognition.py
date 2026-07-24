@@ -396,6 +396,13 @@ MATRIX_SWAP_FEATURES = tuple(f"{pre}_{g}" for g in _MATRIX_SWAP_GROUPS for pre i
 #: The full feature vector: the 35 core recognition descriptors + the 18 CDR3-frame + 12 matrix-swap.
 FULL_FEATURES = RECOGNITION_FEATURES + CDR3_FRAME_FEATURES + MATRIX_SWAP_FEATURES
 
+#: Fit-free docking-canonicality descriptors, always emitted (appended *after* the frozen design matrix,
+#: so they never disturb ``RECOGNITION_FEATURES`` ordering). ``dock_zscore`` = Mahalanobis distance of
+#: the pose from the crystal docking consensus (lower = more canonical / binder-like); ``dock_pval`` its
+#: χ² tail. Coordinate-only, so — unlike the cached ``pitch`` — free of AlphaFold-confidence leakage.
+#: See :mod:`tcren.orient.tcrdock_geometry`.
+DOCK_CANON_FEATURES = ("dock_zscore", "dock_pval")
+
 #: Frozen "forced-pose" classifier: P(this pose is an AF-forced interface rather than a crystal-natural
 #: one). A raw-feature logistic (no standardization) over interface *strain* — stretched CDR3 loops and
 #: thin contacts. Trained ONLY on provenance (Canonical2026 crystals = 0 vs AF/TCRmodel2 models = 1;
@@ -579,7 +586,7 @@ def recognition_features(source, *, organism: str = "human", potential=None,
     from .mhc import annotate_mhc
     from .oracle import _native_peptide
     from .orient.docking import docking_angles
-    from .orient.tcrdock_geometry import docking_geometry
+    from .orient.tcrdock_geometry import bundled_consensus, docking_geometry, docking_pvalue, docking_zscore
     from .pipeline import _interface_energy
     from .potential import mj as _mj
     from .potential import tcren as _tcren
@@ -595,7 +602,7 @@ def recognition_features(source, *, organism: str = "human", potential=None,
 
     cm = ContactMap.from_structure(s)
     native = _native_peptide(s)
-    row = {k: math.nan for k in (FULL_FEATURES if full else RECOGNITION_FEATURES)}
+    row = {k: math.nan for k in ((FULL_FEATURES if full else RECOGNITION_FEATURES) + DOCK_CANON_FEATURES)}
 
     try:                                                              # geometry (docking)
         da = docking_angles(s)
@@ -607,6 +614,12 @@ def recognition_features(source, *, organism: str = "human", potential=None,
         row.update(dock_d=float(dg.d), dock_torsion=float(dg.torsion),
                    dock_tcr_uy=float(dg.tcr_unit_y), dock_tcr_uz=float(dg.tcr_unit_z),
                    dock_mhc_uy=float(dg.mhc_unit_y), dock_mhc_uz=float(dg.mhc_unit_z))
+        try:                                                         # fit-free canonicality vs crystals
+            cons = bundled_consensus("I")
+            row["dock_zscore"] = docking_zscore(dg, cons)            # Mahalanobis (lower = more canonical)
+            row["dock_pval"] = docking_pvalue(dg, cons)
+        except Exception:
+            pass
     except Exception:
         pass
 

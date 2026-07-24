@@ -6,12 +6,17 @@ import numpy as np
 import pytest
 
 from tcren.orient.tcrdock_geometry import (
+    DockingConsensus,
     DockingGeometry,
     _dihedral,
+    _encode,
     _kabsch,
     _rotation_axis,
     _stub_from_three_points,
     _symmetry_stub,
+    consensus_distribution,
+    docking_pvalue,
+    docking_zscore,
 )
 
 
@@ -70,3 +75,54 @@ def test_docking_geometry_dataclass_roundtrip():
     d = dg.to_dict()
     assert set(d) == {"d", "torsion", "tcr_unit_y", "tcr_unit_z", "mhc_unit_y", "mhc_unit_z"}
     assert d["d"] == pytest.approx(29.1)
+
+
+# ---- docking-canonicality consensus (Mahalanobis Z-score) --------------------------------------------
+
+def _synthetic_geoms(n, rng):
+    """A tight cluster of plausible class-I docking geometries around a canonical centre."""
+    out = []
+    for _ in range(n):
+        out.append(DockingGeometry(
+            d=30.0 + rng.normal(0, 1.0),
+            torsion=3.3 + rng.normal(0, 0.1),
+            tcr_unit_y=0.05 + rng.normal(0, 0.05), tcr_unit_z=0.10 + rng.normal(0, 0.05),
+            mhc_unit_y=0.20 + rng.normal(0, 0.05), mhc_unit_z=0.02 + rng.normal(0, 0.05)))
+    return out
+
+
+def test_encode_dimension_and_torsion_wrap():
+    # torsion is sin-cos encoded, so 0 and 2*pi encode identically (no artificial cliff)
+    a = _encode(DockingGeometry(30.0, 0.0, 0.1, 0.1, 0.1, 0.1))
+    b = _encode(DockingGeometry(30.0, 2 * np.pi, 0.1, 0.1, 0.1, 0.1))
+    assert a.shape == (7,)
+    assert np.allclose(a, b, atol=1e-9)
+
+
+def test_consensus_center_is_closer_than_outlier():
+    rng = np.random.default_rng(3)
+    cons = consensus_distribution(_synthetic_geoms(200, rng), mhc_class="I")
+    center = DockingGeometry(30.0, 3.3, 0.05, 0.10, 0.20, 0.02)      # ~ the consensus mean
+    outlier = DockingGeometry(45.0, 3.3, 0.05, 0.10, 0.20, 0.02)     # far in d (non-canonical)
+    z_center = docking_zscore(center, cons)
+    z_outlier = docking_zscore(outlier, cons)
+    assert z_center >= 0.0
+    assert z_outlier > z_center + 3.0                                # much less canonical
+    # p-value is the mirror: canonical high, outlier ~0
+    assert docking_pvalue(center, cons) > docking_pvalue(outlier, cons)
+    assert 0.0 <= docking_pvalue(outlier, cons) < 0.01
+
+
+def test_consensus_dict_roundtrip():
+    rng = np.random.default_rng(4)
+    cons = consensus_distribution(_synthetic_geoms(50, rng))
+    back = DockingConsensus.from_dict(cons.to_dict())
+    g = DockingGeometry(31.0, 3.2, 0.0, 0.1, 0.2, 0.0)
+    assert docking_zscore(g, cons) == pytest.approx(docking_zscore(g, back), rel=1e-9)
+    assert back.n == cons.n and back.mhc_class == cons.mhc_class
+
+
+def test_consensus_needs_enough_points():
+    rng = np.random.default_rng(5)
+    with pytest.raises(ValueError):
+        consensus_distribution(_synthetic_geoms(5, rng))            # <= 7 params -> underdetermined

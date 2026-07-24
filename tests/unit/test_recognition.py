@@ -5,10 +5,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from tcren.recognition import (BayesianLogisticRecognizer, CDR3_FRAME_FEATURES, FORCED_POSE_MODEL,
-                               FULL_FEATURES, GaussianBNClassifier, MATRIX_SWAP_FEATURES,
-                               RECOGNITION_FEATURES, _hill_climb, encode_features, forced_pose_score,
-                               kit_score)
+from tcren.recognition import (BayesianLogisticRecognizer, CDR3_FRAME_FEATURES, DOCK_CANON_FEATURES,
+                               FORCED_POSE_MODEL, FULL_FEATURES, GaussianBNClassifier,
+                               MATRIX_SWAP_FEATURES, RECOGNITION_FEATURES, _hill_climb, encode_features,
+                               forced_pose_score, kit_score)
 
 
 def _auc(y, score):
@@ -173,7 +173,9 @@ def test_recognition_features_full_end_to_end():
     from tcren.recognition import recognition_features
 
     f = recognition_features(reference_structure_path("1ao7"), full=True)
-    assert set(f) == set(FULL_FEATURES)
+    assert set(f) == set(FULL_FEATURES + DOCK_CANON_FEATURES)
+    # 1ao7 is one of the crystal-consensus structures, so its docking is canonical (small Mahalanobis)
+    assert np.isfinite(f["dock_zscore"]) and f["dock_zscore"] < 5.0
     # matrix-swap tcren_* duplicates the core loop energies by construction
     assert f["tcren_tp"] == pytest.approx(f["F_tcr_pep"])
     assert f["tcren_cdr3a"] == pytest.approx(f["e_cdr3a"])
@@ -238,7 +240,8 @@ def test_recognition_features_end_to_end():
 
     pdb = Path(__file__).resolve().parents[1] / "assets" / "pdb" / "1ao7.pdb"
     feats = recognition_features(str(pdb))
-    assert set(feats) == set(RECOGNITION_FEATURES)
+    assert set(feats) == set(RECOGNITION_FEATURES + DOCK_CANON_FEATURES)
+    assert np.isfinite(feats["dock_zscore"]) and 0.0 <= feats["dock_pval"] <= 1.0
     assert feats["burial"] > 0 and feats["extent"] > 0          # a real complex has a buried interface
     assert 0.0 < float(real_probability(feats)["logistic"][0]) < 1.0
 

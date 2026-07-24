@@ -33,6 +33,7 @@ crystal-computable descriptors over the opaque upstream pitch.
 from __future__ import annotations
 
 from dataclasses import dataclass, asdict
+from functools import lru_cache
 
 import numpy as np
 
@@ -271,3 +272,120 @@ def docking_geometry(structure) -> DockingGeometry:
     d = float(np.linalg.norm(mhc_stub["origin"] - tcr_stub["origin"]))
     return DockingGeometry(d, torsion, float(tcr_unit[1]), float(tcr_unit[2]),
                            float(mhc_unit[1]), float(mhc_unit[2]))
+
+
+# =======================================================================================================
+# docking-canonicality consensus — a fit-free, coordinate-only geometric-plausibility prior
+# =======================================================================================================
+# Woods et al. 2026 (bioRxiv 10.64898/2026.06.02.729478) and Bradley 2023 (TCRdock, eLife 82813) score a
+# TCR:pMHC pose by the Mahalanobis distance of its docking geometry from the per-MHC-class consensus of
+# crystal structures — a "Z-score" that predicts docking accuracy and is an AlphaFold-free binder / pose-
+# quality signal. This section fits that consensus and computes the distance. Torsion is sin-cos encoded
+# so the wrap at 0/2π is continuous (Woods Methods). Being coordinate-only, this cannot carry the
+# ``pitch_angle`` AlphaFold-confidence leakage (benchmark ledger C19) — it is the ipTM ingredient that
+# ``cohort.q_score`` does not yet include.
+_CONSENSUS_DIM = 7  # d, sin(torsion), cos(torsion), tcr_unit_y, tcr_unit_z, mhc_unit_y, mhc_unit_z
+
+
+def _encode(g: DockingGeometry) -> np.ndarray:
+    """7-vector encoding of a docking geometry (torsion → sin, cos so it wraps continuously)."""
+    return np.array([g.d, np.sin(g.torsion), np.cos(g.torsion),
+                     g.tcr_unit_y, g.tcr_unit_z, g.mhc_unit_y, g.mhc_unit_z], float)
+
+
+@dataclass(slots=True)
+class DockingConsensus:
+    """Multivariate-normal consensus of canonical TCR:pMHC docking geometries for one MHC class.
+
+    Fit from crystal structures with :func:`consensus_distribution`; :func:`docking_zscore` reads the
+    Mahalanobis distance of a query pose from it — a fit-free, coordinate-only measure of how canonical
+    the docking is (lower = more canonical). This is the geometric-plausibility prior of TCRdock
+    (Bradley 2023) and Woods et al. (2026), and the one ipTM ingredient absent from
+    ``tcren.cohort.q_score``. It is AlphaFold-free, so it cannot re-import the ``pitch_angle``
+    confidence leakage (benchmark ledger C19).
+    """
+
+    mean: np.ndarray             # (7,) consensus centre in the encoded space
+    cov: np.ndarray              # (7, 7) covariance (ridge-regularised at fit time)
+    n: int                       # number of crystal structures fit
+    mhc_class: str = "I"         # only class I is supported (docking_geometry raises on class II)
+
+    def mahalanobis2(self, x7: np.ndarray) -> float:
+        """Squared Mahalanobis distance of an encoded geometry ``x7`` from the consensus."""
+        d = np.asarray(x7, float) - self.mean
+        return float(d @ np.linalg.solve(self.cov, d))
+
+    def to_dict(self) -> dict:
+        return {"mean": self.mean.tolist(), "cov": self.cov.tolist(),
+                "n": int(self.n), "mhc_class": self.mhc_class}
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "DockingConsensus":
+        return cls(np.asarray(d["mean"], float), np.asarray(d["cov"], float),
+                   int(d["n"]), str(d.get("mhc_class", "I")))
+
+
+def consensus_distribution(geometries, *, mhc_class: str = "I", ridge: float = 1e-4) -> DockingConsensus:
+    """Fit the docking-geometry consensus (mean + covariance) from crystal ``DockingGeometry`` objects.
+
+    Args:
+        geometries: an iterable of :class:`DockingGeometry` from crystal TCR:pMHC structures of one MHC
+            class. Fit from crystals only — never from the poses to be scored — so the prior stays a
+            population-level canonicality reference, not a binder label.
+        mhc_class: the MHC class label stored on the result.
+        ridge: diagonal added to the covariance for invertibility.
+
+    Returns:
+        The :class:`DockingConsensus`.
+
+    Raises:
+        ValueError: if ``≤ _CONSENSUS_DIM`` geometries are given (the covariance is underdetermined).
+    """
+    X = np.vstack([_encode(g) for g in geometries])
+    if len(X) <= _CONSENSUS_DIM:
+        raise ValueError(f"need > {_CONSENSUS_DIM} geometries to fit a {_CONSENSUS_DIM}-d covariance, "
+                         f"got {len(X)}")
+    mean = X.mean(0)
+    cov = np.cov(X, rowvar=False) + ridge * np.eye(_CONSENSUS_DIM)
+    return DockingConsensus(mean=mean, cov=cov, n=len(X), mhc_class=mhc_class)
+
+
+def docking_zscore(pose, consensus: DockingConsensus) -> float:
+    """Mahalanobis distance of a pose's docking geometry from the crystal consensus.
+
+    Args:
+        pose: a chain-typed, MHC-annotated :class:`~tcren.structure.model.Structure`, or a precomputed
+            :class:`DockingGeometry`.
+        consensus: the crystal :class:`DockingConsensus` (see :func:`bundled_consensus`).
+
+    Returns:
+        ``sqrt(Mahalanobis²)`` — distance from the canonical docking mode in consensus-SD units.
+        **Lower = more canonical = more binder-like**; negate it for a positive-is-binder score.
+    """
+    g = pose if isinstance(pose, DockingGeometry) else docking_geometry(pose)
+    return float(np.sqrt(max(consensus.mahalanobis2(_encode(g)), 0.0)))
+
+
+def docking_pvalue(pose, consensus: DockingConsensus) -> float:
+    """χ²-tail probability that a canonical pose is at least as far as ``pose`` from the consensus.
+
+    Under the multivariate-normal consensus the squared Mahalanobis distance is χ² with
+    :data:`_CONSENSUS_DIM` degrees of freedom, so ``p`` is its survival function. Small ``p`` ⇒ an
+    atypical (non-canonical) docking.
+    """
+    from scipy.stats import chi2
+    g = pose if isinstance(pose, DockingGeometry) else docking_geometry(pose)
+    return float(chi2.sf(consensus.mahalanobis2(_encode(g)), df=_CONSENSUS_DIM))
+
+
+@lru_cache(maxsize=None)
+def bundled_consensus(mhc_class: str = "I") -> DockingConsensus:
+    """Load the bundled crystal docking consensus from ``tcren/data/docking_consensus.json`` (cached).
+
+    Fit once from the ``Canonical2026`` crystal reference set (268 class-I crystals) by
+    ``scripts/fit_docking_consensus.py``.
+    """
+    import json
+    from importlib import resources
+    blob = json.loads(resources.files("tcren.data").joinpath("docking_consensus.json").read_text())
+    return DockingConsensus.from_dict(blob[mhc_class])
