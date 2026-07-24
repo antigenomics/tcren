@@ -30,7 +30,7 @@ from .scoring import RecognitionMatrix, recognition_matrix, score_peptides, scor
 from .scoring_rank import background_peptides, percentile_rank
 from .structure import Structure, import_structure, parse_structure
 
-__version__ = "2.2.3"
+__version__ = "2.3.0"
 
 __all__ = [
     "annotate_batch", "native_peptide",

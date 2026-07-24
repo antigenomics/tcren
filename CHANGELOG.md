@@ -3,7 +3,7 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
-## [2.3.0] — unreleased (on `develop`)
+## [2.3.0] — 2026-07-24
 
 ### Added
 - **`tcren.cohort` is the recommended fit-free scoring layer.** `q_score` (interface-quality `Q`),
