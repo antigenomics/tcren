@@ -2,8 +2,8 @@
 import numpy as np
 import pytest
 
-from tcren.cohort import (Q_FEATURES, Q_FEATURES_CORE, STRAIN_TERMS, phi_bind, q_score, strain_z,
-                          zscore)
+from tcren.cohort import (Q_FEATURES, Q_FEATURES_CORE, Q_FEATURES_GEOM, STRAIN_TERMS, phi_bind,
+                          q_iptm, q_score, strain_z, zscore)
 
 
 def _table(n=120, seed=0, **shift):
@@ -73,3 +73,28 @@ def test_missing_column_names_itself():
 
 def test_q_uses_exactly_five_descriptors():
     assert len(Q_FEATURES) == 5
+
+
+def test_q_features_geom_is_the_four_geometry_terms():
+    # Q_geom = Q_FEATURES without the pp_combo energy contrast
+    assert Q_FEATURES_GEOM == ("burial", "n_pep_contacted", "chain_balance", "n_hbond")
+    assert "pp_combo" not in Q_FEATURES_GEOM and set(Q_FEATURES_GEOM) < set(Q_FEATURES)
+
+
+def test_q_iptm_is_zsum_of_iptm_and_q():
+    t = _table()
+    iptm = np.random.default_rng(3).uniform(0.4, 0.95, size=120)
+    combo = q_iptm(t, iptm, features=Q_FEATURES_GEOM)
+    assert combo.shape == (120,)
+    # exact definition: z(ipTM) + z(Q_geom)
+    expected = zscore(iptm) + zscore(q_score(t, features=Q_FEATURES_GEOM))
+    assert np.allclose(combo, expected)
+    # a missing ipTM falls back to z(Q) for that row, so the whole vector stays finite and rankable
+    iptm2 = iptm.copy(); iptm2[0] = np.nan
+    out = q_iptm(t, iptm2, features=Q_FEATURES_GEOM)
+    assert np.isfinite(out).all()
+    assert np.isclose(out[0], zscore(q_score(t, features=Q_FEATURES_GEOM))[0])
+    # all ipTM missing -> rank by the model geometry alone (== z(Q))
+    allnan = np.full(120, np.nan)
+    assert np.allclose(q_iptm(t, allnan, features=Q_FEATURES_GEOM),
+                       zscore(q_score(t, features=Q_FEATURES_GEOM)))

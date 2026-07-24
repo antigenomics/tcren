@@ -3,6 +3,21 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
+## [2.3.1] — 2026-07-24
+
+### Added
+- **`cohort.q_iptm(table, iptm, features=Q_FEATURES)`** — the fit-free synergy score `z(ipTM) + z(Q)`
+  as one call. `Q` (interface geometry) and the generator's ipTM are near-orthogonal, so the
+  standardized sum out-ranks either alone (macro ROC 0.83 vs ipTM 0.79 on TCRvdb; beats raw-AF ipTM on
+  both ROC and PR on well-modelled epitopes — benchmark ledger C42). Previously hand-rolled in the
+  benchmark; now shipped and exported from `tcren`.
+- **`cohort.Q_FEATURES_GEOM`** — the four geometry-only descriptors (`Q_FEATURES` minus the `pp_combo`
+  energy contrast). This is `Q_geom`, the AF-orthogonal channel robust to the forced-pose energy
+  inversion (C27); pass `features=Q_FEATURES_GEOM` to `q_score`/`q_iptm`.
+- **`tcren recognize --iptm META`** — single-line path: reads a metadata TSV/CSV (key column matched to
+  `complex.id` + an `iptm`/`tcr-pmhc_iptm` column) and appends `Q_geom` and `z(ipTM)+z(Q_geom)` to the
+  recognition table for a directory/tarball/glob of structures.
+
 ## [2.3.0] — 2026-07-24
 
 ### Added

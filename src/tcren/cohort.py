@@ -36,8 +36,8 @@ import warnings
 
 import numpy as np
 
-__all__ = ["zscore", "q_score", "phi_bind", "strain_z", "Q_FEATURES", "Q_FEATURES_CORE",
-           "STRAIN_TERMS"]
+__all__ = ["zscore", "q_score", "q_iptm", "phi_bind", "strain_z", "Q_FEATURES", "Q_FEATURES_CORE",
+           "Q_FEATURES_GEOM", "STRAIN_TERMS"]
 
 #: The five interface-quality descriptors, equal-weighted in :func:`q_score`. Each is oriented
 #: positive-is-better as given. ``pp_combo`` is the CDR1/2-vs-CDR3alpha TCRen contrast — the one
@@ -51,6 +51,13 @@ Q_FEATURES = ("burial", "n_pep_contacted", "chain_balance", "n_hbond", "pp_combo
 #: removing it *raises* macro AUROC 0.795 -> 0.801 on TCRvdb (benchmark ledger, energy memo). Pass
 #: ``features=Q_FEATURES_CORE`` to :func:`q_score` for the simpler, marginally better score.
 Q_FEATURES_CORE = ("burial", "chain_balance", "n_hbond", "pp_combo")
+
+#: The four **geometry-only** descriptors — :data:`Q_FEATURES` without the ``pp_combo`` energy contrast.
+#: This is ``Q_geom``, the AF-orthogonal channel that survives the forced-pose regime where the contact
+#: energy inverts (benchmark ledger C27/C42): ``z(ipTM) + z(q_score(..., features=Q_FEATURES_GEOM))``
+#: beats raw-AF ipTM on well-modelled ("template-covered") epitopes on both ROC and PR, while the energy
+#: term is used only conditioned on pose quality. Pass to :func:`q_score` / :func:`q_iptm`.
+Q_FEATURES_GEOM = ("burial", "n_pep_contacted", "chain_balance", "n_hbond")
 
 #: Crystal-calibrated interface-strain terms with their physical signs. A forced pose reaches
 #: further from the peptide with a thinner, less balanced interface.
@@ -117,6 +124,32 @@ def q_score(table, reference=None, features=Q_FEATURES) -> np.ndarray:
     z = [zscore(_derive(table, f), None if reference is None else _derive(reference, f))
          for f in features]
     return np.nanmean(np.vstack(z), axis=0)
+
+
+def q_iptm(table, iptm, reference=None, features=Q_FEATURES) -> np.ndarray:
+    """Fit-free synergy score ``z(ipTM) + z(Q)`` — the interface-quality score composed with the
+    generator's own confidence.
+
+    ``Q`` (interface geometry) and the AlphaFold/TCRmodel2 ipTM are near-orthogonal (they fail in
+    different pose regimes, benchmark ledger C26/C35), so their standardized sum out-ranks either alone:
+    macro ROC 0.83 / PR 0.83 on TCRvdb vs ipTM 0.79, and on well-modelled epitopes it beats raw-AF ipTM
+    on both metrics (ledger C42). Both terms are standardized over the same candidate set, so pass an
+    ``iptm`` vector aligned row-for-row with ``table``. Use ``features=Q_FEATURES_GEOM`` for the
+    geometry-only ``Q_geom`` variant that is robust to the forced-pose energy inversion.
+
+    Args:
+        table: the ``tcren recognize --full`` table (dict / pandas / polars).
+        iptm: per-structure ipTM, aligned to ``table`` rows. Structures whose ipTM is missing (``NaN``)
+            fall back to ``z(Q)`` alone, so the score always ranks; an all-missing ``iptm`` returns
+            plain ``z(Q)`` — i.e. rank by the model geometry when no generator confidence is available.
+        reference: optional cohort to standardize against (see :func:`zscore`).
+        features: descriptors for ``Q``; defaults to the five :data:`Q_FEATURES`.
+    """
+    zq = zscore(q_score(table, reference, features))
+    out = zscore(np.asarray(iptm, float)) + zq
+    missing = ~np.isfinite(out)                       # ipTM absent for a structure -> rank by Q alone
+    out[missing] = zq[missing]
+    return out
 
 
 def phi_bind(table, reference=None) -> np.ndarray:

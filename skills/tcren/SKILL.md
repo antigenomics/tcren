@@ -256,6 +256,14 @@ QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses ar
   CI [+0.006,+0.074]) and corrects AF errors (strain flags AF false-positives 0.633; p_bind rescues AF
   false-negatives 0.732>ipTM 0.697). The "kit for AI-generated structures" decision procedure is `docs/kit.rst`.
   (No synergy on VDJdb real-vs-mock — there tcren's role is the forced-pose gradient, not discrimination.)
+- **`cohort.q_iptm` — fit-free `z(ipTM)+z(Q)` (2026-07-24, v2.3.1):** `cohort.q_iptm(table, iptm, features=Q_FEATURES)`
+  ships the geometry synergy as one call (the fit-free analog of `kit_score`, which pairs ipTM with the *fitted*
+  `p_bind`). `cohort.Q_FEATURES_GEOM` is the 4 geometry-only terms (`Q_FEATURES` minus `pp_combo`) → `Q_geom`,
+  robust to the forced-pose energy inversion (C27). `z(ipTM)+z(Q_geom)` beats raw-AF ipTM on both ROC and PR on
+  well-modelled ("template-covered") epitopes and ties it fit-free on TCRvdb (benchmark C42). Single-line CLI:
+  `tcren recognize -s pdbs/ --iptm meta.tsv -o out.tsv` joins ipTM (key col matched to `complex.id`) and appends
+  `Q_geom` + `z(ipTM)+z(Q_geom)`. F (contact energy) is used only conditioned on pose quality — it inverts on
+  forced poses (GLC↔ila1), so never add it unconditionally.
 
 ## MHC mapping speed — `mhc.reference.reference_db()`
 

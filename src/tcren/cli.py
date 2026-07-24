@@ -524,6 +524,8 @@ def recognize(
     features_only: bool = typer.Option(False, "--features-only", help="emit the descriptors, skip P(real)"),
     full: bool = typer.Option(False, "--full", help="add the 18 CDR3-frame + 12 matrix-swap descriptors (65 features total)"),
     scores: bool = typer.Option(False, "--scores", help="also append the fit-free q_bind + s_strain (recommended) and the fitted p_bind + p_forced; implies --full"),
+    cohort: bool = typer.Option(False, "--cohort", help="rank candidates by the fit-free interface-quality Q_geom (add --iptm for the z(ipTM)+z(Q_geom) synergy)"),
+    iptm: Path | None = typer.Option(None, "--iptm", help="metadata TSV/CSV with a key column (matched to complex.id) + an 'iptm' column; appends z(ipTM)+z(Q_geom). Missing ipTM falls back to Q_geom"),
 ) -> None:
     """Full interface descriptor table + joint P(real) for each TCR-pMHC complex (one TSV row per PDB).
 
@@ -541,6 +543,13 @@ def recognize(
 
     Complementary scorers on the same inputs: ``tcren ddg`` (per-mutation alanine/neoantigen ΔΔF) and
     ``tcren mechanics`` (koff proxies — stiffness + steered rupture).
+
+    Examples::
+
+        tcren recognize -s models/ -o out.tsv                        # descriptors + P(real)
+        tcren recognize -s models/ --scores -o out.tsv               # + fit-free q_bind/s_strain + fitted p_bind
+        tcren recognize -s models/ --cohort -o out.tsv               # rank candidates by Q_geom (no ipTM needed)
+        tcren recognize -s models.tar.gz --iptm meta.tsv -o out.tsv  # + z(ipTM)+z(Q_geom); missing ipTM -> Q_geom
     """
     from .recognition import recognition_table
     from .structure.io import import_structure
@@ -549,7 +558,32 @@ def recognize(
     items = list(iter_structures(structures, importer=import_structure))
     rows = recognition_table(items, organism=organism, full=full, scores=scores,
                              with_p_real=not features_only)
-    pl.DataFrame(rows).write_csv(str(out), separator="\t")
+    table = pl.DataFrame(rows)
+    if cohort or iptm is not None:                                   # fit-free cohort ranking
+        from .cohort import Q_FEATURES_GEOM, q_iptm, q_score
+        table = table.with_columns(pl.Series("Q_geom", q_score(table, features=Q_FEATURES_GEOM)))
+        if iptm is not None:                                         # + z(ipTM)+z(Q_geom); missing ipTM -> Q_geom
+            sep = "\t" if iptm.suffix.lower() in (".tsv", ".txt") else ","
+            meta = pl.read_csv(iptm, separator=sep, infer_schema_length=0)
+            keycol = next((c for c in ("complex.id", "TCR_hash", "key", "id", "tcr_pmhc_hash")
+                           if c in meta.columns), meta.columns[0])
+            ipcol = next((c for c in ("iptm", "tcr-pmhc_iptm", "tcr_pmhc_iptm") if c in meta.columns), None)
+            if ipcol is None:
+                raise typer.BadParameter("--iptm file needs an 'iptm' (or 'tcr-pmhc_iptm') column")
+            imap: dict[str, float] = {}
+            for k, v in zip(meta[keycol].to_list(), meta[ipcol].to_list()):
+                try:
+                    imap[str(k)] = float(v)
+                except (TypeError, ValueError):
+                    pass
+            ids = table["complex.id"].to_list()
+            ivec = [imap.get(i, imap.get(str(i).split("_")[0], float("nan"))) for i in ids]
+            n_hit = sum(1 for x in ivec if x == x)                   # x==x is False for NaN
+            table = table.with_columns(
+                pl.Series("z(ipTM)+z(Q_geom)", q_iptm(table, ivec, features=Q_FEATURES_GEOM)))
+            typer.echo(f"  ipTM matched {n_hit}/{len(ivec)} structures"
+                       + ("" if n_hit == len(ivec) else "; the rest rank by Q_geom"))
+    table.write_csv(str(out), separator="\t")
     typer.echo(f"wrote {out} ({len(rows)} rows)")
 
 
