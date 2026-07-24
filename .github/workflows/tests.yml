@@ -22,12 +22,12 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v5
         with:
-          python-version: ${{ matrix.python-version }}
           enable-cache: true
-      - name: Build tooling for the C++ extension
-        # tcren ships pybind11 extensions (src/_align, _geom, …), built by scikit-build-core;
-        # cmake + ninja + a C++ compiler are required (gcc is on the runner).
-        run: uv pip install --system cmake ninja
+      - name: Create venv + build tooling for the C++ extension
+        # A repo-local uv venv (the CI runner's Python is externally managed, so --system is refused);
+        # subsequent `uv pip install` auto-targets .venv. tcren ships pybind11 extensions (src/_align,
+        # _geom, …) built by scikit-build-core, so cmake + ninja + a C++ compiler are required.
+        run: uv venv --python ${{ matrix.python-version }} && uv pip install cmake ninja
       - name: Install package without arda (lean unit suite)
         # arda (PyPI: arda-mapper) is a real runtime dependency, but the non-slow suite imports it
         # lazily (importorskip) and CI has no arda reference database — so install tcren --no-deps
@@ -35,10 +35,10 @@ jobs:
         # rapidfuzz is a pure-wheel dep (no external binary, unlike arda) needed by the redundancy
         # clustering tests, so it is included here.
         run: |
-          uv pip install --system -e . --no-deps
-          uv pip install --system biopython scipy numpy polars typer requests huggingface_hub rapidfuzz \
+          uv pip install -e . --no-deps
+          uv pip install biopython scipy numpy polars typer requests huggingface_hub rapidfuzz \
                       pytest pytest-cov matplotlib
       - name: Run unit tests (arda/mmseqs-backed tests skip without arda)
         # Coverage gate: the lean unit suite covers ~58% of src/tcren; fail below 50%
         # to catch large drops without flaking on which optional (C++/arda) tests run.
-        run: pytest -m "not slow" -ra --cov=tcren --cov-report=term-missing --cov-fail-under=50
+        run: .venv/bin/pytest -m "not slow" -ra --cov=tcren --cov-report=term-missing --cov-fail-under=50
