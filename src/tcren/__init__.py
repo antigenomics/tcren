@@ -12,6 +12,7 @@ from .paper.helpers import annotate_batch
 from .refine.anchors import native_peptide
 from .cohort import phi_bind, q_score, strain_z, zscore
 from .clashes import ClashReport, has_clashes, interface_clashes
+from .stability import StabilityReport, contact_stability
 from . import geometry
 from .contactmap import ContactMap, ModeCentroid, binding_mode, registered_map
 from .geometry import LoopInternalCoords, cdr3_internal_coords
@@ -64,6 +65,8 @@ __all__ = [
     "interface_clashes",
     "has_clashes",
     "ClashReport",
+    "contact_stability",
+    "StabilityReport",
     "summarize_structure",
     "run_pipeline",
     "PipelineResult",

@@ -654,6 +654,33 @@ def recognition_features(source, *, organism: str = "human", potential=None,
     return row
 
 
+def _stability_clash_columns(s) -> dict[str, float]:
+    """Interface steric-clash + TCR:peptide contact-stability descriptors for the recognize table.
+
+    Extra *output* columns, **not** part of :data:`RECOGNITION_FEATURES` or any fitted model: a
+    coordinate-only read of forced-pose quality --- steric-clash burden (:func:`tcren.interface_clashes`)
+    and contact fragility (:func:`tcren.contact_stability`). NaN where the structure lacks a peptide or
+    receptor chain.
+    """
+    from .clashes import interface_clashes
+    from .stability import contact_stability
+
+    out: dict[str, float] = {}
+    try:
+        cl = interface_clashes(s)
+        out["n_clashes"], out["clash_score"] = float(cl.n_clashes), float(cl.clash_score)
+    except Exception:  # noqa: BLE001 - no peptide chain etc.
+        out["n_clashes"] = out["clash_score"] = math.nan
+    try:
+        st = contact_stability(s)
+        out["exp_lost"] = float(st.exp_lost)
+        out["mean_margin"] = float(st.mean_margin)
+        out["frac_robust"] = float(st.frac_robust)
+    except Exception:  # noqa: BLE001 - no peptide/receptor chain etc.
+        out["exp_lost"] = out["mean_margin"] = out["frac_robust"] = math.nan
+    return out
+
+
 def recognition_table(items, *, organism: str = "human", full: bool = False, scores: bool = False,
                       with_p_real: bool = True) -> list[dict]:
     """Batched feature (+score) extraction for a whole set of TCR–pMHC structures.
@@ -699,7 +726,7 @@ def recognition_table(items, *, organism: str = "human", full: bool = False, sco
     for id_, s in zip(ids, structs):
         try:
             feats = recognition_features(s, organism=organism, full=full, annotate=False)
-            row = {"complex.id": id_, **feats}
+            row = {"complex.id": id_, **feats, **_stability_clash_columns(s)}
             if with_p_real:
                 p = real_probability(feats, recognizers=recognizers)
                 row["p_real"], row["p_real_bn"] = float(p["logistic"][0]), float(p["bn"][0])

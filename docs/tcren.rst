@@ -259,6 +259,14 @@ tcren.clashes module
    :undoc-members:
    :show-inheritance:
 
+tcren.stability module
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: tcren.stability
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 tcren.pipeline module
 ~~~~~~~~~~~~~~~~~~~~~~~
 

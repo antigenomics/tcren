@@ -86,3 +86,21 @@ def test_intra_peptide_pairs_not_counted():
                 chain_type=PEPTIDE_TYPE)
     mhc = Chain("D", [_res(0, "TYR", "Y", [_atom("OH", "O", [50, 0, 0])])], chain_type="MHCa")
     assert interface_clashes(Structure("x", [pep, mhc])).n_clashes == 0
+
+
+def test_native_matches_numpy_reference(monkeypatch):
+    # several cross-chain overlaps at varied distances; the native kernel and the numpy reference
+    # must agree on counts, score, worst overlap and the per-partner breakdown.
+    import tcren.clashes as clashes
+
+    pep = [_atom("CZ", "C", d) for d in ([0, 0, 0], [1.0, 0, 0], [2.0, 0, 0])]
+    s = _complex(pep, [("A", "TRA", [_atom("CB", "C", [1.6, 0, 0]), _atom("CG", "C", [2.4, 0, 0])]),
+                       ("D", "MHCa", [_atom("OH", "O", [0.3, 0, 0])])])
+    native = interface_clashes(s)
+    monkeypatch.setattr(clashes, "_geom", None)  # force the numpy reference path
+    reference = interface_clashes(s)
+    assert native.n_clashes == reference.n_clashes > 0
+    assert native.n_severe == reference.n_severe
+    assert native.clash_score == pytest.approx(reference.clash_score)
+    assert native.max_overlap == pytest.approx(reference.max_overlap)
+    assert native.by_partner == reference.by_partner

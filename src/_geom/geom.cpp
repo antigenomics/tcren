@@ -189,6 +189,83 @@ py::dict contact_descriptors(py::array_t<double> tcra_xyz, py::array_t<int> tcra
     return out;
 }
 
+// Steric clashes across an interface: heavy-atom pairs (one from group A, one from group B) whose
+// separation is shorter than the sum of their van der Waals radii by more than `tolerance`.
+// Returns the clashing pairs (row index into A, col index into B, overlap in A) so the Python side
+// (tcren.clashes) assembles residue labels / by-partner counts / severe classification. Backs the
+// numpy reference in clashes.py; the cheap `dd >= rs*rs` reject skips sqrt for non-overlapping pairs.
+py::dict interface_clashes(py::array_t<double> a_xyz, py::array_t<double> a_rad,
+                           py::array_t<double> b_xyz, py::array_t<double> b_rad, double tolerance) {
+    std::vector<Vec3> A = load_xyz(a_xyz), B = load_xyz(b_xyz);
+    auto ra = a_rad.unchecked<1>();
+    auto rb = b_rad.unchecked<1>();
+    std::vector<int> ci, cj;
+    std::vector<double> ov;
+    {
+        py::gil_scoped_release release;
+        for (size_t i = 0; i < A.size(); ++i) {
+            for (size_t j = 0; j < B.size(); ++j) {
+                const double rs = ra(i) + rb(j);
+                const double dd = d2(A[i], B[j]);
+                if (dd >= rs * rs) continue;  // overlap <= 0, cannot exceed tolerance>=0
+                const double overlap = rs - std::sqrt(dd);
+                if (overlap > tolerance) {
+                    ci.push_back(static_cast<int>(i));
+                    cj.push_back(static_cast<int>(j));
+                    ov.push_back(overlap);
+                }
+            }
+        }
+    }
+    py::dict out;
+    out["i"] = ci;
+    out["j"] = cj;
+    out["overlap"] = ov;
+    return out;
+}
+
+// Contact stability / fragility of the TCR:peptide interface. A *contact* is a receptor-residue /
+// peptide-residue pair whose closest heavy-atom pair is within `cutoff` (matches all_atom_contacts).
+// margin = cutoff - dmin is that contact's positional slack; a rigid isotropic shift of size `delta`
+// loses it with probability clip((delta - margin)/(2*delta), 0, 1). Residue identity is the caller's
+// per-atom seq_index (globally unique, so no chain namespacing needed).
+py::dict contact_stability(py::array_t<double> pep_xyz, py::array_t<int> pep_res,
+                           py::array_t<double> tcr_xyz, py::array_t<int> tcr_res, double cutoff,
+                           double delta) {
+    std::vector<Vec3> pep = load_xyz(pep_xyz), tcr = load_xyz(tcr_xyz);
+    std::vector<int> pr = load_int(pep_res), tr = load_int(tcr_res);
+    const double cc2 = cutoff * cutoff;
+    std::unordered_map<long long, double> mind;  // (tcr_res, pep_res) -> min squared distance
+    {
+        py::gil_scoped_release release;
+        for (size_t i = 0; i < tcr.size(); ++i) {
+            for (size_t j = 0; j < pep.size(); ++j) {
+                const double dd = d2(tcr[i], pep[j]);
+                if (dd > cc2) continue;
+                const long long k = static_cast<long long>(tr[i]) * 1000003LL + pr[j];
+                auto it = mind.find(k);
+                if (it == mind.end() || dd < it->second) mind[k] = dd;
+            }
+        }
+    }
+    const int n5 = static_cast<int>(mind.size());
+    double sum_margin = 0.0, exp_lost = 0.0;
+    int n_lt1 = 0, n_robust = 0;
+    for (const auto& kv : mind) {
+        const double margin = cutoff - std::sqrt(kv.second);
+        sum_margin += margin;
+        if (margin < delta) ++n_lt1; else ++n_robust;
+        exp_lost += std::min(1.0, std::max(0.0, (delta - margin) / (2.0 * delta)));
+    }
+    py::dict out;
+    out["n5"] = n5;
+    out["mean_margin"] = n5 ? sum_margin / n5 : 0.0;
+    out["frac_marg_lt1"] = n5 ? static_cast<double>(n_lt1) / n5 : 0.0;
+    out["frac_robust"] = n5 ? static_cast<double>(n_robust) / n5 : 0.0;
+    out["exp_lost"] = exp_lost;
+    return out;
+}
+
 }  // namespace
 
 PYBIND11_MODULE(_geom, m) {
@@ -202,5 +279,11 @@ PYBIND11_MODULE(_geom, m) {
           py::arg("tcrb_xyz"), py::arg("tcrb_res"), py::arg("pep_xyz"), py::arg("mhc_xyz"),
           py::arg("contact_cut") = 5.0, py::arg("bal_cut") = 4.5,
           "Interface size (# engaged TCR residues) + dual-chain balance.");
-    m.attr("__version__") = "0.1.0";
+    m.def("interface_clashes", &interface_clashes, py::arg("a_xyz"), py::arg("a_rad"),
+          py::arg("b_xyz"), py::arg("b_rad"), py::arg("tolerance") = 0.4,
+          "Heavy-atom vdW clashes across an interface; returns clashing (i, j, overlap) pairs.");
+    m.def("contact_stability", &contact_stability, py::arg("pep_xyz"), py::arg("pep_res"),
+          py::arg("tcr_xyz"), py::arg("tcr_res"), py::arg("cutoff") = 5.0, py::arg("delta") = 1.0,
+          "Per TCR:peptide contact margin to the cutoff + fragility under a delta-A isotropic shift.");
+    m.attr("__version__") = "0.2.0";
 }

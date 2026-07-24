@@ -197,6 +197,45 @@ MHC class
      - 0/1
      - 1 if any MHC chain is MHC class II, else 0 (from MHC annotation).
 
+Interface quality — clashes & contact stability
+-----------------------------------------------
+
+Coordinate-only reads of forced-pose quality, always emitted by ``recognize`` (not part of the 35
+model features): a steric-clash burden (:mod:`tcren.clashes`) and TCR:peptide contact fragility
+(:mod:`tcren.stability`). Both are computed natively (``_geom``).
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 16 44 20
+
+   * - Column
+     - Unit
+     - Description
+     - Source
+   * - ``n_clashes``
+     - count
+     - Peptide↔partner heavy-atom pairs overlapping by more than 0.4 Å (Bondi vdW radii); the
+       signature of a non-physical / wrong-register pose.
+     - clashes
+   * - ``clash_score``
+     - Å
+     - Summed overlap of all clashing pairs — a total steric-burden measure.
+     - clashes
+   * - ``exp_lost``
+     - count
+     - Expected TCR:peptide contacts lost under a 1 Å isotropic shift, ``Σ clip((1 − margin)/2, 0, 1)``
+       over contacts (``margin = 5 − dmin``).
+     - stability
+   * - ``mean_margin``
+     - Å
+     - Mean contact margin ``5 − dmin`` over TCR:peptide contacts; larger = contacts sit deeper below
+       the 5 Å cutoff.
+     - stability
+   * - ``frac_robust``
+     - ratio [0, 1]
+     - Fraction of TCR:peptide contacts with margin ≥ 1 Å (robust to a 1 Å shift).
+     - stability
+
 CDR3-frame descriptors (18) — ``--full``
 ----------------------------------------
 
