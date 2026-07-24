@@ -19,6 +19,7 @@ PDB = Path(__file__).resolve().parents[1] / "assets" / "pdb" / "1ao7.pdb"
 
 
 def _cm():
+    pytest.importorskip("arda")  # classify_chains needs the arda backend; CI installs tcren without it
     s = import_structure(str(PDB))
     classify_chains(s, organism="human")
     native = "".join(r.aa for c in s.chains if c.chain_type == "PEPTIDE" for r in c.residues)

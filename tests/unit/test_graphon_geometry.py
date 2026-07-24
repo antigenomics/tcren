@@ -19,6 +19,7 @@ PDB = Path(__file__).resolve().parents[1] / "assets" / "pdb" / "1ao7.pdb"
 
 @pytest.fixture(scope="module")
 def complex_1ao7():
+    pytest.importorskip("arda")  # classify_chains needs the arda backend; CI installs tcren without it
     s = import_structure(str(PDB))
     classify_chains(s, organism="human")
     return s

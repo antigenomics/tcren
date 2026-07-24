@@ -103,7 +103,7 @@ class LoopInternalCoords:
     bonds: object            #: (N-1,) virtual Cα–Cα bond lengths, Å
     angles: object           #: (N-2,) Cα–Cα–Cα pseudo bond angles θ, radians
     torsions: object         #: (N-3,) Cα pseudo-dihedrals τ, radians in (−π, π]
-    neck: float              #: end-to-end span R = |p_last − p_first|, Å
+    neck: float              #: end-to-end span ``R = |p_last − p_first|``, Å
     n_ca: int
 
 
