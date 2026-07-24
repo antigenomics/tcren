@@ -10,7 +10,8 @@ from . import potential
 from .binder import BINDER_MODEL, binder_score, is_real_interface
 from .paper.helpers import annotate_batch
 from .refine.anchors import native_peptide
-from .cohort import Q_FEATURES_GEOM, phi_bind, q_iptm, q_score, strain_z, zscore
+from .cohort import (F_TERMS, Q_FEATURES_GEOM, f_score, phi_bind, q_f, q_iptm, q_score, strain_z,
+                     zscore)
 from .clashes import ClashReport, has_clashes, interface_clashes
 from .stability import StabilityReport, contact_stability
 from . import geometry
@@ -30,11 +31,11 @@ from .scoring import RecognitionMatrix, recognition_matrix, score_peptides, scor
 from .scoring_rank import background_peptides, percentile_rank
 from .structure import Structure, import_structure, parse_structure
 
-__version__ = "2.3.1"
+__version__ = "2.3.2"
 
 __all__ = [
     "annotate_batch", "native_peptide",
-    "q_score", "q_iptm", "Q_FEATURES_GEOM", "phi_bind", "strain_z", "zscore",
+    "q_score", "q_iptm", "f_score", "q_f", "Q_FEATURES_GEOM", "F_TERMS", "phi_bind", "strain_z", "zscore",
     "potential",
     "Potential",
     "derive_tcren",

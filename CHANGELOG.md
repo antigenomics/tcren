@@ -3,6 +3,20 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
+## [2.3.2] — 2026-07-24
+
+### Added
+- **`cohort.f_score(table)`** — the binder-oriented TCRen contact-energy channel `z(-(F_tcr_pep +
+  F_tcr_mhc))`, on the same z-scale as `q_score`. Unlike `Q` (geometry), `F` reads contact chemistry —
+  and is **pose-conditional**: it works on well-modelled poses and *inverts* on forced ones (ledger
+  C27/C42).
+- **`cohort.q_f(table, sign=+1)`** — the pure-tcren combiner `z(Q_geom) + sign·z(F)` (no deep-learning
+  term). `sign=+1` (`z(Q)+z(F)`) on clean poses beats raw-AF ipTM on both ROC and PR on template-covered
+  epitopes (macro 0.759/0.725 vs 0.692/0.693, ledger C42); `sign=-1` (`z(Q)-z(F)`) is the form that ranks
+  on forced poses (GLCTLVAML: 0.71 vs 0.52). Exported as `tcren.f_score`, `tcren.q_f`, `tcren.F_TERMS`.
+- **`tcren recognize --cohort`** now also emits `F_score`, `z(Q)+z(F)` and `z(Q)-z(F)`; with `--iptm` it
+  additionally emits `z(ipTM)+z(Q)+z(F)` — the full fit-free panel in one line.
+
 ## [2.3.1] — 2026-07-24
 
 ### Added

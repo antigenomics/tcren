@@ -2,8 +2,8 @@
 import numpy as np
 import pytest
 
-from tcren.cohort import (Q_FEATURES, Q_FEATURES_CORE, Q_FEATURES_GEOM, STRAIN_TERMS, phi_bind,
-                          q_iptm, q_score, strain_z, zscore)
+from tcren.cohort import (F_TERMS, Q_FEATURES, Q_FEATURES_CORE, Q_FEATURES_GEOM, STRAIN_TERMS, f_score,
+                          phi_bind, q_f, q_iptm, q_score, strain_z, zscore)
 
 
 def _table(n=120, seed=0, **shift):
@@ -98,3 +98,31 @@ def test_q_iptm_is_zsum_of_iptm_and_q():
     allnan = np.full(120, np.nan)
     assert np.allclose(q_iptm(t, allnan, features=Q_FEATURES_GEOM),
                        zscore(q_score(t, features=Q_FEATURES_GEOM)))
+
+
+def _table_f(n=120, seed=4):
+    """Table with the two F contact-energy terms f_score needs."""
+    t = _table(n, seed)
+    rng = np.random.default_rng(seed + 1)
+    t["F_tcr_pep"] = rng.normal(size=n)
+    t["F_tcr_mhc"] = rng.normal(size=n)
+    return t
+
+
+def test_f_score_is_binder_oriented_zscore_of_negated_energy():
+    t = _table_f()
+    # F = z(-(F_tcr_pep + F_tcr_mhc)): lower raw energy -> higher (more binder-like) score
+    expected = zscore(-(np.asarray(t["F_tcr_pep"]) + np.asarray(t["F_tcr_mhc"])))
+    assert np.allclose(f_score(t), expected)
+    assert F_TERMS == ("F_tcr_pep", "F_tcr_mhc")
+    # a structure with lower total energy ranks strictly higher
+    assert f_score(t)[np.argmin(np.asarray(t["F_tcr_pep"]) + np.asarray(t["F_tcr_mhc"]))] == f_score(t).max()
+
+
+def test_q_f_is_zq_plus_signed_zf():
+    t = _table_f()
+    zq = zscore(q_score(t, features=Q_FEATURES_GEOM))
+    assert np.allclose(q_f(t), zq + f_score(t))                 # sign=+1 default -> z(Q)+z(F)
+    assert np.allclose(q_f(t, sign=-1.0), zq - f_score(t))      # forced-pose form z(Q)-z(F)
+    # the two signs differ exactly by 2 z(F)
+    assert np.allclose(q_f(t) - q_f(t, sign=-1.0), 2 * f_score(t))

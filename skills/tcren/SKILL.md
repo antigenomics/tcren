@@ -262,8 +262,16 @@ QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses ar
   robust to the forced-pose energy inversion (C27). `z(ipTM)+z(Q_geom)` beats raw-AF ipTM on both ROC and PR on
   well-modelled ("template-covered") epitopes and ties it fit-free on TCRvdb (benchmark C42). Single-line CLI:
   `tcren recognize -s pdbs/ --iptm meta.tsv -o out.tsv` joins ipTM (key col matched to `complex.id`) and appends
-  `Q_geom` + `z(ipTM)+z(Q_geom)`. F (contact energy) is used only conditioned on pose quality — it inverts on
-  forced poses (GLC↔ila1), so never add it unconditionally.
+  `Q_geom` + `z(ipTM)+z(Q_geom)`.
+- **`cohort.f_score` / `cohort.q_f` — the contact-energy channel (2026-07-24, v2.3.2):** `f_score(table)` =
+  `z(-(F_tcr_pep+F_tcr_mhc))` (binder-oriented, `cohort.F_TERMS`); `q_f(table, sign=+1)` = `z(Q_geom)+sign·z(F)`,
+  the pure-tcren combiner with **no DL term**. F reads contact chemistry but is **pose-conditional**: it inverts
+  on forced poses (GLC↔ila1, C27). On template-covered poses `z(Q)+z(F)` beats raw-AF ipTM on both ROC/PR
+  (0.759/0.725 vs 0.692/0.693, C42); on forced poses read `z(Q)-z(F)` (`sign=-1`; GLCTLVAML 0.71 vs 0.52 for
+  `+F`). `tcren recognize --cohort` emits `Q_geom`, `F_score`, `z(Q)+z(F)`, `z(Q)-z(F)` (and `z(ipTM)+z(Q)+z(F)`
+  with `--iptm`) — the full fit-free panel in one line. `z(ipTM)+z(Q_geom)` stays the channel robust to the
+  inversion; grade forced-ness with `s_strain` before trusting `+F`. Reproduced by
+  `models/qf_panel.py` in the benchmark repo.
 
 ## MHC mapping speed — `mhc.reference.reference_db()`
 

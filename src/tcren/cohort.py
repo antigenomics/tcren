@@ -36,8 +36,8 @@ import warnings
 
 import numpy as np
 
-__all__ = ["zscore", "q_score", "q_iptm", "phi_bind", "strain_z", "Q_FEATURES", "Q_FEATURES_CORE",
-           "Q_FEATURES_GEOM", "STRAIN_TERMS"]
+__all__ = ["zscore", "q_score", "q_iptm", "f_score", "q_f", "phi_bind", "strain_z", "Q_FEATURES",
+           "Q_FEATURES_CORE", "Q_FEATURES_GEOM", "F_TERMS", "STRAIN_TERMS"]
 
 #: The five interface-quality descriptors, equal-weighted in :func:`q_score`. Each is oriented
 #: positive-is-better as given. ``pp_combo`` is the CDR1/2-vs-CDR3alpha TCRen contrast — the one
@@ -58,6 +58,16 @@ Q_FEATURES_CORE = ("burial", "chain_balance", "n_hbond", "pp_combo")
 #: beats raw-AF ipTM on well-modelled ("template-covered") epitopes on both ROC and PR, while the energy
 #: term is used only conditioned on pose quality. Pass to :func:`q_score` / :func:`q_iptm`.
 Q_FEATURES_GEOM = ("burial", "n_pep_contacted", "chain_balance", "n_hbond")
+
+#: The TCRen contact-energy terms summed into the binder-oriented :func:`f_score`. ``F_tcr_pep`` is the
+#: TCR:peptide TCRen energy, ``F_tcr_mhc`` the TCR:MHC energy; both are emitted by ``tcren recognize``.
+#: They are raw energies (lower = tighter), so :func:`f_score` negates the sum to make higher = more
+#: binder-like. **This term is pose-conditional** — it reads real binding chemistry on well-modelled
+#: (crystal-templated) poses and *inverts* on forced ones (benchmark ledger C27/C42): on the forced
+#: GLCTLVAML TCRvdb pose ``-F_tcr_pep`` ranks binders at AUROC 0.36 (backwards), on the clean YLQPRTFLL
+#: pose at 0.59. Use it only conditioned on pose quality — gate with :func:`strain_z`, or read
+#: ``z(Q)-z(F)`` on forced poses and ``z(Q)+z(F)`` on clean ones.
+F_TERMS = ("F_tcr_pep", "F_tcr_mhc")
 
 #: Crystal-calibrated interface-strain terms with their physical signs. A forced pose reaches
 #: further from the peptide with a thinner, less balanced interface.
@@ -150,6 +160,44 @@ def q_iptm(table, iptm, reference=None, features=Q_FEATURES) -> np.ndarray:
     missing = ~np.isfinite(out)                       # ipTM absent for a structure -> rank by Q alone
     out[missing] = zq[missing]
     return out
+
+
+def f_score(table, reference=None, terms=F_TERMS) -> np.ndarray:
+    """Binder-oriented TCRen contact energy ``F = z(-(F_tcr_pep + F_tcr_mhc))`` — the chemistry channel.
+
+    The standardized, sign-flipped sum of the :data:`F_TERMS` contact energies, so **higher = more
+    binder-like** and it is on the same z-scale as :func:`q_score`. Unlike ``Q`` (interface geometry),
+    ``F`` reads the actual contact chemistry — and unlike ``Q`` it is **pose-conditional**: it works on
+    well-modelled poses and *inverts* on forced ones (benchmark ledger C27/C42). Do not use it
+    unconditioned on pose quality; see :data:`F_TERMS` and :func:`q_f`.
+
+    Cohort-relative (standardized over the ranked set); pass ``reference`` to standardize against another
+    cohort (see :func:`zscore`).
+    """
+    e = sum(_col(table, t) for t in terms)
+    ref = None if reference is None else sum(_col(reference, t) for t in terms)
+    return zscore(-e, None if ref is None else -ref)
+
+
+def q_f(table, reference=None, sign=1.0, features=Q_FEATURES_GEOM, terms=F_TERMS) -> np.ndarray:
+    """Pure-tcren combiner ``z(Q_geom) + sign * z(F)`` — geometry plus contact energy, no deep learning.
+
+    With ``sign=+1`` this is ``z(Q)+z(F)``; with ``sign=-1`` it is ``z(Q)-z(F)``. On **clean
+    (template-covered) poses** ``z(Q)+z(F)`` beats raw-AF ipTM on both ROC and PR with no DL term
+    (benchmark ledger C42: macro 0.759 ROC / 0.725 PR vs ipTM 0.692 / 0.693). On **forced poses** the
+    energy inverts, so ``z(Q)-z(F)`` is the one that ranks (C27: on the forced GLCTLVAML pose
+    ``z(Q)-z(F)``=0.71 vs ``z(Q)+z(F)``=0.52). Pick the sign from pose quality — grade it with
+    :func:`strain_z` — or prefer :func:`q_iptm` (``z(ipTM)+z(Q)``), the geometry channel that is robust
+    to the inversion without needing the energy at all.
+
+    Args:
+        table: the ``tcren recognize --full --scores`` table (dict / pandas / polars).
+        reference: optional cohort to standardize against (see :func:`zscore`).
+        sign: ``+1`` for ``z(Q)+z(F)`` (clean poses), ``-1`` for ``z(Q)-z(F)`` (forced poses).
+        features: ``Q`` descriptors; defaults to the geometry-only :data:`Q_FEATURES_GEOM`.
+        terms: energy terms for ``F``; defaults to :data:`F_TERMS`.
+    """
+    return zscore(q_score(table, reference, features)) + sign * f_score(table, reference, terms)
 
 
 def phi_bind(table, reference=None) -> np.ndarray:

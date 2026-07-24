@@ -524,7 +524,7 @@ def recognize(
     features_only: bool = typer.Option(False, "--features-only", help="emit the descriptors, skip P(real)"),
     full: bool = typer.Option(False, "--full", help="add the 18 CDR3-frame + 12 matrix-swap descriptors (65 features total)"),
     scores: bool = typer.Option(False, "--scores", help="also append the fit-free q_bind + s_strain (recommended) and the fitted p_bind + p_forced; implies --full"),
-    cohort: bool = typer.Option(False, "--cohort", help="rank candidates by the fit-free interface-quality Q_geom (add --iptm for the z(ipTM)+z(Q_geom) synergy)"),
+    cohort: bool = typer.Option(False, "--cohort", help="rank candidates by the fit-free Q_geom + F contact-energy channels: emits Q_geom, F_score, z(Q)+z(F) and z(Q)-z(F) (add --iptm for the z(ipTM)+z(Q_geom) synergy)"),
     iptm: Path | None = typer.Option(None, "--iptm", help="metadata TSV/CSV with a key column (matched to complex.id) + an 'iptm' column; appends z(ipTM)+z(Q_geom). Missing ipTM falls back to Q_geom"),
 ) -> None:
     """Full interface descriptor table + joint P(real) for each TCR-pMHC complex (one TSV row per PDB).
@@ -548,8 +548,12 @@ def recognize(
 
         tcren recognize -s models/ -o out.tsv                        # descriptors + P(real)
         tcren recognize -s models/ --scores -o out.tsv               # + fit-free q_bind/s_strain + fitted p_bind
-        tcren recognize -s models/ --cohort -o out.tsv               # rank candidates by Q_geom (no ipTM needed)
-        tcren recognize -s models.tar.gz --iptm meta.tsv -o out.tsv  # + z(ipTM)+z(Q_geom); missing ipTM -> Q_geom
+        tcren recognize -s models/ --cohort -o out.tsv               # Q_geom + F_score + z(Q)±z(F) (no ipTM needed)
+        tcren recognize -s models.tar.gz --iptm meta.tsv -o out.tsv  # + z(ipTM)+z(Q_geom) and z(ipTM)+z(Q)+z(F)
+
+    On clean poses read ``z(Q)+z(F)``; on forced poses the energy inverts, so read ``z(Q)-z(F)`` (grade
+    forced-ness with ``s_strain``). ``z(ipTM)+z(Q_geom)`` is the geometry-only channel robust to that
+    inversion (benchmark ledger C27/C42).
     """
     from .recognition import recognition_table
     from .structure.io import import_structure
@@ -560,8 +564,15 @@ def recognize(
                              with_p_real=not features_only)
     table = pl.DataFrame(rows)
     if cohort or iptm is not None:                                   # fit-free cohort ranking
-        from .cohort import Q_FEATURES_GEOM, q_iptm, q_score
+        from .cohort import Q_FEATURES_GEOM, f_score, q_iptm, q_score, zscore
         table = table.with_columns(pl.Series("Q_geom", q_score(table, features=Q_FEATURES_GEOM)))
+        # F = the pose-conditional contact-energy channel; emit both signs so the forced-pose inversion
+        # (z(Q)-z(F) on forced poses, z(Q)+z(F) on clean ones; benchmark ledger C27/C42) is visible
+        zq = zscore(q_score(table, features=Q_FEATURES_GEOM))
+        zf = f_score(table)
+        table = table.with_columns(pl.Series("F_score", zf),
+                                   pl.Series("z(Q)+z(F)", zq + zf),
+                                   pl.Series("z(Q)-z(F)", zq - zf))
         if iptm is not None:                                         # + z(ipTM)+z(Q_geom); missing ipTM -> Q_geom
             sep = "\t" if iptm.suffix.lower() in (".tsv", ".txt") else ","
             meta = pl.read_csv(iptm, separator=sep, infer_schema_length=0)
@@ -579,8 +590,10 @@ def recognize(
             ids = table["complex.id"].to_list()
             ivec = [imap.get(i, imap.get(str(i).split("_")[0], float("nan"))) for i in ids]
             n_hit = sum(1 for x in ivec if x == x)                   # x==x is False for NaN
+            ziq = q_iptm(table, ivec, features=Q_FEATURES_GEOM)
             table = table.with_columns(
-                pl.Series("z(ipTM)+z(Q_geom)", q_iptm(table, ivec, features=Q_FEATURES_GEOM)))
+                pl.Series("z(ipTM)+z(Q_geom)", ziq),
+                pl.Series("z(ipTM)+z(Q)+z(F)", ziq + zf))
             typer.echo(f"  ipTM matched {n_hit}/{len(ivec)} structures"
                        + ("" if n_hit == len(ivec) else "; the rest rank by Q_geom"))
     table.write_csv(str(out), separator="\t")
