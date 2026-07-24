@@ -3,7 +3,7 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
-## [2.3.0] — unreleased (on `develop`)
+## [2.3.0] — 2026-07-24
 
 ### Added
 - **`tcren.cohort` is the recommended fit-free scoring layer.** `q_score` (interface-quality `Q`),
@@ -18,6 +18,13 @@ All notable changes to `tcren` are recorded here. Format follows
 - **Graphon / loop geometry featurisation** (`structure → descriptor`, not binder scores):
   `contactmap.registered_map`, `contactmap.binding_mode` (`ModeCentroid`), and `tcren.geometry`
   (`reach_max`, `reachability_floor`, `span_saturation`, `cdr3_internal_coords` / `LoopInternalCoords`).
+- **`tcren.stability.contact_stability`** — TCR:peptide contact fragility read straight off the contact
+  map: per-contact margin `5 − dmin` to the cutoff, `mean_margin`, `frac_robust`, and `exp_lost` (expected
+  contacts lost under a 1 Å shift) — a coordinate-only interface positional-confidence readout.
+- **Native `_geom` kernels for interface quality.** `_geom.interface_clashes` (heavy-atom vdW-overlap
+  scan, now backing `tcren.clashes`; numpy kept as the reference) and `_geom.contact_stability`.
+- **`tcren recognize` emits five interface-quality columns** — `n_clashes`, `clash_score`, `exp_lost`,
+  `mean_margin`, `frac_robust` (extra output columns, not part of the 35 model features).
 
 ### Changed
 - `README`, `BENCHMARKS.md`, `docs/features.rst`, `docs/kit.rst` lead with the fit-free `Q` and disclose

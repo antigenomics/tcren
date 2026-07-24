@@ -44,7 +44,7 @@ __all__ = ["zscore", "q_score", "phi_bind", "strain_z", "Q_FEATURES", "Q_FEATURE
 #: energy term robust to the forced-pose inversion (benchmark ledger C27), since it is a *contrast*
 #: rather than an absolute contact energy. Per-term macro AUROC on TCRvdb: burial 0.73, n_hbond 0.69,
 #: pp_combo 0.66, n_pep_contacted 0.62, chain_balance 0.61; the terms are near-independent
-#: (mean |Spearman| 0.20).
+#: (mean absolute Spearman 0.20).
 Q_FEATURES = ("burial", "n_pep_contacted", "chain_balance", "n_hbond", "pp_combo")
 
 #: The four load-bearing descriptors. ``n_pep_contacted`` is dropped: it is the weakest term and

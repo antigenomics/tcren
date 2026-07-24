@@ -72,7 +72,9 @@ Reference: `arda.annotate_sequences([(id, seq), ...])` — one call, threads int
   _refine _fold _geom _relax …)`): `src/_align/align.cpp` (MHC pseudoseq fitting alignment),
   `src/_refine/refine.cpp` (potential-guided peptide refinement), `src/_relax/relax.cpp` (DOPE
   interface energy for `tcren energy`/ΔΔG), `src/_fold/fold.cpp` (CCD loop closure) and
-  `src/_geom/geom.cpp` (interface geometry for `tcren binder`). Adding a sixth = same pattern.
+  `src/_geom/geom.cpp` (interface geometry for `tcren binder`; also `interface_clashes` and
+  `contact_stability`, the clash + fragility kernels). Adding a sixth = same pattern; a new *function*
+  in an existing module (as clashes/stability were added to `_geom`) needs no `CMakeLists.txt` change.
 - The MHC-pseudosequence fitting-alignment hot path is a C++ ext (`src/_align/align.cpp`,
   `CMakeLists.txt`). Build backend is `scikit-build-core` (not hatchling); `uv pip install -e .`
   builds it once at install. Funcs: `fitting_score`, `best_hit` (GIL released over
@@ -81,8 +83,9 @@ Reference: `arda.annotate_sequences([(id, seq), ...])` — one call, threads int
   Biopython transparently when the ext is absent. ~40 ms vs Bio 59 ms vs pure-Python 15 s for 4k
   candidates (a modest 1.5x — Bio's aligner is already C). `editable.rebuild = false` in
   pyproject: the ext is built once at `pip install -e .` (do NOT rebuild on import — that needs
-  cmake on PATH at import time and breaks pytest/CI). CI installs `--no-deps` + explicit runtime
-  deps (so arda-backed tests skip) and `pip install cmake ninja` to build the ext.
+  cmake on PATH at import time and breaks pytest/CI). CI (uv, `astral-sh/setup-uv`) installs
+  `uv pip install --system -e . --no-deps` + explicit runtime deps (so arda-backed tests skip) and
+  `uv pip install --system cmake ninja` to build the ext.
 
 ## Peptide substitution + refinement — `tcren.refine` (`tcren refine`)
 
@@ -103,14 +106,22 @@ Reference: `arda.annotate_sequences([(id, seq), ...])` — one call, threads int
 - `tcren refine -s … -o … [--substitute PEP] [--steps N] [--restraint W]`. Native pose ≈ stays
   (RMSD ~0.2 Å); a buried/clashed peptide relaxes locally. Deterministic given `seed`.
 
-## Clash detection + register fix — `tcren.clashes`, `tcren.refine.register`
+## Clash detection + contact stability + register fix — `tcren.clashes`, `tcren.stability`, `tcren.refine.register`
 
 QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses are routinely non-physical
 (forced poses), which corrupts the contact energy the score reads.
-- `interface_clashes(structure, tolerance=0.4, severe=0.6) -> ClashReport` — **numpy-only, no kernel**.
+- `interface_clashes(structure, tolerance=0.4, severe=0.6) -> ClashReport` — **native `_geom` kernel**
+  (`_geom.interface_clashes`; the numpy path `_clash_pairs_numpy` is kept as the reference/fallback).
   Heavy-atom vdW overlaps (Bondi radii) between the peptide chain and its partners, broken down by
   partner `chain_type` (`by_partner`), with `n_clashes`/`n_severe`/`max_overlap`/`clash_score` + the
   worst residue pairs. `has_clashes(structure)` is the bool convenience. Self-check `python -m tcren.clashes`.
+- `contact_stability(structure, cutoff=5.0, delta=1.0) -> StabilityReport` (`tcren.stability`) — TCR:peptide
+  contact fragility read straight off the contact map (native `_geom.contact_stability`, numpy reference
+  behind it). Per contact `margin = cutoff − dmin`; report has `n_contacts`, `mean_margin`, `frac_robust`,
+  `frac_marg_lt1`, `exp_lost` (expected contacts lost under a `delta`-Å shift). A coordinate-only interface
+  positional-confidence readout. Self-check `python -m tcren.stability`.
+- `tcren recognize` appends both as output columns: `n_clashes`, `clash_score`, `exp_lost`, `mean_margin`,
+  `frac_robust` (extra columns, **not** part of the 35 `RECOGNITION_FEATURES` the models consume).
 - `check_register(model, reference=None) -> RegisterReport` — always reports the clash burden; with a
   correctly-registered `reference` (crystal / trusted pose) it adds the **anchor-Cα RMSD** in the
   MHC-groove frame (`peptide_rmsd`) → `wrong_register` (True/False; `None` without a reference).
