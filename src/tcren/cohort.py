@@ -38,6 +38,7 @@ Sign convention: every term is oriented so that **higher = more binder-like** fo
 from __future__ import annotations
 
 import warnings
+from functools import lru_cache
 
 import numpy as np
 
@@ -139,6 +140,7 @@ def zscore(x, reference=None, method="z") -> np.ndarray:
     return (x - mu) / sd
 
 
+@lru_cache(maxsize=1)
 def native_reference() -> dict:
     """The interface-geometry descriptors over the 374 Native2026 crystal complexes, shipped so a
     **single** user structure (or any small cohort) can be standardized against the natural interface
@@ -161,30 +163,50 @@ def native_reference() -> dict:
     return {c: np.array([float(r[c]) for r in rows]) for c in rows[0]}
 
 
-def q_score(table, reference=None, features=Q_FEATURES, method="z") -> np.ndarray:
-    """Equal-weight interface-quality score ``Q = mean_k z(d_k)`` — the recommended binder score.
+def q_score(table, reference=None, features=Q_FEATURES_GEOM, method="z", decorrelate=True) -> np.ndarray:
+    r"""Interface-quality score ``Q`` — fit-free, single-structure-capable; the default binder score.
 
-    No fitting and no labels: the descriptors enter with **equal weight** and a label-free
-    standardization — there are no coefficients to fit. Reproduces the shipped in-sample ``p_bind``
-    logistic at r ~ 0.92 while carrying no training set, and — unlike ``p_bind`` — generalises across
-    cohorts (benchmark ledger C25). With ipTM, ``z(ipTM) + z(q_score(...))`` is the fit-free synergy
-    score (macro ROC 0.83 on TCRvdb vs ipTM 0.79).
+    The default is the **directional, decorrelated** one-class score over ``k = len(features)`` terms
+
+    .. math::  Q(x) \;=\; z(x)^{\top}\, C^{-1}\, \mathbf{1},
+       \qquad z(x)_k = \frac{d_k(x)-\mu_k}{\sigma_k},
+
+    where each descriptor is standardized against the **native crystal reference**
+    (``reference``, default :func:`native_reference` — its :math:`\mu_k,\sigma_k`), :math:`C` is the
+    native descriptor correlation matrix, and :math:`\mathbf 1` is the biophysical
+    *every-descriptor-higher-is-better* direction. Whitening by :math:`C^{-1}` stops correlated
+    descriptors from double-counting. The score carries **no fitted coefficient** (only the native
+    covariance is estimated; :math:`\mathbf 1` is fixed), needs **no negative set**, is calibrated on
+    natives so it **transfers** across inputs, and is defined for a **single structure**. It reduces to
+    the equal-weight mean when the descriptors are uncorrelated (:math:`C=I`). See the manuscript
+    Methods (\S Scores).
+
+    ``decorrelate=False`` recovers the legacy equal-weight mean :math:`Q=\frac1k\sum_k z(d_k)`.
 
     Args:
         table: the ``tcren recognize --full`` table (dict / pandas / polars).
-        reference: cohort to standardize against; ``None`` = cohort-relative (the ``table`` itself).
-            Pass :func:`native_reference` for single-structure / cross-cohort use (see :func:`zscore`).
-        features: which descriptors to average. Defaults to the five :data:`Q_FEATURES`; pass
-            :data:`Q_FEATURES_CORE` for the simpler four-term score that is marginally better, or
-            :data:`Q_FEATURES_GEOM` (the required choice for one structure — ``pp_combo`` needs a cohort).
-        method: descriptor standardization, ``"z"`` (default) or ``"rank"`` — see :func:`zscore`.
+        reference: cohort defining :math:`\mu,\sigma,C`. ``None`` uses :func:`native_reference` when
+            ``decorrelate`` (so the covariance is defined for any input, incl. one structure); with
+            ``decorrelate=False`` it means cohort-relative (the ``table`` itself).
+        features: the ``k`` descriptors. Default :data:`Q_FEATURES_GEOM` (``k=4``, geometry only) — the
+            validated default. Adding the ``pp_combo`` energy term (``k=5``, :data:`Q_FEATURES`)
+            *degrades* ranking on generated poses, because that term inverts on forced ones (ledger C42).
+        method: per-descriptor standardization, ``"z"`` (default) or ``"rank"`` — see :func:`zscore`.
+        decorrelate: whiten by the native covariance and project onto :math:`\mathbf 1` (default); else
+            the equal-weight mean.
     """
-    z = [zscore(_derive(table, f), None if reference is None else _derive(reference, f), method=method)
-         for f in features]
-    return np.nanmean(np.vstack(z), axis=0)
+    ref = native_reference() if (decorrelate and reference is None) else reference
+    Z = np.vstack([zscore(_derive(table, f), None if ref is None else _derive(ref, f), method=method)
+                   for f in features])                                   # k x n, standardized to ref
+    if not decorrelate:
+        return np.nanmean(Z, axis=0)
+    Zref = np.vstack([zscore(_derive(ref, f), None, method=method) for f in features])   # k x n_ref
+    C = np.atleast_2d(np.cov(Zref))                                      # native descriptor correlation
+    w = np.linalg.pinv(C) @ np.ones(len(features))                      # C^{-1} 1: the decorrelated weights
+    return np.nansum(w[:, None] * Z, axis=0)
 
 
-def q_iptm(table, iptm, reference=None, features=Q_FEATURES) -> np.ndarray:
+def q_iptm(table, iptm, reference=None, features=Q_FEATURES_GEOM) -> np.ndarray:
     """Fit-free synergy score ``z(ipTM) + z(Q)`` — the interface-quality score composed with the
     generator's own confidence.
 

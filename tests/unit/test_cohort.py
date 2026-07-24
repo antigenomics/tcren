@@ -54,6 +54,36 @@ def test_q_score_defined_for_a_single_structure_via_reference():
     assert q.shape == (1,) and np.isfinite(q[0])
 
 
+def test_q_score_default_is_directional_decorrelated_k4():
+    import inspect
+    sig = inspect.signature(q_score)
+    assert sig.parameters["features"].default == Q_FEATURES_GEOM and len(Q_FEATURES_GEOM) == 4
+    assert sig.parameters["decorrelate"].default is True
+    # default equals the manual z @ Cinv @ 1 against the reference
+    rng = np.random.default_rng(5)
+    feats = Q_FEATURES_GEOM
+    ref = {c: rng.normal(size=400) for c in feats}
+    ref["n_pep_contacted"] = ref["burial"] * 0.6 + rng.normal(size=400) * 0.5   # induce C != I
+    t = {c: rng.normal(size=50) for c in feats}
+    q = q_score(t, reference=ref)
+    zc = lambda x, r: (np.asarray(x, float) - np.mean(r)) / np.std(r)
+    Z = np.vstack([zc(t[c], ref[c]) for c in feats])
+    C = np.cov(np.vstack([zc(ref[c], ref[c]) for c in feats]))
+    w = np.linalg.pinv(C) @ np.ones(len(feats))
+    assert np.allclose(q, (w[:, None] * Z).sum(0))
+    # and it differs from the equal-weight mean because the descriptors are correlated
+    assert not np.allclose(q, q_score(t, reference=ref, decorrelate=False))
+
+
+def test_q_score_reduces_to_equal_weight_mean_when_uncorrelated():
+    rng = np.random.default_rng(6)
+    ref = {c: rng.normal(size=5000) for c in Q_FEATURES_GEOM}     # independent -> C ~ I
+    t = {c: rng.normal(size=300) for c in Q_FEATURES_GEOM}
+    qd = q_score(t, reference=ref, decorrelate=True)
+    qm = q_score(t, reference=ref, decorrelate=False)
+    assert np.corrcoef(qd, qm)[0, 1] > 0.999                      # rank-identical to the mean
+
+
 def test_native_reference_ranks_like_cohort_relative():
     # Transferability: for a cohort drawn from the native distribution (real inputs match the crystal
     # scales to within ~10%), standardizing against the fixed native reference ranks ~identically to

@@ -538,8 +538,9 @@ def recognize(
     Gaussian BN): the joint probability the complex is a genuine recognition interface rather than a
     wrong-TCR shuffle. ``--full`` also emits the 18 CDR3-local frame descriptors (the FramePose strain
     layer) and the 12 matrix-swap TCRen−MJ contrasts. ``--scores`` adds the recommended fit-free
-    ``q_bind`` (binder-ID) and ``s_strain`` (forced-pose), computed cohort-relative over the whole
-    input set, alongside the fitted ``p_bind`` / ``p_forced``. ``--features-only`` skips the models.
+    ``q_bind`` (binder-ID; the directional-decorrelated interface-quality score, calibrated on the
+    native crystal reference so it is defined per structure and transfers) and ``s_strain``
+    (forced-pose), alongside the fitted ``p_bind`` / ``p_forced``. ``--features-only`` skips the models.
     Output is TSV.
 
     Complementary scorers on the same inputs: ``tcren ddg`` (per-mutation alanine/neoantigen ΔΔF) and
