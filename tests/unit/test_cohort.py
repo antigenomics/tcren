@@ -3,8 +3,8 @@ import numpy as np
 import pytest
 
 from tcren.cohort import (F_TERMS, Q_FEATURES, Q_FEATURES_CORE, Q_FEATURES_GEOM, STRAIN_TERMS,
-                          f_invert_by_iptm, f_score, phi_bind, q_f, q_f_iptm, q_iptm, q_score, strain_z,
-                          zscore)
+                          f_invert_by_iptm, f_score, native_reference, phi_bind, q_f, q_f_iptm, q_iptm,
+                          q_score, strain_z, zscore)
 
 
 def _table(n=120, seed=0, **shift):
@@ -28,6 +28,45 @@ def test_scores_are_one_value_per_row():
 def test_zscore_is_standardised():
     z = zscore(np.random.default_rng(1).normal(size=500))
     assert abs(float(np.mean(z))) < 1e-9 and abs(float(np.std(z)) - 1.0) < 1e-9
+
+
+def test_zscore_rank_is_bounded_and_monotone():
+    x = np.array([1.0, 2.0, 3.0, 4.0, np.nan])
+    r = zscore(x, method="rank")
+    assert np.all(r[:4] >= -1) and np.all(r[:4] <= 1)
+    assert np.all(np.diff(r[:4]) > 0)      # order-preserving
+    assert np.isnan(r[4])                  # NaN in -> NaN out
+
+
+def test_native_reference_ships_and_has_q_descriptors():
+    ref = native_reference()
+    for c in Q_FEATURES_GEOM + ("e_cdr12", "e_cdr3a"):
+        assert c in ref and len(ref[c]) > 300      # the ~369 Native2026 crystals
+        assert np.isfinite(ref[c]).all()
+
+
+def test_q_score_defined_for_a_single_structure_via_reference():
+    # The deployment path: a cohort-relative Q is undefined for n=1 (sd over one row), but standardizing
+    # the four geometry terms against the shipped native reference gives a finite score.
+    ref = native_reference()
+    one = {c: np.array([float(ref[c][0])]) for c in Q_FEATURES_GEOM}
+    q = q_score(one, reference=ref, features=Q_FEATURES_GEOM)
+    assert q.shape == (1,) and np.isfinite(q[0])
+
+
+def test_native_reference_ranks_like_cohort_relative():
+    # Transferability: for a cohort drawn from the native distribution (real inputs match the crystal
+    # scales to within ~10%), standardizing against the fixed native reference ranks ~identically to
+    # standardizing against the cohort itself. (This holds because the scales match; a cohort on a wildly
+    # different scale would not transfer -- which is exactly why the reference is the crystal manifold.)
+    ref = native_reference()
+    rng = np.random.default_rng(3)
+    idx = rng.integers(0, len(ref["burial"]), 200)
+    t = {c: ref[c][idx] + rng.normal(0, 0.01 * np.std(ref[c]), 200) for c in Q_FEATURES_GEOM}
+    qc = q_score(t, features=Q_FEATURES_GEOM)                               # cohort-relative
+    qr = q_score(t, reference=ref, features=Q_FEATURES_GEOM)                # fixed native reference
+    rho = np.corrcoef(np.argsort(np.argsort(qc)), np.argsort(np.argsort(qr)))[0, 1]
+    assert rho > 0.99
 
 
 def test_zscore_constant_column_does_not_divide_by_zero():

@@ -13,10 +13,15 @@ stale, and there is nothing to re-derive. The benchmark repo settled the trade-o
 * :func:`strain_z` grades pose forcedness (crystal < AF-real < AF-decoy) reproducibly, unlike
   ``FORCED_POSE_MODEL`` whose training rows are lost.
 
-They are **cohort-relative**: each standardizes a feature over *the set being ranked*, so they are
-defined for a candidate set, not for one structure. Score a whole batch together
-(``tcren recognize`` over a directory), never one structure at a time. The division of labour is
-scores in ``tcren``, evaluation (ROC/PR/CI) downstream.
+They are **cohort-relative** by default: each standardizes a feature over *the set being ranked*.
+For a candidate set, score the whole batch together (``tcren recognize`` over a directory). For a
+**single structure**, or a small/heterogeneous user set where the batch is not a fair reference, pass
+``reference=native_reference()`` (with ``features=Q_FEATURES_GEOM``): the descriptors are then
+standardized against the shipped Native2026 crystal manifold, so ``Q`` is defined for one structure and
+transfers across inputs. The descriptors are counts and bounded ratios (mildly non-normal), so
+``method="rank"`` gives a robust, assumption-free percentile standardization; on the benchmarks it
+agrees with the default ``z`` to ρ≈0.98. The division of labour is scores in ``tcren``, evaluation
+(ROC/PR/CI) downstream.
 
 All functions take the table ``tcren recognize --full`` emits (a mapping of column name to
 sequence, a ``polars``/``pandas`` frame, or a dict of arrays) and return one value per row.
@@ -37,7 +42,8 @@ import warnings
 import numpy as np
 
 __all__ = ["zscore", "q_score", "q_iptm", "f_score", "q_f", "q_f_iptm", "f_invert_by_iptm", "phi_bind",
-           "strain_z", "Q_FEATURES", "Q_FEATURES_CORE", "Q_FEATURES_GEOM", "F_TERMS", "STRAIN_TERMS"]
+           "strain_z", "native_reference", "Q_FEATURES", "Q_FEATURES_CORE", "Q_FEATURES_GEOM",
+           "F_TERMS", "STRAIN_TERMS"]
 
 #: The five interface-quality descriptors, equal-weighted in :func:`q_score`. Each is oriented
 #: positive-is-better as given. ``pp_combo`` is the CDR1/2-vs-CDR3alpha TCRen contrast — the one
@@ -96,16 +102,33 @@ def _derive(table, name):
     return _col(table, name)
 
 
-def zscore(x, reference=None) -> np.ndarray:
+def zscore(x, reference=None, method="z") -> np.ndarray:
     """NaN-aware standardization. ``reference`` calibrates against another cohort.
 
     Passing ``reference`` is what makes :func:`strain_z` *crystal-calibrated*: the mean and sd come
     from the crystallographic ensemble, so the score reads ~0 on crystals by construction and grows
     as a pose departs from the natural manifold. Without it, a cohort of uniformly forced poses
     would standardize to zero mean and the shift would be invisible.
+
+    Args:
+        x: values to standardize.
+        reference: cohort defining the location/scale; defaults to ``x`` itself (cohort-relative).
+        method: ``"z"`` (mean/sd, the default) or ``"rank"`` — the percentile of each ``x`` against
+            the reference, mapped to ``[-1, 1]`` (``2·percentile − 1``). ``"rank"`` is scale-free and
+            makes **no normality assumption**, so it is the robust choice for the bounded/count
+            descriptors of ``Q`` (chain balance, H-bond and contact counts are not normal). On the
+            benchmarks ``z`` and ``rank`` agree to Spearman ρ≈0.98 and differ by <0.005 AUROC, so
+            ``z`` is kept as the default; use ``rank`` when a heavy-tailed user descriptor could
+            distort the mean/sd.
     """
     x = np.asarray(x, float)
     ref = x if reference is None else np.asarray(reference, float)
+    if method == "rank":
+        r = np.sort(ref[np.isfinite(ref)])
+        if r.size == 0:
+            return np.full_like(x, np.nan)
+        pct = np.searchsorted(r, x, side="right") / r.size   # fraction of reference <= x
+        return np.where(np.isfinite(x), 2.0 * pct - 1.0, np.nan)
     mu = np.nanmean(ref)
     sd = np.nanstd(ref)
     # A constant column does not give sd == 0 exactly: np.nanstd(np.full(20, 3.7)) is 4.4e-16.
@@ -116,22 +139,47 @@ def zscore(x, reference=None) -> np.ndarray:
     return (x - mu) / sd
 
 
-def q_score(table, reference=None, features=Q_FEATURES) -> np.ndarray:
+def native_reference() -> dict:
+    """The interface-geometry descriptors over the 374 Native2026 crystal complexes, shipped so a
+    **single** user structure (or any small cohort) can be standardized against the natural interface
+    manifold instead of against itself — the deployment path for generic input::
+
+        from tcren import cohort
+        q = cohort.q_score(user_table, reference=cohort.native_reference(),
+                           features=cohort.Q_FEATURES_GEOM)
+
+    Use :data:`Q_FEATURES_GEOM` (the four geometry terms) for one structure: the fifth term
+    ``pp_combo`` is a within-cohort z-contrast and is undefined for a single row. Returns a dict of
+    column arrays (``burial, n_pep_contacted, chain_balance, n_hbond, e_cdr12, e_cdr3a``) usable as
+    the ``reference`` argument. Provenance: ``tcren recognize --full`` over the Native2026 set.
+    """
+    import csv
+    from importlib import resources
+    path = resources.files("tcren.data") / "q_native_reference.csv"
+    with path.open() as fh:
+        rows = list(csv.DictReader(fh))
+    return {c: np.array([float(r[c]) for r in rows]) for c in rows[0]}
+
+
+def q_score(table, reference=None, features=Q_FEATURES, method="z") -> np.ndarray:
     """Equal-weight interface-quality score ``Q = mean_k z(d_k)`` — the recommended binder score.
 
-    No fitting and no labels: the descriptors enter with equal weight and a label-free
-    standardization over the candidate set. Reproduces the shipped in-sample ``p_bind`` logistic at
-    r ~ 0.92 while carrying no training set, and — unlike ``p_bind`` — generalises across cohorts
-    (benchmark ledger C25). With ipTM, ``z(ipTM) + z(q_score(...))`` is the fit-free synergy score
-    (macro ROC 0.83 on TCRvdb vs ipTM 0.79).
+    No fitting and no labels: the descriptors enter with **equal weight** and a label-free
+    standardization — there are no coefficients to fit. Reproduces the shipped in-sample ``p_bind``
+    logistic at r ~ 0.92 while carrying no training set, and — unlike ``p_bind`` — generalises across
+    cohorts (benchmark ledger C25). With ipTM, ``z(ipTM) + z(q_score(...))`` is the fit-free synergy
+    score (macro ROC 0.83 on TCRvdb vs ipTM 0.79).
 
     Args:
         table: the ``tcren recognize --full`` table (dict / pandas / polars).
-        reference: optional cohort to standardize against (see :func:`zscore`).
+        reference: cohort to standardize against; ``None`` = cohort-relative (the ``table`` itself).
+            Pass :func:`native_reference` for single-structure / cross-cohort use (see :func:`zscore`).
         features: which descriptors to average. Defaults to the five :data:`Q_FEATURES`; pass
-            :data:`Q_FEATURES_CORE` for the simpler four-term score that is marginally better.
+            :data:`Q_FEATURES_CORE` for the simpler four-term score that is marginally better, or
+            :data:`Q_FEATURES_GEOM` (the required choice for one structure — ``pp_combo`` needs a cohort).
+        method: descriptor standardization, ``"z"`` (default) or ``"rank"`` — see :func:`zscore`.
     """
-    z = [zscore(_derive(table, f), None if reference is None else _derive(reference, f))
+    z = [zscore(_derive(table, f), None if reference is None else _derive(reference, f), method=method)
          for f in features]
     return np.nanmean(np.vstack(z), axis=0)
 
