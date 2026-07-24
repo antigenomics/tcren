@@ -6,9 +6,30 @@ import numpy as np
 import pytest
 
 from tcren.recognition import (BayesianLogisticRecognizer, CDR3_FRAME_FEATURES, FORCED_POSE_MODEL,
-                               FULL_FEATURES, GaussianBNClassifier, MATRIX_SWAP_FEATURES,
-                               RECOGNITION_FEATURES, _hill_climb, encode_features, forced_pose_score,
-                               kit_score)
+                               FULL_FEATURES, GaussianBNClassifier, INTERFACE_SYMMETRY_FEATURES,
+                               MATRIX_SWAP_FEATURES, RECOGNITION_FEATURES, _hill_climb, _interface_symmetry,
+                               encode_features, forced_pose_score, kit_score)
+
+
+def test_interface_symmetry_contact_counts():
+    import math
+
+    import polars as pl
+    # 2 CDR1(TRA) + 1 CDR2(TRB) germline, 3 CDR3a, 5 CDR3b  ->  n12=3, n3a=3, n3b=5; nA=2+3=5, nB=1+5=6
+    tp = pl.DataFrame({
+        "region.type.from": ["CDR1", "CDR1", "CDR2", "CDR3", "CDR3", "CDR3", "CDR3", "CDR3", "CDR3", "CDR3", "CDR3"],
+        "chain.type.from":  ["TRA",  "TRA",  "TRB",  "TRA",  "TRA",  "TRA",  "TRB",  "TRB",  "TRB",  "TRB",  "TRB"],
+    })
+    s = _interface_symmetry(tp)
+    assert set(s) == set(INTERFACE_SYMMETRY_FEATURES)
+    assert s["cdr3_dominance"] == pytest.approx(8 / 11)        # (3+5)/(3+3+5), CDR3-dominated -> >0.5
+    assert s["cdr3_ab_imbalance"] == pytest.approx(2 / 8)      # |3-5|/8, absolute
+    assert s["chain_cdr_imbalance"] == pytest.approx(1 / 11)   # |5-6|/11, absolute
+    # empty interface -> all NaN, no divide-by-zero
+    empty = pl.DataFrame({"region.type.from": [], "chain.type.from": []}, schema={"region.type.from": pl.Utf8, "chain.type.from": pl.Utf8})
+    assert all(math.isnan(v) for v in _interface_symmetry(empty).values())
+    # these are extra columns, not part of the frozen model vector
+    assert not (set(INTERFACE_SYMMETRY_FEATURES) & set(RECOGNITION_FEATURES))
 
 
 def _auc(y, score):

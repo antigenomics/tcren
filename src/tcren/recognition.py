@@ -377,6 +377,13 @@ RECOGNITION_FEATURES = (
 _CT_TYPES = ("salt_bridge", "hydrogen_bond", "aromatic", "hydrophobic", "other")
 _TCR_TYPES = ("TRA", "TRB", "TRG", "TRD")
 
+#: Interface-symmetry descriptors from per-loop TCR:peptide contact **counts** (not energies), emitted as
+#: extra ``recognize`` output columns — **not** part of :data:`RECOGNITION_FEATURES` (the frozen models'
+#: 35-vector is fixed). ``cdr3_dominance`` = CDR3(α+β) share of CDR contacts (higher = CDR3-dominated,
+#: oriented positive); ``cdr3_ab_imbalance`` = ``|CDR3α−CDR3β|`` normalised (absolute); ``chain_cdr_imbalance``
+#: = ``|α−β|`` whole-CDR normalised (absolute). See :func:`_interface_symmetry`.
+INTERFACE_SYMMETRY_FEATURES = ("cdr3_dominance", "cdr3_ab_imbalance", "chain_cdr_imbalance")
+
 #: CDR3-local frame features (18), the FramePose layer the whole-TCR :data:`RECOGNITION_FEATURES` miss.
 #: Per loop, relative to the pMHC groove frame (u, w, n; origin = peptide Cα centroid):
 #: ``reach`` = |loop centroid − origin|; ``o{u,w,n}`` = unit(centroid−origin)·(u,w,n) (where over the
@@ -444,6 +451,31 @@ def _chain_balance(cm) -> float:
         a += t == "TRA"
         b += t == "TRB"
     return min(a, b) / (a + b) if (a + b) else math.nan
+
+
+def _interface_symmetry(tp) -> dict[str, float]:
+    """CDR3-dominance and TCR chain/loop imbalance from per-loop TCR:peptide contact **counts**.
+
+    ``tp`` is the ``tcr_peptide`` interface table (``tcr_regions="all"``). Unlike ``e_cdr*`` (which are
+    interface *energies*), these are pure contact-topology descriptors. Emitted as extra output columns
+    (:data:`INTERFACE_SYMMETRY_FEATURES`), not part of :data:`RECOGNITION_FEATURES`.
+    """
+    import polars as pl
+    reg, ch = pl.col("region.type.from"), pl.col("chain.type.from")
+    h = lambda f: float(tp.filter(f).height)  # noqa: E731
+    n12 = h(reg.is_in(["CDR1", "CDR2"]))                                   # germline CDR1/2 (both chains)
+    n3a, n3b = h((reg == "CDR3") & (ch == "TRA")), h((reg == "CDR3") & (ch == "TRB"))
+    nA = h(reg.is_in(["CDR1", "CDR2", "CDR3"]) & (ch == "TRA"))            # whole alpha CDRs
+    nB = h(reg.is_in(["CDR1", "CDR2", "CDR3"]) & (ch == "TRB"))            # whole beta CDRs
+    tot = n12 + n3a + n3b
+    return {
+        # CDR3 (a+b) share of CDR TCR:peptide contacts -- higher = CDR3-dominated (binder-like; oriented +)
+        "cdr3_dominance": (n3a + n3b) / tot if tot else math.nan,
+        # |CDR3a - CDR3b| normalised imbalance -- absolute magnitude (direction is tested, not assumed)
+        "cdr3_ab_imbalance": abs(n3a - n3b) / (n3a + n3b) if (n3a + n3b) else math.nan,
+        # |alpha - beta| whole-CDR contact imbalance, normalised -- absolute magnitude
+        "chain_cdr_imbalance": abs(nA - nB) / (nA + nB) if (nA + nB) else math.nan,
+    }
 
 
 def _burial(structure, tcr_ids, pmhc_ids) -> float:
@@ -681,6 +713,17 @@ def _stability_clash_columns(s) -> dict[str, float]:
     return out
 
 
+def _symmetry_columns(s) -> dict[str, float]:
+    """Interface-symmetry extra output columns (:data:`INTERFACE_SYMMETRY_FEATURES`) for the recognize
+    table --- CDR3-dominance and α/β contact imbalance from a fresh contact map. NaN on failure."""
+    from .contactmap import ContactMap
+    try:
+        cm = ContactMap.from_structure(s)
+        return _interface_symmetry(cm.interface("tcr_peptide", tcr_regions="all"))
+    except Exception:  # noqa: BLE001 - no peptide/receptor chain etc.
+        return {k: math.nan for k in INTERFACE_SYMMETRY_FEATURES}
+
+
 def recognition_table(items, *, organism: str = "human", full: bool = False, scores: bool = False,
                       with_p_real: bool = True) -> list[dict]:
     """Batched feature (+score) extraction for a whole set of TCR–pMHC structures.
@@ -726,7 +769,7 @@ def recognition_table(items, *, organism: str = "human", full: bool = False, sco
     for id_, s in zip(ids, structs):
         try:
             feats = recognition_features(s, organism=organism, full=full, annotate=False)
-            row = {"complex.id": id_, **feats, **_stability_clash_columns(s)}
+            row = {"complex.id": id_, **feats, **_stability_clash_columns(s), **_symmetry_columns(s)}
             if with_p_real:
                 p = real_probability(feats, recognizers=recognizers)
                 row["p_real"], row["p_real_bn"] = float(p["logistic"][0]), float(p["bn"][0])
