@@ -10,8 +10,8 @@ from . import potential
 from .binder import BINDER_MODEL, binder_score, is_real_interface
 from .paper.helpers import annotate_batch
 from .refine.anchors import native_peptide
-from .cohort import (F_TERMS, Q_FEATURES_GEOM, f_score, phi_bind, q_f, q_iptm, q_score, strain_z,
-                     zscore)
+from .cohort import (F_TERMS, Q_FEATURES_GEOM, f_invert_by_iptm, f_score, phi_bind, q_f, q_f_iptm,
+                     q_iptm, q_score, strain_z, zscore)
 from .clashes import ClashReport, has_clashes, interface_clashes
 from .stability import StabilityReport, contact_stability
 from . import geometry

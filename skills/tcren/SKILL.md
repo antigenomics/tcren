@@ -272,6 +272,13 @@ QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses ar
   with `--iptm`) — the full fit-free panel in one line. `z(ipTM)+z(Q_geom)` stays the channel robust to the
   inversion; grade forced-ness with `s_strain` before trusting `+F`. Reproduced by
   `models/qf_panel.py` in the benchmark repo.
+- **AlphaFold-synergy auto-inversion (v2.3.2):** `cohort.q_f_iptm(table, iptm, threshold=0.5)` uses AF's own
+  ipTM to pick F's sign per structure — `+z(F)` on confident poses, `-z(F)` on forced (low-ipTM) ones —
+  and `cohort.f_invert_by_iptm(iptm, thr)` is the boolean flag. With `--iptm`, `tcren recognize --cohort`
+  emits `F_invert` + `z(Q)+z(F|iptm)` (threshold `--invert-f-thresh`) and **prints how many poses are
+  forced** so the user is told F inversion is in play; without `--iptm` it warns that F is trusted
+  unconditionally. The versatile AF-post-analysis path: geometry (`Q`), chemistry (`F`), and AF confidence
+  (ipTM) combined, with F used only where AF's pose is trustworthy.
 
 ## MHC mapping speed — `mhc.reference.reference_db()`
 

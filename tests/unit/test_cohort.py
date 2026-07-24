@@ -2,8 +2,9 @@
 import numpy as np
 import pytest
 
-from tcren.cohort import (F_TERMS, Q_FEATURES, Q_FEATURES_CORE, Q_FEATURES_GEOM, STRAIN_TERMS, f_score,
-                          phi_bind, q_f, q_iptm, q_score, strain_z, zscore)
+from tcren.cohort import (F_TERMS, Q_FEATURES, Q_FEATURES_CORE, Q_FEATURES_GEOM, STRAIN_TERMS,
+                          f_invert_by_iptm, f_score, phi_bind, q_f, q_f_iptm, q_iptm, q_score, strain_z,
+                          zscore)
 
 
 def _table(n=120, seed=0, **shift):
@@ -126,3 +127,26 @@ def test_q_f_is_zq_plus_signed_zf():
     assert np.allclose(q_f(t, sign=-1.0), zq - f_score(t))      # forced-pose form z(Q)-z(F)
     # the two signs differ exactly by 2 z(F)
     assert np.allclose(q_f(t) - q_f(t, sign=-1.0), 2 * f_score(t))
+
+
+def test_f_invert_by_iptm_flags_forced_and_ignores_nan():
+    iptm = np.array([0.9, 0.3, 0.5, np.nan, 0.49])
+    inv = f_invert_by_iptm(iptm, threshold=0.5)
+    # < threshold -> invert; == threshold -> keep; NaN -> not inverted
+    assert inv.tolist() == [False, True, False, False, True]
+
+
+def test_q_f_iptm_flips_F_sign_per_structure_by_iptm():
+    t = _table_f()
+    n = 120
+    iptm = np.linspace(0.2, 0.9, n)                       # some below 0.5, some above
+    zq = zscore(q_score(t, features=Q_FEATURES_GEOM))
+    zf = f_score(t)
+    sign = np.where(iptm < 0.5, -1.0, 1.0)
+    assert np.allclose(q_f_iptm(t, iptm, threshold=0.5), zq + sign * zf)
+    # a confident pose keeps +z(F), a forced one subtracts it
+    hi, lo = iptm >= 0.5, iptm < 0.5
+    assert np.allclose(q_f_iptm(t, iptm)[hi], (zq + zf)[hi])
+    assert np.allclose(q_f_iptm(t, iptm)[lo], (zq - zf)[lo])
+    # all-NaN ipTM -> no inversion -> identical to plain z(Q)+z(F)
+    assert np.allclose(q_f_iptm(t, np.full(n, np.nan)), zq + zf)

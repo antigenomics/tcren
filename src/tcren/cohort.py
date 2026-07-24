@@ -36,8 +36,8 @@ import warnings
 
 import numpy as np
 
-__all__ = ["zscore", "q_score", "q_iptm", "f_score", "q_f", "phi_bind", "strain_z", "Q_FEATURES",
-           "Q_FEATURES_CORE", "Q_FEATURES_GEOM", "F_TERMS", "STRAIN_TERMS"]
+__all__ = ["zscore", "q_score", "q_iptm", "f_score", "q_f", "q_f_iptm", "f_invert_by_iptm", "phi_bind",
+           "strain_z", "Q_FEATURES", "Q_FEATURES_CORE", "Q_FEATURES_GEOM", "F_TERMS", "STRAIN_TERMS"]
 
 #: The five interface-quality descriptors, equal-weighted in :func:`q_score`. Each is oriented
 #: positive-is-better as given. ``pp_combo`` is the CDR1/2-vs-CDR3alpha TCRen contrast — the one
@@ -198,6 +198,37 @@ def q_f(table, reference=None, sign=1.0, features=Q_FEATURES_GEOM, terms=F_TERMS
         terms: energy terms for ``F``; defaults to :data:`F_TERMS`.
     """
     return zscore(q_score(table, reference, features)) + sign * f_score(table, reference, terms)
+
+
+def q_f_iptm(table, iptm, threshold=0.5, reference=None, features=Q_FEATURES_GEOM,
+             terms=F_TERMS) -> np.ndarray:
+    """Pose-adaptive ``z(Q) + s·z(F)`` where the F sign ``s`` is chosen per structure from ipTM.
+
+    Automates the forced-pose inversion: a **confident** pose (``ipTM >= threshold``) keeps ``+z(F)``
+    because the contact energy is trustworthy there; a **forced** pose (``ipTM < threshold``) flips to
+    ``-z(F)`` because the energy inverts on forced poses (benchmark ledger C27/C42). A structure with no
+    ipTM (``NaN``) keeps ``+z(F)`` — nothing marks it as forced. See :func:`f_invert_by_iptm` for the
+    boolean flag alone.
+
+    ipTM is a *pose-confidence* proxy, not a calibrated forced-pose detector — grading forced-ness with
+    :func:`strain_z` is the principled alternative (C27), and :func:`q_iptm` (``z(ipTM)+z(Q)``) sidesteps
+    the energy entirely. Provided because it is the single-call pose-adaptive combiner.
+
+    Args:
+        table: the ``tcren recognize --full --scores`` table (dict / pandas / polars).
+        iptm: per-structure ipTM aligned to ``table`` rows.
+        threshold: ipTM below which a pose is treated as forced and ``F`` is inverted (default 0.5).
+        reference / features / terms: as in :func:`q_f`.
+    """
+    sign = np.where(f_invert_by_iptm(iptm, threshold), -1.0, 1.0)
+    return q_f(table, reference, sign=sign, features=features, terms=terms)
+
+
+def f_invert_by_iptm(iptm, threshold=0.5) -> np.ndarray:
+    """Boolean per-structure flag: invert ``F`` where ``ipTM < threshold`` (a forced pose). ``NaN`` ipTM
+    is not inverted. This is the ``F_invert`` column :func:`q_f_iptm` acts on."""
+    iptm = np.asarray(iptm, float)
+    return np.isfinite(iptm) & (iptm < threshold)
 
 
 def phi_bind(table, reference=None) -> np.ndarray:

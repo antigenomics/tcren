@@ -14,8 +14,15 @@ All notable changes to `tcren` are recorded here. Format follows
   term). `sign=+1` (`z(Q)+z(F)`) on clean poses beats raw-AF ipTM on both ROC and PR on template-covered
   epitopes (macro 0.759/0.725 vs 0.692/0.693, ledger C42); `sign=-1` (`z(Q)-z(F)`) is the form that ranks
   on forced poses (GLCTLVAML: 0.71 vs 0.52). Exported as `tcren.f_score`, `tcren.q_f`, `tcren.F_TERMS`.
+- **`cohort.q_f_iptm(table, iptm, threshold=0.5)` + `cohort.f_invert_by_iptm(iptm, threshold)`** — the
+  **AlphaFold-synergy** path: use ipTM (AF's own pose confidence) to auto-invert F per structure —
+  `+z(F)` on confident poses, `-z(F)` on forced (low-ipTM) ones — turning the pose-conditional inversion
+  into a single ranking.
 - **`tcren recognize --cohort`** now also emits `F_score`, `z(Q)+z(F)` and `z(Q)-z(F)`; with `--iptm` it
-  additionally emits `z(ipTM)+z(Q)+z(F)` — the full fit-free panel in one line.
+  additionally emits `z(ipTM)+z(Q)+z(F)`, the `F_invert` flag and `z(Q)+z(F|iptm)` (pose-adaptive,
+  threshold `--invert-f-thresh`), and **prints an advisory** naming how many poses are forced (so the user
+  knows F inversion is in play); without `--iptm` it tells the user F is trusted unconditionally and how to
+  gate it — the full fit-free panel for AF post-analysis in one line.
 
 ## [2.3.1] — 2026-07-24
 
