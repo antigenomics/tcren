@@ -635,11 +635,19 @@ def pipeline(
     tcr_mhc_potential: str = typer.Option(None, "--tcr-mhc-potential", help="potential for the TCR↔MHC interface: bundled name or CSV path (default: mj)"),
     peptide_mhc_potential: str = typer.Option(None, "--peptide-mhc-potential", help="potential for the peptide↔MHC interface: bundled name or CSV path (default: mj)"),
     regions: str = typer.Option("all", "--regions", help="TCR regions on the TCR side: all|cdr|cdr+fr (default: all)"),
+    delta: bool = typer.Option(False, "--delta", help="also report the poly-alanine-referenced ΔF per interface and ΔF total"),
+    reference_aa: str = typer.Option("A", "--reference-aa", help="reference residue for --delta (default: alanine)"),
 ) -> None:
-    """Run the full pipeline and write per-interface energies for each structure.
+    """Run the full pipeline and write per-interface energies F (and ΔF) for each structure.
 
     structure → annotate (alleles + chains) → superimpose → resmarkup / canonical Cα / contacts
     → score (TCRen for TCR↔peptide, MJ for TCR↔MHC and peptide↔MHC) + total.
+
+    Columns ``tcr_peptide.tcren``, ``tcr_mhc.mj``, ``peptide_mhc.mj`` are the three interface
+    terms F_TP, F_TM, F_PM; ``total`` is their sum F. With ``--delta`` each also gets its
+    poly-alanine-referenced counterpart ``d_*`` (ΔF_TP, ΔF_TM≡0, ΔF_PM) and ``d_total`` = ΔF.
+    ΔF is the score to use across candidates that each carry their **own** generated pose,
+    where raw F partly reads the pose geometry rather than the peptide sequence.
 
     Each interface's potential can be overridden with a bundled name (``tcren``/``mj``/
     ``keskin``) or a CSV path; an unset option keeps the default family for that interface.
@@ -658,7 +666,8 @@ def pipeline(
         try:
             res = run_pipeline(s, organism=organism, superimpose=not no_superimpose,
                                db_dir=db, cutoff=cutoff,
-                               potentials=potentials, tcr_regions=regions)
+                               potentials=potentials, tcr_regions=regions,
+                               reference_aa=reference_aa if delta else None)
             rows.append(score_row(res))
         except Exception as exc:  # noqa: BLE001 - keep the batch resilient
             rows.append({"pdb.id": s.pdb_id, "total": None,

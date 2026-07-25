@@ -31,3 +31,17 @@ def test_pipeline_superimpose_sets_canonical_frame():
     row = score_row(res)
     assert row["pdb.id"] == "1ao7" and row["mhc.class"] == "MHCI"
     assert row["tcr_peptide.tcren"] == res.scores["tcr_peptide"]
+
+
+def test_pipeline_reference_aa_adds_delta_f():
+    """--delta path: ΔF per interface, ΔF_tcr_mhc ≡ 0, ΔF_total = ΔF_TP + ΔF_PM."""
+    res = run(_FIXTURE, superimpose=False, reference_aa="A")
+    assert res.scores["delta_tcr_mhc"] == 0.0          # the peptide is not in that interface
+    assert res.scores["delta_total"] == pytest.approx(
+        res.scores["delta_tcr_peptide"] + res.scores["delta_peptide_mhc"]
+    )
+    # ΔF = F(peptide) − F(poly-Ala) is a genuine difference, not a copy of F
+    assert res.scores["delta_tcr_peptide"] != res.scores["tcr_peptide"]
+    row = score_row(res)
+    assert row["d_total"] == res.scores["delta_total"]
+    assert "d_total" not in score_row(run(_FIXTURE, superimpose=False))

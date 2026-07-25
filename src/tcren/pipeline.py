@@ -27,7 +27,7 @@ from .contacts.table import residue_annotation
 from .mhc import MhcCall, annotate_mhc
 from .potential import Potential, keskin, mj, tcren
 from .structure.io import import_structure
-from .structure.model import Structure
+from .structure.model import PEPTIDE_TYPE, Structure
 
 # Interface → potential family (TCRen for the TCR↔peptide contact map; MJ elsewhere).
 _INTERFACE_POTENTIAL = {"tcr_peptide": "tcren", "tcr_mhc": "mj", "peptide_mhc": "mj"}
@@ -134,6 +134,7 @@ def run(
     potentials: dict[str, str | Potential | None] | None = None,
     tcr_regions: str = "all",
     contact_weight: str = "residue",
+    reference_aa: str | None = None,
 ) -> PipelineResult:
     """Run the full pipeline on one structure (path or parsed :class:`Structure`).
 
@@ -156,6 +157,11 @@ def run(
             ``n_atom_contacts`` heavy-atom-pair count (the contact map is then built with
             ``count_atoms=True``). Applies to ``tcr_peptide``, ``tcr_mhc`` and
             ``peptide_mhc`` alike.
+        reference_aa: if set (typically ``"A"``), also report the reference-normalised
+            energies ``delta_<interface>`` and ``delta_total`` --- each interface's
+            :func:`tcren.ddg.reference_delta`, i.e. its energy minus the energy of a
+            poly-``reference_aa`` peptide threaded onto the same contact map. Off by
+            default, so the default ``scores`` dict is unchanged.
 
     Returns:
         A :class:`PipelineResult` with the markup, contacts, per-interface scores and (if
@@ -188,6 +194,23 @@ def run(
     }
     scores["total"] = sum(scores.values())
 
+    if reference_aa is not None:
+        # ΔF = F(peptide) − F(poly-reference peptide) per interface, on THIS structure's own
+        # contact map. On a fixed map it is F minus a constant and changes no ranking; it only
+        # bites across candidates that each carry their own pose (see ddg.reference_delta).
+        # ΔF_tcr_mhc is identically 0 — the peptide is not in that interface.
+        from .ddg import reference_delta
+
+        peptide = next((c.sequence() for c in s.chains if c.chain_type == PEPTIDE_TYPE), None)
+        if peptide is None:
+            raise ValueError(f"{s.pdb_id}: no peptide chain, cannot compute a ΔF reference")
+        for iface in _INTERFACE_POTENTIAL:
+            scores[f"delta_{iface}"] = reference_delta(
+                cm, peptide, resolved[iface], interface=iface, reference_aa=reference_aa,
+                tcr_regions=tcr_regions, contact_weight=contact_weight,
+            )
+        scores["delta_total"] = sum(scores[f"delta_{i}"] for i in _INTERFACE_POTENTIAL)
+
     # Interface-sanity (assay-noise) flag: a cheap pre-energy check that the TCR:peptide
     # interface is a plausible dock (enough contacts + in-range docking geometry). The docking
     # angles only exist once the complex is oriented, so this is a no-op (real_interface=None)
@@ -219,9 +242,13 @@ def run(
 
 
 def score_row(result: PipelineResult) -> dict:
-    """Flatten a :class:`PipelineResult` to a one-row scores dict (for a CSV table)."""
+    """Flatten a :class:`PipelineResult` to a one-row scores dict (for a CSV table).
+
+    The ``d_*`` reference-normalised columns are present only when the pipeline was run with
+    ``reference_aa`` set.
+    """
     mhc = next((c for c in result.mhc_calls if c.chain_role == "MHCa"), None)
-    return {
+    row = {
         "pdb.id": result.pdb_id,
         "mhc.class": mhc.mhc_class if mhc else None,
         "allele": mhc.allele if mhc else None,
@@ -231,3 +258,11 @@ def score_row(result: PipelineResult) -> dict:
         "peptide_mhc.mj": result.scores["peptide_mhc"],
         "total": result.scores["total"],
     }
+    if "delta_total" in result.scores:
+        row.update({
+            "d_tcr_peptide.tcren": result.scores["delta_tcr_peptide"],
+            "d_tcr_mhc.mj": result.scores["delta_tcr_mhc"],
+            "d_peptide_mhc.mj": result.scores["delta_peptide_mhc"],
+            "d_total": result.scores["delta_total"],
+        })
+    return row

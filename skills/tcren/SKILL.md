@@ -65,6 +65,11 @@ Reference: `arda.annotate_sequences([(id, seq), ...])` — one call, threads int
   + 5 Å contacts → per-interface energies. Scores: **TCRen** for TCR↔peptide, **MJ** for TCR↔MHC
   and peptide↔MHC, plus `total` (sum of the residue-pair potential over each interface's
   contacts). CLI `tcren pipeline -s … -o scores.csv` writes one row per structure.
+- **F and ΔF, with the TP / PM / TM breakdown**, come from this one command. `total` is
+  F = F_TP + F_TM + F_PM over the three interface columns. `run_pipeline(…, reference_aa="A")`
+  / `tcren pipeline --delta` adds the poly-alanine-referenced `d_*` columns and `d_total` = ΔF
+  (each interface's `tcren.ddg.reference_delta`; `d_tcr_mhc.mj` ≡ 0, the peptide is not in that
+  interface). Use ΔF, not F, when each candidate carries its **own** generated pose.
 
 ## Compiled extensions — `_align`, `_refine`, `_relax`, `_fold`, `_geom` (pybind11 / scikit-build-core)
 

@@ -3,6 +3,16 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
+## [Unreleased]
+
+### Added
+- **`run_pipeline(…, reference_aa="A")` / `tcren pipeline --delta`** — the poly-alanine-referenced
+  ΔF alongside F, with the same per-interface breakdown. `total` is F = F_TP + F_TM + F_PM; the new
+  `d_tcr_peptide.tcren` / `d_tcr_mhc.mj` / `d_peptide_mhc.mj` / `d_total` columns are ΔF_TP, ΔF_TM
+  (≡ 0 — the peptide is not in that interface), ΔF_PM and ΔF. One command now yields both scores and
+  the whole decomposition; ΔF is the one to use when each candidate carries its own generated pose.
+  Off by default, so the existing `scores` dict and CSV columns are unchanged.
+
 ## [2.3.2] — 2026-07-24
 
 ### Added
