@@ -6,7 +6,8 @@ import numpy as np
 import polars as pl
 import pytest
 
-from tcren.potential import Potential, derive_tcren, keskin, mj, tcren
+from tcren.potential import (Potential, derive_tcren, keskin, mj, symmetrize_counts,
+                             tcren)
 from tcren.potential.model import AA20
 
 
@@ -86,3 +87,61 @@ def test_value_missing_pair_raises():
     pot = tcren()
     with pytest.raises(KeyError):
         pot.value("C", "A")  # Cys dropped from the 'from' axis in classic
+
+
+def _sym_contacts():
+    """Directed contacts whose transpose is genuinely different (A->D seen, D->A not)."""
+    return pl.DataFrame(
+        [{"pdb.id": "x", "residue.aa.from": "A", "residue.aa.to": "D"}] * 5
+        + [{"pdb.id": "x", "residue.aa.from": "L", "residue.aa.to": "A"}] * 3
+        + [{"pdb.id": "x", "residue.aa.from": "K", "residue.aa.to": "E"}] * 2
+    )
+
+
+def test_symmetrize_counts_folds_onto_transpose():
+    counts = pl.DataFrame(
+        {"residue.aa.from": ["A", "W"], "residue.aa.to": ["W", "A"], "count": [3.0, 1.0]}
+    )
+    out = symmetrize_counts(counts)
+    got = {(r["residue.aa.from"], r["residue.aa.to"]): r["count"] for r in out.iter_rows(named=True)}
+    assert got[("A", "W")] == pytest.approx(4.0)  # 3 + 1
+    assert got[("W", "A")] == pytest.approx(4.0)
+
+
+def test_symmetrize_counts_doubles_the_diagonal():
+    """A homotypic contact is one unordered pair seen from both sides."""
+    counts = pl.DataFrame({"residue.aa.from": ["C"], "residue.aa.to": ["C"], "count": [7.0]})
+    out = symmetrize_counts(counts)
+    assert out["count"][0] == pytest.approx(14.0)
+
+
+def test_symmetric_potential_is_symmetric_and_square():
+    pot = derive_tcren(_sym_contacts(), variant="classic", symmetric=True)
+    for row in pot.matrix.iter_rows(named=True):
+        a, b = row["residue.aa.from"], row["residue.aa.to"]
+        assert row["value"] == pytest.approx(pot.value(b, a), abs=1e-12)
+    # symmetric implies Cys is kept on BOTH axes, so the matrix stays square
+    assert set(pot.matrix["residue.aa.from"]) == set(pot.matrix["residue.aa.to"])
+    assert "C" in set(pot.matrix["residue.aa.from"])
+
+
+def test_symmetric_is_not_a_post_hoc_average():
+    """Folding the COUNTS also rebuilds the marginals, so it differs from averaging energies.
+
+    This is the whole point of symmetrising before the log-odds rather than after it.
+    """
+    contacts = _sym_contacts()
+    sym = derive_tcren(contacts, variant="classic", symmetric=True)
+    directed = derive_tcren(contacts, variant="classic", drop_cys=False)
+    diffs = [
+        abs(sym.value(a, b) - 0.5 * (directed.value(a, b) + directed.value(b, a)))
+        for a, b in [("A", "D"), ("L", "A"), ("K", "E")]
+    ]
+    assert max(diffs) > 1e-6
+
+
+def test_symmetric_default_off_keeps_legacy_matrix():
+    contacts = _sym_contacts()
+    assert derive_tcren(contacts, variant="classic").matrix.equals(
+        derive_tcren(contacts, variant="classic", symmetric=False).matrix
+    )

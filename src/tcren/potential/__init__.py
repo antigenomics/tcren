@@ -1,6 +1,6 @@
 """Statistical potentials: representation, bundled loaders, and derivation."""
 
-from .derive import derive_tcren, derive_tcren_loo
+from .derive import derive_tcren, derive_tcren_loo, symmetrize_counts
 from .model import AA20, AA21, Potential, keskin, mj, tcren
 from .redundancy import alphabeta_ids, cluster_weights, nonredundant_ids
 
@@ -10,6 +10,7 @@ __all__ = [
     "Potential",
     "derive_tcren",
     "derive_tcren_loo",
+    "symmetrize_counts",
     "tcren",
     "mj",
     "keskin",

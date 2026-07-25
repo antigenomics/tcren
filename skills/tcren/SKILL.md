@@ -350,6 +350,32 @@ from tcren.paper import (
   regression oracle (legacy mir/R outputs: `contact_maps_PDB.csv`, `tcren_am/tcren.txt`, the
   `example/` set) lives under `tests/assets/oracle/`; the legacy R/Java pipeline was deleted.
 
+## Symmetric TCRen — `derive_tcren(..., symmetric=True)`
+
+TCRen is **directed**: `from` is a TCR residue, `to` a peptide residue, so `F[a,b] != F[b,a]` and
+the shipped matrix is 19x20 (classic drops the `from == "C"` row). MJ — used for the presentation
+interfaces — is symmetric 20x20. `symmetric=True` folds the **raw counts** onto their transpose
+(`potential.symmetrize_counts`, `N + N.T`) *before* the log-odds, so the marginals and hence the
+expected term are rebuilt from the folded counts.
+
+```python
+from tcren.potential import derive_tcren, symmetrize_counts
+sym = derive_tcren(contacts, variant="classic", symmetric=True)   # exactly symmetric, 20x20
+```
+
+- **Not a post-hoc average.** Averaging the finished energies leaves the asymmetric background in
+  place; on Native2026 the two differ by 0.29 mean / 0.82 max. Symmetrise counts, not energies.
+- **Cys is grafted, not dropped.** Free Cys is essentially absent from CDR loops — 4 of 8062
+  Native2026 contacts (0.05%) are TCR-side Cys vs 32 (0.40%) peptide-side. The fold grafts the
+  peptide-side observations onto the Cys row, so the symmetric matrix keeps a full 20x20 alphabet
+  instead of dropping a column for lack of data. `drop_cys` is forced `False` when `symmetric`.
+- **Why it is interesting:** it puts TCRen in MJ's functional form, making them directly
+  comparable for the first time. They turn out to be nearly **uncorrelated** (Pearson +0.07,
+  Spearman +0.10 over the 210 unordered pairs) — TCR:peptide recognition chemistry is not generic
+  protein-folding contact chemistry, which is the argument for TCRen existing separately at all.
+  Symmetric vs directed TCRen: r = +0.67, mean|diff| 0.29.
+- Default is `symmetric=False`; the shipped `TCRen_potential.csv` is unchanged.
+
 ## Geometry: contacts, region pairs, docking angle
 
 ```python

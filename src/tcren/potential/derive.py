@@ -19,6 +19,54 @@ from .model import AA20, AA21, Potential
 # same tuple/order as ``model.AA20``.
 
 
+def symmetrize_counts(counts: pl.DataFrame) -> pl.DataFrame:
+    """Fold a directed aa-pair count table onto its transpose: ``N + Nᵀ``.
+
+    TCRen counts are **directed** — ``from`` is a TCR residue and ``to`` a peptide residue — so
+    ``N[a,b]`` and ``N[b,a]`` are different observations and the derived matrix is asymmetric.
+    Adding the transpose treats each contact as an *unordered* pair, which is the convention
+    Miyazawa–Jernigan uses. Diagonal cells double, as they must: a C–C contact is one unordered
+    pair observed from both sides.
+
+    Symmetrising here — on the **raw counts, before the log-odds** — is not the same as averaging
+    the finished potential. The marginals (``total.from`` / ``total.to``) are recomputed from the
+    folded counts, so the *expected* term of the log-odds changes too; averaging the energies
+    afterwards leaves the asymmetric background in place. On the Native2026 derivation set the two
+    disagree by 0.29 on average (max 0.82), so the distinction is not cosmetic.
+
+    **Cysteine.** The classic directed derivation drops ``from == "C"`` because free Cys is
+    essentially absent from CDR loops — on Native2026 only **4 of 8062** contacts (0.05 %) have a
+    TCR-side Cys, against 32 (0.40 %) on the peptide side. Folding *grafts* those peptide-side
+    observations onto the Cys row instead of discarding the column, so the symmetric matrix keeps
+    a full 20×20 alphabet at no cost: the row that would have been dropped for having no data
+    inherits the data the other axis did have.
+
+    Args:
+        counts: Long table with ``residue.aa.from``, ``residue.aa.to`` and ``count``.
+
+    Returns:
+        The folded table, with one row per unordered pair-cell (still stored in both
+        orientations, so it is a full symmetric matrix).
+
+    Example:
+        >>> import polars as pl
+        >>> c = pl.DataFrame({"residue.aa.from": ["A"], "residue.aa.to": ["W"], "count": [3.0]})
+        >>> out = symmetrize_counts(c)
+        >>> sorted((r["residue.aa.from"], r["residue.aa.to"], r["count"]) for r in out.iter_rows(named=True))
+        [('A', 'W', 3.0), ('W', 'A', 3.0)]
+    """
+    swapped = counts.select(
+        pl.col("residue.aa.to").alias("residue.aa.from"),
+        pl.col("residue.aa.from").alias("residue.aa.to"),
+        pl.col("count"),
+    )
+    return (
+        pl.concat([counts.select(swapped.columns), swapped])
+        .group_by("residue.aa.from", "residue.aa.to")
+        .agg(pl.col("count").sum())
+    )
+
+
 def derive_tcren(
     contacts: pl.DataFrame,
     include: list[str] | None = None,
@@ -28,6 +76,7 @@ def derive_tcren(
     beta: float = 44.0,
     drop_cys: bool | None = None,
     weights: dict[str, float] | None = None,
+    symmetric: bool = False,
 ) -> Potential:
     """Derive a TCRen potential from a table of residue contacts.
 
@@ -42,12 +91,20 @@ def derive_tcren(
             Cys retained).
         beta: Temperature divisor used by the ``"am"`` variant.
         drop_cys: Override the per-variant default for dropping ``from == "C"`` rows.
+            Forced to ``False`` when ``symmetric`` is set (dropping one axis would
+            un-symmetrise the result).
         weights: Optional per-structure weights ``{pdb.id: weight}``. When given, each
             structure's contributions to the aa-pair counts are multiplied by its weight
             (rows whose ``pdb.id`` is absent from the map default to weight ``1.0``);
             this down-weights redundancy while keeping all data (see
             :func:`tcren.potential.redundancy.cluster_weights`). ``None`` (default) is
             unweighted and byte-identical to the legacy derivation.
+        symmetric: Fold the raw counts onto their transpose (:func:`symmetrize_counts`)
+            before the log-odds, yielding a **symmetric** ``value[a,b] == value[b,a]``
+            potential over an unordered amino-acid pair — the same convention as the
+            bundled Miyazawa–Jernigan matrix, and therefore directly comparable to it.
+            Default ``False`` keeps the directed TCR→peptide potential, which is the
+            shipped ``TCRen_potential.csv``.
 
     Returns:
         The derived :class:`Potential`. For ``"am"`` the long matrix additionally
@@ -65,6 +122,8 @@ def derive_tcren(
     alphabet = AA20 if variant == "classic" else AA21
     if drop_cys is None:
         drop_cys = variant == "classic"
+    if symmetric:
+        drop_cys = False  # dropping the "from" Cys row would break the symmetry we just built
 
     if weights is None:
         # Unweighted: one row = one count (byte-identical to the legacy path).
@@ -82,6 +141,12 @@ def derive_tcren(
         counts = df.group_by("residue.aa.from", "residue.aa.to").agg(
             pl.col("_w").sum().alias("count")
         )
+    if symmetric:
+        # Fold before the log-odds so the marginals — and hence the expected term — are
+        # recomputed from the folded counts. Each contact now appears twice, so the contact
+        # total doubles alongside them.
+        counts = symmetrize_counts(counts)
+        n_contacts = n_contacts * 2
     if variant == "am":
         # The gap/gap cell is seeded with the total number of contacts, mirroring the
         # rbind(tibble("-","-", count = nrow(res))) line in tcren_am.Rmd.
