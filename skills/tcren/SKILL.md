@@ -58,18 +58,27 @@ Reference: `arda.annotate_sequences([(id, seq), ...])` — one call, threads int
 - **HF upload is NOT a user command.** `--push-to-hub` was removed; maintainers run
   `scripts/push_canonical_to_hub.py` instead.
 
-## End-to-end pipeline — `tcren.run_pipeline` / `tcren pipeline`
+## Structure scoring — `tcren.run_pipeline` / `tcren scoring`
 
+- **It is called `tcren scoring`, not `pipeline`** (renamed 2026-07; the old name errors with a
+  pointer). It only scores: canonicalisation, region mapping and the Cα/contact/atom-distance
+  matrices are `tcren annotate` / `superimpose` / `contacts`.
 - `run_pipeline(structure, superimpose=True, db_dir=…)` → `PipelineResult`: import → annotate
   (alleles + chains + MHC groove) → superimpose onto the canonical DB (canonical Cα) → resmarkup
   + 5 Å contacts → per-interface energies. Scores: **TCRen** for TCR↔peptide, **MJ** for TCR↔MHC
-  and peptide↔MHC, plus `total` (sum of the residue-pair potential over each interface's
-  contacts). CLI `tcren pipeline -s … -o scores.csv` writes one row per structure.
-- **F and ΔF, with the TP / PM / TM breakdown**, come from this one command. `total` is
-  F = F_TP + F_TM + F_PM over the three interface columns. `run_pipeline(…, reference_aa="A")`
-  / `tcren pipeline --delta` adds the poly-alanine-referenced `d_*` columns and `d_total` = ΔF
-  (each interface's `tcren.ddg.reference_delta`; `d_tcr_mhc.mj` ≡ 0, the peptide is not in that
-  interface). Use ΔF, not F, when each candidate carries its **own** generated pose.
+  and peptide↔MHC, plus `total` (sum of the residue-pair potential over each interface's contacts).
+- **Φ and ΔΦ with the TP / TM / PM breakdown come from this one command.** Columns `F_tcr_pep`,
+  `F_tcr_mhc`, `F_pep_mhc`, `F_total`; `run_pipeline(…, reference_aa="A")` / `tcren scoring --delta`
+  adds `dF_*` and `dF_total` (each interface's `tcren.ddg.reference_delta`; `dF_tcr_mhc` ≡ 0, the
+  peptide is not in that interface). Use ΔΦ, not Φ, when each candidate carries its **own**
+  generated pose. **Column names are shared with `tcren recognize`** — one vocabulary, tables join
+  on `pdb.id`. (Manuscript notation: Φ for the energy, φ for a potential matrix entry, F for the
+  binder-direction channel `−Φ_TCR:pep` in `cohort.f_score`.)
+- `tcren scoring --geometry` appends the interface descriptors + `Q` by calling
+  `recognition_table` + `cohort.q_score` — it does **not** reimplement them.
+- `-s` accepts a file, directory, `.tar.gz`, quoted glob, `.txt`/`.list` manifest (one path per
+  line, `#` comments), comma-separated list, or a repeated flag. `structure_paths` handles globs
+  and manifests; `resolve_sources` does the comma/repeat splitting.
 
 ## Compiled extensions — `_align`, `_refine`, `_relax`, `_fold`, `_geom` (pybind11 / scikit-build-core)
 

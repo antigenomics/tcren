@@ -8,10 +8,11 @@ name by :func:`structure_id_from_path`.
 
 from __future__ import annotations
 
+import glob
 import gzip
 import tarfile
 import tempfile
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
 
 import numpy as np
@@ -29,6 +30,8 @@ _CIF_SUFFIXES = (".cif", ".mmcif")
 _PDB_SUFFIXES = (".pdb", ".ent")
 STRUCTURE_SUFFIXES = _CIF_SUFFIXES + _PDB_SUFFIXES
 _TAR_SUFFIXES = (".tar", ".tar.gz", ".tgz")
+#: a plain-text list of structure paths, one per line (see structure_paths)
+_MANIFEST_SUFFIXES = (".txt", ".list", ".lst")
 
 
 def _strip_gz(name: str) -> tuple[str, bool]:
@@ -217,15 +220,41 @@ def import_structure(
 
 
 def structure_paths(src: str | Path) -> list[Path]:
-    """List structure files for ``src`` (a single file or a directory), sorted.
+    """List structure files for ``src``, sorted.
 
-    Recognises plain and gzipped PDB/mmCIF (``.pdb``, ``.cif.gz``, …). For archives or
-    streaming, use :func:`iter_structures`.
+    ``src`` may be a single structure file, a directory (scanned for structure files), a glob
+    pattern (``models/*.pdb.gz``), or a **manifest**: a ``.txt``/``.list``/``.lst`` file holding
+    one path per line, ``#`` comments and blank lines ignored, relative paths resolved against
+    the manifest's own directory. Recognises plain and gzipped PDB/mmCIF (``.pdb``, ``.cif.gz``,
+    …). For archives or streaming, use :func:`iter_structures`.
     """
+    text = str(src)
+    if any(ch in text for ch in "*?[") and not Path(text).exists():
+        return sorted(Path(p) for p in glob.glob(text, recursive=True) if is_structure_file(p))
     src = Path(src)
     if src.is_dir():
         return sorted(p for p in src.iterdir() if is_structure_file(p))
+    if src.suffix.lower() in _MANIFEST_SUFFIXES:
+        out: list[Path] = []
+        for raw in src.read_text().splitlines():
+            line = raw.split("#", 1)[0].strip()
+            if line:
+                out.append(Path(line) if Path(line).is_absolute() else src.parent / line)
+        return out
     return [src]
+
+
+def resolve_sources(sources: str | Path | Iterable[str | Path]) -> list[str]:
+    """Split a CLI ``-s`` spec (or several) into individual sources for :func:`iter_structures`.
+
+    Accepts one spec or an iterable of them, and splits each on commas, so
+    ``-s a.pdb.gz,b.pdb.gz``, a repeated ``-s``, and a shell glob all mean the same thing.
+    Directories, tar archives, globs and manifests are passed through untouched — they are
+    expanded downstream, where the tar streaming lives.
+    """
+    if isinstance(sources, (str, Path)):
+        sources = [sources]
+    return [part for spec in sources for part in str(spec).split(",") if part.strip()]
 
 
 def iter_structures(

@@ -30,7 +30,7 @@ def test_pipeline_superimpose_sets_canonical_frame():
     assert {c.chain_id for c in res.oriented.chains} <= set("ABCDE")
     row = score_row(res)
     assert row["pdb.id"] == "1ao7" and row["mhc.class"] == "MHCI"
-    assert row["tcr_peptide.tcren"] == res.scores["tcr_peptide"]
+    assert row["F_tcr_pep"] == res.scores["tcr_peptide"]
 
 
 def test_pipeline_reference_aa_adds_delta_f():
@@ -43,5 +43,5 @@ def test_pipeline_reference_aa_adds_delta_f():
     # ΔF = F(peptide) − F(poly-Ala) is a genuine difference, not a copy of F
     assert res.scores["delta_tcr_peptide"] != res.scores["tcr_peptide"]
     row = score_row(res)
-    assert row["d_total"] == res.scores["delta_total"]
-    assert "d_total" not in score_row(run(_FIXTURE, superimpose=False))
+    assert row["dF_total"] == res.scores["delta_total"]
+    assert "dF_total" not in score_row(run(_FIXTURE, superimpose=False))

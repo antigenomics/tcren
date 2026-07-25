@@ -37,13 +37,47 @@ End-to-end candidate-epitope scoring from a structure:
 
    $ tcren score -s complex.pdb -c candidates.txt -o ranked.csv
 
-The full pipeline — annotate → superimpose → resmarkup / canonical Cα / contacts → per-interface
-energies (TCRen for TCR↔peptide, MJ for TCR↔MHC and peptide↔MHC) plus the total — is one command
-(``tcren.run_pipeline(structure)`` in the library):
+Scoring structures
+------------------
+
+``tcren scoring`` reads structures and writes numbers: the three interface contact energies
+(TCRen for TCR↔peptide, Miyazawa--Jernigan for TCR↔MHC and peptide↔MHC) and their total
+:math:`\Phi`, one row per structure. It is *scoring only* — the preparation steps
+(canonicalisation, region mapping, Cα / contact / atom-distance matrices) are the separate
+``tcren annotate``, ``tcren superimpose`` and ``tcren contacts`` commands. In the library it is
+``tcren.run_pipeline(structure)``.
 
 .. code-block:: console
 
-   $ tcren pipeline -s complex.pdb -o scores.csv
+   $ tcren scoring -s complex.pdb.gz -o scores.csv
+
+``-s`` takes a file, a directory, a ``.tar.gz``, a quoted glob, a ``.txt`` manifest with one path
+per line, a comma-separated list, or a repeated flag — mix them freely:
+
+.. code-block:: console
+
+   $ tcren scoring -s a.pdb.gz -s b.pdb.gz -o scores.csv
+   $ tcren scoring -s 'models/*.pdb.gz' -o scores.csv
+   $ tcren scoring -s models.txt -o scores.csv
+
+Two options change what is reported:
+
+``--delta``
+   adds the poly-alanine reference :math:`\Delta\Phi_I=\Phi_I(\text{peptide})-\Phi_I(\text{poly-Ala})`
+   per interface, plus ``dF_total``. :math:`\Delta\Phi_{\mathrm{TCR:MHC}}` is identically zero — the
+   peptide is not in that interface. On a *fixed* contact map :math:`\Delta\Phi` is :math:`\Phi`
+   minus a constant and reorders nothing; use it when each candidate carries its **own** generated
+   pose, where raw :math:`\Phi` partly reads the pose the predictor chose.
+
+``--geometry``
+   adds the interface descriptors (``burial``, ``n_pep_contacted``, ``chain_balance``, ``n_hbond``,
+   ``pitch``, ``crossing``) and ``Q``, the directional decorrelated interface-quality score
+   (:func:`tcren.q_score`), standardised against the native-crystal reference so it is defined for a
+   single structure. For the complete 35-descriptor catalogue plus ``P(real)``, use
+   ``tcren recognize``.
+
+Columns are named as in ``tcren recognize`` (``F_tcr_pep``, ``dF_pep_mhc``, …), so the two tables
+join on ``pdb.id``.
 
 Inputs accept ``.pdb``/``.cif``/``.pdb.gz``/``.cif.gz``, a directory, or a ``.tar.gz`` batch;
 identifiers are resolved from the file names:
@@ -100,7 +134,7 @@ Which candidate epitopes does this TCR recognise?  ``tcren score -s c.pdb -c can
 Is this peptide a strong binder for this TCR?       ``tcren rank -s c.pdb -o rank.csv``
 How does a mutation change recognition (ΔΔG)?       ``tcren ddg -s c.pdb --native EPI --alanine-scan``
 Is this modelled TCR a binder or a non-binder?      ``tcren binder -s model.pdb -o binder.csv``
-Full three-interface energy breakdown?              ``tcren pipeline -s c.pdb -o scores.csv``
+Three-interface energy Φ (and ΔΦ, and Q)?           ``tcren scoring -s c.pdb --delta --geometry``
 Substitute a peptide and relax its pose?            ``tcren refine -s c.pdb --substitute KQWLVWLFL -o out/``
 =================================================  ==========================================================
 

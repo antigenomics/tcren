@@ -9,7 +9,7 @@ Scoring & prediction
     * ``tcren binder`` — TCR binder vs non-binder from AF-orthogonal interface geometry.
     * ``tcren energy`` — DOPE atom-level interface interaction energy (the ΔΔG ``e_native`` scorer).
     * ``tcren mechanics`` — interface mechanics (stiffness / rupture / coupling) — the koff proxies.
-    * ``tcren pipeline`` — full pipeline → per-interface energies (TCRen + MJ) + total.
+    * ``tcren scoring`` — per-interface contact energies Φ (``--delta`` for ΔΦ, ``--geometry`` for Q).
 
 Annotation & contacts
     * ``tcren annotate`` — chain typing + region markup (TCR CDR/FR, MHC groove, peptide; ``--pseudo``).
@@ -624,56 +624,110 @@ def recognize(
 
 
 @app.command(rich_help_panel=_P_SCORE)
-def pipeline(
-    structures: Path = typer.Option(..., "-s", "--structures", help="structure file, directory, or .tar.gz"),
-    out: Path = typer.Option("pipeline_scores.csv", "-o", "--out", help="per-structure interface-score table"),
+def scoring(
+    structures: list[str] = typer.Option(..., "-s", "--structures", help="structure file(s), directory, .tar.gz, glob, or a .txt manifest of paths; repeatable and comma-separable"),
+    out: Path = typer.Option("scores.csv", "-o", "--out", help="per-structure interface-score table"),
     no_superimpose: bool = typer.Option(False, "--no-superimpose", help="skip canonical orientation"),
     db: Path = typer.Option(None, "--db", help="canonical database dir (default: data/Canonical2026)"),
     organism: str = typer.Option("human", "--organism"),
-    cutoff: float = typer.Option(5.0, "--cutoff"),
+    cutoff: float = typer.Option(5.0, "--cutoff", help="heavy-atom contact distance threshold (Å)"),
     tcr_peptide_potential: str = typer.Option(None, "--tcr-peptide-potential", help="potential for the TCR↔peptide interface: bundled name (tcren|mj|keskin) or CSV path (default: tcren)"),
     tcr_mhc_potential: str = typer.Option(None, "--tcr-mhc-potential", help="potential for the TCR↔MHC interface: bundled name or CSV path (default: mj)"),
     peptide_mhc_potential: str = typer.Option(None, "--peptide-mhc-potential", help="potential for the peptide↔MHC interface: bundled name or CSV path (default: mj)"),
     regions: str = typer.Option("all", "--regions", help="TCR regions on the TCR side: all|cdr|cdr+fr (default: all)"),
-    delta: bool = typer.Option(False, "--delta", help="also report the poly-alanine-referenced ΔF per interface and ΔF total"),
+    contact_weight: str = typer.Option("residue", "--contact-weight", help="residue (default, one per contacting pair) or atomic (weight by heavy-atom-pair count)"),
+    delta: bool = typer.Option(False, "--delta", help="also report the poly-alanine-referenced ΔΦ per interface and ΔΦ total"),
     reference_aa: str = typer.Option("A", "--reference-aa", help="reference residue for --delta (default: alanine)"),
+    geometry: bool = typer.Option(False, "--geometry", help="also report the interface-geometry descriptors and the decorrelated quality score Q"),
+    skip_errors: bool = typer.Option(False, "--skip-errors", help="drop structures that fail instead of writing an error row"),
 ) -> None:
-    """Run the full pipeline and write per-interface energies F (and ΔF) for each structure.
+    """Score structures: per-interface contact energies Φ (and ΔΦ, and interface geometry).
 
-    structure → annotate (alleles + chains) → superimpose → resmarkup / canonical Cα / contacts
-    → score (TCRen for TCR↔peptide, MJ for TCR↔MHC and peptide↔MHC) + total.
+    This is **scoring only** — it reads structures and writes numbers. The preparation steps
+    (canonicalisation, region mapping, Cα / contact / atom-distance matrices) are separate
+    commands: ``tcren annotate``, ``tcren superimpose``, ``tcren contacts``.
 
-    Columns ``tcr_peptide.tcren``, ``tcr_mhc.mj``, ``peptide_mhc.mj`` are the three interface
-    terms F_TP, F_TM, F_PM; ``total`` is their sum F. With ``--delta`` each also gets its
-    poly-alanine-referenced counterpart ``d_*`` (ΔF_TP, ΔF_TM≡0, ΔF_PM) and ``d_total`` = ΔF.
-    ΔF is the score to use across candidates that each carry their **own** generated pose,
-    where raw F partly reads the pose geometry rather than the peptide sequence.
+    Columns ``F_tcr_pep``, ``F_tcr_mhc``, ``F_pep_mhc`` are the three interface terms
+    Φ_TP, Φ_TM, Φ_PM; ``F_total`` is their sum Φ. With ``--delta`` each also gets its
+    poly-alanine-referenced counterpart ``dF_*`` (ΔΦ_TP, ΔΦ_TM≡0, ΔΦ_PM) and ``dF_total`` = ΔΦ.
+    The names match ``tcren recognize``, so the two tables join on ``pdb.id``.
+    ΔΦ is the score to use across candidates that each carry their **own** generated pose,
+    where raw Φ partly reads the pose geometry rather than the peptide sequence.
+
+    ``--geometry`` appends the interface descriptors (buried surface ``burial``, peptide
+    coverage ``n_pep_contacted``, ``chain_balance``, ``n_hbond``, docking ``pitch``/``crossing``)
+    and ``Q`` — the directional, decorrelated interface-quality score, standardised against the
+    native-crystal reference so it is defined for a single structure (:func:`tcren.q_score`).
+    For the complete descriptor catalogue plus P(real), use ``tcren recognize``.
 
     Each interface's potential can be overridden with a bundled name (``tcren``/``mj``/
     ``keskin``) or a CSV path; an unset option keeps the default family for that interface.
+
+    Examples::
+
+        tcren scoring -s complex.pdb.gz -o scores.csv
+        tcren scoring -s a.pdb.gz -s b.pdb.gz --delta          # repeat -s, or comma-separate
+        tcren scoring -s 'models/*.pdb.gz' --delta --geometry  # quote the glob
+        tcren scoring -s models.txt --delta                    # one path per line
+        tcren scoring -s models.tar.gz --regions cdr           # CDR contacts only
     """
     from .pipeline import run as run_pipeline, score_row
+    from .structure.io import resolve_sources
 
     if regions not in TCR_REGIONS:
         raise typer.BadParameter("--regions must be one of all|cdr|cdr+fr")
+    if contact_weight not in ("residue", "atomic"):
+        raise typer.BadParameter("--contact-weight must be residue or atomic")
     potentials = {
         "tcr_peptide": tcr_peptide_potential,
         "tcr_mhc": tcr_mhc_potential,
         "peptide_mhc": peptide_mhc_potential,
     }
-    rows = []
-    for _pid, s in iter_structures(structures, importer=parse_structure):
-        try:
-            res = run_pipeline(s, organism=organism, superimpose=not no_superimpose,
-                               db_dir=db, cutoff=cutoff,
-                               potentials=potentials, tcr_regions=regions,
-                               reference_aa=reference_aa if delta else None)
-            rows.append(score_row(res))
-        except Exception as exc:  # noqa: BLE001 - keep the batch resilient
-            rows.append({"pdb.id": s.pdb_id, "total": None,
-                         "error": f"{type(exc).__name__}: {str(exc)[:80]}"})
-    pl.DataFrame(rows).write_csv(str(out))
-    typer.echo(f"wrote {out}")
+    rows, failed = [], 0
+    for src in resolve_sources(structures):
+        for _pid, s in iter_structures(src, importer=parse_structure):
+            try:
+                res = run_pipeline(s, organism=organism, superimpose=not no_superimpose,
+                                   db_dir=db, cutoff=cutoff, potentials=potentials,
+                                   tcr_regions=regions, contact_weight=contact_weight,
+                                   reference_aa=reference_aa if delta else None)
+                rows.append(score_row(res))
+            except Exception as exc:  # noqa: BLE001 - keep the batch resilient
+                failed += 1
+                if not skip_errors:
+                    rows.append({"pdb.id": s.pdb_id, "F_total": None,
+                                 "error": f"{type(exc).__name__}: {str(exc)[:80]}"})
+    if not rows:
+        raise typer.BadParameter(f"no structures scored from {list(structures)}")
+    table = pl.DataFrame(rows, strict=False)
+
+    if geometry:
+        # Reuse the recognition descriptors verbatim rather than recomputing geometry here:
+        # `tcren recognize` stays the one definition of every descriptor.
+        from .cohort import Q_FEATURES_GEOM, q_score
+        from .recognition import recognition_table
+        from .structure.io import import_structure
+
+        items = [it for src in resolve_sources(structures)
+                 for it in iter_structures(src, importer=import_structure, on_error="skip")]
+        geo = pl.DataFrame(recognition_table(items, organism=organism, with_p_real=False))
+        geo = geo.with_columns(pl.Series("Q", q_score(geo, features=Q_FEATURES_GEOM)))
+        keep = ["complex.id", *Q_FEATURES_GEOM, "pitch", "crossing", "Q"]
+        geo = geo.select([c for c in keep if c in geo.columns]).rename({"complex.id": "pdb.id"})
+        table = table.join(geo, on="pdb.id", how="left")
+
+    table.write_csv(str(out))
+    typer.echo(f"wrote {out} ({table.height} rows"
+               + (f", {failed} failed" if failed else "") + ")")
+
+
+@app.command(rich_help_panel=_P_SCORE, hidden=True)
+def pipeline(ctx: typer.Context) -> None:
+    """Deprecated alias for ``tcren scoring`` (this command never ran the full pipeline)."""
+    raise typer.BadParameter(
+        "`tcren pipeline` is now `tcren scoring` — it scores structures, it does not run the "
+        "preparation pipeline (see `tcren annotate`, `tcren superimpose`, `tcren contacts`)."
+    )
 
 
 @app.command(rich_help_panel=_P_SCORE)

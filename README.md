@@ -42,7 +42,7 @@ From one TCR–peptide–MHC structure (crystal or model), each task is one comm
 | ΔΔG of mutations (alanine scan / neoantigen) | `tcren ddg` | `alanine_scan`, `neoantigen_ddg` |
 | Binder vs non-binder for a TCR model | `tcren binder` | `cohort.q_score` (recommended), `binder_score` |
 | **All interface descriptors + joint P(real)** | `tcren recognize` | `recognition_features`, `real_probability` |
-| Three-interface energy breakdown + total | `tcren pipeline` | `run_pipeline` |
+| Three-interface energy Φ, poly-Ala ΔΦ, interface geometry | `tcren scoring` | `run_pipeline` |
 | Annotate chains + region markup | `tcren annotate` | `classify_chains`, `annotate_mhc` |
 | Interface contact table (5/8/12 Å) | `tcren contacts` | `ContactMap`, `multi_contacts` |
 | Orient into the canonical MHC frame | `tcren superimpose` / `orient` | `superimpose`, `canonicalize_structure` |
@@ -94,13 +94,28 @@ used by `orient`/`superimpose` (set `TCREN_NO_FETCH=1` to skip).
 ## Command line
 
 ```bash
-# Full pipeline: annotate -> superimpose -> resmarkup / canonical Cα / contacts -> per-interface
-# energies (TCRen for TCR↔peptide, MJ for TCR↔MHC and peptide↔MHC) + total
-tcren pipeline -s complex.pdb -o scores.csv
+# Score structures: the three interface contact energies (TCRen for TCR↔peptide, MJ for
+# TCR↔MHC and peptide↔MHC) and their total Φ. One row per structure.
+tcren scoring -s complex.pdb.gz -o scores.csv
+
+# Inputs: a file, a directory, a .tar.gz, a quoted glob, a .txt manifest (one path per line),
+# a comma-separated list, or a repeated -s. Mix freely.
+tcren scoring -s a.pdb.gz -s b.pdb.gz -o scores.csv
+tcren scoring -s 'models/*.pdb.gz' -o scores.csv
+tcren scoring -s models.txt -o scores.csv
+
+# --delta adds the poly-alanine reference ΔΦ per interface (ΔΦ_TCR:MHC is identically 0).
+# Use ΔΦ, not Φ, when each candidate carries its OWN generated pose: raw Φ then partly reads
+# the pose the predictor chose rather than the peptide.
+tcren scoring -s 'models/*.pdb.gz' --delta -o scores.csv
+
+# --geometry adds the interface descriptors and Q, the directional decorrelated
+# interface-quality score (native-crystal calibrated, so it is defined for a single structure).
+tcren scoring -s complex.pdb.gz --delta --geometry -o scores.csv
 
 # Configurable per-interface potential: swap a bundled name (tcren|mj|keskin), a CSV, or
 # None for any interface; default reproduces the built-in per-interface families exactly.
-tcren pipeline -s complex.pdb -o scores.csv --tcr-mhc-potential keskin
+tcren scoring -s complex.pdb -o scores.csv --tcr-mhc-potential keskin
 
 # Opt-in TCR framework regions: --regions {all,cdr,cdr+fr} chooses which TCR regions
 # contribute on the TCR side (cdr = CDR1-3 only; cdr+fr adds FR1-3; all = unfiltered, default).
@@ -225,6 +240,7 @@ from tcren.potential import tcren
 
 # One call: annotate -> superimpose -> contacts -> per-interface energies + total
 res = run_pipeline("complex.pdb")              # res.scores, res.markup, res.contacts, res.oriented
+res = run_pipeline("complex.pdb", reference_aa="A")  # + delta_* : the poly-alanine ΔΦ per interface
 
 # Oracle facade: one structure -> a bundle of ready-to-tabulate frames for the paper
 # notebooks (scores, percentile rank, ΔΔG alanine scan, markup, contacts). Configurable
@@ -293,7 +309,7 @@ view_pocket_cdr(s).show()                      # interactive 3D pocket + CDR ove
 | `tcren.refine` | peptide substitution + refinement (DOPE MC; CCD/OpenMM/ProMod3/FlexPepDock engines); register QC |
 | `tcren.clashes` / `mechanics` | steric-clash report; interface spring-network stiffness + rupture model |
 | `tcren.project2d` / `viz` | project the interface onto the groove plane; SVG complementarity maps + 3D pocket/CDR views |
-| `tcren.pipeline` / `oracle` | one-call end-to-end runs (`run_pipeline`, `summarize_structure`) |
+| `tcren.pipeline` / `oracle` | one-call structure scoring (`run_pipeline` → Φ, ΔΦ per interface; `summarize_structure`) |
 | `tcren.paper` | Nat Comput Sci 2022 reproduction (HF bootstrap, batch annotation, legacy comparison) |
 
 ## Data

@@ -253,16 +253,18 @@ def score_row(result: PipelineResult) -> dict:
         "mhc.class": mhc.mhc_class if mhc else None,
         "allele": mhc.allele if mhc else None,
         "rmsd": result.rmsd,
-        "tcr_peptide.tcren": result.scores["tcr_peptide"],
-        "tcr_mhc.mj": result.scores["tcr_mhc"],
-        "peptide_mhc.mj": result.scores["peptide_mhc"],
-        "total": result.scores["total"],
+        # Same names as tcren.recognition.RECOGNITION_FEATURES, so the two tables join and the
+        # project has ONE vocabulary for these quantities.
+        "F_tcr_pep": result.scores["tcr_peptide"],
+        "F_tcr_mhc": result.scores["tcr_mhc"],
+        "F_pep_mhc": result.scores["peptide_mhc"],
+        "F_total": result.scores["total"],
     }
     if "delta_total" in result.scores:
         row.update({
-            "d_tcr_peptide.tcren": result.scores["delta_tcr_peptide"],
-            "d_tcr_mhc.mj": result.scores["delta_tcr_mhc"],
-            "d_peptide_mhc.mj": result.scores["delta_peptide_mhc"],
-            "d_total": result.scores["delta_total"],
+            "dF_tcr_pep": result.scores["delta_tcr_peptide"],
+            "dF_tcr_mhc": result.scores["delta_tcr_mhc"],
+            "dF_pep_mhc": result.scores["delta_peptide_mhc"],
+            "dF_total": result.scores["delta_total"],
         })
     return row

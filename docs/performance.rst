@@ -62,7 +62,7 @@ Peak resident memory
      - holds the Canonical2026 reference set in RAM
 
 Well under the 32 GB workstation ceiling either way. If you are only scoring or computing ΔΔG,
-skip ``superimpose`` (``tcren pipeline --no-superimpose``) to stay at the ~200 MB working set.
+skip ``superimpose`` (``tcren scoring --no-superimpose``) to stay at the ~200 MB working set.
 
 Threading model
 ---------------

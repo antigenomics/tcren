@@ -6,12 +6,31 @@ All notable changes to `tcren` are recorded here. Format follows
 ## [Unreleased]
 
 ### Added
-- **`run_pipeline(…, reference_aa="A")` / `tcren pipeline --delta`** — the poly-alanine-referenced
-  ΔF alongside F, with the same per-interface breakdown. `total` is F = F_TP + F_TM + F_PM; the new
-  `d_tcr_peptide.tcren` / `d_tcr_mhc.mj` / `d_peptide_mhc.mj` / `d_total` columns are ΔF_TP, ΔF_TM
-  (≡ 0 — the peptide is not in that interface), ΔF_PM and ΔF. One command now yields both scores and
-  the whole decomposition; ΔF is the one to use when each candidate carries its own generated pose.
-  Off by default, so the existing `scores` dict and CSV columns are unchanged.
+- **`run_pipeline(…, reference_aa="A")` / `tcren scoring --delta`** — the poly-alanine-referenced
+  ΔΦ alongside Φ, with the same per-interface breakdown. `F_total` is Φ = Φ_TP + Φ_TM + Φ_PM; the new
+  `dF_tcr_pep` / `dF_tcr_mhc` / `dF_pep_mhc` / `dF_total` columns are ΔΦ_TP, ΔΦ_TM (≡ 0 — the peptide
+  is not in that interface), ΔΦ_PM and ΔΦ. One command now yields both scores and the whole
+  decomposition; ΔΦ is the one to use when each candidate carries its own generated pose. Off by
+  default, so the existing `scores` dict is unchanged.
+- **`tcren scoring --geometry`** — appends the interface descriptors (`burial`, `n_pep_contacted`,
+  `chain_balance`, `n_hbond`, `pitch`, `crossing`) and `Q`, the directional decorrelated
+  interface-quality score, by calling `recognition_table` + `cohort.q_score` rather than
+  reimplementing them. `tcren recognize` remains the full 35-descriptor catalogue + P(real).
+- **`tcren scoring -s` takes many inputs.** A file, a directory, a `.tar.gz`, a quoted glob, a
+  `.txt`/`.list`/`.lst` manifest (one path per line, `#` comments, relative paths resolved against
+  the manifest), a comma-separated list, or a repeated `-s` — mixed freely. New
+  `tcren.structure.io.resolve_sources`; `structure_paths` now handles globs and manifests.
+  Also `--contact-weight`, `--skip-errors`.
+
+### Changed
+- **`tcren pipeline` is now `tcren scoring`** (breaking). The command never ran the preparation
+  pipeline — canonicalisation, region mapping and the Cα/contact/atom-distance matrices are
+  `tcren annotate`, `tcren superimpose` and `tcren contacts`. It scores structures. The old name
+  is kept as a hidden command that errors with a pointer.
+- **`score_row` columns are renamed to match `tcren recognize`** (breaking):
+  `tcr_peptide.tcren` → `F_tcr_pep`, `tcr_mhc.mj` → `F_tcr_mhc`, `peptide_mhc.mj` → `F_pep_mhc`,
+  `total` → `F_total`, and the `d_*` columns → `dF_tcr_pep` / `dF_tcr_mhc` / `dF_pep_mhc` /
+  `dF_total`. The two tables now share one vocabulary and join on `pdb.id`.
 
 ## [2.3.2] — 2026-07-24
 

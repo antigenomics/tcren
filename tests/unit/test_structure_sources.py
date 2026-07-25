@@ -59,3 +59,24 @@ def test_iter_structures_dir_and_targz(tmp_path):
         tar.add(d / "2xyz.pdb.gz", arcname="nested/2xyz.pdb.gz")
     ids = {pid for pid, _ in iter_structures(tgz, importer=parse_structure)}
     assert ids == {"1ao7", "2xyz"}
+
+
+def test_resolve_sources_splits_commas_and_repeats():
+    from tcren.structure.io import resolve_sources
+
+    assert resolve_sources("a.pdb") == ["a.pdb"]
+    assert resolve_sources("a.pdb,b.pdb.gz") == ["a.pdb", "b.pdb.gz"]
+    assert resolve_sources(["a.pdb,b.pdb", "c.cif"]) == ["a.pdb", "b.pdb", "c.cif"]
+
+
+def test_structure_paths_glob_and_manifest(tmp_path):
+    """A glob and a .txt manifest must resolve to the same files as a plain listing."""
+    from tcren.structure.io import structure_paths
+
+    for name in ("a.pdb", "b.pdb.gz", "notes.md"):
+        (tmp_path / name).write_text("x")
+    assert [p.name for p in structure_paths(str(tmp_path / "*"))] == ["a.pdb", "b.pdb.gz"]
+
+    # relative manifest entries resolve against the manifest's own directory, not the CWD
+    (tmp_path / "models.txt").write_text("# a comment\na.pdb\n\nb.pdb.gz\n")
+    assert structure_paths(tmp_path / "models.txt") == [tmp_path / "a.pdb", tmp_path / "b.pdb.gz"]
