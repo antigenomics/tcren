@@ -14,9 +14,10 @@ from .cohort import (F_TERMS, Q_FEATURES_GEOM, f_invert_by_iptm, f_score, phi_bi
                      q_iptm, q_score, strain_z, zscore)
 from .clashes import ClashReport, has_clashes, interface_clashes
 from .stability import StabilityReport, contact_stability
-from . import geometry
+from . import geometry, torsions
 from .contactmap import ContactMap, ModeCentroid, binding_mode, registered_map
 from .geometry import LoopInternalCoords, cdr3_internal_coords
+from .torsions import cdr3_torsions, chain_torsions, residue_torsions
 from .contacts import all_atom_contacts, ca_distance_matrix
 from .ddg import alanine_scan, ddg, neoantigen_ddg, reference_delta
 from .mechanics import coupling_residues, interface_springs, rupture, stiffness_tensor
@@ -45,7 +46,7 @@ __all__ = [
     "Structure",
     "all_atom_contacts",
     "ca_distance_matrix",
-    "ContactMap", "ModeCentroid", "binding_mode", "registered_map", "geometry",
+    "ContactMap", "ModeCentroid", "binding_mode", "registered_map", "geometry", "torsions",
     "cdr3_internal_coords", "LoopInternalCoords",
     "score_peptides", "recognition_matrix", "RecognitionMatrix",
     "score_structures",
@@ -67,6 +68,7 @@ __all__ = [
     "has_clashes",
     "ClashReport",
     "contact_stability",
+    "cdr3_torsions", "chain_torsions", "residue_torsions",
     "StabilityReport",
     "summarize_structure",
     "run_pipeline",
