@@ -102,6 +102,7 @@ tcren scoring -s complex.pdb.gz -o scores.csv
 # a comma-separated list, or a repeated -s. Mix freely.
 tcren scoring -s a.pdb.gz -s b.pdb.gz -o scores.csv
 tcren scoring -s 'models/*.pdb.gz' -o scores.csv
+tcren scoring -s models/ --delta --geometry -t 8 -o scores.csv   # a directory, 8 workers
 tcren scoring -s models.txt -o scores.csv
 
 # --delta adds the poly-alanine reference ΔΦ per interface (ΔΦ_TCR:MHC is identically 0).

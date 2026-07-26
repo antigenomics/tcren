@@ -725,7 +725,8 @@ def _symmetry_columns(s) -> dict[str, float]:
 
 
 def recognition_table(items, *, organism: str = "human", full: bool = False, scores: bool = False,
-                      with_p_real: bool = True) -> list[dict]:
+                      with_p_real: bool = True, threads: int = 1, chunk: int = 64,
+                      _cohort_scores: bool = True) -> list[dict]:
     """Batched feature (+score) extraction for a whole set of TCR–pMHC structures.
 
     ``items`` is an iterable of ``(id, structure-or-path)``. The set is annotated with a **single**
@@ -737,7 +738,25 @@ def recognition_table(items, *, organism: str = "human", full: bool = False, sco
     the fitted ``p_forced`` / ``p_bind`` (retained for reproducibility). Returns one row dict per
     structure (``complex.id`` + features [+ scores]); a structure that fails yields
     ``{"complex.id": id, "error": ...}`` so the batch stays resilient.
+
+    ``threads`` > 1 splits the set into ``chunk``-sized batches and annotates/featurises them
+    concurrently. Batching alone is not enough at cohort scale: arda's own search is single-threaded
+    and its cost grows with the batch, so one 600-structure call is slower than ten 60-structure
+    calls in parallel. mmseqs runs in a subprocess and releases the GIL, so plain threads suffice.
     """
+    items = list(items)
+    if threads > 1 and len(items) > chunk:
+        from concurrent.futures import ThreadPoolExecutor
+        batches = [items[i:i + chunk] for i in range(0, len(items), chunk)]
+        with ThreadPoolExecutor(max_workers=threads) as ex:
+            parts = list(ex.map(
+                lambda b: recognition_table(b, organism=organism, full=full, scores=scores,
+                                            with_p_real=with_p_real, threads=1,
+                                            _cohort_scores=False), batches))
+        rows = [r for p in parts for r in p]
+        if scores:      # q_bind / s_strain are cohort-relative: computed once over the WHOLE set
+            _add_cohort_scores(rows)
+        return rows
     from .annotation import classify_chains
     from .annotation.arda_adapter import _import_arda
     from .mhc import annotate_mhc_batch
@@ -783,7 +802,7 @@ def recognition_table(items, *, organism: str = "human", full: bool = False, sco
         except Exception as exc:  # noqa: BLE001
             rows.append({"complex.id": id_, "error": f"{type(exc).__name__}: {str(exc)[:80]}"})
 
-    if scores:                                                        # fit-free cohort scores (recommended)
+    if scores and _cohort_scores:                                     # fit-free cohort scores (recommended)
         _add_cohort_scores(rows)
     return rows
 

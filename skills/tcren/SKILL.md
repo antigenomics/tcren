@@ -270,6 +270,12 @@ QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses ar
   CI [+0.006,+0.074]) and corrects AF errors (strain flags AF false-positives 0.633; p_bind rescues AF
   false-negatives 0.732>ipTM 0.697). The "kit for AI-generated structures" decision procedure is `docs/kit.rst`.
   (No synergy on VDJdb real-vs-mock — there tcren's role is the forced-pose gradient, not discrimination.)
+- **`-t/--threads` on `tcren scoring` and `tcren recognize` (2026-07-26):** both accept a file, a
+  directory, a `.tar.gz`, a quoted glob or a `.txt` manifest; `-t N` runs N concurrent workers (`-t 0`
+  = all cores). Cohort-relative scores (`q_bind`, `s_strain`) are still computed over the **whole** set,
+  never per batch. `scoring` gains ~7.6x on 8 threads; `recognize` less (its cost is Python
+  featurisation, not mmseqs), so batch its annotation rather than expecting linear scaling.
+
 - **`cohort.q_iptm` — fit-free `z(ipTM)+z(Q)` (2026-07-24, v2.3.1):** `cohort.q_iptm(table, iptm, features=Q_FEATURES)`
   ships the geometry synergy as one call (the fit-free analog of `kit_score`, which pairs ipTM with the *fitted*
   `p_bind`). `cohort.Q_FEATURES_GEOM` is the 4 geometry-only terms (`Q_FEATURES` minus `pp_combo`) → `Q_geom`,
@@ -277,6 +283,19 @@ QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses ar
   well-modelled ("template-covered") epitopes and ties it fit-free on TCRvdb (benchmark C42). Single-line CLI:
   `tcren recognize -s pdbs/ --iptm meta.tsv -o out.tsv` joins ipTM (key col matched to `complex.id`) and appends
   `Q_geom` + `z(ipTM)+z(Q_geom)`.
+- **`cohort.q_coupled` / `cohort.coupling` — the parameter-free binder score (2026-07-26):**
+  `q_coupled(q, energy)` = `¼[1+erf(z(Q)/√2)]·[1+erf(r·z(ΔΦ)/√2)]` with `r = coupling(q, energy)`, the
+  cohort correlation between the geometry and energy channels. Two Gaussian tail probabilities multiplied
+  — binding needs both an interface and favourable residues in it — with the energy admitted in
+  proportion to `r`, because `E[z(Q)|z(ΔΦ)] = r·z(ΔΦ)` is exactly the part of it that is evidence about
+  interface nativeness. **No threshold, no softness constant, no fitted coefficient.** A forced cohort
+  disarms itself: `r < 0` flips the energy's sign, `r ≈ 0` collapses its factor to the constant ½ and
+  leaves geometry alone. `coupling()` alone is a label-free forced-pose diagnostic (TCRvdb: −0.25 on the
+  template-forced GLCTLVAML poses, +0.48 on the clean YLQPRTFLL ones). On TCRvdb it reaches macro
+  ROC 0.799 / PR 0.817 / P@10%recall 0.949, ahead of every TCRmodel2 confidence with no generative term.
+  For receptor ranking pass the **TCR**-referenced ΔΦ (the peptide is fixed, so the peptide reference
+  carries nothing); for peptide ranking pass `reference_delta`'s peptide-referenced ΔΦ.
+
 - **`cohort.f_score` / `cohort.q_f` — the contact-energy channel (2026-07-24, v2.3.2):** `f_score(table)` =
   `z(-(F_tcr_pep+F_tcr_mhc))` (binder-oriented, `cohort.F_TERMS`); `q_f(table, sign=+1)` = `z(Q_geom)+sign·z(F)`,
   the pure-tcren combiner with **no DL term**. F reads contact chemistry but is **pose-conditional**: it inverts

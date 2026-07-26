@@ -527,6 +527,7 @@ def recognize(
     cohort: bool = typer.Option(False, "--cohort", help="rank candidates by the fit-free Q_geom + F contact-energy channels: emits Q_geom, F_score, z(Q)+z(F) and z(Q)-z(F) (add --iptm for the z(ipTM)+z(Q_geom) synergy)"),
     iptm: Path | None = typer.Option(None, "--iptm", help="metadata TSV/CSV with a key column (matched to complex.id) + an 'iptm' column; appends z(ipTM)+z(Q_geom). Missing ipTM falls back to Q_geom"),
     invert_f_thresh: float = typer.Option(0.5, "--invert-f-thresh", help="ipTM below which a pose is treated as forced and the contact energy F is inverted (needs --iptm); sets the F_invert flag + z(Q)+z(F|iptm) column"),
+    threads: int = typer.Option(1, "-t", "--threads", help="concurrent annotation batches for a multi-structure run (0 = all cores); cohort scores stay computed over the whole set"),
 ) -> None:
     """Full interface descriptor table + joint P(real) for each TCR-pMHC complex (one TSV row per PDB).
 
@@ -566,8 +567,10 @@ def recognize(
 
     full = full or scores                                             # p_forced needs the CDR3-frame feats
     items = list(iter_structures(structures, importer=import_structure))
+    import os as _os
     rows = recognition_table(items, organism=organism, full=full, scores=scores,
-                             with_p_real=not features_only)
+                             with_p_real=not features_only,
+                             threads=threads if threads > 0 else (_os.cpu_count() or 1))
     table = pl.DataFrame(rows)
     if cohort or iptm is not None:                                   # fit-free cohort ranking
         from .cohort import (Q_FEATURES_GEOM, f_invert_by_iptm, f_score, q_f_iptm, q_iptm, q_score,
@@ -640,6 +643,7 @@ def scoring(
     reference_aa: str = typer.Option("A", "--reference-aa", help="reference residue for --delta (default: alanine)"),
     geometry: bool = typer.Option(False, "--geometry", help="also report the interface-geometry descriptors and the decorrelated quality score Q"),
     skip_errors: bool = typer.Option(False, "--skip-errors", help="drop structures that fail instead of writing an error row"),
+    threads: int = typer.Option(1, "-t", "--threads", help="worker processes for a multi-structure run (0 = all cores); each also gets mmseqs threads"),
 ) -> None:
     """Score structures: per-interface contact energies Φ (and ΔΦ, and interface geometry).
 
@@ -668,8 +672,13 @@ def scoring(
         tcren scoring -s complex.pdb.gz -o scores.csv
         tcren scoring -s a.pdb.gz -s b.pdb.gz --delta          # repeat -s, or comma-separate
         tcren scoring -s 'models/*.pdb.gz' --delta --geometry  # quote the glob
+        tcren scoring -s models/ --delta -t 8                  # a directory, 8 workers
         tcren scoring -s models.txt --delta                    # one path per line
         tcren scoring -s models.tar.gz --regions cdr           # CDR contacts only
+
+    Scoring a cohort is embarrassingly parallel and dominated by the per-structure mmseqs
+    annotation, so ``-t`` is worth setting for anything above a handful of structures
+    (``-t 0`` uses every core).
     """
     from .pipeline import run as run_pipeline, score_row
     from .structure.io import resolve_sources
@@ -683,20 +692,45 @@ def scoring(
         "tcr_mhc": tcr_mhc_potential,
         "peptide_mhc": peptide_mhc_potential,
     }
+    kw = dict(organism=organism, superimpose=not no_superimpose, db_dir=db, cutoff=cutoff,
+              potentials=potentials, tcr_regions=regions, contact_weight=contact_weight,
+              reference_aa=reference_aa if delta else None)
+    def score_struct(s):
+        return score_row(run_pipeline(s, **kw))
+
     rows, failed = [], 0
-    for src in resolve_sources(structures):
-        for _pid, s in iter_structures(src, importer=parse_structure):
+    if threads == 1:
+        for _pid, s in ((p, x) for src in resolve_sources(structures)
+                        for p, x in iter_structures(src, importer=parse_structure)):
             try:
-                res = run_pipeline(s, organism=organism, superimpose=not no_superimpose,
-                                   db_dir=db, cutoff=cutoff, potentials=potentials,
-                                   tcr_regions=regions, contact_weight=contact_weight,
-                                   reference_aa=reference_aa if delta else None)
-                rows.append(score_row(res))
+                rows.append(score_struct(s))
             except Exception as exc:  # noqa: BLE001 - keep the batch resilient
                 failed += 1
                 if not skip_errors:
                     rows.append({"pdb.id": s.pdb_id, "F_total": None,
                                  "error": f"{type(exc).__name__}: {str(exc)[:80]}"})
+    else:
+        # A cohort run is dominated by the per-structure mmseqs annotation, which releases the
+        # GIL inside a subprocess — so plain threads parallelise it without pickling structures.
+        import os as _os
+        from concurrent.futures import ThreadPoolExecutor
+        n = threads if threads > 0 else (_os.cpu_count() or 1)
+        structs = [s for src in resolve_sources(structures)
+                   for _pid, s in iter_structures(src, importer=parse_structure)]
+
+        def one(s):
+            try:
+                return score_struct(s)
+            except Exception as exc:  # noqa: BLE001
+                return {"pdb.id": s.pdb_id, "F_total": None,
+                        "error": f"{type(exc).__name__}: {str(exc)[:80]}"}
+        with ThreadPoolExecutor(max_workers=n) as ex:
+            for r in ex.map(one, structs):
+                if r.get("F_total") is None and "error" in r:
+                    failed += 1
+                    if skip_errors:
+                        continue
+                rows.append(r)
     if not rows:
         raise typer.BadParameter(f"no structures scored from {list(structures)}")
     table = pl.DataFrame(rows, strict=False)
@@ -710,7 +744,10 @@ def scoring(
 
         items = [it for src in resolve_sources(structures)
                  for it in iter_structures(src, importer=import_structure, on_error="skip")]
-        geo = pl.DataFrame(recognition_table(items, organism=organism, with_p_real=False))
+        import os as _os2
+        geo = pl.DataFrame(recognition_table(
+            items, organism=organism, with_p_real=False,
+            threads=threads if threads > 0 else (_os2.cpu_count() or 1)))
         geo = geo.with_columns(pl.Series("Q", q_score(geo, features=Q_FEATURES_GEOM)))
         keep = ["complex.id", *Q_FEATURES_GEOM, "pitch", "crossing", "Q"]
         geo = geo.select([c for c in keep if c in geo.columns]).rename({"complex.id": "pdb.id"})

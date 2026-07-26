@@ -7,6 +7,7 @@ reconciled across the complex (B2M ⇒ class I; a class-II beta chain ⇒ class 
 
 from __future__ import annotations
 
+import os
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -88,7 +89,8 @@ def map_mhc(structure: Structure, sensitivity: float = 5.7) -> list[MhcCall]:
                 fh.write(f">{chain.chain_id}\n{chain.sequence()}\n")
         out_tsv = tmp / "hits.tsv"
         mmseqs.easy_search(query_fa, ref_db, out_tsv, tmp / "mmseqs_tmp",
-                           search_type=1, sensitivity=sensitivity, max_seqs=50)
+                           search_type=1, sensitivity=sensitivity, max_seqs=50,
+                           threads=int(os.environ.get("TCREN_MMSEQS_THREADS", "1")))
         best = _best_hits(out_tsv)
 
     calls = calls_from_hits(candidates, best)

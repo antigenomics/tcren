@@ -90,7 +90,8 @@ def annotate_mhc(structure: Structure) -> list[MhcCall]:
     return calls
 
 
-def annotate_mhc_batch(structures: list[Structure], sensitivity: float = 5.7) -> None:
+def annotate_mhc_batch(structures: list[Structure], sensitivity: float = 5.7,
+                       threads: int = 1) -> None:
     """MHC-annotate many (chain-typed) structures with a SINGLE mmseqs search.
 
     Gathers every candidate MHC chain across all structures, runs one ``easy_search`` (mmseqs
@@ -118,7 +119,7 @@ def annotate_mhc_batch(structures: list[Structure], sensitivity: float = 5.7) ->
             out_tsv = tmp / "hits.tsv"
             mmseqs.easy_search(query_fa, reference.reference_db(), out_tsv,
                                tmp / "mmseqs_tmp", search_type=1, sensitivity=sensitivity,
-                               max_seqs=50)
+                               max_seqs=50, threads=threads)
             best = _best_hits(out_tsv)
     for i, s in enumerate(structures):
         calls = calls_from_hits(_candidate_chains(s), best, key=lambda c, i=i: f"{i}|{c.chain_id}")
