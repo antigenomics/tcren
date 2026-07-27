@@ -528,6 +528,7 @@ def recognize(
     iptm: Path | None = typer.Option(None, "--iptm", help="metadata TSV/CSV with a key column (matched to complex.id) + an 'iptm' column; appends z(ipTM)+z(Q_geom). Missing ipTM falls back to Q_geom"),
     invert_f_thresh: float = typer.Option(0.5, "--invert-f-thresh", help="ipTM below which a pose is treated as forced and the contact energy F is inverted (needs --iptm); sets the F_invert flag + z(Q)+z(F|iptm) column"),
     threads: int = typer.Option(1, "-t", "--threads", help="concurrent annotation batches for a multi-structure run (0 = all cores); cohort scores stay computed over the whole set"),
+    autodetect_species: bool = typer.Option(True, "--autodetect-species/--no-autodetect-species", help="also search mouse to catch a mis-declared organism; --no- halves the annotation cost"),
 ) -> None:
     """Full interface descriptor table + joint P(real) for each TCR-pMHC complex (one TSV row per PDB).
 
@@ -569,7 +570,7 @@ def recognize(
     items = list(iter_structures(structures, importer=import_structure))
     import os as _os
     rows = recognition_table(items, organism=organism, full=full, scores=scores,
-                             with_p_real=not features_only,
+                             with_p_real=not features_only, autodetect_species=autodetect_species,
                              threads=threads if threads > 0 else (_os.cpu_count() or 1))
     table = pl.DataFrame(rows)
     if cohort or iptm is not None:                                   # fit-free cohort ranking
@@ -811,6 +812,8 @@ def mechanics(
     direction: str = typer.Option("tensile", "--direction", help="rupture pull: tensile|shear|auto"),
     break_strain: float = typer.Option(0.5, "--break-strain", help="fractional extension at which a spring breaks"),
     organism: str = typer.Option("human", "--organism"),
+    threads: int = typer.Option(1, "-t", "--threads", help="concurrent annotation batches for a multi-structure run (0 = all cores)"),
+    autodetect_species: bool = typer.Option(True, "--autodetect-species/--no-autodetect-species", help="also search mouse to catch a mis-declared organism; --no- halves the annotation cost"),
 ) -> None:
     """Interface mechanics — the koff proxies: stiffness tensor + steered rupture + coupling residues.
 
@@ -826,10 +829,15 @@ def mechanics(
         raise typer.BadParameter(f"--weight must be one of {'|'.join(WEIGHTS)}")
     if direction not in ("tensile", "shear", "auto"):
         raise typer.BadParameter("--direction must be one of tensile|shear|auto")
+    # Annotate the whole set with batched mmseqs calls before scoring anything. One call per
+    # structure rebuilds the arda index every time -- that is the difference between ~2/s and ~8/s
+    # on a cohort, and it is why this command used to be the slow one.
+    items = list(iter_structures(structures, importer=parse_structure))
+    _annotate_set([s for _, s in items], organism=organism, threads=threads,
+                  autodetect_species=autodetect_species)
     rows = []
-    for pid, s in iter_structures(structures, importer=parse_structure):
+    for pid, s in items:
         try:
-            classify_chains(s, organism=organism)
             row = {"pdb.id": pid, **stiffness_tensor(s, cutoff=cutoff, weight=weight)}
             row.update(rupture(s, direction=direction, cutoff=cutoff, weight=weight,
                                break_strain=break_strain))
@@ -840,6 +848,50 @@ def mechanics(
                          "error": f"{type(exc).__name__}: {str(exc)[:80]}"})
     pl.DataFrame(rows).write_csv(str(out))
     typer.echo(f"wrote {out}")
+
+
+def _annotate_set(structs, *, organism: str, threads: int, autodetect_species: bool,
+                  chunk: int = 64) -> None:
+    """Chain-type and MHC-annotate a whole set in place, with batched, thread-capped mmseqs calls.
+
+    The same two levers ``recognition_table`` uses. (1) BATCH: one arda call per ``chunk`` structures
+    rather than per structure. (2) CAP: each concurrent batch gets ``cpu_count // threads`` mmseqs
+    threads, because arda leaves mmseqs at its all-cores default and N concurrent batches would
+    otherwise ask for N x cpu_count.
+    """
+    import os as _os
+    from concurrent.futures import ThreadPoolExecutor
+
+    from .annotation import classify_chains
+    from .annotation.arda_adapter import _import_arda
+    from .mhc import annotate_mhc_batch
+    from .paper.helpers import annotate_batch
+
+    structs = [s for s in structs if s is not None]
+    if not structs:
+        return
+    n = threads if threads > 0 else (_os.cpu_count() or 1)
+    batches = [structs[i:i + chunk] for i in range(0, len(structs), chunk)]
+    per = max(1, (_os.cpu_count() or 1) // max(1, min(n, len(batches))))
+    orgs = (organism, "mouse") if autodetect_species else (organism,)
+    arda = _import_arda()
+
+    def run(batch):
+        recs = annotate_batch(batch, arda, organisms=orgs, threads=per)
+        for i, s in enumerate(batch):
+            try:
+                classify_chains(s, organism=organism, autodetect_species=autodetect_species,
+                                precomputed_records=recs[i])
+            except Exception:  # noqa: BLE001 - unannotatable chains stay unset
+                pass
+        annotate_mhc_batch(batch)
+
+    if n == 1 or len(batches) == 1:
+        for b in batches:
+            run(b)
+    else:
+        with ThreadPoolExecutor(max_workers=n) as ex:
+            list(ex.map(run, batches))
 
 
 @app.command(rich_help_panel=_P_ORIENT)

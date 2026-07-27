@@ -217,7 +217,7 @@ def mhc_annotation(
 
 
 def annotate_batch(
-    structures, arda, organisms=("human", "mouse")
+    structures, arda, organisms=("human", "mouse"), threads: int = 0
 ) -> list[dict[str, dict[str, dict]]]:
     """Annotate every chain of every structure with one mmseqs call per organism.
 
@@ -225,6 +225,13 @@ def annotate_batch(
     1,000-structure cohort one at a time is minutes of pure index rebuild. Every benchmark that
     scores a cohort needs this, which is why four downstream scripts were reaching into the private
     name.
+
+    ``threads`` caps the mmseqs thread count for THIS call. It matters whenever batches are
+    annotated concurrently: ``arda.annotate_sequences`` does not forward a thread count, so
+    ``annotate_records`` falls back to its ``threads=0`` default, which mmseqs reads as *all cores*.
+    Twelve concurrent batches on a 16-core machine then ask for 192 threads and spend their time
+    context-switching instead of searching. Pass ``max(1, cpu_count // concurrency)``. ``0`` keeps
+    the all-cores default, which is right for a single non-concurrent call.
 
     Returns ``records[struct_idx][organism][chain_id]`` — the per-structure slices fed to
     :func:`~tcren.annotation.classify_chains` as ``precomputed_records``.
@@ -242,10 +249,26 @@ def annotate_batch(
         return out
     pairs = [(f"{idx}|{cid}", seq) for idx, cid, seq in flat]
     for org in organisms:
-        records = arda.annotate_sequences(pairs, seqtype="aa", organism=org)
+        records = _annotate(arda, pairs, org, threads)
         for (idx, cid, _seq), rec in zip(flat, records):
             out[idx][org][cid] = rec
     return out
+
+
+def _annotate(arda, pairs, organism: str, threads: int):
+    """``arda.annotate_sequences`` with a thread cap, falling back when arda cannot take one.
+
+    The public adapter drops ``threads`` on the floor, so reach one level down to
+    ``arda.annotate.mapper.annotate_records`` when a cap is asked for. Guarded: an arda without that
+    module still works, just uncapped.
+    """
+    if threads > 0:
+        try:
+            from arda.annotate.mapper import annotate_records
+            return annotate_records(pairs, organism=organism, seqtype="aa", threads=threads)
+        except Exception:  # noqa: BLE001 - any arda without the private path keeps the default
+            pass
+    return arda.annotate_sequences(pairs, seqtype="aa", organism=organism)
 
 
 def _read_any(path: str | Path) -> pl.DataFrame:

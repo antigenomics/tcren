@@ -726,6 +726,7 @@ def _symmetry_columns(s) -> dict[str, float]:
 
 def recognition_table(items, *, organism: str = "human", full: bool = False, scores: bool = False,
                       with_p_real: bool = True, threads: int = 1, chunk: int = 64,
+                      autodetect_species: bool = True, _mmseqs_threads: int = 0,
                       _cohort_scores: bool = True) -> list[dict]:
     """Batched feature (+score) extraction for a whole set of TCR–pMHC structures.
 
@@ -743,16 +744,25 @@ def recognition_table(items, *, organism: str = "human", full: bool = False, sco
     concurrently. Batching alone is not enough at cohort scale: arda's own search is single-threaded
     and its cost grows with the batch, so one 600-structure call is slower than ten 60-structure
     calls in parallel. mmseqs runs in a subprocess and releases the GIL, so plain threads suffice.
+    Each batch is given ``cpu_count // threads`` mmseqs threads: without that cap every concurrent
+    batch asks mmseqs for *all* cores and the run thrashes instead of finishing.
+
+    ``autodetect_species`` searches ``organism`` **and** mouse so a mis-declared cohort is still
+    typed correctly. That doubles the annotation cost, so pass ``False`` when the organism is known
+    — it halves the mmseqs work and changes nothing else.
     """
     items = list(items)
     if threads > 1 and len(items) > chunk:
         from concurrent.futures import ThreadPoolExecutor
         batches = [items[i:i + chunk] for i in range(0, len(items), chunk)]
+        import os as _os
+        per = max(1, (_os.cpu_count() or 1) // max(1, min(threads, len(batches))))
         with ThreadPoolExecutor(max_workers=threads) as ex:
             parts = list(ex.map(
                 lambda b: recognition_table(b, organism=organism, full=full, scores=scores,
                                             with_p_real=with_p_real, threads=1,
-                                            _cohort_scores=False), batches))
+                                            autodetect_species=autodetect_species,
+                                            _mmseqs_threads=per, _cohort_scores=False), batches))
         rows = [r for p in parts for r in p]
         if scores:      # q_bind / s_strain are cohort-relative: computed once over the WHOLE set
             _add_cohort_scores(rows)
@@ -772,10 +782,11 @@ def recognition_table(items, *, organism: str = "human", full: bool = False, sco
             rows.append({"complex.id": id_, "error": f"{type(exc).__name__}: {str(exc)[:80]}"})
 
     if structs:                                                       # one arda + one mmseqs for the set
-        recs = _batch_annotate(structs, _import_arda(), organisms=(organism, "mouse"))
+        orgs = (organism, "mouse") if autodetect_species else (organism,)
+        recs = _batch_annotate(structs, _import_arda(), organisms=orgs, threads=_mmseqs_threads)
         for i, s in enumerate(structs):
             try:
-                classify_chains(s, organism=organism, autodetect_species=True,
+                classify_chains(s, organism=organism, autodetect_species=autodetect_species,
                                 precomputed_records=recs[i])
             except Exception:  # noqa: BLE001 - MHC-only / unannotatable chains stay unset
                 pass
