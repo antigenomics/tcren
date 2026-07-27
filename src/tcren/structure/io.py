@@ -45,16 +45,41 @@ def is_structure_file(name: str | Path) -> bool:
     return inner.lower().endswith(STRUCTURE_SUFFIXES)
 
 
+def structure_stem(path: str | Path) -> str:
+    """The file name with a trailing ``.gz`` and the structure extension removed."""
+    inner, _ = _strip_gz(Path(path).name)
+    return inner.rsplit(".", 1)[0] if "." in inner else inner
+
+
 def structure_id_from_path(path: str | Path) -> str:
     """Resolve a structure identifier from a file name.
 
     Strips a trailing ``.gz`` and the structure extension, then takes the part before the
     first ``_`` (so ``4x5w_renumbered.cif`` and ``1ao7.pdb.gz`` and
     ``6uk4_TCRpMHCmodels.pdb`` all resolve to their PDB id).
+
+    .. warning::
+       Lossy by design, and *not* unique for cohorts whose file names encode metadata after an
+       underscore -- ``VDJdb_Model_603_min.pdb`` and ``VDJdb_Model_604_min.pdb`` both give
+       ``VDJdb``. Prefer :func:`iter_structures`, which detects that case for a whole set and
+       falls back to the full stem rather than silently collapsing rows.
     """
-    inner, _ = _strip_gz(Path(path).name)
-    stem = inner.rsplit(".", 1)[0] if "." in inner else inner
-    return stem.split("_")[0]
+    return structure_stem(path).split("_")[0]
+
+
+def resolve_structure_ids(paths) -> dict[str, str]:
+    """Map each path to an id: the PDB-id prefix when that is unique over the set, else the stem.
+
+    The prefix rule is what makes ``4x5w_renumbered.cif`` come back as ``4x5w``, and it is right
+    for RCSB-derived files. It is wrong -- silently, and in a way that destroys rows downstream --
+    for any set whose names carry metadata after the first underscore. Deciding per SET rather than
+    per file keeps the convenience where it is unambiguous and refuses it where it is not.
+    """
+    paths = list(paths)
+    short = [structure_id_from_path(p) for p in paths]
+    if len(set(short)) == len(paths):
+        return {str(p): s for p, s in zip(paths, short)}
+    return {str(p): structure_stem(p) for p in paths}
 
 
 def _structure_format(name: str) -> str:
@@ -289,26 +314,29 @@ def iter_structures(
 
     if src.is_file() and name.endswith(_TAR_SUFFIXES):
         with tarfile.open(src) as tar:
-            for member in tar.getmembers():
-                if not (member.isfile() and is_structure_file(member.name)):
-                    continue
+            members = [m for m in tar.getmembers() if m.isfile() and is_structure_file(m.name)]
+            ids = resolve_structure_ids(m.name for m in members)
+            for member in members:
                 inner, _ = _strip_gz(Path(member.name).name)
                 ext = "." + inner.rsplit(".", 1)[-1] + (".gz" if member.name.lower().endswith(".gz") else "")
                 fh = tar.extractfile(member)
                 if fh is None:
                     continue
+                pdb_id = ids[member.name]
                 with tempfile.NamedTemporaryFile(suffix=ext) as tmp:
                     tmp.write(fh.read())
                     tmp.flush()
-                    s = _safe(Path(tmp.name), structure_id_from_path(member.name))
+                    s = _safe(Path(tmp.name), pdb_id)
                 if s is not None:
-                    yield structure_id_from_path(member.name), s
+                    yield pdb_id, s
         return
 
-    for path in structure_paths(src):
-        s = _safe(path, structure_id_from_path(path))
+    paths = list(structure_paths(src))
+    ids = resolve_structure_ids(paths)
+    for path in paths:
+        s = _safe(path, ids[str(path)])
         if s is not None:
-            yield structure_id_from_path(path), s
+            yield ids[str(path)], s
 
 
 def _atom_name_field(name: str) -> str:

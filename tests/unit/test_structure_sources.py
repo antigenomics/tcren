@@ -11,6 +11,7 @@ import pytest
 from tcren.structure import (
     iter_structures,
     parse_structure,
+    resolve_structure_ids,
     structure_id_from_path,
 )
 
@@ -80,3 +81,31 @@ def test_structure_paths_glob_and_manifest(tmp_path):
     # relative manifest entries resolve against the manifest's own directory, not the CWD
     (tmp_path / "models.txt").write_text("# a comment\na.pdb\n\nb.pdb.gz\n")
     assert structure_paths(tmp_path / "models.txt") == [tmp_path / "a.pdb", tmp_path / "b.pdb.gz"]
+
+
+def test_structure_ids_fall_back_to_stems_when_the_prefix_collides():
+    """The PDB-id prefix is lossy: keep it only while it stays unique over the set.
+
+    ``VDJdb_Model_603_min.pdb`` and ``VDJdb_Model_604_min.pdb`` both start ``VDJdb``, so the
+    per-file rule collapsed 73 distinct models onto 7 identifiers and silently destroyed the
+    rows downstream. Deciding per SET keeps the convenience where it is unambiguous.
+    """
+    rcsb = ["4x5w_renumbered.cif", "1ao7.pdb.gz", "6uk4_TCRpMHCmodels.pdb"]
+    assert list(resolve_structure_ids(rcsb).values()) == ["4x5w", "1ao7", "6uk4"]
+
+    colliding = ["VDJdb_Model_603_min.pdb", "VDJdb_Model_604_min.pdb"]
+    assert list(resolve_structure_ids(colliding).values()) == [
+        "VDJdb_Model_603_min", "VDJdb_Model_604_min"]
+
+    # <hash>_<epitope>_<mhc> decoys keep the bare hash while the hashes stay unique
+    decoys = ["aaa_GILGFVFTL_HLA-A02.pdb", "bbb_GILGFVFTL_HLA-A02.pdb"]
+    assert list(resolve_structure_ids(decoys).values()) == ["aaa", "bbb"]
+
+
+def test_iter_structures_never_yields_a_duplicate_id(tmp_path):
+    """End to end: two files whose prefixes collide must come back as two distinct ids."""
+    body = _ASSET.read_bytes()
+    for n in ("Model_1_min.pdb", "Model_2_min.pdb"):
+        (tmp_path / n).write_bytes(body)
+    ids = sorted(i for i, _ in iter_structures(tmp_path, importer=parse_structure))
+    assert ids == ["Model_1_min", "Model_2_min"]
