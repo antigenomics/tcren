@@ -252,12 +252,20 @@ QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses ar
   shipped models; `real_probability(rows)` → `{"logistic","bn"}` P(real). CLI `tcren recognize -s pdbs/ -o
   out.tsv` writes one TSV row/PDB = 35 descriptors + `p_real` + `p_real_bn` (`--features-only` skips models).
   The user-facing "one TSV for a/b/d" answer; ddF (ala) stays `tcren ddg`, koff stays `tcren mechanics`.
-- **`--full` feature table (2026-07-13):** `recognition_features(struct, full=True)` / `tcren recognize --full`
-  append the **18 CDR3-frame** (`cdr3{a,b}_{reach,ou,ow,on,au,aw,an,topep,ext}`, FramePose groove-frame
-  projection — the `cdr3b_*` strain signal) + **12 matrix-swap** (`{tcren,mj,d}_{tp,cdr12,cdr3a,cdr3b}`,
-  TCRen−MJ contrast) descriptors → 65 features total. Tuples: `RECOGNITION_FEATURES` (35),
-  `CDR3_FRAME_FEATURES` (18), `MATRIX_SWAP_FEATURES` (12), `FULL_FEATURES` (65). Both families verified
-  **byte-exact** (max|Δ|=0) vs the manuscript's cached `*_cdr3.csv` / `tcrvdb_matrix_swap.csv`.
+- **`--full` feature table (2026-07-13, audited 2026-07-28):** `recognition_features(struct, full=True)` /
+  `tcren recognize --full` append the **18 CDR3-frame** descriptors
+  (`cdr3{a,b}_{reach,ou,ow,on,au,aw,an,topep,ext}`, FramePose groove-frame projection — the `cdr3b_*`
+  strain signal) → 52 features total. Tuples: `RECOGNITION_FEATURES` (34), `CDR3_FRAME_FEATURES` (18),
+  `FULL_FEATURES` (52).
+- **Descriptor audit (2026-07-28):** every energy column is `F_*` (`e_cdr12`/`e_cdr3a`/`e_cdr3b` →
+  `F_cdr12`/`F_cdr3a`/`F_cdr3b`); the duplicate `e_tcr_mhc` and `ct_tp_hydrogen_bond` columns are gone
+  (they equalled `F_tcr_mhc` and `n_hbond`); the **12 matrix-swap** columns
+  (`{tcren,mj,d}_{tp,cdr12,cdr3a,cdr3b}`) were **removed** — `tcren_*` duplicated `F_*`, and MJ is not the
+  potential used on TCR:peptide. New: `crossing_signed` (signed scanning angle, carries docking polarity)
+  and `DESCRIPTORS` / `descriptors(family, tcr_only=)` — the catalogue giving each column's family
+  (`geometry`/`physics`/`kinetics`/`score`) and whether the receptor enters it. Only `F_pep_mhc`,
+  `dF_pep_mhc` and `mhc_class_bin` do not; they carry cohort identity, so receptor questions must use
+  `tcr_only=True`. Frozen recognizers verified **bit-identical** through `_FROZEN_ALIASES`.
 - **`--scores` good-results scores (2026-07-13):** `tcren recognize --scores` (implies `--full`) also emits
   `p_bind` (`binder.binder_score`, TCRvdb denoised AUC 0.928) and `p_forced`
   (`recognition.forced_pose_score` / `FORCED_POSE_MODEL`, a frozen 6-feature strain logistic: crystal-natural

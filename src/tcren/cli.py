@@ -597,7 +597,7 @@ def recognize(
     out: Path = typer.Option("recognize.tsv", "-o", "--out", help="per-structure descriptors + P(real) table (TSV)"),
     organism: str = typer.Option("human", "--organism"),
     features_only: bool = typer.Option(False, "--features-only", help="emit the descriptors, skip P(real)"),
-    full: bool = typer.Option(False, "--full", help="add the 18 CDR3-frame + 12 matrix-swap descriptors (65 features total)"),
+    full: bool = typer.Option(False, "--full", help="add the 18 CDR3-local frame descriptors (the FramePose strain layer)"),
     scores: bool = typer.Option(False, "--scores", help="also append the fit-free q_bind + s_strain (recommended) and the fitted p_bind + p_forced; implies --full"),
     cohort: bool = typer.Option(False, "--cohort", help="rank candidates by the fit-free Q_geom + F contact-energy channels: emits Q_geom, F_score, z(Q)+z(F) and z(Q)-z(F) (add --iptm for the z(ipTM)+z(Q_geom) synergy)"),
     iptm: Path | None = typer.Option(None, "--iptm", help="metadata TSV/CSV with a key column (matched to complex.id) + an 'iptm' column; appends z(ipTM)+z(Q_geom). Missing ipTM falls back to Q_geom"),
@@ -609,12 +609,12 @@ def recognize(
 
     One row per structure with the complete recognition feature set
     (``tcren.recognition.RECOGNITION_FEATURES``): docking geometry (pitch, crossing, the 6
-    TCRdock rigid-body params), per-interface TCRen/MJ energies ``F_{tcr_pep,tcr_mhc,pep_mhc}`` and
-    poly-alanine ``dF``, CDR-loop energies, contact-type tallies, ΔSASA ``burial`` and the MHC-class
+    TCRdock rigid-body params), per-interface energies ``F_{tcr_pep,tcr_mhc,pep_mhc}`` and
+    poly-alanine ``dF``, CDR-loop energies ``F_{cdr12,cdr3a,cdr3b}``, contact-type tallies, ΔSASA ``burial`` and the MHC-class
     indicator — plus ``p_real`` (the distribution-aware Bayesian logistic) and ``p_real_bn`` (the
     Gaussian BN): the joint probability the complex is a genuine recognition interface rather than a
     wrong-TCR shuffle. ``--full`` also emits the 18 CDR3-local frame descriptors (the FramePose strain
-    layer) and the 12 matrix-swap TCRen−MJ contrasts. ``--scores`` adds the recommended fit-free
+    layer). ``--scores`` adds the recommended fit-free
     ``q_bind`` (binder-ID; the directional-decorrelated interface-quality score, calibrated on the
     native crystal reference so it is defined per structure and transfers) and ``s_strain``
     (forced-pose), alongside the fitted ``p_bind`` / ``p_forced``. ``--features-only`` skips the models.

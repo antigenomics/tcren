@@ -363,17 +363,29 @@ class BayesianLogisticRecognizer:
 # ``import tcren`` (and ``import tcren.recognition``) stays dependency-light.
 # ===================================================================================================
 
-#: Feature names, in the order the frozen logistic recognizer's design matrix expects. The Gaussian BN
-#: uses the same list minus ``mhc_class_bin`` (which it carries as a discrete node instead).
+#: The core descriptor block ``recognize`` emits, and the vector the frozen recognizers consume.
+#:
+#: Every statistical-potential energy is named ``F_*`` — there is one potential per interface (TCRen
+#: on TCR:peptide, MJ on the two presentation interfaces), so the potential's name does not belong in
+#: the column's. Two exact duplicates were dropped in the 2026-07-28 audit: ``e_tcr_mhc`` (the same
+#: number as ``F_tcr_mhc``) and ``ct_tp_hydrogen_bond`` (the same number as ``n_hbond``, which is the
+#: name Eq. Q uses). The frozen models still ask for the old names and get the same values through
+#: :data:`_FROZEN_ALIASES`, so their predictions are unchanged.
 RECOGNITION_FEATURES = (
-    "extent", "e_tcr_mhc", "chain_balance", "pitch", "crossing", "dock_d", "dock_torsion",
-    "dock_tcr_uy", "dock_tcr_uz", "dock_mhc_uy", "dock_mhc_uz", "e_cdr12", "e_cdr3a", "e_cdr3b",
+    "extent", "chain_balance", "pitch", "crossing", "crossing_signed", "dock_d", "dock_torsion",
+    "dock_tcr_uy", "dock_tcr_uz", "dock_mhc_uy", "dock_mhc_uz", "F_cdr12", "F_cdr3a", "F_cdr3b",
     "F_tcr_pep", "F_tcr_mhc", "F_pep_mhc", "dF_tcr_pep", "dF_pep_mhc", "n_contacts_tp",
     "n_pep_contacted", "n_contacts_tm", "ct_tp_salt_bridge", "ct_tm_salt_bridge",
-    "ct_tp_hydrogen_bond", "ct_tm_hydrogen_bond", "ct_tp_aromatic", "ct_tm_aromatic",
+    "ct_tm_hydrogen_bond", "ct_tp_aromatic", "ct_tm_aromatic",
     "ct_tp_hydrophobic", "ct_tm_hydrophobic", "ct_tp_other", "ct_tm_other", "n_hbond",
     "burial", "mhc_class_bin",
 )
+
+#: Column names the frozen recognizers were fitted under, mapped onto the column that now carries the
+#: same number. Applied only when a frozen model's design matrix is filled (:func:`real_probability`),
+#: so dropping the duplicate columns leaves those models bit-identical.
+_FROZEN_ALIASES = {"e_tcr_mhc": "F_tcr_mhc", "e_cdr12": "F_cdr12", "e_cdr3a": "F_cdr3a",
+                   "e_cdr3b": "F_cdr3b", "ct_tp_hydrogen_bond": "n_hbond"}
 _CT_TYPES = ("salt_bridge", "hydrogen_bond", "aromatic", "hydrophobic", "other")
 _TCR_TYPES = ("TRA", "TRB", "TRG", "TRD")
 
@@ -392,16 +404,141 @@ INTERFACE_SYMMETRY_FEATURES = ("cdr3_dominance", "cdr3_ab_imbalance", "chain_cdr
 _CDR3_FRAME_KEYS = ("reach", "ou", "ow", "on", "au", "aw", "an", "topep", "ext")
 CDR3_FRAME_FEATURES = tuple(f"{loop}_{k}" for loop in ("cdr3a", "cdr3b") for k in _CDR3_FRAME_KEYS)
 
-#: Matrix-swap features (12): the same TCR:peptide contacts scored under TCRen vs the generic MJ
-#: potential, per interface group. ``tcren_{g}``/``mj_{g}`` are the two energies and ``d_{g}`` their
-#: difference (the recognition-specific component; generic packing cancels). ``g`` ∈ {tp, cdr12, cdr3a,
-#: cdr3b}. Note ``tcren_tp``/``tcren_cdr12``/``tcren_cdr3a``/``tcren_cdr3b`` duplicate the core
-#: ``F_tcr_pep``/``e_cdr12``/``e_cdr3a``/``e_cdr3b`` by construction (kept for full parity).
-_MATRIX_SWAP_GROUPS = ("tp", "cdr12", "cdr3a", "cdr3b")
-MATRIX_SWAP_FEATURES = tuple(f"{pre}_{g}" for g in _MATRIX_SWAP_GROUPS for pre in ("tcren", "mj", "d"))
+#: The full feature vector: the core recognition descriptors + the 18 CDR3-frame descriptors.
+#:
+#: The 12 "matrix-swap" columns (``tcren_{g}``/``mj_{g}``/``d_{g}`` for ``g`` ∈ {tp, cdr12, cdr3a,
+#: cdr3b}) were removed in the 2026-07-28 audit. The ``tcren_*`` four were exact duplicates of the
+#: ``F_*`` energies; the ``mj_*`` four scored TCR:peptide contacts under the generic MJ potential,
+#: which is not the potential this method uses on that interface, and the ``d_*`` four were their
+#: difference. Nothing consumed them.
+FULL_FEATURES = RECOGNITION_FEATURES + CDR3_FRAME_FEATURES
 
-#: The full feature vector: the 35 core recognition descriptors + the 18 CDR3-frame + 12 matrix-swap.
-FULL_FEATURES = RECOGNITION_FEATURES + CDR3_FRAME_FEATURES + MATRIX_SWAP_FEATURES
+# ===================================================================================================
+# The descriptor catalogue: what every emitted column is, and whether the receptor enters it.
+# ===================================================================================================
+#: Family of each descriptor, and whether the TCR enters its definition.
+#:
+#: Three families, matching the three physical channels the method reports:
+#:
+#: * ``geometry`` — coordinates, docking angles, and the contact topology and chemistry read off
+#:   them. This is the kind of quantity Eq. Q is built from.
+#: * ``physics`` — statistical-potential interface energies ``F`` and their poly-alanine references
+#:   ``dF``. Lower is more favourable.
+#: * ``kinetics`` — the interface as a network of breakable springs: stiffness, anisotropy, strain,
+#:   rupture, and the residues that couple the pre-formed scaffold to the interface.
+#:
+#: ``involves_tcr`` is ``False`` for a quantity computed from the peptide and the MHC alone. Such a
+#: column is a property of the *cohort*, not of the receptor: two structures of the same epitope on
+#: the same allele share its value whatever their TCR. A model handed one can reach a cohort-level
+#: label through epitope or allele identity instead of through interface physics, so any analysis
+#: whose question is about receptors must select with ``tcr_only=True`` (:func:`descriptors`).
+#:
+#: Fitted and cohort-relative composites (``p_real``, ``p_real_bn``, ``p_forced``, ``p_bind``,
+#: ``q_bind``, ``s_strain``) are listed under ``score``. They are outputs built from the descriptors
+#: above and must never be fed back in as inputs; :func:`descriptors` excludes them by default.
+DESCRIPTORS: dict[str, tuple[str, bool]] = {
+    # -- geometry: docking pose ---------------------------------------------------------------
+    "pitch": ("geometry", True),            # incident/tilt angle out of the groove plane
+    "crossing": ("geometry", True),         # crossing (scanning) angle against the groove long axis
+    "crossing_signed": ("geometry", True),  # the same, signed: carries the docking polarity
+    "dock_d": ("geometry", True),
+    "dock_torsion": ("geometry", True),
+    "dock_tcr_uy": ("geometry", True),
+    "dock_tcr_uz": ("geometry", True),
+    "dock_mhc_uy": ("geometry", True),
+    "dock_mhc_uz": ("geometry", True),
+    # -- geometry: interface size, topology and chemistry --------------------------------------
+    "burial": ("geometry", True),
+    "extent": ("geometry", True),
+    "chain_balance": ("geometry", True),
+    "n_contacts_tp": ("geometry", True),
+    "n_contacts_tm": ("geometry", True),
+    "n_pep_contacted": ("geometry", True),
+    "n_hbond": ("geometry", True),
+    "ct_tp_salt_bridge": ("geometry", True),
+    "ct_tp_aromatic": ("geometry", True),
+    "ct_tp_hydrophobic": ("geometry", True),
+    "ct_tp_other": ("geometry", True),
+    "ct_tm_salt_bridge": ("geometry", True),
+    "ct_tm_hydrogen_bond": ("geometry", True),
+    "ct_tm_aromatic": ("geometry", True),
+    "ct_tm_hydrophobic": ("geometry", True),
+    "ct_tm_other": ("geometry", True),
+    "cdr3_dominance": ("geometry", True),
+    "cdr3_ab_imbalance": ("geometry", True),
+    "chain_cdr_imbalance": ("geometry", True),
+    "n_clashes": ("geometry", True),
+    "clash_score": ("geometry", True),
+    **{f: ("geometry", True) for f in CDR3_FRAME_FEATURES},
+    # the MHC class indicator is a property of the presenting molecule alone
+    "mhc_class_bin": ("geometry", False),
+    # -- physics: interface energies -----------------------------------------------------------
+    "F_tcr_pep": ("physics", True),
+    "F_tcr_mhc": ("physics", True),
+    "F_cdr12": ("physics", True),
+    "F_cdr3a": ("physics", True),
+    "F_cdr3b": ("physics", True),
+    "dF_tcr_pep": ("physics", True),
+    # peptide:MHC energy and its poly-alanine reference: presentation, no receptor
+    "F_pep_mhc": ("physics", False),
+    "dF_pep_mhc": ("physics", False),
+    # -- kinetics: contact fragility (``recognize``) -------------------------------------------
+    "exp_lost": ("kinetics", True),
+    "mean_margin": ("kinetics", True),
+    "frac_robust": ("kinetics", True),
+    # -- kinetics: the spring network (``mechanics``) ------------------------------------------
+    "K_tens": ("kinetics", True),
+    "K_shear": ("kinetics", True),
+    "aniso": ("kinetics", True),
+    "lam_max": ("kinetics", True),
+    "lam_min": ("kinetics", True),
+    "n_spring": ("kinetics", True),
+    "S_tot": ("kinetics", True),
+    "rupture_force": ("kinetics", True),
+    "rupture_work": ("kinetics", True),
+    "couple_pep": ("kinetics", True),
+    "couple_mhc": ("kinetics", True),
+    "couple_tcr": ("kinetics", True),
+    "couple_total": ("kinetics", True),
+    "n_interface": ("kinetics", True),
+    # -- scores: outputs, never inputs ---------------------------------------------------------
+    "p_real": ("score", True),
+    "p_real_bn": ("score", True),
+    "p_forced": ("score", True),
+    "p_bind": ("score", True),
+    "q_bind": ("score", True),
+    "s_strain": ("score", True),
+}
+
+FAMILIES = ("geometry", "physics", "kinetics")
+
+
+def descriptors(family: str | None = None, *, tcr_only: bool = False,
+                with_scores: bool = False) -> tuple[str, ...]:
+    """Descriptor names from :data:`DESCRIPTORS`, filtered by family and receptor involvement.
+
+    Args:
+        family: keep one of :data:`FAMILIES` (``"geometry"``, ``"physics"``, ``"kinetics"``), or all
+            of them if ``None``.
+        tcr_only: keep only descriptors the receptor enters. Set this whenever the question being
+            asked is about receptors — a peptide- or MHC-only column carries cohort identity.
+        with_scores: also return the fitted/cohort-relative composites of the ``score`` family.
+            Off by default: they are model outputs, not inputs.
+
+    Returns:
+        The matching names, in catalogue order.
+
+    Example:
+        >>> descriptors("physics", tcr_only=True)
+        ('F_tcr_pep', 'F_tcr_mhc', 'F_cdr12', 'F_cdr3a', 'F_cdr3b', 'dF_tcr_pep')
+    """
+    if family is not None and family not in FAMILIES and family != "score":
+        raise ValueError(f"unknown family {family!r}; expected one of {FAMILIES}")
+    return tuple(n for n, (fam, tcr) in DESCRIPTORS.items()
+                 if (family is None or fam == family)
+                 and (with_scores or fam != "score")
+                 and (tcr or not tcr_only))
+
 
 #: Frozen "forced-pose" classifier: P(this pose is an AF-forced interface rather than a crystal-natural
 #: one). A raw-feature logistic (no standardization) over interface *strain* — stretched CDR3 loops and
@@ -559,48 +696,21 @@ def _cdr3_frame_features(structure) -> dict[str, float]:
     return out
 
 
-def _matrix_swap_features(cm, tcren_pot, mj_pot) -> dict[str, float]:
-    """The 12 matrix-swap descriptors (:data:`MATRIX_SWAP_FEATURES`) from a contact map.
-
-    Scores the TCR:peptide contacts (whole interface + the CDR1/2, CDR3α, CDR3β groups) under both the
-    TCRen and the generic MJ potential; the per-group difference ``d`` isolates the recognition-specific
-    component (generic packing cancels since both potentials read the identical contacts).
-    """
-    import polars as pl
-
-    from .pipeline import _interface_energy
-
-    tp = cm.interface("tcr_peptide", tcr_regions="all")
-    reg, ch = pl.col("region.type.from"), pl.col("chain.type.from")
-    groups = {
-        "tp": tp,
-        "cdr12": tp.filter(reg.is_in(["CDR1", "CDR2"])),
-        "cdr3a": tp.filter((reg == "CDR3") & (ch == "TRA")),
-        "cdr3b": tp.filter((reg == "CDR3") & (ch == "TRB")),
-    }
-    out: dict[str, float] = {}
-    for name, df in groups.items():
-        et = float(_interface_energy(df, tcren_pot))
-        em = float(_interface_energy(df, mj_pot))
-        out[f"tcren_{name}"], out[f"mj_{name}"], out[f"d_{name}"] = et, em, et - em
-    return out
-
-
 def recognition_features(source, *, organism: str = "human", potential=None,
                          full: bool = False, annotate: bool = True) -> dict[str, float]:
-    """Extract the 35-descriptor recognition vector from a TCR–pMHC structure (path or parsed).
+    """Extract the core recognition vector from a TCR–pMHC structure (path or parsed).
 
-    Reproduces the feature set the shipped real-vs-shuffled recognizers were trained on
-    (:data:`RECOGNITION_FEATURES`): docking geometry, per-interface TCRen/MJ energies (raw ``F`` and
-    poly-alanine ``ΔF``), contact-type tallies, interface ΔSASA ``burial``, and the ``mhc_class_bin``
-    indicator. The structure is chain-typed and MHC-annotated in place. Returns a dict keyed by
-    :data:`RECOGNITION_FEATURES` (degenerate/undefined terms are ``NaN``).
+    Returns a dict keyed by :data:`RECOGNITION_FEATURES` (degenerate/undefined terms are ``NaN``):
+    docking geometry, per-interface energies (raw ``F`` and poly-alanine ``ΔF``), contact-type
+    tallies, interface ΔSASA ``burial``, and the ``mhc_class_bin`` indicator. The structure is
+    chain-typed and MHC-annotated in place. :data:`DESCRIPTORS` gives each column's family and
+    whether the receptor enters its definition.
 
     Feed the result to :func:`frozen_recognizers` (or :class:`BayesianLogisticRecognizer`) for
     ``P(real)`` — the probability the complex looks like a genuine TCR–pMHC recognition interface.
 
-    With ``full=True`` the row is extended with the 18 CDR3-frame (:data:`CDR3_FRAME_FEATURES`) and 12
-    matrix-swap (:data:`MATRIX_SWAP_FEATURES`) descriptors — the complete :data:`FULL_FEATURES` vector.
+    With ``full=True`` the row is extended with the 18 CDR3-frame descriptors
+    (:data:`CDR3_FRAME_FEATURES`) — the complete :data:`FULL_FEATURES` vector.
     """
     import polars as pl
 
@@ -632,6 +742,7 @@ def recognition_features(source, *, organism: str = "human", potential=None,
     try:                                                              # geometry (docking)
         da = docking_angles(s)
         row["pitch"], row["crossing"] = float(da.incident_angle), float(da.crossing_angle)
+        row["crossing_signed"] = float(da.crossing_angle_signed)
     except Exception:
         pass
     try:
@@ -643,14 +754,14 @@ def recognition_features(source, *, organism: str = "human", potential=None,
         pass
 
     tm = cm.interface("tcr_mhc", tcr_regions="all")                  # interface energetics
-    row["F_tcr_mhc"] = row["e_tcr_mhc"] = float(_interface_energy(tm, mj_pot))
+    row["F_tcr_mhc"] = float(_interface_energy(tm, mj_pot))
     tp = cm.interface("tcr_peptide", tcr_regions="all")
     reg, ch = pl.col("region.type.from"), pl.col("chain.type.from")
     row["F_tcr_pep"] = float(_interface_energy(tp, tcren_pot))
     row["F_pep_mhc"] = float(_interface_energy(cm.interface("peptide_mhc"), mj_pot))
-    row["e_cdr12"] = float(_interface_energy(tp.filter(reg.is_in(["CDR1", "CDR2"])), tcren_pot))
-    row["e_cdr3a"] = float(_interface_energy(tp.filter((reg == "CDR3") & (ch == "TRA")), tcren_pot))
-    row["e_cdr3b"] = float(_interface_energy(tp.filter((reg == "CDR3") & (ch == "TRB")), tcren_pot))
+    row["F_cdr12"] = float(_interface_energy(tp.filter(reg.is_in(["CDR1", "CDR2"])), tcren_pot))
+    row["F_cdr3a"] = float(_interface_energy(tp.filter((reg == "CDR3") & (ch == "TRA")), tcren_pot))
+    row["F_cdr3b"] = float(_interface_energy(tp.filter((reg == "CDR3") & (ch == "TRB")), tcren_pot))
     if native:
         try:
             row["dF_tcr_pep"] = float(reference_delta(cm, native, tcren_pot, interface="tcr_peptide"))
@@ -670,7 +781,8 @@ def recognition_features(source, *, organism: str = "human", potential=None,
     ctp = contact_type_counts(cm, "tcr_peptide")                     # contact types
     ctm = contact_type_counts(cm, "tcr_mhc")
     for t in _CT_TYPES:
-        row[f"ct_tp_{t}"] = float(ctp[f"pairs_{t}"])
+        if t != "hydrogen_bond":              # emitted once, as n_hbond (the name Eq. Q uses)
+            row[f"ct_tp_{t}"] = float(ctp[f"pairs_{t}"])
         row[f"ct_tm_{t}"] = float(ctm[f"pairs_{t}"])
     row["n_hbond"] = float(ctp["pairs_hydrogen_bond"])
 
@@ -680,9 +792,8 @@ def recognition_features(source, *, organism: str = "human", potential=None,
     row["mhc_class_bin"] = 1.0 if any(getattr(c, "chain_supertype", None) == "MHCII"
                                       for c in s.chains) else 0.0
 
-    if full:                                                          # FramePose CDR3 layer + matrix-swap
+    if full:                                                          # FramePose CDR3 layer
         row.update(_cdr3_frame_features(s))
-        row.update(_matrix_swap_features(cm, tcren_pot, mj_pot))
     return row
 
 
@@ -871,12 +982,19 @@ def real_probability(rows, *, recognizers=None) -> dict[str, np.ndarray]:
     ``rows`` is a dict or a list of dicts keyed by :data:`RECOGNITION_FEATURES`. Returns
     ``{"logistic": p, "bn": p}`` — the headline logistic recognizer and the Gaussian BN, each an array
     of P(genuine TCR–pMHC interface). NaN features are imputed to the training mean by each model.
+
+    Both models were fitted before the duplicate columns were dropped, so they still ask for names
+    like ``e_cdr12``; :data:`_FROZEN_ALIASES` points those at the column that now carries the value.
     """
     if isinstance(rows, dict):
         rows = [rows]
     lr, bn = recognizers or frozen_recognizers()
-    Xlr = np.array([[r.get(k, np.nan) for k in lr.feature_names] for r in rows], float)
-    Xbn = np.array([[r.get(k, np.nan) for k in bn.feature_names] for r in rows], float)
+
+    def val(r: dict, k: str) -> float:
+        return r[k] if k in r else r.get(_FROZEN_ALIASES.get(k, k), np.nan)
+
+    Xlr = np.array([[val(r, k) for k in lr.feature_names] for r in rows], float)
+    Xbn = np.array([[val(r, k) for k in bn.feature_names] for r in rows], float)
     m = np.array([r.get("mhc_class_bin", 0.0) for r in rows], float)
     return {"logistic": lr.predict_proba(Xlr)[:, 1], "bn": bn.predict_proba(Xbn, m)[:, 1]}
 

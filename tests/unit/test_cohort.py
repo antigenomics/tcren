@@ -9,7 +9,7 @@ from tcren.cohort import (F_TERMS, Q_FEATURES, Q_FEATURES_CORE, Q_FEATURES_GEOM,
 
 def _table(n=120, seed=0, **shift):
     rng = np.random.default_rng(seed)
-    cols = ["burial", "n_pep_contacted", "chain_balance", "n_hbond", "e_cdr12", "e_cdr3a",
+    cols = ["burial", "n_pep_contacted", "chain_balance", "n_hbond", "F_cdr12", "F_cdr3a",
             "pitch", "F_tcr_mhc", "cdr3b_topep", "cdr3b_reach", "extent"]
     t = {c: rng.normal(size=n) for c in cols}
     t["n_contacts_tp"] = np.abs(rng.normal(size=n)) * 10 + 5
@@ -40,7 +40,7 @@ def test_zscore_rank_is_bounded_and_monotone():
 
 def test_native_reference_ships_and_has_q_descriptors():
     ref = native_reference()
-    for c in Q_FEATURES_GEOM + ("e_cdr12", "e_cdr3a"):
+    for c in Q_FEATURES_GEOM + ("F_cdr12", "F_cdr3a"):
         assert c in ref and len(ref[c]) > 300      # the ~369 Native2026 crystals
         assert np.isfinite(ref[c]).all()
 

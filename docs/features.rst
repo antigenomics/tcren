@@ -7,9 +7,9 @@ the single source of truth for every feature used in the TCRen2 benchmarks.
 
 .. code-block:: console
 
-   # 35 core descriptors + P(real):
+   # 34 core descriptors + P(real):
    tcren recognize -s structures/ -o table.tsv
-   # + 18 CDR3-frame + 12 matrix-swap descriptors (65 features):
+   # + the 18 CDR3-frame descriptors (52 features):
    tcren recognize -s structures/ -o table.tsv --full
    # + the frozen "good-results" scores p_bind and p_forced:
    tcren recognize -s structures/ -o table.tsv --scores
@@ -19,16 +19,56 @@ for the modelled sets), which is the join key to labels and AlphaFold confidence
 skips the models; ``--scores`` implies ``--full``. Degenerate or undefined terms are ``NaN``. Every
 feature is also available programmatically from :func:`tcren.recognition.recognition_features` (pass
 ``full=True``); the column-name tuples are :data:`tcren.recognition.RECOGNITION_FEATURES`,
-:data:`~tcren.recognition.CDR3_FRAME_FEATURES`, :data:`~tcren.recognition.MATRIX_SWAP_FEATURES` and
-:data:`~tcren.recognition.FULL_FEATURES`.
+:data:`~tcren.recognition.CDR3_FRAME_FEATURES` and :data:`~tcren.recognition.FULL_FEATURES`.
+:data:`tcren.recognition.DESCRIPTORS` gives every column's family and whether the receptor enters its
+definition; :func:`tcren.recognition.descriptors` selects on both (see :ref:`descriptor-families`).
 
 Conventions used below: **tp** = TCR↔peptide interface, **tm** = TCR↔MHC, **pm** = peptide↔MHC.
-``F_*`` is a raw interface energy Φ; ``dF_*`` its poly-alanine reference delta ΔΦ; ``e_*`` a per-loop
-or per-interface contact energy. Energies are dimensionless statistical-potential units (more negative
-= more favorable); TCR↔peptide uses the **TCRen** potential, TCR↔MHC and peptide↔MHC the
-**Miyazawa–Jernigan (MJ)** potential.
+``F_*`` is a raw interface energy Φ and ``dF_*`` its poly-alanine reference delta ΔΦ — every energy
+column is named ``F``, because the potential is fixed by the interface rather than chosen per column:
+TCR↔peptide uses the **TCRen** potential, TCR↔MHC and peptide↔MHC the **Miyazawa–Jernigan (MJ)**
+potential. Energies are in dimensionless statistical-potential units (more negative = more
+favourable); they are log-odds ratios of contact frequencies and are *not* in kT.
 
-Core recognition descriptors (35)
+.. _descriptor-families:
+
+Families, and which descriptors involve the receptor
+----------------------------------------------------
+
+Every emitted column is catalogued in :data:`tcren.recognition.DESCRIPTORS` as
+``name -> (family, involves_tcr)``, and selected with :func:`tcren.recognition.descriptors`.
+The three families are the three physical channels the method reports:
+
+``geometry``
+    Coordinates, docking angles, and the contact topology and chemistry read off them — the kind of
+    quantity Eq. Q is built from.
+
+``physics``
+    Statistical-potential interface energies ``F`` and their poly-alanine references ``dF``.
+
+``kinetics``
+    The interface as a network of breakable springs: stiffness, anisotropy, strain, rupture, and the
+    residues coupling the pre-formed scaffold to the interface (``tcren mechanics``, plus the
+    contact-fragility terms ``recognize`` emits).
+
+A fourth group, ``score``, holds the fitted and cohort-relative composites (``p_real``,
+``p_real_bn``, ``p_forced``, ``p_bind``, ``q_bind``, ``s_strain``). These are **outputs** built from
+the descriptors above and must never be fed back in as inputs, so
+:func:`~tcren.recognition.descriptors` omits them unless ``with_scores=True``.
+
+``involves_tcr`` is ``False`` for exactly three columns — ``F_pep_mhc``, ``dF_pep_mhc`` and
+``mhc_class_bin`` — each computed from the peptide and MHC alone. Two structures of the same epitope
+on the same allele share their values whatever the receptor, so such a column carries **cohort
+identity** rather than interface physics, and a model given one can reach a cohort-level label
+without learning anything about recognition. Any analysis whose question is about receptors should
+select ``tcr_only=True``::
+
+    from tcren.recognition import descriptors
+
+    descriptors("physics", tcr_only=True)
+    # ('F_tcr_pep', 'F_tcr_mhc', 'F_cdr12', 'F_cdr3a', 'F_cdr3b', 'dF_tcr_pep')
+
+Core recognition descriptors (34)
 ---------------------------------
 
 The base feature set the shipped real-vs-shuffled recognizers consume
@@ -122,23 +162,23 @@ Interface energies
      - TCRen
      - Raw TCR↔peptide interface energy (whole interface, all TCR regions).
      - :func:`tcren.pipeline` energy
-   * - ``F_tcr_mhc`` / ``e_tcr_mhc``
+   * - ``F_tcr_mhc``
      - MJ
-     - Raw TCR↔MHC interface energy (identical columns, kept for schema stability).
+     - Raw TCR↔MHC interface energy.
      - :func:`tcren.pipeline` energy
    * - ``F_pep_mhc``
      - MJ
      - Raw peptide↔MHC interface energy.
      - :func:`tcren.pipeline` energy
-   * - ``e_cdr12``
+   * - ``F_cdr12``
      - TCRen
      - TCR↔peptide energy over the CDR1+CDR2 loops only.
      - :func:`tcren.pipeline` energy
-   * - ``e_cdr3a``
+   * - ``F_cdr3a``
      - TCRen
      - TCR↔peptide energy over the CDR3α loop only.
      - :func:`tcren.pipeline` energy
-   * - ``e_cdr3b``
+   * - ``F_cdr3b``
      - TCRen
      - TCR↔peptide energy over the CDR3β loop only.
      - :func:`tcren.pipeline` energy
@@ -167,9 +207,10 @@ from :func:`tcren.contact_types.contact_type_counts`.
    * - ``ct_tp_salt_bridge``, ``ct_tm_salt_bridge``
      - count
      - Salt-bridge contacts on each interface.
-   * - ``ct_tp_hydrogen_bond``, ``ct_tm_hydrogen_bond``
+   * - ``ct_tm_hydrogen_bond``
      - count
-     - Hydrogen-bond contacts on each interface.
+     - Hydrogen-bond contacts on the TCR↔MHC interface. (The TCR↔peptide count is emitted once,
+       as ``n_hbond`` — the name Eq. Q uses.)
    * - ``ct_tp_aromatic``, ``ct_tm_aromatic``
      - count
      - Aromatic (π-stacking) contacts on each interface.
@@ -181,7 +222,7 @@ from :func:`tcren.contact_types.contact_type_counts`.
      - Remaining contacts on each interface.
    * - ``n_hbond``
      - count
-     - Duplicate of ``ct_tp_hydrogen_bond`` (kept for schema stability).
+     - Hydrogen-bond contacts on the TCR↔peptide interface; a term of Eq. Q.
 
 MHC class
 ~~~~~~~~~
@@ -270,33 +311,6 @@ signal for forced-pose / hallucination detection. Columns are prefixed by loop (
    * - ``ext``
      - Å
      - Loop end-to-end extension ``|Cα_C − Cα_N|``.
-
-Matrix-swap descriptors (12) — ``--full``
------------------------------------------
-
-The same TCR:peptide contacts scored under **TCRen vs the generic MJ** potential, per interface group;
-the per-group difference isolates the recognition-specific component (generic packing cancels because
-both potentials read the identical contacts). Groups ``g`` ∈ {``tp`` (whole TCR:peptide), ``cdr12``,
-``cdr3a``, ``cdr3b``}. From :data:`tcren.recognition.MATRIX_SWAP_FEATURES`.
-
-.. list-table::
-   :header-rows: 1
-   :widths: 24 16 60
-
-   * - Column
-     - Unit
-     - Description
-   * - ``tcren_{g}``
-     - TCRen
-     - Group energy under the TCRen potential. (``tcren_tp``/``tcren_cdr12``/``tcren_cdr3a``/
-       ``tcren_cdr3b`` duplicate the core ``F_tcr_pep``/``e_cdr12``/``e_cdr3a``/``e_cdr3b`` by
-       construction — kept for parity.)
-   * - ``mj_{g}``
-     - MJ
-     - Group energy under the generic MJ potential.
-   * - ``d_{g}``
-     - Δ
-     - ``tcren_{g} − mj_{g}`` — the recognition-specific contrast.
 
 Scores (``--scores``)
 ---------------------

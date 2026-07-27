@@ -6,9 +6,10 @@ import numpy as np
 import pytest
 
 from tcren.recognition import (BayesianLogisticRecognizer, CDR3_FRAME_FEATURES, FORCED_POSE_MODEL,
-                               FULL_FEATURES, GaussianBNClassifier, INTERFACE_SYMMETRY_FEATURES,
-                               MATRIX_SWAP_FEATURES, RECOGNITION_FEATURES, _hill_climb, _interface_symmetry,
-                               encode_features, forced_pose_score, kit_score)
+                               DESCRIPTORS, FAMILIES, FULL_FEATURES, GaussianBNClassifier,
+                               INTERFACE_SYMMETRY_FEATURES, RECOGNITION_FEATURES, _hill_climb,
+                               _interface_symmetry, descriptors, encode_features, forced_pose_score,
+                               kit_score)
 
 
 def test_interface_symmetry_contact_counts():
@@ -146,14 +147,43 @@ def test_recognizer_predict_roundtrip_and_nan_safe(tmp_path):
     assert np.isfinite(rec.predict_proba(Xn)[:, 1]).all()
 
 
-# --- full feature vector (core + CDR3-frame + matrix-swap) ---------------------------------------------
+# --- full feature vector (core + CDR3-frame) -----------------------------------------------------------
 def test_full_feature_schema():
-    assert len(RECOGNITION_FEATURES) == 35
-    assert len(CDR3_FRAME_FEATURES) == 18 and len(MATRIX_SWAP_FEATURES) == 12
-    assert FULL_FEATURES == RECOGNITION_FEATURES + CDR3_FRAME_FEATURES + MATRIX_SWAP_FEATURES
-    assert len(set(FULL_FEATURES)) == len(FULL_FEATURES) == 65      # no duplicate column names
+    assert len(RECOGNITION_FEATURES) == 34
+    assert len(CDR3_FRAME_FEATURES) == 18
+    assert FULL_FEATURES == RECOGNITION_FEATURES + CDR3_FRAME_FEATURES
+    assert len(set(FULL_FEATURES)) == len(FULL_FEATURES) == 52      # no duplicate column names
     # the FramePose strain trio (the forced-pose signal) is present
     assert {"cdr3b_topep", "cdr3b_reach", "cdr3b_ext"} <= set(CDR3_FRAME_FEATURES)
+    # every energy is named F_*: the potential is a property of the interface, not of the column
+    assert not [f for f in FULL_FEATURES if f.startswith(("e_", "tcren_", "mj_", "d_")) and f != "dF_tcr_pep"]
+
+
+# --- the descriptor catalogue --------------------------------------------------------------------------
+def test_every_emitted_column_is_catalogued():
+    assert set(FULL_FEATURES) <= set(DESCRIPTORS)
+    assert set(INTERFACE_SYMMETRY_FEATURES) <= set(DESCRIPTORS)
+    for name, (family, tcr) in DESCRIPTORS.items():
+        assert family in FAMILIES + ("score",), name
+        assert isinstance(tcr, bool), name
+
+
+def test_peptide_and_mhc_only_descriptors_are_the_three_we_know():
+    """The receptor filter is the whole point: a column the TCR does not enter carries cohort
+    identity (epitope, allele), so a model handed one can reach a cohort label without physics."""
+    assert {n for n, (_, tcr) in DESCRIPTORS.items() if not tcr} == {
+        "F_pep_mhc", "dF_pep_mhc", "mhc_class_bin"}
+    assert not set(descriptors(tcr_only=True)) & {"F_pep_mhc", "dF_pep_mhc", "mhc_class_bin"}
+
+
+def test_descriptors_selector():
+    assert descriptors("physics", tcr_only=True) == (
+        "F_tcr_pep", "F_tcr_mhc", "F_cdr12", "F_cdr3a", "F_cdr3b", "dF_tcr_pep")
+    # scores are outputs, excluded unless asked for
+    assert "q_bind" not in descriptors()
+    assert "q_bind" in descriptors("score", with_scores=True)
+    with pytest.raises(ValueError, match="unknown family"):
+        descriptors("energetics")
 
 
 def test_forced_pose_model_shape_and_formula():
@@ -195,10 +225,9 @@ def test_recognition_features_full_end_to_end():
 
     f = recognition_features(reference_structure_path("1ao7"), full=True)
     assert set(f) == set(FULL_FEATURES)
-    # matrix-swap tcren_* duplicates the core loop energies by construction
-    assert f["tcren_tp"] == pytest.approx(f["F_tcr_pep"])
-    assert f["tcren_cdr3a"] == pytest.approx(f["e_cdr3a"])
-    assert f["d_tp"] == pytest.approx(f["tcren_tp"] - f["mj_tp"])
+    # the CDR-loop energies partition the TCR:peptide interface energy
+    assert f["F_tcr_pep"] == pytest.approx(f["F_cdr12"] + f["F_cdr3a"] + f["F_cdr3b"], abs=1e-6)
+    assert np.isfinite(f["crossing_signed"]) and abs(f["crossing_signed"]) <= 180.0
     # a real crystal complex has both CDR3 loops engaging the peptide
     assert np.isfinite(f["cdr3b_topep"]) and f["cdr3b_topep"] > 0
     assert np.isfinite(f["cdr3a_reach"]) and f["cdr3a_reach"] > 0
@@ -215,12 +244,13 @@ def test_recognizer_name_mismatch_raises():
 def _example_feats():
     """A plausible real-complex feature row (1ao7-like) keyed by RECOGNITION_FEATURES."""
     return {
-        "extent": 26.0, "e_tcr_mhc": -1.5, "chain_balance": 0.36, "pitch": 25.0, "crossing": 45.0,
-        "dock_d": 25.0, "dock_torsion": 3.35, "dock_tcr_uy": 0.1, "dock_tcr_uz": 0.9,
-        "dock_mhc_uy": 0.2, "dock_mhc_uz": 0.95, "e_cdr12": 0.2, "e_cdr3a": 0.1, "e_cdr3b": -0.3,
+        "extent": 26.0, "chain_balance": 0.36, "pitch": 25.0, "crossing": 45.0,
+        "crossing_signed": -45.0, "dock_d": 25.0, "dock_torsion": 3.35, "dock_tcr_uy": 0.1,
+        "dock_tcr_uz": 0.9, "dock_mhc_uy": 0.2, "dock_mhc_uz": 0.95,
+        "F_cdr12": 0.2, "F_cdr3a": 0.1, "F_cdr3b": -0.3,
         "F_tcr_pep": -0.5, "F_tcr_mhc": -1.5, "F_pep_mhc": -2.0, "dF_tcr_pep": -0.4, "dF_pep_mhc": -0.6,
         "n_contacts_tp": 30.0, "n_pep_contacted": 8.0, "n_contacts_tm": 40.0,
-        "ct_tp_salt_bridge": 1.0, "ct_tm_salt_bridge": 2.0, "ct_tp_hydrogen_bond": 5.0,
+        "ct_tp_salt_bridge": 1.0, "ct_tm_salt_bridge": 2.0,
         "ct_tm_hydrogen_bond": 6.0, "ct_tp_aromatic": 1.0, "ct_tm_aromatic": 0.0,
         "ct_tp_hydrophobic": 8.0, "ct_tm_hydrophobic": 10.0, "ct_tp_other": 3.0, "ct_tm_other": 4.0,
         "n_hbond": 5.0, "burial": 1950.0, "mhc_class_bin": 0.0,
@@ -229,7 +259,7 @@ def _example_feats():
 
 def test_recognition_features_names_complete():
     from tcren.recognition import RECOGNITION_FEATURES
-    assert len(RECOGNITION_FEATURES) == 35
+    assert len(RECOGNITION_FEATURES) == 34
     assert set(_example_feats()) == set(RECOGNITION_FEATURES)   # the example row covers exactly the model inputs
 
 
@@ -269,8 +299,8 @@ def test_add_cohort_scores_batch_and_error_rows():
     # (structures that failed to parse) must be left untouched.
     from tcren.recognition import _add_cohort_scores
     rows = [{"complex.id": f"c{i}", "burial": 1.0 + i, "n_pep_contacted": 2.0 + i % 3,
-             "chain_balance": 0.3 + 0.05 * i, "n_hbond": 5.0 + i, "e_cdr12": 1.0 - 0.2 * i,
-             "e_cdr3a": 0.5 + 0.1 * i, "cdr3b_topep": 1.0 + i, "cdr3b_reach": 2.0 - 0.3 * i,
+             "chain_balance": 0.3 + 0.05 * i, "n_hbond": 5.0 + i, "F_cdr12": 1.0 - 0.2 * i,
+             "F_cdr3a": 0.5 + 0.1 * i, "cdr3b_topep": 1.0 + i, "cdr3b_reach": 2.0 - 0.3 * i,
              "extent": 10.0 + i, "n_contacts_tp": 5.0 + i} for i in range(6)]
     rows.append({"complex.id": "bad", "error": "boom"})
     _add_cohort_scores(rows)

@@ -218,8 +218,8 @@ tcren recognize -s my_pdbs/ -o feats.tsv --features-only   # descriptors only, s
 
 | what you want | columns in `recognize.tsv` |
 |---|---|
-| **(a) energy** — TCRen/MJ `F` per interface + poly-alanine `dF` + loop parts | `F_tcr_pep`, `F_tcr_mhc`, `F_pep_mhc`, `dF_tcr_pep`, `dF_pep_mhc`, `e_cdr12`, `e_cdr3a`, `e_cdr3b`, `e_tcr_mhc` |
-| **(b) geometry** — every docking + interface descriptor | `pitch`, `crossing`, `dock_d`, `dock_torsion`, `dock_{tcr,mhc}_u{y,z}`, `extent`, `chain_balance`, `burial`, `n_contacts_{tp,tm}`, `n_pep_contacted`, `ct_{tp,tm}_*` |
+| **(a) energy** — `F` per interface (TCRen on TCR:peptide, MJ on presentation) + poly-alanine `dF` + loop parts | `F_tcr_pep`, `F_tcr_mhc`, `F_pep_mhc`, `dF_tcr_pep`, `dF_pep_mhc`, `F_cdr12`, `F_cdr3a`, `F_cdr3b` |
+| **(b) geometry** — every docking + interface descriptor | `pitch`, `crossing`, `crossing_signed`, `dock_d`, `dock_torsion`, `dock_{tcr,mhc}_u{y,z}`, `extent`, `chain_balance`, `burial`, `n_contacts_{tp,tm}`, `n_pep_contacted`, `ct_{tp,tm}_*` |
 | **(c) fit-free scores** (`--scores`, recommended) — cohort-relative, no training set | `q_bind` — binder-ID `Q`; `s_strain` — forced-pose grade. See [`tcren.cohort`](src/tcren/cohort.py) |
 | **(d) joint P(real)** ~ Bayesian model over energy + geometry | `p_real` — distribution-aware Bayesian **logistic** (5-fold CV AUC 0.885); `p_real_bn` — the Gaussian **BN** variant |
 

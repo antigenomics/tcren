@@ -99,7 +99,7 @@ def _derive(table, name):
     if name == "extent_per_ct":  # interface thinness
         return _col(table, "extent") / np.maximum(_col(table, "n_contacts_tp"), 1.0)
     if name == "pp_combo":       # z(sum J CDR1/2) - z(sum J CDR3alpha)
-        return zscore(_col(table, "e_cdr12")) - zscore(_col(table, "e_cdr3a"))
+        return zscore(_col(table, "F_cdr12")) - zscore(_col(table, "F_cdr3a"))
     return _col(table, name)
 
 
@@ -152,7 +152,7 @@ def native_reference() -> dict:
 
     Use :data:`Q_FEATURES_GEOM` (the four geometry terms) for one structure: the fifth term
     ``pp_combo`` is a within-cohort z-contrast and is undefined for a single row. Returns a dict of
-    column arrays (``burial, n_pep_contacted, chain_balance, n_hbond, e_cdr12, e_cdr3a``) usable as
+    column arrays (``burial, n_pep_contacted, chain_balance, n_hbond, F_cdr12, F_cdr3a``) usable as
     the ``reference`` argument. Provenance: ``tcren recognize --full`` over the Native2026 set.
     """
     import csv
