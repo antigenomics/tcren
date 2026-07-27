@@ -887,7 +887,7 @@ def mechanics(
     direction: str = typer.Option("tensile", "--direction", help="rupture pull: tensile|shear|auto"),
     break_strain: float = typer.Option(0.5, "--break-strain", help="fractional extension at which a spring breaks"),
     organism: str = typer.Option("human", "--organism"),
-    threads: int = typer.Option(1, "-t", "--threads", help="concurrent annotation batches for a multi-structure run (0 = all cores)"),
+    threads: int = typer.Option(1, "-t", "--threads", help="worker processes for the scoring stage (0 = all cores); the mmseqs searches always use all cores"),
     autodetect_species: bool = typer.Option(True, "--autodetect-species/--no-autodetect-species", help="also search mouse to catch a mis-declared organism; --no- halves the annotation cost"),
 ) -> None:
     """Interface mechanics — the koff proxies: stiffness tensor + steered rupture + coupling residues.
@@ -898,44 +898,60 @@ def mechanics(
     Validated on ATLAS: the tensile stiffness / rupture resistance track the dissociation off-rate
     (koff) far better than the equilibrium ΔG/Kd (Bell–Evans; the TCR is a mechanosensor).
     """
-    from .mechanics import WEIGHTS, coupling_residues, rupture, stiffness_tensor
+    from .mechanics import WEIGHTS
 
     if weight not in WEIGHTS:
         raise typer.BadParameter(f"--weight must be one of {'|'.join(WEIGHTS)}")
     if direction not in ("tensile", "shear", "auto"):
         raise typer.BadParameter("--direction must be one of tensile|shear|auto")
-    # Annotate the whole set with batched mmseqs calls before scoring anything. One call per
-    # structure rebuilds the arda index every time -- that is the difference between ~2/s and ~8/s
-    # on a cohort, and it is why this command used to be the slow one.
+    # Stage 1: annotate the whole set in one mmseqs search per organism. One call per structure
+    # rebuilds the arda index every time -- that is the difference between ~2/s and ~8/s on a
+    # cohort, and it is why this command used to be the slow one.
     items = list(iter_structures(structures, importer=parse_structure))
-    _annotate_set([s for _, s in items], organism=organism, threads=threads,
+    _annotate_set([s for _, s in items], organism=organism,
                   autodetect_species=autodetect_species)
-    rows = []
-    for pid, s in items:
-        try:
-            row = {"pdb.id": pid, **stiffness_tensor(s, cutoff=cutoff, weight=weight)}
-            row.update(rupture(s, direction=direction, cutoff=cutoff, weight=weight,
-                               break_strain=break_strain))
-            row.update(coupling_residues(s))
-            rows.append(row)
-        except Exception as exc:  # noqa: BLE001 - keep the batch resilient
-            rows.append({"pdb.id": pid, "K_tens": None,
-                         "error": f"{type(exc).__name__}: {str(exc)[:80]}"})
+    # Stage 2: the spring network, which is where the time goes and is pure Python/numpy.
+    # `threads` > 1 runs it in that many worker processes; the stages never overlap.
+    work = [(pid, s, cutoff, weight, direction, break_strain) for pid, s in items]
+    if threads != 1 and len(work) > 1:
+        import os as _os
+        from concurrent.futures import ProcessPoolExecutor
+        n = min(threads if threads > 0 else (_os.cpu_count() or 1), len(work))
+        with ProcessPoolExecutor(max_workers=n) as ex:
+            rows = list(ex.map(_mechanics_one, work, chunksize=max(1, len(work) // (n * 4))))
+    else:
+        rows = [_mechanics_one(w) for w in work]
     pl.DataFrame(rows).write_csv(str(out))
     typer.echo(f"wrote {out}")
 
 
-def _annotate_set(structs, *, organism: str, threads: int, autodetect_species: bool,
-                  chunk: int = 64) -> None:
-    """Chain-type and MHC-annotate a whole set in place, with batched, thread-capped mmseqs calls.
+def _mechanics_one(args) -> dict:
+    """One annotated structure -> one mechanics row. Module-level so it pickles to a worker."""
+    from .mechanics import coupling_residues, rupture, stiffness_tensor
 
-    The same two levers ``recognition_table`` uses. (1) BATCH: one arda call per ``chunk`` structures
-    rather than per structure. (2) CAP: each concurrent batch gets ``cpu_count // threads`` mmseqs
-    threads, because arda leaves mmseqs at its all-cores default and N concurrent batches would
-    otherwise ask for N x cpu_count.
+    pid, s, cutoff, weight, direction, break_strain = args
+    try:
+        row = {"pdb.id": pid, **stiffness_tensor(s, cutoff=cutoff, weight=weight)}
+        row.update(rupture(s, direction=direction, cutoff=cutoff, weight=weight,
+                           break_strain=break_strain))
+        row.update(coupling_residues(s))
+        return row
+    except Exception as exc:  # noqa: BLE001 - keep the batch resilient
+        return {"pdb.id": pid, "K_tens": None, "error": f"{type(exc).__name__}: {str(exc)[:80]}"}
+
+
+def _annotate_set(structs, *, organism: str, autodetect_species: bool) -> None:
+    """Chain-type and MHC-annotate a whole set in place: one mmseqs search per organism, all cores.
+
+    mmseqs parallelises internally, so it is handed the whole set once rather than N concurrent
+    batches. The previous shape ran a thread pool over 64-structure batches, and since arda leaves
+    mmseqs at its all-cores default, N batches asked for N x cpu_count and the run thrashed. The
+    MHC search was worse off still: it was called with no thread count at all, so it ran
+    single-threaded over every batch.
+
+    The MHC pass must stay AFTER chain typing, or the MHC interfaces come out silently empty.
     """
     import os as _os
-    from concurrent.futures import ThreadPoolExecutor
 
     from .annotation import classify_chains
     from .annotation.arda_adapter import _import_arda
@@ -945,28 +961,16 @@ def _annotate_set(structs, *, organism: str, threads: int, autodetect_species: b
     structs = [s for s in structs if s is not None]
     if not structs:
         return
-    n = threads if threads > 0 else (_os.cpu_count() or 1)
-    batches = [structs[i:i + chunk] for i in range(0, len(structs), chunk)]
-    per = max(1, (_os.cpu_count() or 1) // max(1, min(n, len(batches))))
+    cores = _os.cpu_count() or 1
     orgs = (organism, "mouse") if autodetect_species else (organism,)
-    arda = _import_arda()
-
-    def run(batch):
-        recs = annotate_batch(batch, arda, organisms=orgs, threads=per)
-        for i, s in enumerate(batch):
-            try:
-                classify_chains(s, organism=organism, autodetect_species=autodetect_species,
-                                precomputed_records=recs[i])
-            except Exception:  # noqa: BLE001 - unannotatable chains stay unset
-                pass
-        annotate_mhc_batch(batch)
-
-    if n == 1 or len(batches) == 1:
-        for b in batches:
-            run(b)
-    else:
-        with ThreadPoolExecutor(max_workers=n) as ex:
-            list(ex.map(run, batches))
+    recs = annotate_batch(structs, _import_arda(), organisms=orgs, threads=cores)
+    for i, s in enumerate(structs):
+        try:
+            classify_chains(s, organism=organism, autodetect_species=autodetect_species,
+                            precomputed_records=recs[i])
+        except Exception:  # noqa: BLE001 - unannotatable chains stay unset
+            pass
+    annotate_mhc_batch(structs, threads=cores)
 
 
 @app.command(rich_help_panel=_P_ORIENT)
