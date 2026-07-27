@@ -219,6 +219,14 @@ tcren.ddg module
    :undoc-members:
    :show-inheritance:
 
+tcren.cpl module
+~~~~~~~~~~~~~~~~~
+
+.. automodule:: tcren.cpl
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 tcren.binder module
 ~~~~~~~~~~~~~~~~~~~~~
 

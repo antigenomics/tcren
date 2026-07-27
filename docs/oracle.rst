@@ -81,7 +81,8 @@ points at a FASTA/text file of epitopes to sample the background from instead of
 it uniformly at random.
 
 ``tcren ddg`` — fast ΔΔG of peptide mutations (virtual-matrix path; no atoms move).
-``ddG = E(native) - E(mutant)``, so a positive value is destabilising:
+``ddG = E(native) - E(mutant)``, and lower energy binds better, so a positive value is
+stabilising -- the mutant improves on the native:
 
 .. code-block:: console
 

@@ -412,7 +412,8 @@ def ddg_cmd(
     """ΔΔG of peptide mutations (fast virtual-matrix path; no atoms move).
 
     Re-scores the mutant sequence on the native contact map; ``ddG = E(native) - E(mutant)``
-    (positive => destabilising). Use ``--alanine-scan`` for a per-position scan, or one or more
+    (positive => STABILISING: the mutant scores lower, which is the better binder). Use
+    ``--alanine-scan`` for a per-position scan, or one or more
     ``--mutant`` for specific neoantigen substitutions.
     """
     if regions not in TCR_REGIONS:
@@ -432,6 +433,80 @@ def ddg_cmd(
             df = neoantigen_ddg(cm, native, mutant, pot, interface=interface, tcr_regions=regions)
         frames.append(df.with_columns(pl.lit(cm.pdb_id).alias("complex.id")))
     pl.concat(frames).write_csv(str(out))
+    typer.echo(f"wrote {out}")
+
+
+@app.command("cpl", rich_help_panel=_P_SCORE)
+def cpl_cmd(
+    structures: Path = typer.Option(..., "-s", "--structures", help="template TCR:pMHC structure, directory, or .tar.gz (.pdb/.cif/.pdb.gz/.cif.gz)"),
+    peptide: str = typer.Option(None, "--peptide", help="peptide to thread substitutions off (default: the template's own)"),
+    position: int = typer.Option(None, "--position", help="1-based peptide position; restrict the output to this position"),
+    mutation: str = typer.Option(None, "--mutation", help="one-letter residue; with --position, report just that cell"),
+    to_mixture: bool = typer.Option(False, "--to-mixture", help="report the cost of giving a position up to the equimolar 1/20 mixture"),
+    reference: str = typer.Option("both", "--reference", help="equimolar|wild_type|both (default: both)"),
+    potential: str | None = typer.Option(None, "-p", "--potential", help="TCR:peptide potential CSV (default: bundled TCRen)"),
+    mhc_potential: str | None = typer.Option(None, "--mhc-potential", help="peptide:MHC potential (default: Miyazawa-Jernigan)"),
+    out: Path = typer.Option("cpl_matrix.csv", "-o", "--out"),
+    regions: str = typer.Option("all", "--regions", help="TCR regions on the TCR side: all|cdr|cdr+fr (default: all)"),
+    organism: str = typer.Option("human", "--organism"),
+    cutoff: float = typer.Option(5.0, "--cutoff"),
+) -> None:
+    """Predict a combinatorial-peptide-library response matrix from a template TCR:pMHC structure.
+
+    One row per (peptide position, amino acid) cell. Every cell carries BOTH peptide-bearing
+    interfaces summed -- TCRen over TCR:peptide plus Miyazawa-Jernigan over peptide:MHC -- because
+    the assay reads activation, which needs the peptide presented as well as the receptor engaged.
+
+    Two reference states are reported, and a cell is only meaningful against one of them:
+    ``effect_equimolar`` scores a residue against the 1/20 mixture, which is the CPL background and
+    the right axis to compare with a measured matrix; ``effect_wild_type`` scores it against the
+    residue the template carries, which is the mutation-scan / neoantigen question. Positive is
+    favourable on both.
+
+    Three narrower questions, all from the same matrix:
+
+    \b
+      --position 5                 every substitution at position 5, best first
+      --position 5 --mutation W    just that one cell
+      --position 5 --to-mixture    the cost of giving position 5 up to the 1/20 mixture
+    """
+    if reference not in ("equimolar", "wild_type", "both"):
+        raise typer.BadParameter("--reference must be equimolar|wild_type|both")
+    if regions not in TCR_REGIONS:
+        raise typer.BadParameter("--regions must be one of all|cdr|cdr+fr")
+    if (mutation or to_mixture) and position is None:
+        raise typer.BadParameter("--mutation and --to-mixture both need --position")
+    if mutation and to_mixture:
+        raise typer.BadParameter("pass at most one of --mutation or --to-mixture")
+    from .cpl import equimolar_effect, mutation_effect, position_scan, response_matrix
+    from .mhc import annotate_mhc
+    from .potential import mj
+
+    pot = _load_potential(potential)
+    mhc_pot = _load_potential(mhc_potential) if mhc_potential else mj()
+    frames = []
+    for _pid, s in iter_structures(structures, importer=parse_structure):
+        classify_chains(s, organism=organism)
+        # the peptide:MHC interface comes out EMPTY without this second pass, which would silently
+        # reduce every anchor cell to zero rather than failing
+        annotate_mhc(s)
+        cm = ContactMap.from_structure(s, cutoff=cutoff)
+        rm = response_matrix(cm, peptide, tcr_potential=pot, mhc_potential=mhc_pot,
+                             tcr_regions=regions)
+        if to_mixture:
+            df = pl.DataFrame({"pos": [position], "aa": [rm.wild_type_at(position)],
+                               "effect_equimolar": [equimolar_effect(rm, position)]})
+        elif mutation:
+            df = pl.DataFrame({"pos": [position], "aa": [mutation.upper()], **{
+                f"effect_{r}": [mutation_effect(rm, position, mutation, reference=r)]
+                for r in (("equimolar", "wild_type") if reference == "both" else (reference,))}})
+        elif position is not None:
+            df = position_scan(rm, position,
+                               reference="equimolar" if reference == "both" else reference)
+        else:
+            df = rm.to_frame(None if reference == "both" else reference)
+        frames.append(df.with_columns(pl.lit(rm.structure_id).alias("complex.id")))
+    pl.concat(frames, how="diagonal_relaxed").write_csv(str(out))
     typer.echo(f"wrote {out}")
 
 

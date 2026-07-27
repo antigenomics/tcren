@@ -2,9 +2,10 @@
 
 Implements the paper's fast ΔΔG: no atoms move and no re-docking is performed.
 A mutation's effect is read straight off the substitution potential by re-scoring
-the mutant sequence on the *same* contact map. ``ddg = E(native) - E(mutant)`` so a
-positive value flags a destabilising mutation (the mutant binds less favourably,
-i.e. has higher energy).
+the mutant sequence on the *same* contact map. ``ddg = E(native) - E(mutant)``, and
+lower energy is a more favourable interface throughout ``tcren``, so a **positive**
+value flags a **stabilising** mutation: the mutant scores below the native and binds
+better. A negative value is the destabilising one.
 """
 
 from __future__ import annotations
@@ -68,7 +69,8 @@ def ddg(
             ``score_peptides``.
 
     Returns:
-        ``E(native) - E(mutant)``; positive means the mutation is destabilising.
+        ``E(native) - E(mutant)``; positive means the mutant has the LOWER energy, i.e. the
+        mutation is stabilising. Negative means destabilising.
         Always ``0.0`` for interfaces that do not contain the peptide (e.g.
         ``"tcr_mhc"``), since a peptide mutation cannot affect them.
     """
@@ -149,8 +151,9 @@ def neoantigen_ddg(
         **kw: Forwarded to :func:`ddg` (``interface``, ``tcr_regions``).
 
     Returns:
-        Columns ``native``, ``mutant`` and ``ddG`` (``E(native) - E(mutant)``;
-        positive means the mutation is destabilising), one row per mutant.
+        Columns ``native``, ``mutant`` and ``ddG`` (``E(native) - E(mutant)``; positive means
+        the mutant has the lower energy, i.e. the substitution is stabilising), one row per
+        mutant -- so ranking candidates by descending ``ddG`` puts the best first.
     """
     rows = [
         {"native": native, "mutant": m, "ddG": ddg(contact_map, native, m, potential, **kw)}

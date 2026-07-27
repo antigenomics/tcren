@@ -147,7 +147,7 @@ Case studies
 
 * **Neoantigen / alanine ΔΔG.** ``tcren ddg`` re-scores mutants on the native contacts:
   ``--alanine-scan`` for a per-position sensitivity profile, or ``--mutant`` (repeatable) for
-  specific neoantigen substitutions. Positive ΔΔG = destabilising.
+  specific neoantigen substitutions. Positive ΔΔG = stabilising (the mutant scores lower).
 
 * **Rank candidate TCRs against a fixed pMHC.** ``tcren binder`` scores AlphaFold/TCRmodel2 models
   from interface geometry (size, dual-chain balance, H-bonds, buried ΔSASA) plus a CDR1/2-vs-CDR3α

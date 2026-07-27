@@ -19,6 +19,8 @@ from .contactmap import ContactMap, ModeCentroid, binding_mode, registered_map
 from .geometry import LoopInternalCoords, cdr3_internal_coords
 from .torsions import cdr3_torsions, chain_torsions, residue_torsions
 from .contacts import all_atom_contacts, ca_distance_matrix
+from .cpl import (ResponseMatrix, equimolar_effect, mutation_effect, position_scan,
+                  response_matrix)
 from .ddg import alanine_scan, ddg, neoantigen_ddg, reference_delta
 from .mechanics import coupling_residues, interface_springs, rupture, stiffness_tensor
 from .oracle import summarize_structure
@@ -57,6 +59,7 @@ __all__ = [
     "alanine_scan",
     "neoantigen_ddg",
     "reference_delta",
+    "response_matrix", "ResponseMatrix", "mutation_effect", "position_scan", "equimolar_effect",
     "binder_score",
     "BINDER_MODEL",
     "is_real_interface",

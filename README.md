@@ -40,6 +40,7 @@ From one TCR–peptide–MHC structure (crystal or model), each task is one comm
 | Score candidate epitopes for a TCR | `tcren score` | `score_peptides` |
 | Percentile-rank a peptide vs background | `tcren rank` | `percentile_rank` |
 | ΔΔG of mutations (alanine scan / neoantigen) | `tcren ddg` | `alanine_scan`, `neoantigen_ddg` |
+| **Predict a CPL response matrix from a template** | `tcren cpl` | `response_matrix`, `mutation_effect`, `position_scan`, `equimolar_effect` |
 | Binder vs non-binder for a TCR model | `tcren binder` | `cohort.q_score` (recommended), `binder_score` |
 | **All interface descriptors + joint P(real)** | `tcren recognize` | `recognition_features`, `real_probability` |
 | Three-interface energy Φ, poly-Ala ΔΦ, interface geometry | `tcren scoring` | `run_pipeline` |
@@ -128,7 +129,21 @@ tcren rank -s complex.pdb -o rank.csv
 
 # Fast ΔΔG of peptide point mutations (virtual-matrix path: no atoms move, no re-docking).
 # Requires --native (the peptide) and exactly one mode: --alanine-scan or --mutant.
+# ddG = E(native) - E(mutant), and lower energy binds better, so POSITIVE = stabilising.
 tcren ddg -s complex.pdb --native EPITOPE --alanine-scan -o ddg.csv
+
+# Predict a combinatorial-peptide-library (CPL) response matrix from ONE template TCR:pMHC
+# structure: every peptide position x all 20 residues, threaded on the template's own contact map.
+# Every cell sums BOTH peptide-bearing interfaces (TCRen over TCR:peptide + Miyazawa-Jernigan over
+# peptide:MHC), because the assay reads activation, which needs presentation as well as engagement.
+tcren cpl -s complex.pdb -o cpl_matrix.csv
+# Two reference states, both emitted, and a cell means nothing except against one of them:
+#   effect_equimolar  vs the 1/20 mixture  -> the CPL background; compare against a measured matrix
+#   effect_wild_type  vs the template residue -> the mutation-scan / neoantigen question
+# Positive is favourable on both. Three narrower questions off the same matrix:
+tcren cpl -s complex.pdb --position 5                  # every substitution at position 5, best first
+tcren cpl -s complex.pdb --position 5 --mutation W     # just that one cell
+tcren cpl -s complex.pdb --position 5 --to-mixture     # cost of giving position 5 up to the mixture
 
 # Binder vs non-binder from AF-orthogonal interface geometry + the CDR1/2-vs-CDR3a TCRen term —
 # ranks candidate TCRs against a fixed pMHC, on par with AlphaFold/TCRmodel2 confidence with no
@@ -256,6 +271,48 @@ cm = ContactMap.from_structure(s)              # 5 Å contacts + interface parti
 ranked = score_peptides(cm, ["KQWLVWLFL", "RLLHPHHPL"], tcren())
 ```
 
+### CPL response matrices from one template structure
+
+A positional-scanning combinatorial peptide library fixes position *i* to residue *a* and leaves
+every other position an **equimolar 1/20 mixture**, so a measured cell is an ensemble mean,
+`R[i,a] = E[response | x_i = a]`. `tcren.cpl` predicts that matrix from a single template complex —
+each of the twenty residues threaded through the template's own contact map, nothing re-docked,
+nothing fitted to any assay.
+
+```python
+from tcren import (ContactMap, parse_structure, response_matrix,
+                   mutation_effect, position_scan, equimolar_effect)
+from tcren.annotation import classify_chains
+from tcren.mhc import annotate_mhc
+
+s = parse_structure("3HG1.pdb", pdb_id="3HG1")
+classify_chains(s, organism="human")
+annotate_mhc(s)                       # REQUIRED: without it peptide:MHC is empty and anchors zero out
+rm = response_matrix(ContactMap.from_structure(s, cutoff=5.0))
+
+rm.to_frame()                         # the whole matrix, one row per (position, amino acid) cell
+position_scan(rm, 5)                  # every substitution at position 5, best first
+mutation_effect(rm, 5, "W")           # one cell
+equimolar_effect(rm, 5)               # cost of giving position 5 up to the 1/20 mixture
+```
+
+**Every cell sums both peptide-bearing interfaces** — TCRen over TCR:peptide plus Miyazawa–Jernigan
+over peptide:MHC — because the assay reads *activation*, which needs the peptide presented as well as
+the receptor engaged. A position the receptor never touches is an anchor; its TCR term is constant
+along the row, so the sum degrades to presentation alone rather than to a special case.
+
+**Two reference states, and a cell is meaningless except against one of them.** A raw Φ carries a
+large per-position offset that says only how many contacts the position makes:
+
+| `reference` | cell value | use it for |
+|---|---|---|
+| `"equimolar"` (default) | `mean_b Φ(x_{i→b}) − Φ(x_{i→a})` | comparing against a **measured** CPL matrix — the mixture is the assay's own background |
+| `"wild_type"` | `Φ(x_{i→wt}) − Φ(x_{i→a})` | **mutation scan** / neoantigen ranking off the residue the template carries |
+
+They differ by a per-position constant — how far the template's residue sits above its column mean.
+Positive is favourable on both, since lower energy is the better binder. Under `"wild_type"` the
+template's own cell is identically zero; under `"equimolar"` it is an ordinary measurement.
+
 ### Batch inputs, gzip, archives
 
 ```python
@@ -304,6 +361,7 @@ view_pocket_cdr(s).show()                      # interactive 3D pocket + CDR ove
 | `tcren.potential` | `Potential` (TCRen/MJ/Keskin); `derive_tcren` (classic/AM/LOO) with non-redundancy filtering |
 | `tcren.scoring` / `scoring_rank` | substitution scoring of candidate peptides; percentile rank vs a background |
 | `tcren.ddg` | fast virtual-matrix ΔΔG — alanine scan, neoantigen mutants |
+| `tcren.cpl` | CPL response-matrix prediction from one template complex; equimolar and wild-type references; per-position and per-cell queries |
 | `tcren.binder` | binder/non-binder classifier from AF-orthogonal interface geometry |
 | `tcren.recognition` | 35-descriptor extractor (`recognition_features`) + frozen real-vs-shuffled recognizers — distribution-aware Bayesian logistic + Gaussian BN — for joint `P(real)` |
 | `tcren.orient` | canonical frame, `superimpose` onto the canonical DB, docking angles, reverse-dock detection |
