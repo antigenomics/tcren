@@ -11,7 +11,7 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT="$(cd "$HERE/.." && pwd)"                          # tcren-ms repo root
+ROOT="$(cd "$HERE/.." && pwd)"                          # tcren repo root
 ENV_NAME="${ENV_NAME:-tcren-nb}"
 
 echo ">> Creating/updating conda env '$ENV_NAME' from environment.yml"

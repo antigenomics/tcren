@@ -12,7 +12,7 @@ interface size: it survives partialling out the raw contact count.
 
 Data: ATLAS (Borrman et al. 2017, Proteins) — ``<manuscript>/data/oracle/atlas/ATLAS.tsv`` with
 experimental ``Koff_per_S`` / ``Kd_microM`` / ``DeltaG_kcal_per_mol`` per complex. Structures are
-resolved from ``tcren-ms/data`` or the manuscript ``data`` tree.
+resolved from this repo's ``data/`` or the manuscript ``data`` tree (``$TCREN_MS``).
 
 Honesty guardrails (PLAN section 1d / 3.1): WT + own-crystal rows only; **never pool
 template-proxied mutants** (a feature computed from a shared template, replicated across mutant
@@ -34,6 +34,7 @@ import argparse
 import csv
 import glob
 import math
+import os
 import resource
 import time
 from pathlib import Path
@@ -47,9 +48,13 @@ from tcren.mhc import annotate_mhc
 from tcren.structure import parse_structure
 from tcren.structure.model import PEPTIDE_TYPE
 
-MS = Path("/Users/mikesh/vcs/manuscripts/2026-tcren2")
+# As in ddg_validate.py: the manuscript tree is outside the repo and stays overridable, while the
+# structure search starts in the repo's own data/. The first SEARCH entry was an absolute path into
+# `tcren-ms`, the repo's name before the rename, and had stopped resolving anywhere.
+ROOT = Path(__file__).resolve().parents[1]
+MS = Path(os.environ.get("TCREN_MS", "/Users/mikesh/vcs/manuscripts/2026-tcren2"))
 ATLAS = MS / "data/oracle/atlas/ATLAS.tsv"
-SEARCH = ["/Users/mikesh/vcs/code/tcren-ms/data", str(MS / "data")]
+SEARCH = [str(ROOT / "data"), str(MS / "data")]
 
 # Feature -> target sign expectation is not enforced; we report raw r. Features are computed once per
 # distinct native structure (mutations are not modelled), so between-structure / own-structure scoping

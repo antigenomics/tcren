@@ -22,6 +22,7 @@ import argparse
 import csv
 import glob
 import math
+import os
 import time
 from pathlib import Path
 
@@ -33,9 +34,13 @@ from tcren.refine import refine_peptide
 from tcren.refine.interface import interface_energy
 from tcren.structure import parse_structure
 
-MS = Path("/Users/mikesh/vcs/manuscripts/2026-tcren2")
+# The manuscript tree is genuinely outside this repo, so it stays overridable; the structure search
+# starts in the repo's own data/. The first SEARCH entry used to be an absolute path into
+# `tcren-ms` — the repo's name before it was renamed — and had stopped resolving anywhere.
+ROOT = Path(__file__).resolve().parents[1]
+MS = Path(os.environ.get("TCREN_MS", "/Users/mikesh/vcs/manuscripts/2026-tcren2"))
 ATLAS = MS / "data/oracle/ddg_direct/ddg_direct_deltas.csv"
-SEARCH = ["/Users/mikesh/vcs/code/tcren-ms/data/**", str(MS / "data/**")]
+SEARCH = [str(ROOT / "data/**"), str(MS / "data/**")]
 
 
 def _find_pdb(name):

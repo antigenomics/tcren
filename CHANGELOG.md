@@ -44,9 +44,11 @@ All notable changes to `tcren` are recorded here. Format follows
   package namespace but missing from `__all__`, so the ipTM-gated F path the CLI uses was not part
   of the public API it appears to be.
 - **The four `tests/regression/test_orient.py` tests run again.** They read
-  `notebooks/data/Native2022/*.pdb`, which no checkout has carried since the notebook data moved, so
-  they had been failing with `FileNotFoundError` rather than skipping. They now read
-  `data/Native2026` — what `setup.sh` fetches — and skip cleanly if it is absent.
+  `notebooks/data/Native2022/{pid}.pdb`, which fails two ways: that path is gitignored, so a fresh
+  checkout has no such directory at all; and where a developer does have it, it holds `.pdb.gz`,
+  which the hardcoded `.pdb` does not match. Either way the tests raised `FileNotFoundError` rather
+  than skipping. They now resolve against `data/Native2026` — what `setup.sh` fetches — try both
+  extensions, and skip cleanly when no reference structure is present.
 
 ### Changed
 - **`tcren pipeline` is now `tcren scoring`** (breaking). The command never ran the preparation

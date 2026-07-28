@@ -28,7 +28,9 @@ from tcren.recognition import GaussianBNClassifier
 HERE = Path(__file__).resolve().parent
 FIG = HERE / "figures"
 FIG.mkdir(exist_ok=True)
-META = Path("/Users/mikesh/vcs/code/tcren-ms/data/orient_metadata.json")
+# Repo-relative: this was an absolute path into `tcren-ms`, the repo's name before it was renamed
+# to `tcren`, so it had stopped resolving on every machine including the author's.
+META = HERE.parents[1] / "data" / "orient_metadata.json"
 MODEL_OUT = HERE.parents[1] / "src" / "tcren" / "data" / "shuffle_bn.json.gz"
 DROP = {"key", "species", "mhc_class", "y", "mc"}
 
