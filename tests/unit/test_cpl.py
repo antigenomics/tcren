@@ -225,6 +225,10 @@ def test_a_complex_with_no_peptide_contacts_raises(toy):
 @pytest.mark.skipif(not (ASSETS / "1ao7.pdb").exists(), reason="1ao7 asset missing")
 def test_real_complex_end_to_end():
     """The whole path on a deposited TCR:pMHC, including the MHC pass the anchors depend on."""
+    # classify_chains needs arda, which is conda-only and absent from CI. Every other
+    # arda-dependent test skips at import; this one reached it at call time instead and was the
+    # single red test in an otherwise green suite.
+    pytest.importorskip("arda")
     from tcren import parse_structure
     from tcren.annotation import classify_chains
     from tcren.mhc import annotate_mhc
