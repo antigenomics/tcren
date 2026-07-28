@@ -499,6 +499,14 @@ tcren.viz.pocket3d module
    :undoc-members:
    :show-inheritance:
 
+tcren.viz.pymol module
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: tcren.viz.pymol
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 tcren.viz.palette module
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 

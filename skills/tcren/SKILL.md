@@ -216,6 +216,26 @@ QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses ar
   is **AlphaFold-confidence contamination, not geometry**. Prefer the documented `d`/`torsion`/`crossing`/
   `incident` over the opaque upstream `pitch_angle`.
 
+## Publication figures — `tcren.viz.pymol` (headless PyMOL)
+
+- `render(scene, png, size=(1200,1200), dpi=300, corner='bottom-left', gizmo=True)` ray-traces a
+  PyMOL script body. Scene presets: `overlay_scene(ids, canon_dir, limit=8)` (ensemble, side-on),
+  `groove_scene(pid, canon_dir, surface=False)` (peptide in the cleft, top-down; `surface=True` is
+  the histo.fyi look), `interface_scene(pid, canon_dir, cdr_resi)` (peptide + CDR loops).
+- **`CANONICAL_AXES` is the naming of `tcren.orient.frame`, and the gizmo prints it**: x=`width`
+  (groove width, α1↔α2, PC3), y=`N→C` (groove axis toward the peptide C-terminus, PC2), z=`TCR`
+  (docking normal, MHC floor→TCR, PC1). Same three directions as SwiftTCR / TCR3d; the PC *ranking*
+  differs because `orient.frame` fits the whole complex and they fit the MHC groove alone.
+- The gizmo is a **separate render pass composited at pixel coordinates**, not a CGO projected into
+  the corner. PyMOL's orthoscopic viewport does not span `dist * tan(fov/2)` — measured, it is out
+  by ~25% — so the projection route puts it off-frame. Do not "fix" this by reintroducing the math.
+- Two PyMOL gotchas the module already handles: `auto_zoom` is **on** by default, so loading a CGO
+  or a label pseudoatom re-frames the camera onto it (the module sets it off first); and
+  `cmd.get_view()[0:9]` is **column-major**, so the transpose that inverts it is `rot[i*3+j]`.
+- Chain roles after `tcren orient`: A=Vα, B=Vβ, C=peptide, D=MHCα, E=MHCβ/β2m — `CHAIN_COLOURS`.
+- Everything except `render`/`probe_rotation` is pure Python and unit-tested without PyMOL
+  (`tests/unit/test_pymol_viz.py`); the two that shell out are `slow` + skip when pymol is absent.
+
 ## Contact typing — `tcren.contact_types` (DSSP-style, dep-light)
 
 - `contact_type_counts(cm, interface='tcr_peptide', tcr_regions='all') -> {n_<type>, pairs_<type>}` and

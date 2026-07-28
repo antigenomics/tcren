@@ -55,6 +55,7 @@ From one TCR–peptide–MHC structure (crystal or model), each task is one comm
 | Re-derive the statistical potential | `tcren derive-potential` | `derive_tcren` |
 | Steric-clash / wrong-register QC | — | `interface_clashes`, `check_register` |
 | 2D complementarity map + 3D pocket/CDR view | — | `render_complementarity_map`, `view_pocket_cdr` |
+| **Publication PyMOL figures, with a labelled axis gizmo** | — | `viz.pymol.render`, `overlay_scene`, `groove_scene`, `interface_scene` |
 
 **Scope — ranking, not affinity.** TCRen ranks peptide/TCR *specificity* for a given receptor (and the
 `ddg` matrix is a fast triage, not a free energy). It is **not** an affinity model: on the ATLAS SPR
@@ -356,6 +357,37 @@ svg  = render_complementarity_map(residue_markup_table(s, proj),
 region_pair_summary(s, kind="closest")        # contacts per region pair + bond types (cb/ca too)
 view_pocket_cdr(s).show()                      # interactive 3D pocket + CDR overlay (py3Dmol)
 ```
+
+### Publication figures
+
+`tcren.viz.pymol` drives a headless PyMOL to ray-trace figure panels of oriented complexes. Three
+scenes cover the usual views, and every panel carries a **labelled axis gizmo** in its corner:
+
+```python
+from tcren.viz.pymol import render, overlay_scene, groove_scene, interface_scene
+render(groove_scene("1ao7", "data/Canonical2026"), "groove.png")            # peptide in the cleft
+render(groove_scene("1ao7", "data/Canonical2026", surface=True), "s.png")   # + molecular surface
+render(overlay_scene(ids, "data/Canonical2026"), "overlay.png")             # ensemble, side-on
+render(interface_scene("1ao7", "data/Canonical2026", cdr), "iface.png")     # peptide + CDR loops
+```
+
+A canonically-oriented structure is only interpretable if the reader can tell which way the frame
+points, and `x/y/z` does not tell them — so the arrows are named for what they mean:
+
+| axis | label | direction |
+|---|---|---|
+| x | `width` | groove width, across the cleft (α1↔α2) |
+| y | `N→C` | groove axis, toward the peptide C-terminus |
+| z | `TCR` | docking normal, MHC floor → TCR |
+
+The triad is thin, arrow-headed, and turns with the camera. An axis pointing at the viewer
+foreshortens to a dot and its label drops to the lower left of it, the usual convention for an axis
+normal to the page. These are the three directions the docking-geometry literature uses (SwiftTCR,
+TCR3d); only the principal-component ranking differs, because `tcren.orient.frame` fits the whole
+complex where those fit the MHC groove alone.
+
+`render()` is deliberately not a `tcren` subcommand: a figure is a handful of styling choices that
+want editing, not a fixed flag set. Pass any PyMOL script body as the scene.
 
 ## Modules
 

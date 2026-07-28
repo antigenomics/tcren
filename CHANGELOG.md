@@ -5,6 +5,26 @@ All notable changes to `tcren` are recorded here. Format follows
 
 ## [Unreleased]
 
+### Added
+- **`tcren.viz.pymol`** — the PyMOL figure layer, promoted out of `notebooks/pymol_canonical_figures.ipynb`
+  into the library, where it can be tested and reused. Three scene presets (`overlay_scene`,
+  `groove_scene`, `interface_scene`), one `render()` that ray-traces them headless, and shared
+  styling so panels of one figure are comparable rather than each lit by its own bounding box.
+- **A labelled axis gizmo on every panel.** Thin, arrow-headed, in a corner, turning with the
+  camera, and named for what the axes mean rather than `x/y/z`: `width` (groove width, α1↔α2),
+  `N→C` (groove axis toward the peptide C-terminus) and `TCR` (docking normal, MHC floor → TCR).
+  `CANONICAL_AXES` carries those names with the definitions from `tcren.orient.frame` and their
+  equivalents in the docking-geometry literature, and a test ties them to that module so the labels
+  cannot drift from what orientation actually does. An axis pointing at the viewer foreshortens to
+  a dot and its label falls to the lower left of it — the convention for an axis normal to the page
+  — instead of piling onto the origin with the other two.
+
+  The gizmo is rendered in its own pass and composited at pixel coordinates rather than projected
+  into the corner: PyMOL's orthoscopic viewport does not span the world height that
+  `field_of_view` and the camera distance imply (measured on a real scene it is out by about a
+  quarter), so the arithmetic route puts the gizmo off-frame. Compositing also means the molecule
+  can never occlude it.
+
 ## [2.4.0] — 2026-07-28
 
 ### Added
