@@ -309,8 +309,9 @@ class BayesianLogisticRecognizer:
     """Frozen distribution-aware Bayesian logistic (posterior-mean coefficients) — dep-light numpy predictor.
 
     Applies :func:`encode_features`, standardizes with the stored training statistics (nan -> train mean), and
-    returns ``sigmoid(alpha + Z @ beta)``. Fit externally by PyMC (``appendix/logistic_stan/build.py``) and
-    frozen here; serialises to gzipped JSON.
+    returns ``sigmoid(alpha + Z @ beta)``. Fit externally by PyMC (``logistic_stan/build.py`` in the
+    technical appendix, which lives with the manuscript, not in this repo) and frozen here;
+    serialises to gzipped JSON.
     """
 
     def __init__(self, feature_names, encoded_names, mean, sd, alpha, beta, prior: str = "normal"):

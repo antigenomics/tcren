@@ -228,8 +228,9 @@ tcren recognize -s my_pdbs/ -o feats.tsv --features-only   # descriptors only, s
 wrong-TCR *shuffled* decoys: code in [`tcren.recognition`](src/tcren/recognition.py)
 (`recognition_features` → `real_probability`), coefficients shipped in
 `src/tcren/data/shuffle_logistic.json.gz`, and the full derivation (PyMC fit, encoding, ROC/PR,
-posterior forest) in the appendix [`appendix/logistic_stan/`](appendix/logistic_stan). Decoys come
-from `tcren shuffle`; the Gaussian-BN companion is `appendix/shuffle_bn/`.
+posterior forest) in the technical appendix, which lives with the manuscript rather than here —
+`logistic_stan/`, with the Gaussian-BN companion in `shuffle_bn/`. Decoys come from
+`tcren shuffle`. See [Technical appendix](#technical-appendix) below.
 
 **(c) physics of the interaction.** The koff proxies fold into the same table with `--mechanics`;
 only the mutation scan, which is per-residue rather than per-structure, needs its own command:
@@ -510,10 +511,19 @@ RUN_BENCHMARK=1 pytest -k benchmark -s
 
 ## Methods appendix
 
+### Technical appendix
+
 The coordinate-level extensions — backbone-preserving peptide substitution and the potential-guided
 Monte-Carlo refinement kernel (energy function, the restraint-necessity argument, sampler, and
-citations) — are written up in the technical appendix [`appendix/tcren.tex`](appendix/tcren.tex)
-(built with `make -C appendix` → `appendix/tcren.pdf`).
+citations) — are written up in `tcren.tex`, alongside the PyMC derivation of the shipped
+`shuffle_logistic.json.gz` (`logistic_stan/`) and the Gaussian-BN companion for
+`shuffle_bn.json.gz` (`shuffle_bn/`).
+
+**That appendix is not in this repo.** It is manuscript material, it was 2.4 MB of the source
+distribution, and it moved to the manuscript repository on 2026-07-28
+(`2026-tcren/archive/tcren-appendix/`, with a dated tarball beside it). Every file remains in this
+repository's git history — `git log --all -- appendix/` — if the derivations are ever needed here
+again.
 
 ## Citing
 

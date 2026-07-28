@@ -276,7 +276,8 @@ QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses ar
   as discrete parent nodes; classifies by the Gaussian log-likelihood ratio. `fit/predict_proba`, gzip-JSON
   `save/load`, `to_dot` (graphviz). Trained model shipped at `src/tcren/data/shuffle_bn.json.gz`; the
   reproducible appendix (train+eval, gnuplot ROC/PR + balanced metrics, graphviz BN, marginals) is
-  `appendix/shuffle_bn/` (`make`). Decoys are regenerable (`tcren shuffle --seed 0 --n 10`); manifest committed,
+  `shuffle_bn/` in the technical appendix (`make`) — moved to the manuscript repo 2026-07-28,
+  `2026-tcren/archive/tcren-appendix/`; still in this repo's git history. Decoys are regenerable (`tcren shuffle --seed 0 --n 10`); manifest committed,
   full PDBs belong on HF (351 MB).
 - **Distribution-aware logistic** (`tcren.recognition.BayesianLogisticRecognizer` + `encode_features`): a
   *discriminative* alternative to the BN. `encode_features` maps each feature by its natural family — circular
@@ -286,7 +287,7 @@ QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses ar
   Real-vs-shuffled 5-fold CV **ROC-AUC 0.885** (matches RF, > BN 0.865 / raw-logistic 0.870). On TCRvdb a
   *supervised* refit with the encoding gives **0.860** pooled (> AF 0.794, raw-feature logistic 0.855); the
   frozen real-vs-shuffled transfer does NOT carry (0.53, crystal→AF shift, same as the BN). Appendix
-  `appendix/logistic_stan/` (`make PY=<pymc-venv>`; ROC/PR + posterior-forest gnuplot, encoding table).
+  `logistic_stan/` (`make PY=<pymc-venv>`; ROC/PR + posterior-forest gnuplot, encoding table).
 - **`tcren recognize` / `recognition_features` (2026-07-06):** `recognition.recognition_features(struct)`
   ports the manuscript's 35-descriptor extractor into tcren (docking geometry + TCRen/MJ F & poly-Ala dF +
   contact tallies + biopython ΔSASA `burial` + `mhc_class_bin`) — verified **byte-exact** vs

@@ -345,3 +345,9 @@ scripts/legacy/*.sav
 # match CI, and this file has no business in a tarball.
 .claude/settings.local.json
 .DS_Store
+
+# The technical appendix (LaTeX derivation + the PyMC/BN model fits) moved to the manuscript repo
+# on 2026-07-28: ~/vcs/manuscripts/2026-tcren/archive/tcren-appendix/, with a dated tarball beside
+# it. It was 2.4 MB of the sdist and belongs with the manuscript, not with the library. Git history
+# here still has every file if it is ever needed back.
+/appendix/
