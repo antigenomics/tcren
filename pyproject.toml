@@ -35,7 +35,10 @@ dependencies = [
 viz = ["matplotlib>=3.8", "py3Dmol>=2.0"]
 docs = ["sphinx", "pydata-sphinx-theme", "nbsphinx"]
 test = ["pytest", "pytest-cov"]
-dev = ["ruff", "pytest", "pytest-cov", "pybind11"]
+# ruff is pinned to a minor series: its default rule set grows between releases, so an unpinned
+# linter turns a green gate red on its own schedule rather than on a regression. Raise it
+# deliberately and fix what the new rules find in that same commit.
+dev = ["ruff>=0.15,<0.16", "pytest", "pytest-cov", "pybind11"]
 # Analysis/viz deps for the reproduction notebooks (notebooks/natcompsci2022/) — kept out
 # of the lean runtime deps. Installed into the separate `tcren-nb` conda env (see that
 # directory's environment.yml / setup.sh / README.md).
