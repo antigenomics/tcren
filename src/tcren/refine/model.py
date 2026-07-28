@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from ..structure.model import Structure
 from .anchors import native_peptide, predict_anchors
-from .engines import ENGINES, ModelResult, get_engine
+from .engines import ModelResult, get_engine
 from .substitute import substitute_peptide
 
 __all__ = ["model_peptide", "ModelResult"]

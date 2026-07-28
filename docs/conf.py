@@ -21,14 +21,15 @@ if _NB_SRC.is_dir():
 project = "tcren"
 author = "ISALGO laboratory"
 
-# Single-source the version from the package so the published docs never drift (the old
-# hardcoded "0.1.0" was left stale while the package moved to 2.1.x). Read the string
-# without importing tcren — its heavy deps are only mocked during the autodoc pass, not
-# at conf-import time — so parse ``__version__`` straight from the source file.
+# Single-source the version so the published docs never drift (the old hardcoded "0.1.0" was left
+# stale while the package moved to 2.1.x). Read it without importing tcren — its heavy deps are
+# only mocked during the autodoc pass, not at conf-import time — so parse pyproject.toml, which is
+# where the version now lives; `tcren.__version__` reads it back out of the installed metadata, and
+# a checkout that was never installed reports 0.0.0+unknown, which is not what the docs should say.
 import re as _re  # noqa: E402
 
-_init_src = (Path(__file__).resolve().parent.parent / "src" / "tcren" / "__init__.py").read_text()
-release = _re.search(r'^__version__\s*=\s*["\']([^"\']+)["\']', _init_src, _re.M).group(1)
+_pyproject = (Path(__file__).resolve().parent.parent / "pyproject.toml").read_text()
+release = _re.search(r'^version\s*=\s*["\']([^"\']+)["\']', _pyproject, _re.M).group(1)
 version = ".".join(release.split(".")[:2])
 
 extensions = [

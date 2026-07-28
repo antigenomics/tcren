@@ -5,7 +5,24 @@ All notable changes to `tcren` are recorded here. Format follows
 
 ## [Unreleased]
 
+## [2.4.0] — 2026-07-28
+
 ### Added
+- **`tcren recognize --mechanics` / `recognition_table(…, mechanics=True)`** — the koff proxies
+  (stiffness tensor, steered rupture, coupling residues) appended to the descriptor table instead of
+  returned as a second one. This is the shape a cohort actually wants: the manuscript's task needed
+  both commands, and `tcren mechanics` as a separate run repeats the parse and both mmseqs searches
+  to produce a CSV keyed `pdb.id` against `recognize`'s TSV keyed `complex.id`, which then has to be
+  joined across the rename. Inside `recognize` the structures are already annotated, so the flag
+  costs only the mechanics arithmetic — on 12 crystals, 19.0 s → 19.5 s against 22.5 s for the two
+  commands. Values are bit-identical to `tcren mechanics`, and no existing column changes.
+- **`mechanics.interface_mechanics(structure, …)`** — the union of `stiffness_tensor`, `rupture` and
+  `coupling_residues` under their shipped defaults, and now the single definition of "the mechanics
+  row": both `tcren mechanics` and `tcren recognize --mechanics` call it, so the two agree by
+  construction rather than by two call sites being kept in step. A test pins that identity.
+- **A `lint` job in CI** (`uvx ruff check src tests`). Nothing enforced ruff before and the tree had
+  drifted to 77 reports, which is the same as having no linter.
+
 - **`run_pipeline(…, reference_aa="A")` / `tcren scoring --delta`** — the poly-alanine-referenced
   ΔΦ alongside Φ, with the same per-interface breakdown. `F_total` is Φ = Φ_TP + Φ_TM + Φ_PM; the new
   `dF_tcr_pep` / `dF_tcr_mhc` / `dF_pep_mhc` / `dF_total` columns are ΔΦ_TP, ΔΦ_TM (≡ 0 — the peptide
@@ -22,6 +39,15 @@ All notable changes to `tcren` are recorded here. Format follows
   `tcren.structure.io.resolve_sources`; `structure_paths` now handles globs and manifests.
   Also `--contact-weight`, `--skip-errors`.
 
+### Fixed
+- **`cohort.q_f_iptm` and `cohort.f_invert_by_iptm` are exported.** Both were imported into the
+  package namespace but missing from `__all__`, so the ipTM-gated F path the CLI uses was not part
+  of the public API it appears to be.
+- **The four `tests/regression/test_orient.py` tests run again.** They read
+  `notebooks/data/Native2022/*.pdb`, which no checkout has carried since the notebook data moved, so
+  they had been failing with `FileNotFoundError` rather than skipping. They now read
+  `data/Native2026` — what `setup.sh` fetches — and skip cleanly if it is absent.
+
 ### Changed
 - **`tcren pipeline` is now `tcren scoring`** (breaking). The command never ran the preparation
   pipeline — canonicalisation, region mapping and the Cα/contact/atom-distance matrices are
@@ -31,6 +57,9 @@ All notable changes to `tcren` are recorded here. Format follows
   `tcr_peptide.tcren` → `F_tcr_pep`, `tcr_mhc.mj` → `F_tcr_mhc`, `peptide_mhc.mj` → `F_pep_mhc`,
   `total` → `F_total`, and the `d_*` columns → `dF_tcr_pep` / `dF_tcr_mhc` / `dF_pep_mhc` /
   `dF_total`. The two tables now share one vocabulary and join on `pdb.id`.
+- **Ruff is configured rather than merely present** (`[tool.ruff.lint]`). `E702` and `E402` are
+  ignored with their reasons: the first is the deliberate `setup; assert` idiom used throughout, the
+  second is `pytest.importorskip` before a guarded import. What remains is worth acting on.
 
 ## [2.3.2] — 2026-07-24
 

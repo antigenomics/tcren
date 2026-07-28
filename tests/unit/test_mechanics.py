@@ -181,3 +181,38 @@ def test_integration_1mi5_public_functions():
     assert c["couple_pep"] >= 0
     assert c["couple_total"] >= 0
     assert c["n_interface"] > 0
+
+    # `interface_mechanics` is the one definition of the mechanics row: `tcren mechanics` and
+    # `tcren recognize --mechanics` both go through it, so it must be exactly the union of the
+    # three entry points above -- not a fourth thing that happens to look similar.
+    from tcren.mechanics import interface_mechanics
+    m = interface_mechanics(s)
+    assert m == {**st, **r, **c}
+
+
+@pytest.mark.slow
+def test_recognize_mechanics_matches_standalone():
+    """`recognition_table(mechanics=True)` must carry exactly the standalone mechanics values.
+
+    The flag exists so the manuscript's task is one command instead of two tables joined across a
+    key rename; that is only safe if the numbers are the same ones.
+    """
+    pytest.importorskip("arda")
+    from tcren.mechanics import interface_mechanics
+    from tcren.recognition import recognition_table
+    from tcren.structure import import_structure
+
+    pdb = REPO / "data" / "Canonical2026" / "1mi5.pdb.gz"
+    if not pdb.exists():
+        pytest.skip(f"bundled structure not found: {pdb}")
+
+    row = recognition_table([("1mi5", pdb)], mechanics=True, with_p_real=False)[0]
+    assert "error" not in row, row
+
+    s = import_structure(pdb)                      # annotate the same way recognition_table does
+    from tcren.annotation import classify_chains
+    from tcren.mhc import annotate_mhc
+    classify_chains(s, organism="human")
+    annotate_mhc(s)
+    for k, v in interface_mechanics(s).items():
+        assert row[k] == pytest.approx(v), k

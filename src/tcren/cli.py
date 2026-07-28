@@ -599,6 +599,7 @@ def recognize(
     features_only: bool = typer.Option(False, "--features-only", help="emit the descriptors, skip P(real)"),
     full: bool = typer.Option(False, "--full", help="add the 18 CDR3-local frame descriptors (the FramePose strain layer)"),
     scores: bool = typer.Option(False, "--scores", help="also append the fit-free q_bind + s_strain (recommended) and the fitted p_bind + p_forced; implies --full"),
+    mechanics: bool = typer.Option(False, "--mechanics", help="also append the koff proxies from `tcren mechanics` (stiffness tensor, steered rupture, coupling residues) — same table, no second annotation pass"),
     cohort: bool = typer.Option(False, "--cohort", help="rank candidates by the fit-free Q_geom + F contact-energy channels: emits Q_geom, F_score, z(Q)+z(F) and z(Q)-z(F) (add --iptm for the z(ipTM)+z(Q_geom) synergy)"),
     iptm: Path | None = typer.Option(None, "--iptm", help="metadata TSV/CSV with a key column (matched to complex.id) + an 'iptm' column; appends z(ipTM)+z(Q_geom). Missing ipTM falls back to Q_geom"),
     invert_f_thresh: float = typer.Option(0.5, "--invert-f-thresh", help="ipTM below which a pose is treated as forced and the contact energy F is inverted (needs --iptm); sets the F_invert flag + z(Q)+z(F|iptm) column"),
@@ -620,8 +621,14 @@ def recognize(
     (forced-pose), alongside the fitted ``p_bind`` / ``p_forced``. ``--features-only`` skips the models.
     Output is TSV.
 
-    Complementary scorers on the same inputs: ``tcren ddg`` (per-mutation alanine/neoantigen ΔΔF) and
-    ``tcren mechanics`` (koff proxies — stiffness + steered rupture).
+    ``--mechanics`` appends the koff proxies ``tcren mechanics`` reports — stiffness tensor, steered
+    rupture, coupling residues — to these same rows. Prefer it to running the two commands: they
+    need the identical annotated structure, so the second command repeats the parse and both mmseqs
+    searches to produce a second table in a different format (CSV) under a different key
+    (``pdb.id``) that then has to be joined. One flag costs about a sixth of the descriptor pass and
+    returns one table.
+
+    Complementary scorer on the same inputs: ``tcren ddg`` (per-mutation alanine/neoantigen ΔΔF).
 
     Examples::
 
@@ -629,6 +636,7 @@ def recognize(
         tcren recognize -s models/ --scores -o out.tsv               # + fit-free q_bind/s_strain + fitted p_bind
         tcren recognize -s models/ --cohort -o out.tsv               # Q_geom + F_score + z(Q)±z(F) (no ipTM needed)
         tcren recognize -s models.tar.gz --iptm meta.tsv -o out.tsv  # + AF synergy: z(ipTM)+z(Q_geom), z(ipTM)+z(Q)+z(F)
+        tcren recognize -s models/ --scores --mechanics -t 0 -o out.tsv   # every descriptor this tool reports, one table
 
     Synergy with AlphaFold, made automatic. The contact energy ``F`` reads real binding chemistry but
     *inverts on forced poses* (benchmark ledger C27/C42), and ipTM is AlphaFold's own pose-confidence
@@ -646,6 +654,7 @@ def recognize(
     import os as _os
     rows = recognition_table(items, organism=organism, full=full, scores=scores,
                              with_p_real=not features_only, autodetect_species=autodetect_species,
+                             mechanics=mechanics,
                              threads=threads if threads > 0 else (_os.cpu_count() or 1))
     table = pl.DataFrame(rows)
     if cohort or iptm is not None:                                   # fit-free cohort ranking
@@ -927,15 +936,12 @@ def mechanics(
 
 def _mechanics_one(args) -> dict:
     """One annotated structure -> one mechanics row. Module-level so it pickles to a worker."""
-    from .mechanics import coupling_residues, rupture, stiffness_tensor
+    from .mechanics import interface_mechanics
 
     pid, s, cutoff, weight, direction, break_strain = args
     try:
-        row = {"pdb.id": pid, **stiffness_tensor(s, cutoff=cutoff, weight=weight)}
-        row.update(rupture(s, direction=direction, cutoff=cutoff, weight=weight,
-                           break_strain=break_strain))
-        row.update(coupling_residues(s))
-        return row
+        return {"pdb.id": pid, **interface_mechanics(
+            s, cutoff=cutoff, weight=weight, direction=direction, break_strain=break_strain)}
     except Exception as exc:  # noqa: BLE001 - keep the batch resilient
         return {"pdb.id": pid, "K_tens": None, "error": f"{type(exc).__name__}: {str(exc)[:80]}"}
 

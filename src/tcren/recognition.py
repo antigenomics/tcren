@@ -837,8 +837,8 @@ def _symmetry_columns(s) -> dict[str, float]:
 
 def recognition_table(items, *, organism: str = "human", full: bool = False, scores: bool = False,
                       with_p_real: bool = True, threads: int = 1, chunk: int = 64,
-                      autodetect_species: bool = True, _mmseqs_threads: int = 0,
-                      _cohort_scores: bool = True) -> list[dict]:
+                      autodetect_species: bool = True, mechanics: bool = False,
+                      _mmseqs_threads: int = 0, _cohort_scores: bool = True) -> list[dict]:
     """Batched feature (+score) extraction for a whole set of TCR–pMHC structures.
 
     ``items`` is an iterable of ``(id, structure-or-path)``. The set is annotated with a **single**
@@ -869,6 +869,12 @@ def recognition_table(items, *, organism: str = "human", full: bool = False, sco
     ``autodetect_species`` searches ``organism`` **and** mouse so a mis-declared cohort is still
     typed correctly. That doubles the annotation cost, so pass ``False`` when the organism is known
     — it halves the mmseqs work and changes nothing else.
+
+    ``mechanics`` appends the :mod:`tcren.mechanics` koff proxies (``n_spring``, ``S_tot``,
+    ``K_tens``, ``K_shear``, ``aniso``, ``rupture_force``, ``rupture_work``, ``couple_*``) to the
+    same rows. They need the same annotated structure the descriptors do, so computing them here
+    costs only their own arithmetic — running ``tcren mechanics`` separately repeats the whole
+    parse and both mmseqs searches, and returns a second table keyed differently.
     """
     import os as _os
 
@@ -901,7 +907,7 @@ def recognition_table(items, *, organism: str = "human", full: bool = False, sco
 
     # stage 2: featurisation, the part that actually costs (94 % of wall time on a 100-pose probe:
     # 96 s against 2.4 s of arda and 0.9 s of MHC search). It is pure Python/numpy, so processes.
-    work = [(id_, s, organism, full, with_p_real, scores) for id_, s in zip(ids, structs)]
+    work = [(id_, s, organism, full, with_p_real, scores, mechanics) for id_, s in zip(ids, structs)]
     if threads > 1 and len(work) > 1:
         from concurrent.futures import ProcessPoolExecutor
         with ProcessPoolExecutor(max_workers=min(threads, len(work))) as ex:
@@ -920,7 +926,7 @@ def _featurise_one(args) -> dict:
     The structure arrives already annotated: chain typing and the MHC call are batch operations and
     belong to the single search in :func:`recognition_table`, not to a per-structure worker.
     """
-    id_, s, organism, full, with_p_real, scores = args
+    id_, s, organism, full, with_p_real, scores, mechanics = args
     try:
         feats = recognition_features(s, organism=organism, full=full, annotate=False)
         row = {"complex.id": id_, **feats, **_stability_clash_columns(s), **_symmetry_columns(s)}
@@ -934,6 +940,9 @@ def _featurise_one(args) -> dict:
                 row["p_bind"] = float(binder_score(binder_features(s)))
             except Exception:  # noqa: BLE001 - binder ext optional
                 row["p_bind"] = math.nan
+        if mechanics:
+            from .mechanics import interface_mechanics
+            row.update(interface_mechanics(s))
         return row
     except Exception as exc:  # noqa: BLE001
         return {"complex.id": id_, "error": f"{type(exc).__name__}: {str(exc)[:80]}"}

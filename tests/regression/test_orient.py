@@ -16,14 +16,27 @@ arda = pytest.importorskip("arda")
 pytestmark = pytest.mark.slow  # arda + native DB + BioPython superposition
 
 REPO = Path(__file__).resolve().parents[2]
-NATIVE = REPO / "notebooks" / "data" / "Native2022"
+# `data/Native2026` is what `setup.sh` fetches (`tcren fetch-data`), so it is the set a working
+# checkout actually has. This used to read `notebooks/data/Native2022/*.pdb`, which no checkout has
+# carried since the notebook data moved -- the four tests here had been failing with
+# FileNotFoundError rather than skipping. The assertions are structural (chain renaming, z stacking,
+# peptide N->C direction, canonical dock), so they hold for any deposit of the same PDB entry.
+NATIVE_DIRS = (REPO / "data" / "Native2026", REPO / "notebooks" / "data" / "Native2022")
+
+
+def _native(pid: str) -> Path:
+    for d in NATIVE_DIRS:
+        for name in (f"{pid}.pdb.gz", f"{pid}.pdb"):
+            if (d / name).is_file():
+                return d / name
+    pytest.skip(f"no reference structure for {pid}; run `tcren fetch-data` to populate data/")
 
 
 def _oriented(pid):
     from tcren.mhc import annotate_mhc
     from tcren.orient import canonicalize_structure
 
-    s = parse_structure(NATIVE / f"{pid}.pdb", pdb_id=pid)
+    s = parse_structure(_native(pid), pdb_id=pid)
     classify_chains(s, organism="human")
     annotate_mhc(s)
     return canonicalize_structure(s)

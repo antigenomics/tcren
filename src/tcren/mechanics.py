@@ -261,6 +261,44 @@ def coupling_residues(structure: Structure, *, cutoff: float = 5.0) -> dict[str,
     )
 
 
+def interface_mechanics(
+    structure: Structure, *, cutoff: float = 8.0, weight: str = "invdist2",
+    direction: str = "tensile", break_strain: float = 0.5,
+) -> dict[str, float]:
+    """Every mechanics column for one annotated structure, in one dict.
+
+    The union of :func:`stiffness_tensor`, :func:`rupture` and :func:`coupling_residues` under their
+    shipped defaults. This is the one definition of "the mechanics row": both ``tcren mechanics``
+    and ``tcren recognize --mechanics`` call it, so the two agree by construction rather than by
+    two call sites being kept in step.
+
+    The structure must already be annotated — chain typing and the MHC call are batch operations
+    that belong to the caller's single mmseqs search, not to a per-structure helper. An unannotated
+    MHC chain silently empties the TCR:MHC half of the spring network.
+
+    Args:
+        structure: An annotated structure (chains typed, MHC called, peptide present).
+        cutoff: Heavy-atom contact cutoff (Å) defining a spring.
+        weight: Spring-stiffness model, one of :data:`WEIGHTS`.
+        direction: Rupture pull direction — ``tensile``, ``shear`` or ``auto``.
+        break_strain: Fractional extension at which a spring breaks.
+
+    Returns:
+        ``n_spring``, ``S_tot``, ``K_tens``, ``K_shear``, ``aniso``, ``rupture_force``,
+        ``rupture_work``, ``couple_pep``/``couple_mhc``/``couple_tcr``/``couple_total`` and
+        ``n_interface``.
+
+    Example:
+        >>> interface_mechanics(s)["K_tens"]      # doctest: +SKIP
+        41.7
+    """
+    row = dict(stiffness_tensor(structure, cutoff=cutoff, weight=weight))
+    row.update(rupture(structure, direction=direction, cutoff=cutoff, weight=weight,
+                       break_strain=break_strain))
+    row.update(coupling_residues(structure))
+    return row
+
+
 def _demo() -> None:
     """Self-check on synthetic spring geometries (no PDB needed)."""
     # a minimal InterfaceSprings: 3 springs along +z (tensile), unit stiffness, rest length 5.

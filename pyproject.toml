@@ -4,7 +4,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "tcren"
-version = "2.3.2"
+version = "2.4.0"
 description = "Structure-based prediction of TCR recognition of epitopes via residue-level statistical potentials"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -73,6 +73,19 @@ editable.verbose = false
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+
+[tool.ruff.lint]
+# `ruff check` is a CI gate, so what it reports has to be worth acting on. Two defaults are not,
+# for this codebase:
+#   E702 — `a = f(); b = g()` on one line. Used deliberately throughout to keep a setup line and
+#          the assertion it sets up adjacent; splitting them is churn, not a fix.
+#   E402 — a module-level import below other statements. Tests do `pytest.importorskip("arda")`
+#          before importing what it guards, which is the documented way to write those.
+ignore = ["E702", "E402"]
+
+[tool.ruff.lint.per-file-ignores]
+# A test may bind a value only to assert on it, or name a lambda for readability in a fixture.
+"tests/*" = ["F841", "E731"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

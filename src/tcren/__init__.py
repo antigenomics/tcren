@@ -34,11 +34,19 @@ from .scoring import RecognitionMatrix, recognition_matrix, score_peptides, scor
 from .scoring_rank import background_peptides, percentile_rank
 from .structure import Structure, import_structure, parse_structure
 
-__version__ = "2.3.2"
+# One source of truth: pyproject.toml. Hard-coding it here as well meant a release could ship with
+# `tcren info` reporting the previous version, which is what happened at 2.3.2. The fallback covers
+# a source tree that was never installed (running from a checkout without `pip install -e .`).
+try:
+    from importlib.metadata import PackageNotFoundError, version as _pkg_version
+    __version__ = _pkg_version("tcren")
+except PackageNotFoundError:  # pragma: no cover - only an uninstalled source tree
+    __version__ = "0.0.0+unknown"
 
 __all__ = [
     "annotate_batch", "native_peptide",
     "q_score", "q_iptm", "f_score", "q_f", "q_coupled", "coupling", "Q_FEATURES_GEOM", "F_TERMS",
+    "q_f_iptm", "f_invert_by_iptm",
     "phi_bind", "strain_z", "zscore",
     "potential",
     "Potential",

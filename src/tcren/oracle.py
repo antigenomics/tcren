@@ -27,7 +27,7 @@ from .pipeline import run
 from .potential import Potential
 from .scoring_rank import percentile_rank
 from .structure.io import import_structure
-from .structure.model import PEPTIDE_TYPE, Structure
+from .structure.model import Structure
 
 #: Columns of the ``ddg`` frame (matches :func:`tcren.ddg.alanine_scan`).
 _DDG_SCHEMA = {"pos": pl.Int64, "wt_aa": pl.Utf8, "ddG": pl.Float64}

@@ -18,7 +18,7 @@ pytestmark = pytest.mark.slow  # invokes arda / mmseqs per structure
 
 from tcren import parse_structure
 from tcren.annotation import classify_chains
-from tcren.mhc import map_mhc, reference
+from tcren.mhc import map_mhc
 
 REPO = Path(__file__).resolve().parents[2]
 PDB_DIR = REPO / "tests" / "assets" / "pdb"

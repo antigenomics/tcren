@@ -181,6 +181,16 @@ QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses ar
     `"auto"` = min-force of tensile/shear.
   - `coupling_residues(structure, cutoff=5.0) -> dict` — residues in both an intra-body scaffold
     contact and the interface: `couple_pep`/`couple_mhc`/`couple_tcr`, `couple_total`, `n_interface`.
+  - `interface_mechanics(structure, ...) -> dict` — **the one definition of "the mechanics row"**:
+    the union of the three above under their shipped defaults. `tcren mechanics` and
+    `tcren recognize --mechanics` both go through it, so the two agree by construction.
+- **For a cohort, prefer `tcren recognize --scores --mechanics -t 0`** over running `recognize` and
+  `mechanics` as two commands. Both need the same annotated structure, so the second command repeats
+  the parse and both mmseqs searches and returns a second table (CSV, keyed `pdb.id` rather than
+  `complex.id`) that then has to be joined; the flag reuses the annotation and costs only the
+  mechanics arithmetic. The structure must be MHC-annotated either way — an unannotated MHC chain
+  silently empties the TCR:MHC half of the spring network (this is what the 2026-07-28 sharding bug
+  did: `couple_mhc` = 0 in 523/523 rows, 67 springs against 279).
 - **Caveat: these track the dissociation off-rate koff / kinetic stability (Bell–Evans rupture
   resistance ~ r0.5 on ATLAS), NOT the equilibrium ΔG/Kd** — rupture reflects the dissociation
   barrier, not the well depth (physically apt for the TCR mechanosensor / catch bonds). Use them
@@ -251,7 +261,8 @@ QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses ar
   training; **no `_geom` C-ext needed** (only arda for annotation). `frozen_recognizers()` loads both
   shipped models; `real_probability(rows)` → `{"logistic","bn"}` P(real). CLI `tcren recognize -s pdbs/ -o
   out.tsv` writes one TSV row/PDB = 35 descriptors + `p_real` + `p_real_bn` (`--features-only` skips models).
-  The user-facing "one TSV for a/b/d" answer; ddF (ala) stays `tcren ddg`, koff stays `tcren mechanics`.
+  The user-facing "one TSV for a/b/d" answer; koff joins it under `--mechanics` (2026-07-28), and only
+  ddF (ala), which is per-residue rather than per-structure, stays its own command `tcren ddg`.
 - **`--full` feature table (2026-07-13, audited 2026-07-28):** `recognition_features(struct, full=True)` /
   `tcren recognize --full` append the **18 CDR3-frame** descriptors
   (`cdr3{a,b}_{reach,ou,ow,on,au,aw,an,topep,ext}`, FramePose groove-frame projection — the `cdr3b_*`

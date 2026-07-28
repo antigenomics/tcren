@@ -42,3 +42,14 @@ jobs:
         # Coverage gate: the lean unit suite covers ~58% of src/tcren; fail below 50%
         # to catch large drops without flaking on which optional (C++/arda) tests run.
         run: .venv/bin/pytest -m "not slow" -ra --cov=tcren --cov-report=term-missing --cov-fail-under=50
+
+  lint:
+    # Nothing enforced ruff before, so the tree had drifted to 77 reports. The settings it runs
+    # under live in pyproject.toml [tool.ruff.lint], where the two rules this codebase declines
+    # (E702, E402) are ignored with their reasons -- so a report here is always worth acting on.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v5
+      - name: ruff
+        run: uvx ruff check src tests

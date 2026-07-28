@@ -51,7 +51,7 @@ From one TCR–peptide–MHC structure (crystal or model), each task is one comm
 | Wrong-TCR decoy set (recognition negatives) | `tcren shuffle` | `make_decoys`, `graft_tcr` |
 | Substitute a peptide + refine its pose | `tcren refine` | `substitute_peptide`, `refine_peptide` |
 | DOPE interface energy (ΔΔG `e_native`) | `tcren energy` | `interface_energy` |
-| Interface mechanics — koff proxies (stiffness / rupture) | `tcren mechanics` | `stiffness_tensor`, `rupture`, `coupling_residues` |
+| Interface mechanics — koff proxies (stiffness / rupture) | `tcren recognize --mechanics`, or `tcren mechanics` alone | `interface_mechanics` |
 | Re-derive the statistical potential | `tcren derive-potential` | `derive_tcren` |
 | Steric-clash / wrong-register QC | — | `interface_clashes`, `check_register` |
 | 2D complementarity map + 3D pocket/CDR view | — | `render_complementarity_map`, `view_pocket_cdr` |
@@ -230,16 +230,23 @@ wrong-TCR *shuffled* decoys: code in [`tcren.recognition`](src/tcren/recognition
 posterior forest) in the appendix [`appendix/logistic_stan/`](appendix/logistic_stan). Decoys come
 from `tcren shuffle`; the Gaussian-BN companion is `appendix/shuffle_bn/`.
 
-**(c) physics of the interaction** is heavier and mutation-/energy-specific, so it stays in its own
-commands on the same inputs:
+**(c) physics of the interaction.** The koff proxies fold into the same table with `--mechanics`;
+only the mutation scan, which is per-residue rather than per-structure, needs its own command:
 
 ```bash
+tcren recognize -s models/ --scores --mechanics -t 0 -o out.tsv   # every per-structure descriptor, one table
 tcren ddg       -s complex.pdb -o ddg.csv     # per-residue alanine / neoantigen ΔΔF (fast virtual matrix)
-tcren mechanics -s complex.pdb -o mech.csv    # koff proxies: interface stiffness tensor + steered rupture
 ```
 
-(Per the affinity scope caveat above, structures predict the **off-rate koff** via `tcren mechanics`,
-not Kd/ΔG/kon.) From Python:
+`--mechanics` is how to ask for the stiffness tensor, steered rupture and coupling residues on a
+cohort. `tcren mechanics` still exists and gives the same numbers, but as a second command it
+repeats the parse and both mmseqs searches to return a second table — CSV, keyed `pdb.id` rather
+than `complex.id` — that then has to be joined. Inside `recognize` the structures are already
+annotated, so the flag costs only the mechanics arithmetic (12 crystals: 19.0 s → 19.5 s, against
+22.5 s for the two commands).
+
+(Per the affinity scope caveat above, structures predict the **off-rate koff** via the mechanics
+columns, not Kd/ΔG/kon.) From Python:
 
 ```python
 from tcren.recognition import recognition_features, real_probability

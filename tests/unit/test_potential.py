@@ -6,7 +6,7 @@ import numpy as np
 import polars as pl
 import pytest
 
-from tcren.potential import (Potential, derive_tcren, keskin, mj, symmetrize_counts,
+from tcren.potential import (derive_tcren, keskin, mj, symmetrize_counts,
                              tcren)
 from tcren.potential.model import AA20
 
