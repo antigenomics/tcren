@@ -164,6 +164,107 @@ def test_interface_scene_survives_a_chain_with_no_cdr_residues():
     assert "resi 0" in body and "resi \n" not in body
 
 
+# --- residue importance -----------------------------------------------------------------------
+
+def _fake_importance():
+    """A minimal importance frame: two CDR3 residues, two peptide, one CDR1, mixed signs."""
+    import polars as pl
+    return pl.DataFrame([
+        {"chain.id": "A", "residue.index": 92, "residue.aa": "D", "region.type": "CDR3",
+         "n_contacts": 4, "phi": -0.80},
+        {"chain.id": "B", "residue.index": 94, "residue.aa": "L", "region.type": "CDR3",
+         "n_contacts": 3, "phi": -0.55},
+        {"chain.id": "C", "residue.index": 3, "residue.aa": "G", "region.type": "PEPTIDE",
+         "n_contacts": 4, "phi": -0.75},
+        {"chain.id": "C", "residue.index": 8, "residue.aa": "V", "region.type": "PEPTIDE",
+         "n_contacts": 1, "phi": 0.20},
+        {"chain.id": "A", "residue.index": 29, "residue.aa": "Q", "region.type": "CDR1",
+         "n_contacts": 5, "phi": -1.00},
+    ])
+
+
+def test_importance_scene_selects_only_the_named_regions():
+    from tcren.viz.pymol import importance_scene
+    body = importance_scene("1ao7", "/tmp", _fake_importance(), regions=("CDR3", "PEPTIDE"))
+    assert "chain A and resi 92" in body and "chain B and resi 94" in body
+    assert "chain C and resi 3" in body and "chain C and resi 8" in body
+    assert "resi 29" not in body, "CDR1 was not requested"
+
+
+def test_importance_scene_writes_each_value_into_the_b_factor():
+    from tcren.viz.pymol import importance_scene
+    body = importance_scene("1ao7", "/tmp", _fake_importance())
+    assert 'b=-0.8000' in body and 'b=0.2000' in body
+    assert "cmd.spectrum" in body and "cmd.sort()" in body
+
+
+def test_phi_ramp_is_centred_on_zero():
+    """Blue and red must mean favourable and unfavourable, not merely less and more.
+
+    A ramp fitted to the observed range would paint the least-favourable residue red even in an
+    interface where every single contact is stabilising.
+    """
+    import re
+    from tcren.viz.pymol import importance_scene
+    body = importance_scene("1ao7", "/tmp", _fake_importance())
+    lo, hi = (float(v) for v in
+              re.search(r"minimum=(-?[\d.]+), maximum=(-?[\d.]+)", body).groups())
+    assert lo == -hi and hi > 0, (lo, hi)
+    assert hi >= 0.80, "the ramp must span the largest magnitude present"
+
+
+def test_contact_ramp_starts_at_zero():
+    import re
+    from tcren.viz.pymol import importance_scene
+    body = importance_scene("1ao7", "/tmp", _fake_importance(), by="n_contacts")
+    lo, hi = (float(v) for v in
+              re.search(r"minimum=(-?[\d.]+), maximum=(-?[\d.]+)", body).groups())
+    assert lo == 0.0 and hi == 4.0, (lo, hi)     # CDR1 is excluded, so the max of those kept is 4
+
+
+def test_importance_scene_rejects_an_unknown_column():
+    from tcren.viz.pymol import importance_scene
+    with pytest.raises(ValueError):
+        importance_scene("1ao7", "/tmp", _fake_importance(), by="vibes")
+
+
+@pytest.mark.slow
+def test_residue_importance_decomposes_the_interface():
+    """Per-residue phi must sum to twice the interface total: each contact is attributed to
+    both residues it joins, which is an attribution, not a partition."""
+    pytest.importorskip("arda")
+    from tcren.annotation import classify_chains
+    from tcren.contactmap import ContactMap
+    from tcren.mhc import annotate_mhc
+    from tcren.potential import tcren as tcren_potential
+    from tcren.structure import import_structure
+    from tcren.viz.pymol import residue_importance
+
+    pdb = CANON / "1ao7.pdb.gz"
+    if not pdb.exists():
+        pytest.skip("data/Canonical2026 not fetched")
+    s = import_structure(pdb, pdb_id="1ao7")
+    classify_chains(s, organism="human")
+    annotate_mhc(s)
+
+    imp = residue_importance(s)
+    assert imp.height > 0
+    assert set(imp.columns) == {"chain.id", "residue.index", "residue.aa", "region.type",
+                                "n_contacts", "phi"}
+    assert imp["phi"].to_list() == sorted(imp["phi"].to_list()), "most favourable first"
+
+    pot = tcren_potential()
+    df = ContactMap.from_structure(s, cutoff=5.0).interface("tcr_peptide", tcr_regions="all")
+    total = sum(pot.value(a, b) for a, b in
+                zip(df["residue.aa.from"].to_list(), df["residue.aa.to"].to_list()))
+    assert imp["phi"].sum() == pytest.approx(2 * total, rel=1e-9)
+    assert imp["n_contacts"].sum() == 2 * df.height
+
+    # Both sides of the interface are represented, which is the point of colouring by this.
+    regions = set(imp["region.type"].to_list())
+    assert "PEPTIDE" in regions and any(r.startswith("CDR") for r in regions), regions
+
+
 # --- corner compositing -----------------------------------------------------------------------
 
 def _ink_bbox(path):

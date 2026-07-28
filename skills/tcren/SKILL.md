@@ -232,7 +232,20 @@ QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses ar
 - Two PyMOL gotchas the module already handles: `auto_zoom` is **on** by default, so loading a CGO
   or a label pseudoatom re-frames the camera onto it (the module sets it off first); and
   `cmd.get_view()[0:9]` is **column-major**, so the transpose that inverts it is `rot[i*3+j]`.
+- **`residue_importance(structure, interface='tcr_peptide') -> pl.DataFrame`** — the exact
+  decomposition of Φ: `chain.id, residue.index, residue.aa, region.type, n_contacts, phi`, sorted
+  most-favourable first. `importance_scene(pid, canon_dir, imp, by='phi'|'n_contacts')` paints it
+  (sticks on a ramp, everything else pale). **The phi ramp is centred on zero**, so blue/red mean
+  favourable/unfavourable rather than less/more — a range-fitted ramp reddens the least-favourable
+  residue even in an all-stabilising interface. **Each contact is attributed to BOTH residues it
+  joins, so the per-residue phi sums to 2x the interface total** — an attribution, not a partition;
+  a test pins that factor of two.
 - Chain roles after `tcren orient`: A=Vα, B=Vβ, C=peptide, D=MHCα, E=MHCβ/β2m — `CHAIN_COLOURS`.
+- Notebooks: `notebooks/pymol_canonical_figures.ipynb` (static gallery) and
+  `notebooks/pymol_interactive.py` (**marimo**, `pip install 'tcren[marimo]'`). marimo is reactive,
+  so a name may be defined by exactly one cell — import shared symbols once in the setup cell and
+  thread them through the signatures, or the export fails with `MultipleDefinitionError`.
+- Docs gallery page with rendered examples: `docs/gallery.rst` + `docs/_static/gallery/*.png`.
 - Everything except `render`/`probe_rotation` is pure Python and unit-tested without PyMOL
   (`tests/unit/test_pymol_viz.py`); the two that shell out are `slow` + skip when pymol is absent.
 

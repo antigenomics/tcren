@@ -386,8 +386,37 @@ normal to the page. These are the three directions the docking-geometry literatu
 TCR3d); only the principal-component ranking differs, because `tcren.orient.frame` fits the whole
 complex where those fit the MHC groove alone.
 
+**Colour by which residues carry the score.** Φ is a sum over residue–residue contacts, so it
+decomposes exactly: a residue's share is the sum of `φ(a_i, a_j)` over the contacts it makes. The
+total says how large the score is; this says what it is made of.
+
+```python
+from tcren.viz.pymol import residue_importance, importance_scene
+imp = residue_importance(structure)                 # phi + n_contacts, per residue
+render(importance_scene("1ao7", CANON, imp), "importance.png")                     # energy share
+render(importance_scene("1ao7", CANON, imp, by="n_contacts",
+                        spectrum="white_red"), "contacts.png")                     # geometric share
+```
+
+CDR3 and peptide residues become sticks on a ramp, everything else stays pale. Blue is favourable
+and red unfavourable — the ramp is centred on zero rather than fitted to the range, so those words
+keep their meaning even when every contact in an interface is stabilising. Each contact is
+attributed to *both* residues it joins, so the per-residue values sum to twice Φ: an attribution,
+not a partition.
+
 `render()` is deliberately not a `tcren` subcommand: a figure is a handful of styling choices that
 want editing, not a fixed flag set. Pass any PyMOL script body as the scene.
+
+**Explore it interactively** with the [marimo](https://marimo.io) app — pick a structure and scene,
+swing the camera and watch the gizmo follow, restyle it, colour by importance with the numbers
+beside the render, and rotate a live 3Dmol.js view with the mouse:
+
+```bash
+pip install "tcren[marimo]"
+marimo run notebooks/pymol_interactive.py       # or `marimo edit` to change the code
+```
+
+Worked examples of every view, with images: **[Figure gallery](https://docs.isalgo.dev/tcren/gallery.html)**.
 
 ## Modules
 

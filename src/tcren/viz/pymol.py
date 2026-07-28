@@ -49,6 +49,7 @@ __all__ = [
     "Axis", "CANONICAL_AXES", "CORNERS", "PALETTES", "CHAIN_COLOURS",
     "gizmo_cgo", "label_points", "gizmo_scene", "probe_rotation", "render", "composite",
     "overlay_scene", "groove_scene", "interface_scene",
+    "residue_importance", "importance_scene",
 ]
 
 
@@ -460,6 +461,145 @@ def groove_scene(pid, canon_dir, *, surface: bool = False) -> str:
         'cmd.set("surface_quality", 1)',
     ] if surface else []))
     return _scene(loads, body, VIEW_TOP, 'cmd.zoom("chain C", buffer=12, complete=1)')
+
+
+def residue_importance(structure, *, interface: str = "tcr_peptide", cutoff: float = 5.0,
+                       potential=None, tcr_regions: str = "all"):
+    """Per-residue share of the interface, on both the physics and the geometry axis.
+
+    The interface energy Φ is a sum over residue–residue contacts, so it decomposes exactly:
+    each residue's share is the sum of ``φ(aa_i, aa_j)`` over the contacts it makes across the
+    interface. That is the quantity to colour a figure by — it says *which* residues the score
+    is actually made of, where the total only says how large it is.
+
+    Two columns come back because they answer different questions. ``phi`` is the energy share,
+    negative being favourable; ``n_contacts`` is the geometric share, how much of the interface
+    the residue physically occupies. A residue can be large on one and small on the other, and
+    that difference is usually the interesting part.
+
+    Args:
+        structure: An annotated structure (chains typed, MHC called).
+        interface: Which interface to decompose — ``tcr_peptide``, ``tcr_mhc`` or
+            ``peptide_mhc``.
+        cutoff: Heavy-atom contact distance (Å).
+        potential: A :class:`tcren.potential.Potential`; defaults to the bundled TCRen for
+            ``tcr_peptide`` and MJ for the MHC interfaces, matching :mod:`tcren.pipeline`.
+        tcr_regions: Which TCR regions count — ``all``, ``cdr`` or ``cdr+fr``.
+
+    Returns:
+        A polars frame: ``chain.id``, ``residue.index``, ``residue.aa``, ``region.type``,
+        ``n_contacts``, ``phi``. One row per residue that touches the interface, either side of
+        it, sorted most-favourable first.
+
+    Example:
+        >>> residue_importance(s).head(3)      # doctest: +SKIP
+    """
+    import polars as pl
+
+    from ..contactmap import ContactMap
+    from ..potential import mj, tcren as tcren_potential
+
+    if potential is None:
+        potential = tcren_potential() if interface == "tcr_peptide" else mj()
+    cm = ContactMap.from_structure(structure, cutoff=cutoff)
+    df = (cm.interface(interface, tcr_regions=tcr_regions) if interface == "tcr_peptide"
+          else cm.interface(interface))
+    if df.height == 0:
+        return pl.DataFrame(schema={"chain.id": pl.Utf8, "residue.index": pl.Int64,
+                                    "residue.aa": pl.Utf8, "region.type": pl.Utf8,
+                                    "n_contacts": pl.Int64, "phi": pl.Float64})
+    # One contact contributes phi once, and to BOTH residues it joins -- the interface energy is
+    # shared between the partners, not owned by either. Summing the two sides of this table
+    # therefore double-counts Phi by design; it is a per-residue attribution, not a partition.
+    df = df.with_columns(
+        pl.struct(["residue.aa.from", "residue.aa.to"])
+        .map_elements(lambda r: potential.value(r["residue.aa.from"], r["residue.aa.to"]),
+                      return_dtype=pl.Float64)
+        .alias("phi")
+    )
+    sides = []
+    for side in ("from", "to"):
+        sides.append(df.select(
+            pl.col(f"chain.id.{side}").alias("chain.id"),
+            pl.col(f"residue.index.{side}").alias("residue.index"),
+            pl.col(f"residue.aa.{side}").alias("residue.aa"),
+            pl.col(f"region.type.{side}").alias("region.type"),
+            pl.col("phi"),
+        ))
+    return (pl.concat(sides)
+            .group_by(["chain.id", "residue.index", "residue.aa", "region.type"])
+            .agg(pl.len().alias("n_contacts"), pl.col("phi").sum().alias("phi"))
+            .sort("phi"))
+
+
+def importance_scene(pid, canon_dir, importance, *, by: str = "phi",
+                     regions=("CDR3", "PEPTIDE"), spectrum: str = "blue_white_red") -> str:
+    """Colour the recognition interface by each residue's share of it.
+
+    The residues that carry the score are shown as sticks on a colour ramp; everything else
+    stays pale so the eye goes to the ramp. Values ride in on the B-factor column, which is what
+    PyMOL's ``spectrum`` reads.
+
+    The ramp is centred on zero when colouring by ``phi``, so blue and red mean *favourable* and
+    *unfavourable* rather than merely "less" and "more" — a ramp fitted to the observed range
+    would paint the least-favourable residue red even in an interface where every contact is
+    stabilising.
+
+    Args:
+        pid: PDB id.
+        canon_dir: The canonical (oriented) structure directory.
+        importance: The frame from :func:`residue_importance`.
+        by: Which column to colour by — ``phi`` (energy share) or ``n_contacts`` (geometric
+            share).
+        regions: Which region types to draw as coloured sticks. ``PEPTIDE`` matches the peptide
+            chain, whose residues carry no CDR region label.
+        spectrum: Any PyMOL spectrum name.
+
+    Returns:
+        A PyMOL scene body for :func:`render`.
+
+    Raises:
+        ValueError: If ``by`` is not a column of ``importance``.
+    """
+    if by not in ("phi", "n_contacts"):
+        raise ValueError(f"by must be 'phi' or 'n_contacts', not {by!r}")
+
+    rows = importance.to_dicts() if hasattr(importance, "to_dicts") else list(importance)
+    wanted = [r for r in rows
+              if r.get("region.type") in regions
+              or (("PEPTIDE" in regions) and not r.get("region.type"))]
+    if not wanted:
+        wanted = rows
+    values = [float(r[by]) for r in wanted]
+    if by == "phi":
+        lim = max(abs(min(values, default=0.0)), abs(max(values, default=0.0)), 1e-6)
+        lo, hi = -lim, lim
+    else:
+        lo, hi = 0.0, max(values, default=1.0) or 1.0
+
+    alters = "\n".join(
+        f'cmd.alter("chain {r["chain.id"]} and resi {r["residue.index"]}", "b={float(r[by]):.4f}")'
+        for r in wanted
+    )
+    sel = " or ".join(f'(chain {r["chain.id"]} and resi {r["residue.index"]})' for r in wanted)
+    loads = f'cmd.load(r"{Path(canon_dir) / f"{pid}.pdb.gz"}", "m")'
+    body = "\n".join([
+        'cmd.hide("everything")',
+        'cmd.show("cartoon")',
+        'cmd.color("grey85")',
+        'cmd.set("cartoon_transparency", 0.65)',
+        'cmd.alter("all", "b=0.0")',
+        alters,
+        "cmd.sort()",
+        # Sticks only for the scored residues. Showing their cartoon as well and letting the
+        # spectrum colour that too puts dark ribbon blobs behind the sidechains, which reads as
+        # a rendering fault rather than as data; the pale cartoon underneath already carries the
+        # backbone.
+        f'cmd.show("sticks", "{sel}")',
+        'cmd.set("stick_radius", 0.22)',
+        f'cmd.spectrum("b", "{spectrum}", "{sel}", minimum={lo:.4f}, maximum={hi:.4f})',
+    ])
+    return _scene(loads, body, VIEW_TOP, f'cmd.zoom("{sel}", buffer=6, complete=1)')
 
 
 def interface_scene(pid, canon_dir, cdr_resi) -> str:

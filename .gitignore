@@ -335,3 +335,6 @@ scratch/
 scripts/legacy/data_dump/
 scripts/legacy/data_patch/
 scripts/legacy/*.sav
+
+# marimo's per-notebook scratch (layouts, session snapshots) — the .py notebook is the source
+**/__marimo__/

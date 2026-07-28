@@ -24,6 +24,23 @@ All notable changes to `tcren` are recorded here. Format follows
   `field_of_view` and the camera distance imply (measured on a real scene it is out by about a
   quarter), so the arithmetic route puts the gizmo off-frame. Compositing also means the molecule
   can never occlude it.
+- **`residue_importance()` / `importance_scene()`** — colour the interface by which residues carry
+  the score. Φ is a sum over residue–residue contacts, so it decomposes exactly: a residue's share
+  is the sum of `φ(a_i, a_j)` over the contacts it makes. Two columns come back because they answer
+  different questions — `phi` is the energy share, `n_contacts` the geometric share, and a residue
+  can be large on one and small on the other. The φ ramp is centred on zero, so blue and red mean
+  *favourable* and *unfavourable* rather than merely less and more; a range-fitted ramp would redden
+  the least-favourable residue even in an interface where every contact is stabilising. Each
+  contact is attributed to **both** residues it joins, so the per-residue values sum to twice Φ —
+  an attribution, not a partition, and a test pins that factor of two.
+- **`notebooks/pymol_interactive.py`** — a [marimo](https://marimo.io) app
+  (`pip install "tcren[marimo]"`): pick a structure and scene, swing the camera and watch the gizmo
+  follow, restyle it, colour by residue importance with the numbers beside the render, and rotate a
+  live 3Dmol.js view with the mouse. Renders are content-addressed on the scene text *and* every
+  render option, so a changed option can never serve a stale panel.
+- **A figure gallery in the docs** (`docs/gallery.rst`) — every view family as a rendered example
+  with the code beside it, and the axis-gizmo convention written out once where readers will find
+  it.
 
 ## [2.4.0] — 2026-07-28
 

@@ -33,6 +33,9 @@ dependencies = [
 
 [project.optional-dependencies]
 viz = ["matplotlib>=3.8", "py3Dmol>=2.0"]
+# The marimo render explorer (notebooks/pymol_interactive.py). PyMOL itself is not a Python
+# dependency -- it is a separate binary the module shells out to, so it cannot be pinned here.
+marimo = ["marimo>=0.16", "matplotlib>=3.8", "py3Dmol>=2.0"]
 docs = ["sphinx", "pydata-sphinx-theme", "nbsphinx"]
 test = ["pytest", "pytest-cov"]
 # ruff is pinned to a minor series: its default rule set grows between releases, so an unpinned
