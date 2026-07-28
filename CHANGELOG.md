@@ -5,6 +5,28 @@ All notable changes to `tcren` are recorded here. Format follows
 
 ## [Unreleased]
 
+## [2.5.0] — 2026-07-28
+
+### Fixed
+- **A failed PyMOL scene no longer returns the previous picture.** PyMOL exits **0** when a script
+  raises — the traceback is merely printed — so `check=True` never fired and the only guard was
+  "did a file appear". Re-rendering an edited-but-broken scene to a path that already held a good
+  render therefore returned that old image and reported success, which is how a figure silently
+  stops tracking the data it claims to show. `_run` now scans the output for a traceback and
+  raises, and `render()` clears the target first so the existence check means something. Pinned by
+  a test over four ordinary breakages (bad path, misspelled command, `NameError`, explicit raise).
+- **Pillow is declared.** `render()` defaults to drawing the gizmo, which composites through
+  Pillow — and Pillow was in no dependency group, satisfied only transitively via matplotlib in
+  `[viz]`. A plain `pip install tcren` followed by the README's own figure example crashed on
+  `from PIL import Image`. It is now an explicit `[viz]`/`[marimo]` dependency, and the import
+  failure names the extra to install.
+- **The sdist is lean again**: 2.73 MB → **1.24 MB**, 153 → 113 entries. `/appendix` (the LaTeX
+  derivation and its PDFs — 2.4 MB, half the payload, and inert: the wheel builds without it) is
+  excluded, as are `.claude/` and `.DS_Store`. Those last two are untracked and CI builds from a
+  clean checkout, so no published artifact ever carried them — but scikit-build-core does not read
+  git's *global* excludesfile, so a local `uv build` packaged them, and a local build should match
+  what CI ships.
+
 ### Added
 - **`tcren.viz.pymol`** — the PyMOL figure layer, promoted out of `notebooks/pymol_canonical_figures.ipynb`
   into the library, where it can be tested and reused. Three scene presets (`overlay_scene`,

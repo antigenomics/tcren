@@ -338,3 +338,10 @@ scripts/legacy/*.sav
 
 # marimo's per-notebook scratch (layouts, session snapshots) — the .py notebook is the source
 **/__marimo__/
+
+# Claude local settings + macOS Finder metadata. These are covered by the GLOBAL gitignore, which
+# scikit-build-core does not read -- so a local `uv build --sdist` packages them even though git
+# never sees them. CI builds from a clean checkout and is unaffected, but a local build should
+# match CI, and this file has no business in a tarball.
+.claude/settings.local.json
+.DS_Store

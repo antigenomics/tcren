@@ -363,6 +363,9 @@ view_pocket_cdr(s).show()                      # interactive 3D pocket + CDR ove
 `tcren.viz.pymol` drives a headless PyMOL to ray-trace figure panels of oriented complexes. Three
 scenes cover the usual views, and every panel carries a **labelled axis gizmo** in its corner:
 
+Figures need the `viz` extra (`pip install "tcren[viz]"`) for Pillow, plus a `pymol` binary on
+PATH — PyMOL is a separate install, not a Python dependency.
+
 ```python
 from tcren.viz.pymol import render, overlay_scene, groove_scene, interface_scene
 render(groove_scene("1ao7", "data/Canonical2026"), "groove.png")            # peptide in the cleft

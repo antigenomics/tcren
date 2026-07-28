@@ -372,6 +372,35 @@ def test_render_writes_a_png_with_the_gizmo_in_the_corner(tmp_path):
 
 @pytest.mark.slow
 @pymol_only
+def test_a_broken_scene_raises_instead_of_returning_the_previous_render(tmp_path):
+    """PyMOL exits 0 when a script raises, so nothing about the process signals the failure.
+
+    Left unhandled, re-rendering an edited-but-broken scene to a path that already holds a good
+    picture returns that old picture and reports success — which is how a figure silently stops
+    tracking the data it claims to show.
+    """
+    from PIL import Image
+
+    good = render('cmd.pseudoatom("p")\ncmd.show("spheres")\ncmd.zoom()',
+                  tmp_path / "fig.png", size=(120, 120), gizmo=False)
+    before = good.read_bytes()
+    assert Image.open(good).size == (120, 120)
+
+    for broken in ('cmd.load("/nonexistent/nope.pdb")', 'cmd.shwo("cartoon")',
+                   'raise RuntimeError("scene is wrong")'):
+        with pytest.raises(RuntimeError):
+            render(broken, tmp_path / "fig.png", size=(120, 120), gizmo=False)
+        assert not (tmp_path / "fig.png").exists(), (
+            f"a failed render must not leave the previous image in place: {broken}")
+
+    # ... and a good scene still works afterwards, byte-comparable to the first.
+    again = render('cmd.pseudoatom("p")\ncmd.show("spheres")\ncmd.zoom()',
+                   tmp_path / "fig.png", size=(120, 120), gizmo=False)
+    assert len(again.read_bytes()) == len(before)
+
+
+@pytest.mark.slow
+@pymol_only
 def test_probe_rotation_reports_the_scene_rotation(tmp_path):
     from tcren.viz.pymol import probe_rotation
     rot = probe_rotation(f"cmd.set_view({list(VIEW_TOP) + [0, 0, -100, 0, 0, 0, 50, 150, -20]!r})")

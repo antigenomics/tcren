@@ -4,7 +4,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "tcren"
-version = "2.4.0"
+version = "2.5.0"
 description = "Structure-based prediction of TCR recognition of epitopes via residue-level statistical potentials"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -32,10 +32,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-viz = ["matplotlib>=3.8", "py3Dmol>=2.0"]
+# pillow is listed explicitly even though matplotlib already pulls it in: viz.pymol.composite
+# imports it directly, and a dependency that is satisfied only through another package's
+# transitive tree is one upstream change away from disappearing.
+viz = ["matplotlib>=3.8", "py3Dmol>=2.0", "pillow>=10"]
 # The marimo render explorer (notebooks/pymol_interactive.py). PyMOL itself is not a Python
 # dependency -- it is a separate binary the module shells out to, so it cannot be pinned here.
-marimo = ["marimo>=0.16", "matplotlib>=3.8", "py3Dmol>=2.0"]
+marimo = ["marimo>=0.16", "matplotlib>=3.8", "py3Dmol>=2.0", "pillow>=10"]
 docs = ["sphinx", "pydata-sphinx-theme", "nbsphinx"]
 test = ["pytest", "pytest-cov"]
 # ruff is pinned to a minor series: its default rule set grows between releases, so an unpinned
@@ -66,9 +69,14 @@ build-dir = "build/{wheel_tag}"
 # Keep the sdist lean: ship only what builds the package (src/, CMakeLists, pyproject, README,
 # LICENSE). Notebooks, tests, docs, fixtures and the runtime data/ set are not needed to install.
 # Anchor with a leading "/" — a bare "data" would also drop the bundled src/tcren/data.
+# /appendix is the LaTeX derivation + its PDFs: 2.4 MB, half the sdist, and inert -- the wheel
+# builds from the sdist without it. /.claude and /.DS_Store are belt-and-braces: they are
+# untracked and CI builds from a clean checkout, but scikit-build-core does not read git's global
+# excludesfile, so a local `uv build` would otherwise package them.
 sdist.exclude = [
     "/notebooks", "/tests", "/docs", "/data", "/assets", "/scripts", "/skills",
     "/.github", "/setup.sh", "/STATUS.md", "/BENCHMARKS.md",
+    "/appendix", "/.claude", "/.DS_Store",
 ]
 # The ext is built once at install; do NOT rebuild on import (that needs cmake on PATH at
 # import time and breaks under pytest / CI where the build-env cmake is gone). Re-run

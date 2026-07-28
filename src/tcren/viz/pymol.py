@@ -261,7 +261,16 @@ def composite(base_png, tile_png, out_png, *, corner: str = "bottom-left",
     Raises:
         ValueError: If ``corner`` is unknown or ``scale``/``margin`` leave no room.
     """
-    from PIL import Image
+    # Pillow is the only hard requirement of the gizmo path and it is declared in the `viz`
+    # extra, not in the base dependencies -- most of tcren never draws anything. Saying so here
+    # beats a bare ImportError, because `render()` defaults to gizmo=True and this is the first
+    # place a plain `pip install tcren` hits it.
+    try:
+        from PIL import Image
+    except ImportError as exc:  # pragma: no cover - exercised by a clean-env install, not here
+        raise ImportError(
+            "the axis gizmo needs Pillow: pip install 'tcren[viz]' (or pass gizmo=False)"
+        ) from exc
 
     if corner not in CORNERS:
         raise ValueError(f"unknown corner {corner!r}; choose from {sorted(CORNERS)}")
@@ -304,7 +313,12 @@ _HEADER = "\n".join([
 
 
 def _run(script: str, *, pymol_bin: str | None = None) -> str:
-    """Execute a script body under a headless PyMOL; return its stdout."""
+    """Execute a script body under a headless PyMOL; return its stdout.
+
+    Raises on a scene error, which needs saying because PyMOL will not. A script that raises
+    still leaves PyMOL exiting **0**, with the traceback merely printed — so ``check=True`` never
+    fires and a silent failure would sail through. The output is scanned for a traceback instead.
+    """
     exe = pymol_bin or shutil.which("pymol")
     if exe is None:
         raise RuntimeError("pymol not found on PATH; install it or pass pymol_bin=")
@@ -315,6 +329,10 @@ def _run(script: str, *, pymol_bin: str | None = None) -> str:
         done = subprocess.run([exe, "-cq", path], check=True, capture_output=True, text=True)
     finally:
         Path(path).unlink(missing_ok=True)
+    output = f"{done.stdout}\n{done.stderr}"
+    if "Traceback (most recent call last)" in output:
+        tail = "\n".join(output.strip().splitlines()[-15:])
+        raise RuntimeError(f"the PyMOL scene raised (pymol still exited 0):\n{tail}")
     return done.stdout
 
 
@@ -374,6 +392,13 @@ def render(
         >>> render('cmd.load("1ao7.pdb")\\ncmd.show("cartoon")', "fig.png")   # doctest: +SKIP
     """
     png = Path(png)
+    # Clear the target first. The existence check below is the last line of defence against a
+    # scene that failed without PyMOL saying so, and it is worthless if a previous render is
+    # sitting at the same path -- which is the normal case, because the documented way to use
+    # this is to edit the scene and re-run it to the same file. Without this, a broken scene
+    # returns the *old* picture and reports success, and a figure that silently stops updating
+    # is how a wrong figure reaches a paper.
+    png.unlink(missing_ok=True)
     _run(f"{scene}\ncmd.ray({size[0]}, {size[1]})\ncmd.png(r'{png}', dpi={dpi})",
          pymol_bin=pymol_bin)
     if not png.exists():
