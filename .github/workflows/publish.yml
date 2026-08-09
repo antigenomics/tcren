@@ -82,7 +82,9 @@ jobs:
       - name: Install wheel (with deps) and import the C++ ext
         shell: bash
         run: |
-          pip install --upgrade pip
+          # No `pip install --upgrade pip`: setup-python already ships a current pip, and from
+          # pip 26 the `pip` script refuses to modify itself on Windows ("To modify pip, please
+          # run ... python -m pip"), which failed all four Windows smoke tests on 2.6.0.
           tag="cp${{ matrix.python-version }}"; tag="${tag/./}"
           python - "$tag" <<'PY'
           import sys, glob, subprocess
