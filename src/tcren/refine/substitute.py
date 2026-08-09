@@ -9,7 +9,7 @@ existing peptide backbone, keeping N/Cα/C/O(+Cβ) and dropping the old side-cha
 
 from __future__ import annotations
 
-from ..structure.model import PEPTIDE_TYPE, Chain, Residue, Structure
+from ..structure.model import PEPTIDE_TYPE, Chain, RegionMarkup, Residue, Structure
 
 # Atoms retained on substitution: backbone + Cβ (the rest of the side chain is identity-specific).
 _KEEP = {"N", "CA", "C", "O", "CB"}
@@ -27,7 +27,8 @@ def substitute_peptide(structure: Structure, new_peptide: str,
 
     The peptide backbone (and Cβ) is preserved; side-chain atoms beyond Cβ are dropped (and Cβ
     too for any position mutated to glycine). ``new_peptide`` must equal the peptide length and use
-    the 20 standard one-letter amino acids.
+    the 20 standard one-letter amino acids. Region markup is carried over onto the new residues, so
+    the result can go straight into a contact map and be scored.
 
     Raises:
         ValueError: if there is no peptide chain, the length differs, or a code is non-standard.
@@ -51,8 +52,18 @@ def substitute_peptide(structure: Structure, new_peptide: str,
         new_residues.append(Residue(res.seq_index, res.pdb_index, res.insertion_code,
                                     aa, resname, atoms))
 
+    by_index = {r.seq_index: r for r in new_residues}
     new_pep = Chain(chain_id=pep.chain_id, residues=new_residues,
-                    chain_type=pep.chain_type, chain_supertype=pep.chain_supertype)
+                    chain_type=pep.chain_type, chain_supertype=pep.chain_supertype,
+                    allele_info=pep.allele_info,
+                    # region markup is re-pointed at the new residues: without it the contact map
+                    # has null pos.from/pos.to and every downstream scorer fails.
+                    regions=[RegionMarkup(
+                        region_type=reg.region_type, start_seq_index=reg.start_seq_index,
+                        end_seq_index=reg.end_seq_index,
+                        sequence="".join(by_index[r.seq_index].aa for r in reg.residues),
+                        residues=[by_index[r.seq_index] for r in reg.residues],
+                    ) for reg in pep.regions])
     chains = [new_pep if c is pep else c for c in structure.chains]
     return Structure(pdb_id=structure.pdb_id, chains=chains,
                      complex_species=structure.complex_species, cell_type=structure.cell_type)

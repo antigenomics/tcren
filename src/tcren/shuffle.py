@@ -149,6 +149,9 @@ def run_shuffle(struct_dir: str | Path, out: str | Path, n: int = 10, seed: int 
     from .structure.io import write_structure
 
     structs = _load_annotated(struct_dir, organism=organism)
+    if not structs:
+        raise ValueError(f"no parsable structures in {struct_dir}; `shuffle` needs a directory of "
+                         "ORIENTED complexes (run `tcren superimpose`/`orient` first)")
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
     written = 0

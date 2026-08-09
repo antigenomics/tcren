@@ -112,7 +112,10 @@ There are two orientation commands (chains are renamed ``A``\=Vα, ``B``\=Vβ, `
    $ tcren orient -s data/Native2026 -o data/Canonical2026 -t 8
 
 Both need the reference sets in ``data/``; ``setup.sh`` runs ``tcren fetch-data`` at install to
-populate them. Structure outputs are plain ``.pdb`` by default — add ``--mmCIF`` for ``.cif`` and
+populate them (the shipped database's ``orient_metadata.json`` comes with the package, so the
+fetch only has to bring down structures). ``orient`` writes its own metadata to
+``<out>/orient_metadata.json``, which is what ``superimpose`` reads back.
+Structure outputs are plain ``.pdb`` by default — add ``--mmCIF`` for ``.cif`` and
 ``--compress`` for a trailing ``.gz`` (these flags apply to every command that writes a structure).
 
 Fetch recent TCR-pMHC structures from the RCSB into ``data/pdb_recent`` (mmCIF ``.cif.gz``,

@@ -1,9 +1,10 @@
 """Filesystem locations for tcren's reference data.
 
 The library's runtime dataset lives in the repo ``data/`` directory (or ``$TCREN_DATA_DIR``):
-the canonical ``Native2026`` structure set (HF ``isalgo/tcren_structures``, gitignored),
-``PDB_date.tsv`` and ``orient_metadata.json``. Structures are fetched lazily; nothing here is
-bundled into the installed package.
+the canonical ``Native2026`` structure set (HF ``isalgo/tcren_structures``, gitignored) and
+``PDB_date.tsv``. Structures are fetched lazily; nothing here is bundled into the installed
+package, except ``Canonical2026``'s ``orient_metadata.json``, which rides in ``tcren/data/`` so
+an installed ``superimpose`` can describe the database it fetched.
 """
 
 from __future__ import annotations

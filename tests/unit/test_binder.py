@@ -27,6 +27,12 @@ def test_score_monotone_in_burial():
     assert binder_score(more) > binder_score(base)  # more burial -> more binder-like (w_dSASA>0)
 
 
+def test_missing_feature_names_how_to_build_the_input():
+    base = {"pm_cov_ntcr": 26, "chain_balance": 0.33, "n_hbond": 7, "dSASA": 1950, "pp_combo": 0.0}
+    with pytest.raises(KeyError, match="binder_features"):
+        binder_score({k: v for k, v in base.items() if k != "dSASA"})
+
+
 @pytest.mark.slow
 def test_binder_features_end_to_end():
     pytest.importorskip("arda")

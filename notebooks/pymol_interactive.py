@@ -78,7 +78,7 @@ def _(mo):
     HERE = Path(__file__).resolve().parent
     CANON = HERE.parent / "data" / "Canonical2026"
     NATIVE = HERE.parent / "data" / "Native2026"
-    META = HERE.parent / "data" / "orient_metadata.json"
+    META = HERE.parent / "src" / "tcren" / "data" / "orient_metadata.json"
     CACHE = Path("/tmp/tcren_marimo_renders")
     CACHE.mkdir(exist_ok=True)
 

@@ -58,6 +58,15 @@ def test_waters_excluded(s5m01):
         assert "HOH" not in {r.resname for r in chain.residues}
 
 
+def test_repr_summarises_instead_of_dumping_every_atom(s5m01):
+    # The dataclass repr expands every atom and its coordinate (~0.5 MB), which floods a notebook
+    # cell and makes any error message that interpolates a structure unreadable.
+    r = repr(s5m01)
+    assert len(r) < 300
+    assert "5m01" in r and f"P:?({len(s5m01.chain('P').residues)})" in r  # unclassified: type '?'
+    assert len(repr(s5m01.chain("P"))) < 100
+
+
 def test_altloc_atoms_all_retained():
     # 9nmx has a disordered Ser whose alternate conformer is needed for one contact;
     # keeping all altlocs means at least one atom name appears more than once.

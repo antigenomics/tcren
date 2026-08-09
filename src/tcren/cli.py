@@ -183,7 +183,7 @@ def contacts(
 def orient(
     structures: Path = typer.Option(..., "-s", "--structures", help="PDB/CIF file or directory of native complexes"),
     out: Path = typer.Option("oriented", "-o", "--out", help="output dir for oriented structures"),
-    metadata: Path = typer.Option("orient_metadata.csv", "--metadata"),
+    metadata: Path = typer.Option(None, "--metadata", help="metadata table (default: <out>/orient_metadata.json, the format `superimpose` reads; .csv writes CSV)"),
     organism: str = typer.Option("human", "--organism"),
     reference_id: str = typer.Option(None, "--reference", help="force a reference complex id"),
     force_pca: bool = typer.Option(False, "--force-pca", help="skip native superposition"),
@@ -783,7 +783,7 @@ def scoring(
     def score_struct(s):
         return score_row(run_pipeline(s, **kw))
 
-    rows, failed = [], 0
+    rows, failed, first_error = [], 0, None
     if threads == 1:
         for _pid, s in ((p, x) for src in resolve_sources(structures)
                         for p, x in iter_structures(src, importer=parse_structure)):
@@ -791,9 +791,10 @@ def scoring(
                 rows.append(score_struct(s))
             except Exception as exc:  # noqa: BLE001 - keep the batch resilient
                 failed += 1
+                err = f"{type(exc).__name__}: {str(exc)[:80]}"
+                first_error = first_error or err
                 if not skip_errors:
-                    rows.append({"pdb.id": s.pdb_id, "F_total": None,
-                                 "error": f"{type(exc).__name__}: {str(exc)[:80]}"})
+                    rows.append({"pdb.id": s.pdb_id, "F_total": None, "error": err})
     else:
         # A cohort run is dominated by the per-structure mmseqs annotation, which releases the
         # GIL inside a subprocess — so plain threads parallelise it without pickling structures.
@@ -813,6 +814,7 @@ def scoring(
             for r in ex.map(one, structs):
                 if r.get("F_total") is None and "error" in r:
                     failed += 1
+                    first_error = first_error or r["error"]
                     if skip_errors:
                         continue
                 rows.append(r)
@@ -841,6 +843,9 @@ def scoring(
     table.write_csv(str(out))
     typer.echo(f"wrote {out} ({table.height} rows"
                + (f", {failed} failed" if failed else "") + ")")
+    if failed:  # an error buried in a column is an error nobody reads
+        # --skip-errors drops the failed rows, so the message cannot come from the table.
+        typer.secho(f"first failure: {first_error}", fg="red", err=True)
 
 
 @app.command(rich_help_panel=_P_SCORE, hidden=True)

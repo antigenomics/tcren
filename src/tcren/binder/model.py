@@ -63,6 +63,10 @@ def binder_score(feats: dict[str, float]) -> float:
     m = BINDER_MODEL
     z = m["b"]
     for f, mu, sg, w in zip(m["features"], m["mu"], m["sigma"], m["w"]):
+        if f not in feats:
+            raise KeyError(f"missing feature {f!r}; build the input with "
+                           f"tcren.binder.binder_features(structure) or `tcren recognize --scores` "
+                           f"(needs all of {tuple(m['features'])})")
         z += w * (float(feats[f]) - mu) / sg
     return 1.0 / (1.0 + math.exp(-z))
 

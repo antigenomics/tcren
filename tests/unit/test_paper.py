@@ -6,6 +6,7 @@ import gzip
 from pathlib import Path
 
 import polars as pl
+import pytest
 
 from tcren.paper import compare, copy_external_inputs, copy_legacy_results
 from tcren.paper.helpers import _read_any
@@ -65,3 +66,20 @@ def test_copy_legacy_results_routes_to_data_legacy(tmp_path):
     assert (paper_dir / "data_legacy" / "TCRen_potential.csv.gz").exists()
     assert (paper_dir / "data_legacy" / "source_data" / "fig1.csv.gz").exists()
     assert _read_any(paper_dir / "data_legacy" / "source_data" / "fig1.csv.gz")["a"][0] == 1
+
+
+def test_annotate_batch_without_structures_needs_no_backend():
+    from tcren.paper.helpers import annotate_batch
+    assert annotate_batch([]) == []
+
+
+@pytest.mark.slow
+def test_annotate_batch_resolves_the_backend_itself():
+    # `arda` is optional: the batch API resolves it lazily, like classify_chains/annotate_chain do.
+    pytest.importorskip("arda")
+    from tcren.paper.helpers import annotate_batch
+    from tcren.structure.io import import_structure
+
+    s = import_structure(Path(__file__).resolve().parents[1] / "assets" / "pdb" / "1ao7.pdb")
+    records = annotate_batch([s])                       # no explicit arda instance
+    assert sorted(records[0]["human"]) == sorted(c.chain_id for c in s.chains)

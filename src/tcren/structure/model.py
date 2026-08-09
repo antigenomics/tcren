@@ -102,6 +102,10 @@ class Chain:
                 return r
         return None
 
+    def __repr__(self) -> str:  # the dataclass repr expands every atom (~0.5 MB for a complex)
+        return (f"Chain({self.chain_id}:{self.chain_type or '?'}, "
+                f"{len(self.residues)} res, {len(self.regions)} regions)")
+
 
 @dataclass(slots=True)
 class RegionMarkup:
@@ -133,3 +137,10 @@ class Structure:
     def by_type(self, *types: str) -> list[Chain]:
         """Return chains whose ``chain_type`` is in ``types``."""
         return [c for c in self.chains if c.chain_type in types]
+
+    def __repr__(self) -> str:  # ditto: keep a structure printable in a notebook / error message
+        chains = ", ".join(f"{c.chain_id}:{c.chain_type or '?'}({len(c.residues)})"
+                           for c in self.chains)
+        pep = next((c.sequence() for c in self.chains if c.chain_type == "PEPTIDE"), None)
+        return (f"Structure(id={self.pdb_id!r}, chains=[{chains}]"
+                + (f", peptide={pep!r}" if pep else "") + ")")

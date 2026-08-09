@@ -49,12 +49,14 @@ Reference: `arda.annotate_sequences([(id, seq), ...])` — one call, threads int
 - **`tcren superimpose` / `tcren.orient.superimpose(s, db_dir=…)`** — bring a NEW structure into
   the canonical frame against a canonical *database* (default `data/Canonical2026`). It detects
   the input's MHC class + species, selects every DB member of that class+species (from the DB's
-  `orient_metadata.json`), superposes the query groove Cα onto each, and **averages** the rigid
-  transforms (chordal/SVD mean rotation + mean translation) into one consensus placement. The
-  matching DB subset is batch-annotated once and cached per process.
+  `orient_metadata.json` — bundled in the package for the shipped `Canonical2026`, which
+  `fetch-data` populates with structures only), superposes the query groove Cα onto each, and
+  **averages** the rigid transforms (chordal/SVD mean rotation + mean translation) into one
+  consensus placement. The matching DB subset is batch-annotated once and cached per process.
 - **`tcren orient` / `tcren.orient.run_folder(...)`** — BUILD a canonical DB from native
   complexes using the per-class derived frame (how `Canonical2026` is produced). Not for orienting
-  a single new structure — use `superimpose` for that.
+  a single new structure — use `superimpose` for that. Writes `<out>/orient_metadata.json` (the
+  format `superimpose` reads); `--metadata foo.csv` writes CSV instead.
 - **HF upload is NOT a user command.** `--push-to-hub` was removed; maintainers run
   `scripts/push_canonical_to_hub.py` instead.
 
@@ -104,7 +106,9 @@ Reference: `arda.annotate_sequences([(id, seq), ...])` — one call, threads int
 ## Peptide substitution + refinement — `tcren.refine` (`tcren refine`)
 
 - `substitute_peptide(structure, new_peptide)` — backbone-preserving identity swap on the peptide
-  chain (keep N/Cα/C/O+Cβ, drop side-chain beyond Cβ); pure data-model, no atoms moved. `score_peptides`
+  chain (keep N/Cα/C/O+Cβ, drop side-chain beyond Cβ); pure data-model, no atoms moved. Region
+  markup is carried over onto the new residues — without it the contact map has null `pos.from/to`
+  and every scorer fails. `score_peptides`
   is *virtual* (matrix lookup over the fixed contact map) — substitution is only needed to then refine.
 - `refine_peptide(structure, restraint_w=0.5, …)` → `(structure, energy)`: knowledge-based rigid-body
   **Metropolis MC** of the peptide via the `_refine` C++ kernel. Energy = **DOPE** atom-level
@@ -430,7 +434,9 @@ from tcren.paper import (
   `TCRpMHCmodels.tar.gz`, PDB dates, mir/R oracle) — never a pipeline input. `results_new/` is computed.
 - Root `data/` holds the library dataset (gitignored structures): `Native2026` (orientation
   references), `Canonical2026` (the default `superimpose` database), `PDB_date.tsv`,
-  `orient_metadata.json`, `TCRen_potential.csv`. `setup.sh` runs `tcren fetch-data` at install to
+  `TCRen_potential.csv`. `Canonical2026`'s `orient_metadata.json` moved into
+  `src/tcren/data/` — it must ship in the wheel, since `fetch-data` downloads only structures and
+  an installed user has no repo `data/`. `setup.sh` runs `tcren fetch-data` at install to
   populate `Native2026` + `Canonical2026` from HF (or lazily on first `superimpose`/`orient`).
   Orientation references load 1ao7/1fyt from `data/Native2026` via `tcren.paths`. The numerical
   regression oracle (legacy mir/R outputs: `contact_maps_PDB.csv`, `tcren_am/tcren.txt`, the

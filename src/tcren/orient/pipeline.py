@@ -126,6 +126,14 @@ def _finish_orient(structure, pdb_id, out, reference_id, force_pca,
     return row
 
 
+def _write_metadata(df: pl.DataFrame, path: Path) -> None:
+    """Write the orient metadata; ``.json`` (the format ``superimpose`` reads) unless ``.csv``."""
+    if path.suffix.lower() == ".csv":
+        df.write_csv(path)
+    else:
+        df.write_json(path)
+
+
 def run_folder(
     structures: str | Path,
     out: str | Path,
@@ -195,8 +203,8 @@ def run_folder(
         rows += list(ex.map(_orient, parsed))
 
     df = pl.DataFrame(rows)
-    if metadata is not None:
-        df.write_csv(metadata)
+    metadata = Path(metadata) if metadata is not None else out / "orient_metadata.json"
+    _write_metadata(df, metadata)
     ok = df.filter(pl.col("status") == "ok").height
     print(f"oriented {ok}/{df.height} structures -> {out}")
     return df
@@ -306,4 +314,6 @@ def run_superimpose(
     df = pl.DataFrame(rows)
     ok = df.filter(pl.col("status") == "ok").height if df.height else 0
     print(f"superimposed {ok}/{df.height} structures -> {out}")
+    if df.height and not ok:  # every input failed — say why instead of reporting "0/N" and exiting 0
+        raise ValueError("no structure could be superimposed; first status: " + str(df["status"][0]))
     return df

@@ -22,6 +22,7 @@ the per-structure groove variation.
 from __future__ import annotations
 
 import json
+from importlib import resources
 from pathlib import Path
 
 import numpy as np
@@ -36,11 +37,18 @@ _DB_CACHE: dict[tuple[str, str, str], list[Structure]] = {}
 
 
 def _metadata_path(db_dir: Path) -> Path:
-    """``orient_metadata.json`` inside the database dir, else alongside it (repo ``data/``)."""
+    """``orient_metadata.json`` in the database dir, beside it, or the copy bundled in the wheel."""
     for cand in (db_dir / "orient_metadata.json", db_dir.parent / "orient_metadata.json"):
         if cand.exists():
             return cand
-    raise FileNotFoundError(f"no orient_metadata.json for canonical database {db_dir}")
+    if db_dir.name == "Canonical2026":  # the shipped database — its metadata rides in the package
+        packaged = Path(str(resources.files("tcren.data").joinpath("orient_metadata.json")))
+        if packaged.exists():
+            return packaged
+    raise FileNotFoundError(
+        f"no orient_metadata.json for canonical database {db_dir}; build one with "
+        f"`tcren orient -s <natives> -o {db_dir}` or tcren.orient.run_folder(<natives>, "
+        f"{str(db_dir)!r}), which writes <out>/orient_metadata.json")
 
 
 def _matching_ids(db_dir: Path, mhc_class: str, species: str) -> list[str]:

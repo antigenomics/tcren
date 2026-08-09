@@ -217,7 +217,7 @@ def mhc_annotation(
 
 
 def annotate_batch(
-    structures, arda, organisms=("human", "mouse"), threads: int = 0
+    structures, arda=None, organisms=("human", "mouse"), threads: int = 0
 ) -> list[dict[str, dict[str, dict]]]:
     """Annotate every chain of every structure with one mmseqs call per organism.
 
@@ -235,6 +235,9 @@ def annotate_batch(
 
     Returns ``records[struct_idx][organism][chain_id]`` — the per-structure slices fed to
     :func:`~tcren.annotation.classify_chains` as ``precomputed_records``.
+
+    ``arda`` defaults to the lazily imported backend; pass an instance to reuse one mmseqs handle
+    across a large batch.
     """
     out: list[dict[str, dict[str, dict]]] = [
         {org: {} for org in organisms} for _ in structures
@@ -247,6 +250,9 @@ def annotate_batch(
     ]
     if not flat:
         return out
+    if arda is None:  # match the single-structure API: resolve the backend here
+        from ..annotation.arda_adapter import _import_arda
+        arda = _import_arda()
     pairs = [(f"{idx}|{cid}", seq) for idx, cid, seq in flat]
     for org in organisms:
         records = _annotate(arda, pairs, org, threads)

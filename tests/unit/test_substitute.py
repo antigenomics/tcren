@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from tcren.refine import substitute_peptide
-from tcren.structure.model import Atom, Chain, Residue, Structure
+from tcren.structure.model import Atom, Chain, RegionMarkup, Residue, Structure
 
 
 def _peptide_residue(i, aa, resname):
@@ -48,6 +48,17 @@ def test_other_chains_untouched():
     s = _structure("AGW")
     out = substitute_peptide(s, "WWW")
     assert out.chain("A") is s.chain("A")                        # TCR chain shared, unchanged
+
+
+def test_substitution_keeps_peptide_region_markup():
+    # Without the markup the contact map's pos.from/pos.to are null and every scorer fails.
+    s = _structure("AGW")
+    pep = s.chain("C")
+    pep.regions = [RegionMarkup("PEPTIDE", 0, 2, "AGW", list(pep.residues))]
+    out = substitute_peptide(s, "WWW").chain("C")
+    assert [r.region_type for r in out.regions] == ["PEPTIDE"]
+    assert out.regions[0].sequence == "WWW"
+    assert out.regions[0].residues[0] is out.residues[0]        # points at the NEW residues
 
 
 def test_length_mismatch_and_bad_aa_raise():

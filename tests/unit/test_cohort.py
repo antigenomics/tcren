@@ -139,6 +139,9 @@ def test_missing_column_names_itself():
     del t["n_hbond"]
     with pytest.raises(KeyError, match="n_hbond"):
         q_score(t)
+    # and the remedy is given as a library call, not only as a CLI invocation
+    with pytest.raises(KeyError, match=r"recognition_table\(items, full=True\)"):
+        q_score(t)
 
 
 def test_q_uses_exactly_five_descriptors():

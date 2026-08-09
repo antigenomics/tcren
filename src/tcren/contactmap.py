@@ -110,6 +110,10 @@ class ContactMap:
         """Convenience accessor for the TCR↔peptide interface."""
         return self.interface("tcr_peptide")
 
+    def __repr__(self) -> str:
+        return (f"ContactMap(pdb_id={self.pdb_id!r}, {self.contacts.height} contacts, "
+                f"peptide_length={self.peptide_length})")
+
     def to_csv(self, path: str | Path) -> None:
         """Write the full annotated contact table to CSV."""
         self.contacts.write_csv(str(path))
@@ -215,7 +219,7 @@ def registered_map(structure, *, grid: int = 8, target: str = "peptide",
     return blocks[0] if len(blocks) == 1 else np.stack(blocks)
 
 
-def binding_mode(structure, *, contact: float = 5.0) -> ModeCentroid | None:
+def binding_mode(structure, *, contact: float = 8.0) -> ModeCentroid | None:
     """Length-invariant binding-mode centroid of the CDR3α/β × peptide contact map.
 
     Reduces each loop's contact map to graphon-coordinate centroids: ``apex_x = i/(L+1)`` (where on the
@@ -229,7 +233,9 @@ def binding_mode(structure, *, contact: float = 5.0) -> ModeCentroid | None:
 
     Args:
         structure: a chain-typed structure.
-        contact: closest-Cα contact threshold in Å (the reference used an 8 Å Cα proxy; 5 Å is tighter).
+        contact: Cα–Cα contact threshold in Å (the reference 8 Å Cα proxy). NOT comparable to the
+            closest-heavy-atom 5 Å cutoff used by ``contacts``/``score``: at 5 Å between Cα atoms a
+            genuine interface makes almost no contacts and this returns ``None``.
 
     Returns:
         A :class:`ModeCentroid`, or ``None`` if neither loop makes ``>= 3`` contacts with the peptide.

@@ -86,11 +86,13 @@ def _col(table, name):
     """Fetch a column from a dict / pandas / polars frame as a float array."""
     if hasattr(table, "columns") and not isinstance(table, dict):
         if name not in table.columns:
-            raise KeyError(f"column {name!r} not in table; run `tcren recognize --full`")
+            raise KeyError(f"column {name!r} not in table; build it with "
+                           f"recognition_table(items, full=True) or `tcren recognize --full`")
         col = table[name]
         return np.asarray(col.to_numpy() if hasattr(col, "to_numpy") else col, float)
     if name not in table:
-        raise KeyError(f"column {name!r} not in table; run `tcren recognize --full`")
+        raise KeyError(f"column {name!r} not in table; build it with "
+                       f"recognition_table(items, full=True) or `tcren recognize --full`")
     return np.asarray(table[name], float)
 
 

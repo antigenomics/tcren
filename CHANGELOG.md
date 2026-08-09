@@ -5,6 +5,42 @@ All notable changes to `tcren` are recorded here. Format follows
 
 ## [Unreleased]
 
+## [2.6.0] — 2026-08-09
+
+### Fixed
+- **An installed tcren can orient again.** `fetch-data` downloads `Canonical2026`'s 374 structures
+  but never its `orient_metadata.json`, which is not on the Hub — it was git-tracked in the repo
+  `data/`, so `superimpose` found it in a checkout and nowhere else. Every user path that orients a
+  new complex therefore failed off a maintainer's machine: `run_pipeline` raised, `tcren scoring`
+  hid the same `FileNotFoundError` in an `error` column, and `superimpose`/`shuffle` reported
+  success over empty output. The file now ships in the wheel (`src/tcren/data/`) and
+  `_metadata_path` falls back to it **for the shipped database only**, so a user-supplied `--db` can
+  never be described by someone else's metadata; the `FileNotFoundError` names the command *and* the
+  library call that build a metadata file.
+- **Failures are no longer silent.** `tcren scoring` prints the first error to stderr instead of
+  only counting it, `run_superimpose` raises when *every* input failed rather than reporting
+  "0/N" and exiting 0, and `run_shuffle` raises on an input directory it could not parse instead of
+  writing zero decoys.
+- **`substitute_peptide` keeps the peptide's region markup**, re-pointed at the new residues. Without
+  it the contact map's `pos.from`/`pos.to` are null and `score_peptides` died on
+  `int(None)` — the reason scoring a substituted peptide crashed. `score_peptides` now names the
+  missing markup instead of raising a `TypeError` out of numpy.
+- **`binder_score` names the missing descriptor** and how to build the input; the cohort column
+  errors give the library call (`recognition_table(items, full=True)`) beside the CLI one.
+- **`Structure`, `Chain` and `ContactMap` print a summary.** The dataclass repr expanded every atom
+  and its coordinate — 474,504 characters for one complex — which floods a notebook cell and makes
+  any error message that interpolates a structure unreadable.
+
+### Changed
+- **`tcren orient` writes `<out>/orient_metadata.json` by default** (was `orient_metadata.csv` in the
+  working directory), so a database built by `orient` describes itself in the format `superimpose`
+  reads. `--metadata` still takes a path, and a `.csv` suffix still writes CSV.
+- **`binding_mode`'s default `contact` is 8.0 Å, up from 5.0.** The cutoff is a Cα–Cα distance, not
+  the closest-heavy-atom 5 Å of `contacts`/`score`, so the old default made almost no contacts and
+  returned `None` on real complexes — 8 Å is the reference proxy the docstring already cited.
+- **`annotate_batch`'s `arda` argument is optional**, resolved lazily like every single-structure
+  annotation call. Passing an instance still reuses one mmseqs handle across a batch.
+
 ## [2.5.0] — 2026-07-28
 
 ### Fixed

@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from tcren.structure.model import Chain, Structure
-from tcren.shuffle import graft_tcr, make_decoys, mhc_class, _tcr_chains, _pmhc_chains
+from tcren.shuffle import graft_tcr, make_decoys, mhc_class, run_shuffle, _tcr_chains, _pmhc_chains
 
 
 def _mk(pid: str, cls: str = "MHCI") -> Structure:
@@ -72,3 +72,9 @@ def test_make_decoys_reproducible():
     a = [d.pdb_id for d in make_decoys(structs, n_per=2, seed=7)]
     b = [d.pdb_id for d in make_decoys(structs, n_per=2, seed=7)]
     assert a == b
+
+
+def test_run_shuffle_says_so_when_nothing_parsed(tmp_path):
+    # Writing 0 decoys and reporting success is how an unusable input dir went unnoticed.
+    with pytest.raises(ValueError, match="ORIENTED"):
+        run_shuffle(tmp_path, tmp_path / "out")

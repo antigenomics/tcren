@@ -79,6 +79,12 @@ def test_binding_mode_keeps_loops_separate(complex_1ao7):
     assert not math.isclose(m.y_alpha, m.y_beta)                           # never pooled — the split is the point
 
 
+def test_binding_mode_default_cutoff_resolves_a_crystal(complex_1ao7):
+    # The cutoff is Cα–Cα, so a 5 Å default returned None on every real complex.
+    m = binding_mode(complex_1ao7)          # no explicit cutoff — the shipped default must work
+    assert m is not None and 0.3 < m.apex_x < 0.7
+
+
 # --- 04 CDR3 internal coordinates -------------------------------------------------------------
 def test_cdr3_internal_coords_lengths_and_physics(complex_1ao7):
     ic = geometry.cdr3_internal_coords(complex_1ao7, "cdr3b")

@@ -67,7 +67,14 @@ def score_peptides(
     iface = contact_map.interface(interface, tcr_regions=tcr_regions)
     matrix, index = potential.as_matrix()
 
-    pos = np.asarray(iface[f"pos.{side}"].to_list(), dtype=np.int64)
+    pos_col = iface[f"pos.{side}"]
+    if pos_col.null_count():
+        raise ValueError(
+            f"{pos_col.null_count()} of {len(pos_col)} contacts have no 'pos.{side}': the "
+            f"'{side}' chain carries no region markup. Run tcren.annotation.classify_chains("
+            "structure) (and tcren.mhc.annotate_mhc for an MHC side) before ContactMap.from_structure."
+        )
+    pos = np.asarray(pos_col.to_list(), dtype=np.int64)
     fixed_aa = iface[f"residue.aa.{fixed}"].to_list()
     fixed_idx = np.array([index.get(a, -1) for a in fixed_aa], dtype=np.int64)
 
