@@ -40,13 +40,16 @@ def _atom_arrays(structure: Structure):
 
 
 def all_atom_contacts(
-    structure: Structure, cutoff: float = 5.0, count_atoms: bool = False
+    structure: Structure,
+    cutoff: float = 5.0,
+    count_atoms: bool = False,
+    scope: str = "inter",
 ) -> pl.DataFrame:
-    """Closest inter-chain atom contact for each residue pair within ``cutoff`` Å.
+    """Closest atom contact for each residue pair within ``cutoff`` Å.
 
-    For every pair of residues on different chains that have at least one heavy-atom
-    pair within ``cutoff`` (inclusive, matching the legacy ``dist <= 5``), the row with
-    the minimum atom–atom distance is kept.
+    For every pair of residues that have at least one heavy-atom pair within ``cutoff``
+    (inclusive, matching the legacy ``dist <= 5``), the row with the minimum atom–atom
+    distance is kept.
 
     Args:
         structure: The (parsed) structure.
@@ -56,6 +59,13 @@ def all_atom_contacts(
             for any kept row, and ``>=`` the single closest-atom row this function keeps).
             Default ``False`` keeps the schema and every value byte-identical to the
             legacy output.
+        scope: Which residue pairs to keep. ``"inter"`` (default) keeps only pairs on
+            different chains, which is what every interface score in the package is
+            built on and what the legacy output contained. ``"intra"`` keeps only pairs
+            within one chain, and ``"all"`` keeps both. Intra-chain pairs include
+            sequence neighbours, which are in contact by covalent geometry rather than
+            by folding — filter on sequence separation before interpreting them
+            (:func:`peptide_internal_contacts` does this).
 
     Returns:
         Columns: ``chain.id.from``, ``residue.index.from``, ``chain.id.to``,
@@ -87,8 +97,16 @@ def all_atom_contacts(
         return pl.DataFrame(schema=schema)
 
     i, j = pairs[:, 0], pairs[:, 1]
-    inter = chain_ids[i] != chain_ids[j]
-    i, j = i[inter], j[inter]
+    if scope not in ("inter", "intra", "all"):
+        raise ValueError(f"scope must be 'inter', 'intra' or 'all', got {scope!r}")
+    if scope != "all":
+        same_chain = chain_ids[i] == chain_ids[j]
+        keep = same_chain if scope == "intra" else ~same_chain
+        i, j = i[keep], j[keep]
+    if scope != "inter":
+        # Two atoms of one residue are not a contact between residues.
+        distinct = (chain_ids[i] != chain_ids[j]) | (res_idx[i] != res_idx[j])
+        i, j = i[distinct], j[distinct]
     if len(i) == 0:
         return pl.DataFrame(schema=schema)
 
@@ -125,6 +143,50 @@ def all_atom_contacts(
     # Keep the closest atom pair per residue pair.
     df = df.sort("dist").group_by(group_keys, maintain_order=True).first()
     return df.select(list(schema.keys()))
+
+
+def peptide_internal_contacts(
+    structure: Structure,
+    cutoff: float = 4.0,
+    min_seq_sep: int = 3,
+    count_atoms: bool = True,
+) -> pl.DataFrame:
+    """Contacts *within* the peptide chain — the term every interface score omits.
+
+    Every energy in this package sums over inter-chain contacts only, so a peptide that
+    is held in a particular conformation by its own side chains scores the same as one
+    that is not. This returns those omitted pairs, so that assumption can be tested
+    rather than inherited.
+
+    Sequence neighbours are in contact because they are bonded, not because the peptide
+    folded that way, so pairs closer than ``min_seq_sep`` in sequence are dropped; the
+    default of 3 keeps ``i``/``i+3`` and beyond, which is the shortest separation that
+    can carry a side-chain-to-side-chain interaction across a turn. The default cutoff
+    of 4.0 Å is the van der Waals convention used for intra-peptide contacts in the
+    structural literature, not the 5.0 Å used for interfaces.
+
+    Args:
+        structure: The (parsed, annotated) structure; the chain typed ``PEPTIDE`` is used.
+        cutoff: Contact distance threshold (Å, inclusive).
+        min_seq_sep: Minimum ``|i - j|`` in residue index for a pair to be kept.
+        count_atoms: Carry the ``n_atom_contacts`` heavy-atom-pair count (default ``True``
+            here, since the count is the quantity of interest for an internal contact).
+
+    Returns:
+        The :func:`all_atom_contacts` schema, restricted to the peptide chain.
+        Empty (with schema) when the structure has no ``PEPTIDE`` chain.
+    """
+    peptide = next((c for c in structure.chains if c.chain_type == "PEPTIDE"), None)
+    contacts = all_atom_contacts(
+        structure, cutoff=cutoff, count_atoms=count_atoms, scope="intra"
+    )
+    if peptide is None:
+        return contacts.clear()
+    return contacts.filter(
+        (pl.col("chain.id.from") == peptide.chain_id)
+        & (pl.col("chain.id.to") == peptide.chain_id)
+        & ((pl.col("residue.index.to") - pl.col("residue.index.from")).abs() >= min_seq_sep)
+    )
 
 
 def _representative_arrays(structure: Structure, kind: str):

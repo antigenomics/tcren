@@ -18,7 +18,7 @@ from . import geometry, torsions
 from .contactmap import ContactMap, ModeCentroid, binding_mode, registered_map
 from .geometry import LoopInternalCoords, cdr3_internal_coords
 from .torsions import cdr3_torsions, chain_torsions, residue_torsions
-from .contacts import all_atom_contacts, ca_distance_matrix
+from .contacts import all_atom_contacts, ca_distance_matrix, peptide_internal_contacts
 from .cpl import (ResponseMatrix, equimolar_effect, mutation_effect, position_scan,
                   response_matrix)
 from .ddg import alanine_scan, ddg, neoantigen_ddg, reference_delta
@@ -56,6 +56,7 @@ __all__ = [
     "import_structure",
     "Structure",
     "all_atom_contacts",
+    "peptide_internal_contacts",
     "ca_distance_matrix",
     "ContactMap", "ModeCentroid", "binding_mode", "registered_map", "geometry", "torsions",
     "cdr3_internal_coords", "LoopInternalCoords",
