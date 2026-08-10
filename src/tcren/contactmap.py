@@ -15,7 +15,7 @@ from typing import Literal
 import polars as pl
 
 from .contacts.geometry import peptide_internal_contacts
-from .contacts.table import annotate_contacts, tidy_contacts
+from .contacts.table import tidy_contacts
 from .structure.model import MHC_TYPES, PEPTIDE_TYPE, RECEPTOR_TYPES, Structure
 
 Interface = Literal["tcr_peptide", "tcr_mhc", "peptide_mhc"]
@@ -61,7 +61,7 @@ class ContactMap:
         Default ``False`` keeps the contacts table byte-identical to the legacy output.
 
         When ``peptide_internal`` is set, the peptide's contacts with itself are collected
-        into :attr:`peptide_internal` (at the 4 Å / 3-residue-separation defaults of
+        into :attr:`peptide_internal` (at the 5 Å / 3-residue-separation defaults of
         :func:`tcren.peptide_internal_contacts` — call that directly to vary them). They are
         needed by the intra-peptide energy term (``intra_weight`` on
         :func:`tcren.score_peptides` and :func:`tcren.pipeline.run`) and are stored apart
@@ -76,12 +76,16 @@ class ContactMap:
         )
         internal = None
         if peptide_internal:
-            internal = annotate_contacts(
-                peptide_internal_contacts(structure, count_atoms=count_atoms), structure
+            # Position within the peptide, which is what a candidate sequence is indexed by.
+            # replace_strict raises on a residue that is not in the peptide chain; by
+            # construction there are none, so it costs nothing and pins the assumption.
+            peptide = next((c for c in structure.chains if c.chain_type == PEPTIDE_TYPE), None)
+            pos = {r.seq_index: i for i, r in enumerate(peptide.residues)} if peptide else {}
+            internal = peptide_internal_contacts(
+                structure, count_atoms=count_atoms
             ).with_columns(
-                (pl.col("residue.index.from") - pl.col("region.start.from")).alias("pos.from"),
-                (pl.col("residue.index.to") - pl.col("region.start.to")).alias("pos.to"),
-                pl.lit(structure.pdb_id).alias("pdb.id"),
+                pl.col("residue.index.from").replace_strict(pos, return_dtype=pl.Int64).alias("pos.from"),
+                pl.col("residue.index.to").replace_strict(pos, return_dtype=pl.Int64).alias("pos.to"),
             )
         return cls(pdb_id=structure.pdb_id, contacts=df, peptide_length=peptide_length,
                    peptide_internal=internal)

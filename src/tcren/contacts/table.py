@@ -69,13 +69,22 @@ def symmetrize(contacts: pl.DataFrame) -> pl.DataFrame:
     return pl.concat([contacts, swapped])
 
 
-def annotate_contacts(contacts: pl.DataFrame, structure: Structure) -> pl.DataFrame:
-    """Attach chain type, region type, region start and supertype to both contact sides.
+def tidy_contacts(
+    structure: Structure, cutoff: float = 5.0, count_atoms: bool = False
+) -> pl.DataFrame:
+    """Symmetrised, fully annotated contact table for a structure.
 
-    The join half of :func:`tidy_contacts`, separated so a contact table that must **not**
-    be symmetrised (the intra-chain pairs of :func:`tcren.peptide_internal_contacts`, where
-    each unordered pair is meant to appear once) can carry the same annotation columns.
+    Each inter-chain residue contact appears in both directions, with chain type,
+    region type, region start and amino acid attached on both the ``from`` and ``to``
+    sides — the input to :class:`tcren.contactmap.ContactMap`.
+
+    When ``count_atoms`` is set, the ``n_atom_contacts`` per-residue-pair heavy-atom
+    count is carried through (it is symmetric, so it survives the from/to swap
+    unchanged). Default ``False`` keeps the table byte-identical to the legacy output.
     """
+    contacts = symmetrize(
+        all_atom_contacts(structure, cutoff=cutoff, count_atoms=count_atoms)
+    )
     ann = residue_annotation(structure)
 
     from_ann = ann.rename(
@@ -106,22 +115,3 @@ def annotate_contacts(contacts: pl.DataFrame, structure: Structure) -> pl.DataFr
         .drop("residue.aa.from.ann", "residue.aa.to.ann")
     )
     return out
-
-
-def tidy_contacts(
-    structure: Structure, cutoff: float = 5.0, count_atoms: bool = False
-) -> pl.DataFrame:
-    """Symmetrised, fully annotated contact table for a structure.
-
-    Each inter-chain residue contact appears in both directions, with chain type,
-    region type, region start and amino acid attached on both the ``from`` and ``to``
-    sides — the input to :class:`tcren.contactmap.ContactMap`.
-
-    When ``count_atoms`` is set, the ``n_atom_contacts`` per-residue-pair heavy-atom
-    count is carried through (it is symmetric, so it survives the from/to swap
-    unchanged). Default ``False`` keeps the table byte-identical to the legacy output.
-    """
-    return annotate_contacts(
-        symmetrize(all_atom_contacts(structure, cutoff=cutoff, count_atoms=count_atoms)),
-        structure,
-    )

@@ -32,11 +32,12 @@ All notable changes to `tcren` are recorded here. Format follows
     bound conformation, shared by every TCR that reads it, so `descriptors(tcr_only=True)` excludes
     them like the other cohort-identity columns.
 
-  **The term is sparse, by construction.** At the 4 Å / `|i−j| ≥ 3` defaults, a canonical extended
-  class-I 9-mer makes **zero or one** internal contact: over the 17 deposited complexes in
-  `tests/assets/pdb` the totals are 11 contacts at `|i−j| ≥ 3` against 134 at `|i−j| ≥ 2`, and that
-  tenfold jump is entirely `i`/`i+2` pairs of an extended chain — covalent geometry, not folding.
-  So the term separates candidates only where the peptide is genuinely bulged or packed against
+  **The term is sparse, by construction.** At the 5 Å / `|i−j| ≥ 3` defaults — the same contact
+  definition the rest of the package uses — a canonical extended class-I 9-mer makes **zero to two**
+  internal contacts: over the 17 deposited complexes in `tests/assets/pdb` the totals are 18
+  contacts at `|i−j| ≥ 3` against 134 at `|i−j| ≥ 2`, and that sevenfold jump is entirely `i`/`i+2`
+  pairs of an extended chain — covalent geometry, not folding, which is what the separation floor is
+  for. So the term separates candidates only where the peptide is genuinely bulged or packed against
   itself, which is the case the interface sum cannot see at all.
 
   **Everything above is off by default and changes nothing when it is.** `scope="inter"` is pinned

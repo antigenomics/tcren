@@ -386,25 +386,20 @@ def score(
 
     ``--intra-weight`` adds the term the interface sum omits: a candidate threaded onto the
     template's peptide conformation also pays for the contacts that conformation makes it have
-    with **itself** (4 Å, sequence separation >= 3, MJ). It is off by default; a class-I 9-mer is
-    extended and typically makes one or two such contacts, so it separates candidates only where
-    the peptide is genuinely bulged or self-packed.
+    with **itself** (5 Å, sequence separation >= 3, MJ). It is off by default; a class-I 9-mer is
+    extended and makes zero to two such contacts, so it separates candidates only where the peptide
+    is genuinely bulged or self-packed.
     """
     if regions not in TCR_REGIONS:
         raise typer.BadParameter("--regions must be one of all|cdr|cdr+fr")
     pot = _load_potential(potential)
     cands = _read_candidates(candidates)
-    intra_pot = None
-    if intra_weight:
-        from .potential import mj
-
-        intra_pot = mj()
     frames = []
     for _pid, s in iter_structures(structures, importer=parse_structure):
         classify_chains(s, organism=organism)
         cm = ContactMap.from_structure(s, cutoff=cutoff, peptide_internal=bool(intra_weight))
         frames.append(score_peptides(cm, cands, pot, interface=interface, tcr_regions=regions,
-                                     intra_weight=intra_weight, intra_potential=intra_pot))
+                                     intra_weight=intra_weight))
     result = pl.concat(frames) if frames else pl.DataFrame()
     result.write_csv(str(out))
     typer.echo(f"The ranked list of candidate epitopes can be found in {out}")
@@ -760,7 +755,7 @@ def scoring(
     where raw Φ partly reads the pose geometry rather than the peptide sequence.
 
     ``--intra-weight w`` adds the term the three interface sums omit — ``F_pep_int``, the peptide's
-    contact energy with **itself** (4 Å, sequence separation >= 3, MJ) — and folds ``w x F_pep_int``
+    contact energy with **itself** (5 Å, sequence separation >= 3, MJ) — and folds ``w x F_pep_int``
     into ``F_total``. The energy is reported raw, so the term and the weight stay separable.
 
     ``--geometry`` appends the interface descriptors (buried surface ``burial``, peptide

@@ -147,7 +147,7 @@ def all_atom_contacts(
 
 def peptide_internal_contacts(
     structure: Structure,
-    cutoff: float = 4.0,
+    cutoff: float = 5.0,
     min_seq_sep: int = 3,
     count_atoms: bool = True,
 ) -> pl.DataFrame:
@@ -161,9 +161,9 @@ def peptide_internal_contacts(
     Sequence neighbours are in contact because they are bonded, not because the peptide
     folded that way, so pairs closer than ``min_seq_sep`` in sequence are dropped; the
     default of 3 keeps ``i``/``i+3`` and beyond, which is the shortest separation that
-    can carry a side-chain-to-side-chain interaction across a turn. The default cutoff
-    of 4.0 Å is the van der Waals convention used for intra-peptide contacts in the
-    structural literature, not the 5.0 Å used for interfaces.
+    can carry a side-chain-to-side-chain interaction across a turn. The 5.0 Å default is
+    the same contact definition the rest of the package uses, so an internal contact and
+    an interface contact mean the same thing.
 
     Args:
         structure: The (parsed, annotated) structure; the chain typed ``PEPTIDE`` is used.

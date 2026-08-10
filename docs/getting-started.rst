@@ -151,9 +151,9 @@ Case studies
 * **Charge the candidate for its own conformation.** Every interface energy sums over contacts
   between two *different* chains, so a candidate held in the template's peptide conformation by its
   own side chains costs the same as one that is not. ``tcren score --intra-weight w`` adds that
-  omitted term. It is sparse by design — an extended class-I 9-mer makes zero or one internal
-  contact at 4 Å with sequence separation ≥ 3 — so it separates candidates only where the peptide is
-  genuinely bulged or self-packed. See :func:`tcren.intra_peptide_energy`.
+  omitted term. It is sparse by design — an extended class-I 9-mer makes zero to two internal
+  contacts at 5 Å with sequence separation ≥ 3 — so it separates candidates only where the peptide
+  is genuinely bulged or self-packed. See :func:`tcren.intra_peptide_energy`.
 
 * **Neoantigen / alanine ΔΔG.** ``tcren ddg`` re-scores mutants on the native contacts:
   ``--alanine-scan`` for a per-position sensitivity profile, or ``--mutant`` (repeatable) for

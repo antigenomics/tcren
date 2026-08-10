@@ -175,10 +175,10 @@ QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses ar
   omission, and it is **off everywhere by default** — `scope="inter"`, `peptide_internal=False`,
   `intra_weight=0.0` all reproduce the previous output byte-for-byte.
 - `all_atom_contacts(..., scope="inter"|"intra"|"all")`; `peptide_internal_contacts(structure,
-  cutoff=4.0, min_seq_sep=3)` is the intra case plus the separation filter. **4 Å, not 5** (the vdW
-  convention for intra-chain contacts, vs the interface 5 Å), and `|i−j| ≥ 3` because sequence
-  neighbours touch by covalent geometry: over `tests/assets/pdb` the totals are 11 contacts at
-  `|i−j| ≥ 3` vs 134 at `|i−j| ≥ 2`, the jump being `i`/`i+2` pairs of an extended chain.
+  cutoff=5.0, min_seq_sep=3)` is the intra case plus the separation filter. Same 5 Å as everywhere
+  else, so an internal and an interface contact mean the same thing; `|i−j| ≥ 3` is what does the
+  filtering, because sequence neighbours touch by covalent geometry — over `tests/assets/pdb` the
+  totals are 18 contacts at `|i−j| ≥ 3` vs 134 at `|i−j| ≥ 2`, the jump being `i`/`i+2` pairs.
 - `intra_peptide_energy(cm, pot, peptide=None, contact_weight="residue") -> float`; needs
   `ContactMap.from_structure(..., peptide_internal=True)` (which stores the pairs *beside* `contacts`,
   never in it). `peptide=` threads a candidate onto the structure's peptide positions.
@@ -191,7 +191,7 @@ QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses ar
   `tcren scoring --intra-weight` (reports `F_pep_int` raw, folds w·it into `F_total`; potential
   overridable via `potentials={"peptide_internal": …}`); `tcren recognize --full` (`F_pep_int`,
   `n_pep_int`, catalogued `involves_tcr=False` — the peptide's own conformation is cohort identity).
-- **Expect a sparse term.** A canonical extended class-I 9-mer makes 0–1 internal contacts, so it only
+- **Expect a sparse term.** A canonical extended class-I 9-mer makes 0–2 internal contacts, so it only
   separates candidates where the peptide is genuinely bulged or self-packed. Untested as a ranking
   signal — it is exposed so the assumption can be measured rather than inherited.
 

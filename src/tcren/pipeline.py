@@ -32,11 +32,6 @@ from .structure.model import PEPTIDE_TYPE, Structure
 # Interface → potential family (TCRen for the TCR↔peptide contact map; MJ elsewhere).
 _INTERFACE_POTENTIAL = {"tcr_peptide": "tcren", "tcr_mhc": "mj", "peptide_mhc": "mj"}
 
-# The intra-peptide term is not an interface — it is off by default and stays out of the loop that
-# builds the three interface scores. MJ, because TCRen is derived from TCR↔peptide contacts and says
-# nothing about the contacts a chain makes with itself.
-_PEPTIDE_INTERNAL_POTENTIAL = {"peptide_internal": "mj"}
-
 # Bundled potential loaders, keyed by the name accepted in the ``potentials`` spec.
 _BUNDLED_POTENTIALS = {"tcren": tcren, "mj": mj, "keskin": keskin}
 
@@ -69,7 +64,10 @@ def _resolve_potentials(
         return Potential.from_csv(value)
 
     resolved: dict[str, Potential] = {}
-    for iface, default_fam in {**_INTERFACE_POTENTIAL, **_PEPTIDE_INTERNAL_POTENTIAL}.items():
+    # The intra-peptide term is resolvable but is not an interface: it stays out of
+    # _INTERFACE_POTENTIAL, which drives the three scores and the total. MJ, because TCRen is
+    # derived from TCR↔peptide contacts and says nothing about a chain's contacts with itself.
+    for iface, default_fam in {**_INTERFACE_POTENTIAL, "peptide_internal": "mj"}.items():
         value = spec.get(iface)
         resolved[iface] = _load(default_fam if value is None else value)
     return resolved

@@ -126,8 +126,8 @@ tcren score -s complex.pdb -c candidates.txt -o ranked.csv --regions cdr+fr
 
 # Opt-in intra-peptide term: every interface energy sums over contacts between two DIFFERENT
 # chains, so a candidate held in the template's conformation by its own side chains costs the
-# same as one that is not. --intra-weight w adds score = Φ + w·E_intra (4 Å, |i-j| >= 3, MJ).
-# Sparse by design: an extended class-I 9-mer makes zero or one internal contact. w=0 = off.
+# same as one that is not. --intra-weight w adds score = Φ + w·E_intra (5 Å, |i-j| >= 3, MJ).
+# Sparse by design: an extended class-I 9-mer makes zero to two internal contacts. w=0 = off.
 tcren score -s complex.pdb -c candidates.txt -o ranked.csv --intra-weight 0.5
 tcren scoring -s complex.pdb -o scores.csv --intra-weight 0.5   # reports F_pep_int separately
 

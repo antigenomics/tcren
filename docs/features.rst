@@ -319,17 +319,17 @@ The three interface energies above all sum over contacts between two **different
 peptide held in its bound conformation by its own side chains costs the same as one that is not.
 :func:`tcren.intra_peptide_energy` is that omitted term, and ``recognize --full`` emits it
 (:data:`~tcren.recognition.PEPTIDE_INTERNAL_FEATURES`). It is computed over
-:func:`tcren.peptide_internal_contacts` — heavy atoms within 4 Å, sequence separation ≥ 3 — under a
+:func:`tcren.peptide_internal_contacts` — heavy atoms within 5 Å, sequence separation ≥ 3 — under a
 **symmetrised** potential, since an intra-chain pair has no ``from``/``to`` orientation to respect.
 
-Two conventions carry the weight here. The 4 Å cutoff is the van der Waals convention for
-intra-chain contacts rather than the 5 Å used for interfaces. The separation floor excludes pairs
-that touch because they are bonded: over the 17 deposited complexes in ``tests/assets/pdb`` the
-count is 11 contacts at ``|i−j| ≥ 3`` and 134 at ``|i−j| ≥ 2``, and that tenfold jump is the
-``i``/``i+2`` pairs of an extended chain, which are geometry rather than folding.
+The 5 Å cutoff is the same contact definition the rest of the package uses, so an internal contact
+and an interface contact mean the same thing. The separation floor is what does the work: it
+excludes pairs that touch because they are bonded. Over the 17 deposited complexes in
+``tests/assets/pdb`` the count is 18 contacts at ``|i−j| ≥ 3`` and 134 at ``|i−j| ≥ 2``, and that
+sevenfold jump is the ``i``/``i+2`` pairs of an extended chain — geometry rather than folding.
 
-That also sets expectations for the term's size: a canonical extended class-I 9-mer makes **zero or
-one** internal contact, so this separates candidates only where the peptide is genuinely bulged or
+That also sets expectations for the term's size: a canonical extended class-I 9-mer makes **zero to
+two** internal contacts, so this separates candidates only where the peptide is genuinely bulged or
 packed against itself. It is off everywhere by default.
 
 .. list-table::
