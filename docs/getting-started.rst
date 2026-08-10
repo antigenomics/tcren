@@ -148,6 +148,13 @@ Case studies
   native contact map (no re-docking) — the drop-in for the original ``run_TCRen.R``. Add
   ``tcren rank`` to place the top hit's energy in a random-background percentile.
 
+* **Charge the candidate for its own conformation.** Every interface energy sums over contacts
+  between two *different* chains, so a candidate held in the template's peptide conformation by its
+  own side chains costs the same as one that is not. ``tcren score --intra-weight w`` adds that
+  omitted term. It is sparse by design — an extended class-I 9-mer makes zero or one internal
+  contact at 4 Å with sequence separation ≥ 3 — so it separates candidates only where the peptide is
+  genuinely bulged or self-packed. See :func:`tcren.intra_peptide_energy`.
+
 * **Neoantigen / alanine ΔΔG.** ``tcren ddg`` re-scores mutants on the native contacts:
   ``--alanine-scan`` for a per-position sensitivity profile, or ``--mutant`` (repeatable) for
   specific neoantigen substitutions. Positive ΔΔG = stabilising (the mutant scores lower).
@@ -210,6 +217,18 @@ Score candidate epitopes against a structure:
    classify_chains(structure, organism="human")      # TRA/TRB via arda, peptide, MHC
    contact_map = ContactMap.from_structure(structure)
    ranked = score_peptides(contact_map, ["KQWLVWLFL", "RLLHPHHPL"], tcren())
+
+Charge each candidate for the contacts it makes with itself as well (off by default):
+
+.. code-block:: python
+
+   from tcren import intra_peptide_energy
+   from tcren.potential import mj
+
+   contact_map = ContactMap.from_structure(structure, peptide_internal=True)
+   ranked = score_peptides(contact_map, ["KQWLVWLFL", "RLLHPHHPL"], tcren(),
+                           intra_weight=0.5, intra_potential=mj())
+   intra_peptide_energy(contact_map, mj())          # the term alone, for the native peptide
 
 Iterate over a batch (file, directory, or ``.tar.gz``):
 

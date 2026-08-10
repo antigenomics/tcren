@@ -124,6 +124,13 @@ tcren scoring -s complex.pdb -o scores.csv --tcr-mhc-potential keskin
 # contribute on the TCR side (cdr = CDR1-3 only; cdr+fr adds FR1-3; all = unfiltered, default).
 tcren score -s complex.pdb -c candidates.txt -o ranked.csv --regions cdr+fr
 
+# Opt-in intra-peptide term: every interface energy sums over contacts between two DIFFERENT
+# chains, so a candidate held in the template's conformation by its own side chains costs the
+# same as one that is not. --intra-weight w adds score = Φ + w·E_intra (4 Å, |i-j| >= 3, MJ).
+# Sparse by design: an extended class-I 9-mer makes zero or one internal contact. w=0 = off.
+tcren score -s complex.pdb -c candidates.txt -o ranked.csv --intra-weight 0.5
+tcren scoring -s complex.pdb -o scores.csv --intra-weight 0.5   # reports F_pep_int separately
+
 # Percentile-rank the native (or candidate) peptide's TCRen energy against a random pMHC
 # background — small rank_pct = the peptide scores among the best binders.
 tcren rank -s complex.pdb -o rank.csv
@@ -220,6 +227,7 @@ tcren recognize -s my_pdbs/ -o feats.tsv --features-only   # descriptors only, s
 | what you want | columns in `recognize.tsv` |
 |---|---|
 | **(a) energy** — `F` per interface (TCRen on TCR:peptide, MJ on presentation) + poly-alanine `dF` + loop parts | `F_tcr_pep`, `F_tcr_mhc`, `F_pep_mhc`, `dF_tcr_pep`, `dF_pep_mhc`, `F_cdr12`, `F_cdr3a`, `F_cdr3b` |
+| **(a′) intra-peptide** (`--full`) — the peptide's contacts with *itself*, which every interface sum omits | `F_pep_int`, `n_pep_int` |
 | **(b) geometry** — every docking + interface descriptor | `pitch`, `crossing`, `crossing_signed`, `dock_d`, `dock_torsion`, `dock_{tcr,mhc}_u{y,z}`, `extent`, `chain_balance`, `burial`, `n_contacts_{tp,tm}`, `n_pep_contacted`, `ct_{tp,tm}_*` |
 | **(c) fit-free scores** (`--scores`, recommended) — cohort-relative, no training set | `q_bind` — binder-ID `Q`; `s_strain` — forced-pose grade. See [`tcren.cohort`](src/tcren/cohort.py) |
 | **(d) joint P(real)** ~ Bayesian model over energy + geometry | `p_real` — distribution-aware Bayesian **logistic** (5-fold CV AUC 0.885); `p_real_bn` — the Gaussian **BN** variant |
@@ -278,6 +286,16 @@ s = parse_structure("complex.pdb.gz")          # also .cif/.cif.gz; import_struc
 classify_chains(s, organism="human")           # TRA/TRB via arda, peptide, MHC
 cm = ContactMap.from_structure(s)              # 5 Å contacts + interface partitioning
 ranked = score_peptides(cm, ["KQWLVWLFL", "RLLHPHHPL"], tcren())
+
+# Opt-in intra-peptide term: the contacts the peptide makes with ITSELF, which every
+# interface energy omits. Off by default (intra_weight=0 leaves every score untouched).
+from tcren import intra_peptide_energy
+from tcren.potential import mj
+cm = ContactMap.from_structure(s, peptide_internal=True)
+intra_peptide_energy(cm, mj())                                  # the native peptide's own energy
+intra_peptide_energy(cm, mj(), peptide="KQWLVWLFL")             # a candidate on the same pose
+score_peptides(cm, cands, tcren(), intra_weight=0.5, intra_potential=mj())
+res = run_pipeline("complex.pdb", intra_weight=0.5)             # + scores["peptide_internal"]
 ```
 
 ### CPL response matrices from one template structure

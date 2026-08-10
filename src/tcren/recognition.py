@@ -397,6 +397,13 @@ _TCR_TYPES = ("TRA", "TRB", "TRG", "TRD")
 #: = ``|α−β|`` whole-CDR normalised (absolute). See :func:`_interface_symmetry`.
 INTERFACE_SYMMETRY_FEATURES = ("cdr3_dominance", "cdr3_ab_imbalance", "chain_cdr_imbalance")
 
+#: The intra-peptide term, emitted as extra ``recognize --full`` output columns — **not** part of
+#: :data:`RECOGNITION_FEATURES` (the frozen models' 35-vector is fixed). ``F_pep_int`` = the peptide's
+#: MJ contact energy with **itself** (:func:`tcren.intra_peptide_energy`), the term every interface
+#: sum omits; ``n_pep_int`` = how many such contacts there are. Both are properties of the pMHC alone
+#: — no receptor enters them — so they carry cohort identity; see :data:`DESCRIPTORS`.
+PEPTIDE_INTERNAL_FEATURES = ("F_pep_int", "n_pep_int")
+
 #: CDR3-local frame features (18), the FramePose layer the whole-TCR :data:`RECOGNITION_FEATURES` miss.
 #: Per loop, relative to the pMHC groove frame (u, w, n; origin = peptide Cα centroid):
 #: ``reach`` = |loop centroid − origin|; ``o{u,w,n}`` = unit(centroid−origin)·(u,w,n) (where over the
@@ -483,6 +490,9 @@ DESCRIPTORS: dict[str, tuple[str, bool]] = {
     # peptide:MHC energy and its poly-alanine reference: presentation, no receptor
     "F_pep_mhc": ("physics", False),
     "dF_pep_mhc": ("physics", False),
+    # the peptide's contacts with itself: a property of the epitope's bound conformation alone
+    "F_pep_int": ("physics", False),
+    "n_pep_int": ("geometry", False),
     # -- kinetics: contact fragility (``recognize``) -------------------------------------------
     "exp_lost": ("kinetics", True),
     "mean_margin": ("kinetics", True),
@@ -836,6 +846,22 @@ def _symmetry_columns(s) -> dict[str, float]:
         return {k: math.nan for k in INTERFACE_SYMMETRY_FEATURES}
 
 
+def _peptide_internal_columns(s) -> dict[str, float]:
+    """Intra-peptide extra output columns (:data:`PEPTIDE_INTERNAL_FEATURES`) for the recognize table.
+
+    The peptide's MJ contact energy with itself and the number of those contacts — the term the three
+    interface energies leave out. NaN/0 where the structure has no peptide chain."""
+    from .contactmap import ContactMap
+    from .potential import mj as _mj
+    from .scoring import intra_peptide_energy
+    try:
+        cm = ContactMap.from_structure(s, peptide_internal=True)
+        return {"F_pep_int": float(intra_peptide_energy(cm, _mj())),
+                "n_pep_int": float(cm.peptide_internal.height)}
+    except Exception:  # noqa: BLE001 - no peptide chain etc.
+        return {k: math.nan for k in PEPTIDE_INTERNAL_FEATURES}
+
+
 def recognition_table(items, *, organism: str = "human", full: bool = False, scores: bool = False,
                       with_p_real: bool = True, threads: int = 1, chunk: int = 64,
                       autodetect_species: bool = True, mechanics: bool = False,
@@ -848,7 +874,9 @@ def recognition_table(items, *, organism: str = "human", full: bool = False, sco
     annotation cost — then :func:`recognition_features` (``full=``) is extracted for each. With
     ``with_p_real`` the ``p_real`` / ``p_real_bn`` recognizer columns are added; with ``scores`` the
     fit-free cohort scores ``q_bind`` / ``s_strain`` (**recommended**, see :mod:`tcren.cohort`) plus
-    the fitted ``p_forced`` / ``p_bind`` (retained for reproducibility). Returns one row dict per
+    the fitted ``p_forced`` / ``p_bind`` (retained for reproducibility). ``full`` also appends the
+    intra-peptide columns :data:`PEPTIDE_INTERNAL_FEATURES` (``F_pep_int``, ``n_pep_int``) — the
+    peptide's contact energy with itself, which the interface energies omit. Returns one row dict per
     structure (``complex.id`` + features [+ scores]); a structure that fails yields
     ``{"complex.id": id, "error": ...}`` so the batch stays resilient.
 
@@ -931,6 +959,8 @@ def _featurise_one(args) -> dict:
     try:
         feats = recognition_features(s, organism=organism, full=full, annotate=False)
         row = {"complex.id": id_, **feats, **_stability_clash_columns(s), **_symmetry_columns(s)}
+        if full:                              # the intra-peptide term costs a second contact map
+            row.update(_peptide_internal_columns(s))
         if with_p_real:
             p = real_probability(feats, recognizers=frozen_recognizers())
             row["p_real"], row["p_real_bn"] = float(p["logistic"][0]), float(p["bn"][0])

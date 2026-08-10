@@ -56,8 +56,8 @@ A fourth group, ``score``, holds the fitted and cohort-relative composites (``p_
 the descriptors above and must never be fed back in as inputs, so
 :func:`~tcren.recognition.descriptors` omits them unless ``with_scores=True``.
 
-``involves_tcr`` is ``False`` for exactly three columns — ``F_pep_mhc``, ``dF_pep_mhc`` and
-``mhc_class_bin`` — each computed from the peptide and MHC alone. Two structures of the same epitope
+``involves_tcr`` is ``False`` for five columns — ``F_pep_mhc``, ``dF_pep_mhc``, ``mhc_class_bin``,
+``F_pep_int`` and ``n_pep_int`` — each computed from the peptide and MHC alone. Two structures of the same epitope
 on the same allele share their values whatever the receptor, so such a column carries **cohort
 identity** rather than interface physics, and a model given one can reach a cohort-level label
 without learning anything about recognition. Any analysis whose question is about receptors should
@@ -311,6 +311,63 @@ signal for forced-pose / hallucination detection. Columns are prefixed by loop (
    * - ``ext``
      - Å
      - Loop end-to-end extension ``|Cα_C − Cα_N|``.
+
+The intra-peptide term (``--full``)
+-----------------------------------
+
+The three interface energies above all sum over contacts between two **different** chains, so a
+peptide held in its bound conformation by its own side chains costs the same as one that is not.
+:func:`tcren.intra_peptide_energy` is that omitted term, and ``recognize --full`` emits it
+(:data:`~tcren.recognition.PEPTIDE_INTERNAL_FEATURES`). It is computed over
+:func:`tcren.peptide_internal_contacts` — heavy atoms within 4 Å, sequence separation ≥ 3 — under a
+**symmetrised** potential, since an intra-chain pair has no ``from``/``to`` orientation to respect.
+
+Two conventions carry the weight here. The 4 Å cutoff is the van der Waals convention for
+intra-chain contacts rather than the 5 Å used for interfaces. The separation floor excludes pairs
+that touch because they are bonded: over the 17 deposited complexes in ``tests/assets/pdb`` the
+count is 11 contacts at ``|i−j| ≥ 3`` and 134 at ``|i−j| ≥ 2``, and that tenfold jump is the
+``i``/``i+2`` pairs of an extended chain, which are geometry rather than folding.
+
+That also sets expectations for the term's size: a canonical extended class-I 9-mer makes **zero or
+one** internal contact, so this separates candidates only where the peptide is genuinely bulged or
+packed against itself. It is off everywhere by default.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 16 64
+
+   * - Column
+     - Unit
+     - Description
+   * - ``F_pep_int``
+     - MJ
+     - The peptide's contact energy with **itself**, symmetrised potential. Lower = more
+       favourable, as everywhere in tcren.
+   * - ``n_pep_int``
+     - count
+     - How many such contacts the peptide makes.
+
+As a **scoring term** rather than a descriptor, it is opt-in at each layer, weighted by ``w`` and
+added to the energy it accompanies (``w = 0``, the default, computes nothing and leaves every score
+byte-identical):
+
+.. code-block:: console
+
+   $ tcren score -s c.pdb -c candidates.txt --intra-weight 0.5   # score = Φ_TP + w·E_intra
+   $ tcren scoring -s c.pdb --intra-weight 0.5                   # reports F_pep_int, folds w·it into F_total
+
+.. code-block:: python
+
+   from tcren import ContactMap, intra_peptide_energy, score_peptides
+   from tcren.potential import mj, tcren
+
+   cm = ContactMap.from_structure(structure, peptide_internal=True)   # required for the term
+   intra_peptide_energy(cm, mj())                                     # the native peptide's own energy
+   intra_peptide_energy(cm, mj(), peptide="KQWLVWLFL")                # a candidate threaded onto its pose
+   score_peptides(cm, candidates, tcren(), intra_weight=0.5, intra_potential=mj())
+
+The term's potential defaults to MJ, not TCRen: TCRen is derived from TCR↔peptide contacts and says
+nothing about the contacts a chain makes with itself.
 
 Scores (``--scores``)
 ---------------------

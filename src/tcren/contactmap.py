@@ -14,7 +14,8 @@ from typing import Literal
 
 import polars as pl
 
-from .contacts.table import tidy_contacts
+from .contacts.geometry import peptide_internal_contacts
+from .contacts.table import annotate_contacts, tidy_contacts
 from .structure.model import MHC_TYPES, PEPTIDE_TYPE, RECEPTOR_TYPES, Structure
 
 Interface = Literal["tcr_peptide", "tcr_mhc", "peptide_mhc"]
@@ -36,19 +37,35 @@ class ContactMap:
     pdb_id: str
     contacts: pl.DataFrame
     peptide_length: int | None = None
+    #: Annotated contacts the peptide makes with **itself** (:func:`peptide_internal_contacts`),
+    #: with ``pos.from``/``pos.to`` added — populated only when built with
+    #: ``peptide_internal=True``, and deliberately kept out of ``contacts`` so every interface
+    #: selection and every score built on it is unchanged. ``None`` = not requested.
+    peptide_internal: pl.DataFrame | None = None
     # Per-(interface, tcr_regions) result cache; the table is immutable and the recognition
     # path re-requests the same interface many times per structure.
     _iface_cache: dict = field(default_factory=dict, init=False, repr=False, compare=False)
 
     @classmethod
     def from_structure(
-        cls, structure: Structure, cutoff: float = 5.0, count_atoms: bool = False
+        cls,
+        structure: Structure,
+        cutoff: float = 5.0,
+        count_atoms: bool = False,
+        peptide_internal: bool = False,
     ) -> "ContactMap":
         """Build a contact map from an (annotated) structure.
 
         When ``count_atoms`` is set, the annotated table carries an ``n_atom_contacts``
         per-residue-pair heavy-atom count column (needed for atomic-weighted scoring).
         Default ``False`` keeps the contacts table byte-identical to the legacy output.
+
+        When ``peptide_internal`` is set, the peptide's contacts with itself are collected
+        into :attr:`peptide_internal` (at the 4 Å / 3-residue-separation defaults of
+        :func:`tcren.peptide_internal_contacts` — call that directly to vary them). They are
+        needed by the intra-peptide energy term (``intra_weight`` on
+        :func:`tcren.score_peptides` and :func:`tcren.pipeline.run`) and are stored apart
+        from ``contacts``, which is unaffected either way.
         """
         df = tidy_contacts(
             structure, cutoff=cutoff, count_atoms=count_atoms
@@ -57,7 +74,17 @@ class ContactMap:
             (len(c.residues) for c in structure.chains if c.chain_type == PEPTIDE_TYPE),
             None,
         )
-        return cls(pdb_id=structure.pdb_id, contacts=df, peptide_length=peptide_length)
+        internal = None
+        if peptide_internal:
+            internal = annotate_contacts(
+                peptide_internal_contacts(structure, count_atoms=count_atoms), structure
+            ).with_columns(
+                (pl.col("residue.index.from") - pl.col("region.start.from")).alias("pos.from"),
+                (pl.col("residue.index.to") - pl.col("region.start.to")).alias("pos.to"),
+                pl.lit(structure.pdb_id).alias("pdb.id"),
+            )
+        return cls(pdb_id=structure.pdb_id, contacts=df, peptide_length=peptide_length,
+                   peptide_internal=internal)
 
     def _interface(self, from_types: tuple[str, ...], to_types: tuple[str, ...]) -> pl.DataFrame:
         sel = self.contacts.filter(
