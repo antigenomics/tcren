@@ -380,8 +380,16 @@ def score(
     regions: str = typer.Option("all", "--regions", help="TCR regions on the TCR side: all|cdr|cdr+fr (default: all)"),
     organism: str = typer.Option("human", "--organism"),
     cutoff: float = typer.Option(5.0, "--cutoff"),
+    intra_weight: float = typer.Option(0.0, "--intra-weight", help="weight of the intra-peptide term: score = interface energy + w x the candidate's contact energy with itself (0 = off, the default)"),
 ) -> None:
-    """Score candidate epitopes against input structures (end-to-end pipeline)."""
+    """Score candidate epitopes against input structures (end-to-end pipeline).
+
+    ``--intra-weight`` adds the term the interface sum omits: a candidate threaded onto the
+    template's peptide conformation also pays for the contacts that conformation makes it have
+    with **itself** (5 Å, sequence separation >= 3, MJ). It is off by default; a class-I 9-mer is
+    extended and makes zero to two such contacts, so it separates candidates only where the peptide
+    is genuinely bulged or self-packed.
+    """
     if regions not in TCR_REGIONS:
         raise typer.BadParameter("--regions must be one of all|cdr|cdr+fr")
     pot = _load_potential(potential)
@@ -389,8 +397,9 @@ def score(
     frames = []
     for _pid, s in iter_structures(structures, importer=parse_structure):
         classify_chains(s, organism=organism)
-        cm = ContactMap.from_structure(s, cutoff=cutoff)
-        frames.append(score_peptides(cm, cands, pot, interface=interface, tcr_regions=regions))
+        cm = ContactMap.from_structure(s, cutoff=cutoff, peptide_internal=bool(intra_weight))
+        frames.append(score_peptides(cm, cands, pot, interface=interface, tcr_regions=regions,
+                                     intra_weight=intra_weight))
     result = pl.concat(frames) if frames else pl.DataFrame()
     result.write_csv(str(out))
     typer.echo(f"The ranked list of candidate epitopes can be found in {out}")
@@ -597,7 +606,7 @@ def recognize(
     out: Path = typer.Option("recognize.tsv", "-o", "--out", help="per-structure descriptors + P(real) table (TSV)"),
     organism: str = typer.Option("human", "--organism"),
     features_only: bool = typer.Option(False, "--features-only", help="emit the descriptors, skip P(real)"),
-    full: bool = typer.Option(False, "--full", help="add the 18 CDR3-local frame descriptors (the FramePose strain layer)"),
+    full: bool = typer.Option(False, "--full", help="add the 18 CDR3-local frame descriptors (the FramePose strain layer) and the intra-peptide term F_pep_int/n_pep_int"),
     scores: bool = typer.Option(False, "--scores", help="also append the fit-free q_bind + s_strain (recommended) and the fitted p_bind + p_forced; implies --full"),
     mechanics: bool = typer.Option(False, "--mechanics", help="also append the koff proxies from `tcren mechanics` (stiffness tensor, steered rupture, coupling residues) — same table, no second annotation pass"),
     cohort: bool = typer.Option(False, "--cohort", help="rank candidates by the fit-free Q_geom + F contact-energy channels: emits Q_geom, F_score, z(Q)+z(F) and z(Q)-z(F) (add --iptm for the z(ipTM)+z(Q_geom) synergy)"),
@@ -615,7 +624,8 @@ def recognize(
     indicator — plus ``p_real`` (the distribution-aware Bayesian logistic) and ``p_real_bn`` (the
     Gaussian BN): the joint probability the complex is a genuine recognition interface rather than a
     wrong-TCR shuffle. ``--full`` also emits the 18 CDR3-local frame descriptors (the FramePose strain
-    layer). ``--scores`` adds the recommended fit-free
+    layer) and the intra-peptide term ``F_pep_int``/``n_pep_int`` — the peptide's contact energy with
+    **itself**, which the three interface energies omit. ``--scores`` adds the recommended fit-free
     ``q_bind`` (binder-ID; the directional-decorrelated interface-quality score, calibrated on the
     native crystal reference so it is defined per structure and transfers) and ``s_strain``
     (forced-pose), alongside the fitted ``p_bind`` / ``p_forced``. ``--features-only`` skips the models.
@@ -724,6 +734,7 @@ def scoring(
     peptide_mhc_potential: str = typer.Option(None, "--peptide-mhc-potential", help="potential for the peptide↔MHC interface: bundled name or CSV path (default: mj)"),
     regions: str = typer.Option("all", "--regions", help="TCR regions on the TCR side: all|cdr|cdr+fr (default: all)"),
     contact_weight: str = typer.Option("residue", "--contact-weight", help="residue (default, one per contacting pair) or atomic (weight by heavy-atom-pair count)"),
+    intra_weight: float = typer.Option(0.0, "--intra-weight", help="weight of the intra-peptide term: report F_pep_int and add w x it to F_total (0 = off, the default)"),
     delta: bool = typer.Option(False, "--delta", help="also report the poly-alanine-referenced ΔΦ per interface and ΔΦ total"),
     reference_aa: str = typer.Option("A", "--reference-aa", help="reference residue for --delta (default: alanine)"),
     geometry: bool = typer.Option(False, "--geometry", help="also report the interface-geometry descriptors and the decorrelated quality score Q"),
@@ -742,6 +753,10 @@ def scoring(
     The names match ``tcren recognize``, so the two tables join on ``pdb.id``.
     ΔΦ is the score to use across candidates that each carry their **own** generated pose,
     where raw Φ partly reads the pose geometry rather than the peptide sequence.
+
+    ``--intra-weight w`` adds the term the three interface sums omit — ``F_pep_int``, the peptide's
+    contact energy with **itself** (5 Å, sequence separation >= 3, MJ) — and folds ``w x F_pep_int``
+    into ``F_total``. The energy is reported raw, so the term and the weight stay separable.
 
     ``--geometry`` appends the interface descriptors (buried surface ``burial``, peptide
     coverage ``n_pep_contacted``, ``chain_balance``, ``n_hbond``, docking ``pitch``/``crossing``)
@@ -779,7 +794,7 @@ def scoring(
     }
     kw = dict(organism=organism, superimpose=not no_superimpose, db_dir=db, cutoff=cutoff,
               potentials=potentials, tcr_regions=regions, contact_weight=contact_weight,
-              reference_aa=reference_aa if delta else None)
+              reference_aa=reference_aa if delta else None, intra_weight=intra_weight)
     def score_struct(s):
         return score_row(run_pipeline(s, **kw))
 

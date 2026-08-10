@@ -168,6 +168,33 @@ QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses ar
   Turning ATLAS Garcia-like (thread a within-TCR panel on one pose) partly recovers the signal — proof
   it's the task setup (within-receptor ranking vs cross-complex affinity), not the potential.
 
+## Intra-peptide term — `tcren.intra_peptide_energy` (the contacts a chain makes with ITSELF)
+
+- Every Φ in the package sums over contacts between two **different** chains, so a peptide held in its
+  bound conformation by its own side chains scores the same as one that is not. This term is that
+  omission, and it is **off everywhere by default** — `scope="inter"`, `peptide_internal=False`,
+  `intra_weight=0.0` all reproduce the previous output byte-for-byte.
+- `all_atom_contacts(..., scope="inter"|"intra"|"all")`; `peptide_internal_contacts(structure,
+  cutoff=5.0, min_seq_sep=3)` is the intra case plus the separation filter. Same 5 Å as everywhere
+  else, so an internal and an interface contact mean the same thing; `|i−j| ≥ 3` is what does the
+  filtering, because sequence neighbours touch by covalent geometry — over `tests/assets/pdb` the
+  totals are 18 contacts at `|i−j| ≥ 3` vs 134 at `|i−j| ≥ 2`, the jump being `i`/`i+2` pairs.
+- `intra_peptide_energy(cm, pot, peptide=None, contact_weight="residue") -> float`; needs
+  `ContactMap.from_structure(..., peptide_internal=True)` (which stores the pairs *beside* `contacts`,
+  never in it). `peptide=` threads a candidate onto the structure's peptide positions.
+- **The potential is symmetrised**, `(F + Fᵀ)/2`. An intra-chain pair has no from/to orientation, and
+  which residue lands on which side is the contact table's canonical `(chain.id, residue.index)`
+  ordering, not chemistry. Matters for TCRen (directed), no-op for MJ. **Default MJ**: TCRen is derived
+  from TCR↔peptide contacts and says nothing about a chain's contacts with itself.
+- Wired in at three layers: `score_peptides(..., intra_weight=w, intra_potential=)` /
+  `tcren score --intra-weight` (score = Φ + w·E_intra); `run_pipeline(..., intra_weight=w)` /
+  `tcren scoring --intra-weight` (reports `F_pep_int` raw, folds w·it into `F_total`; potential
+  overridable via `potentials={"peptide_internal": …}`); `tcren recognize --full` (`F_pep_int`,
+  `n_pep_int`, catalogued `involves_tcr=False` — the peptide's own conformation is cohort identity).
+- **Expect a sparse term.** A canonical extended class-I 9-mer makes 0–2 internal contacts, so it only
+  separates candidates where the peptide is genuinely bulged or self-packed. Untested as a ranking
+  signal — it is exposed so the assumption can be measured rather than inherited.
+
 ## Interface mechanics — `tcren.mechanics` (koff/kinetics, NOT ΔG)
 
 - The TCR↔pMHC contact map as a network of breakable Cα-anchored Hookean springs (per-contact

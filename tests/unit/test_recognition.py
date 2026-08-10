@@ -168,12 +168,15 @@ def test_every_emitted_column_is_catalogued():
         assert isinstance(tcr, bool), name
 
 
-def test_peptide_and_mhc_only_descriptors_are_the_three_we_know():
+def test_peptide_and_mhc_only_descriptors_are_the_ones_we_know():
     """The receptor filter is the whole point: a column the TCR does not enter carries cohort
-    identity (epitope, allele), so a model handed one can reach a cohort label without physics."""
-    assert {n for n, (_, tcr) in DESCRIPTORS.items() if not tcr} == {
-        "F_pep_mhc", "dF_pep_mhc", "mhc_class_bin"}
-    assert not set(descriptors(tcr_only=True)) & {"F_pep_mhc", "dF_pep_mhc", "mhc_class_bin"}
+    identity (epitope, allele), so a model handed one can reach a cohort label without physics.
+
+    ``F_pep_int``/``n_pep_int`` belong here too — the peptide's contacts with **itself** are a
+    property of the epitope's bound conformation, shared by every TCR that reads it."""
+    receptor_free = {"F_pep_mhc", "dF_pep_mhc", "mhc_class_bin", "F_pep_int", "n_pep_int"}
+    assert {n for n, (_, tcr) in DESCRIPTORS.items() if not tcr} == receptor_free
+    assert not set(descriptors(tcr_only=True)) & receptor_free
 
 
 def test_descriptors_selector():

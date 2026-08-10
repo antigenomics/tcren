@@ -1,7 +1,7 @@
 # tcren — project status & TODO
 
 Status of the Python re-implementation of TCRen (`src/tcren/`). The legacy R/Java pipeline
-is preserved (tag `legacy-r-1.0`) and serves as the numerical oracle. Current release: **v2.2.1**
+is preserved (tag `legacy-r-1.0`) and serves as the numerical oracle. Current release: **v2.7.0**
 (feature table + AF-orthogonal kit: `recognize --full --scores`, `kit_score`, `forced_pose_score`,
 interface mechanics, binder identification, configurable potentials, fast ΔΔG; `arda-mapper >= 2.5.7`).
 See **[CHANGELOG.md](CHANGELOG.md)** for the authoritative per-release record, [BENCHMARKS.md](BENCHMARKS.md)

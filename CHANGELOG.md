@@ -5,6 +5,46 @@ All notable changes to `tcren` are recorded here. Format follows
 
 ## [Unreleased]
 
+## [2.7.0] — 2026-08-11
+
+### Added
+- **The intra-peptide term.** Every energy in the package sums over contacts between two *different*
+  chains, so a peptide held in its bound conformation by its own side chains scores the same as one
+  that is not. That omission was one unconditional line in `all_atom_contacts` — invisible rather
+  than deliberate. It is now a term you can switch on:
+  - `all_atom_contacts(..., scope=)` — `"inter"` (default, unchanged), `"intra"`, or `"all"`.
+    `peptide_internal_contacts()` wraps the intra case with the sequence-separation filter such a
+    term needs: neighbours touch because they are bonded, not because the peptide folded that way.
+  - `intra_peptide_energy(contact_map, potential, peptide=None)` — the energy itself, for the
+    structure's own peptide or a candidate threaded onto its pose. The potential is **symmetrised**
+    (`(F + Fᵀ)/2`): an intra-chain pair has no `from`/`to` orientation, and which residue lands on
+    which side is an artefact of the contact table's canonical ordering, not chemistry. It defaults
+    to MJ, since TCRen is derived from TCR↔peptide contacts and says nothing about a chain's
+    contacts with itself.
+  - `score_peptides(..., intra_weight=w, intra_potential=)` and `tcren score --intra-weight` —
+    `score = Φ_interface + w · E_intra`, with the candidate threaded onto both sides of each
+    internal pair.
+  - `pipeline.run(..., intra_weight=w)` and `tcren scoring --intra-weight` — reports the energy raw
+    as `F_pep_int` and folds `w ·` it into `F_total`, so the term and the weight given to it stay
+    separable in the output. Its potential is overridable via `potentials={"peptide_internal": …}`.
+  - `tcren recognize --full` emits `F_pep_int` and `n_pep_int`. Both are catalogued in `DESCRIPTORS`
+    with `involves_tcr=False` — the peptide's contacts with itself are a property of the epitope's
+    bound conformation, shared by every TCR that reads it, so `descriptors(tcr_only=True)` excludes
+    them like the other cohort-identity columns.
+
+  **The term is sparse, by construction.** At the 5 Å / `|i−j| ≥ 3` defaults — the same contact
+  definition the rest of the package uses — a canonical extended class-I 9-mer makes **zero to two**
+  internal contacts: over the 17 deposited complexes in `tests/assets/pdb` the totals are 18
+  contacts at `|i−j| ≥ 3` against 134 at `|i−j| ≥ 2`, and that sevenfold jump is entirely `i`/`i+2`
+  pairs of an extended chain — covalent geometry, not folding, which is what the separation floor is
+  for. So the term separates candidates only where the peptide is genuinely bulged or packed against
+  itself, which is the case the interface sum cannot see at all.
+
+  **Everything above is off by default and changes nothing when it is.** `scope="inter"` is pinned
+  byte-identical to the previous output on a deposited structure, `ContactMap.from_structure(...,
+  peptide_internal=True)` stores the internal pairs *beside* `contacts` rather than in it, and
+  `intra_weight=0.0` computes nothing.
+
 ## [2.6.0] — 2026-08-09
 
 ### Fixed

@@ -42,13 +42,14 @@ def _resolve_potentials(
     """Resolve a per-interface potential spec to ``{interface: Potential}``.
 
     Args:
-        spec: Maps an interface name (``"tcr_peptide"``, ``"tcr_mhc"``, ``"peptide_mhc"``)
-            to a :class:`Potential`, a bundled name (``"tcren"``/``"mj"``/``"keskin"``),
-            a CSV path, or ``None``. A missing or ``None`` entry falls back to the default
-            :data:`_INTERFACE_POTENTIAL` family for that interface.
+        spec: Maps an interface name (``"tcr_peptide"``, ``"tcr_mhc"``, ``"peptide_mhc"``, or
+            ``"peptide_internal"`` for the intra-peptide term) to a :class:`Potential`, a bundled
+            name (``"tcren"``/``"mj"``/``"keskin"``), a CSV path, or ``None``. A missing or ``None``
+            entry falls back to the default family for that interface.
 
     Returns:
-        One resolved :class:`Potential` per interface in :data:`_INTERFACE_POTENTIAL`.
+        One resolved :class:`Potential` per key of :data:`_INTERFACE_POTENTIAL` plus
+        ``"peptide_internal"``.
     """
     spec = spec or {}
     cache: dict[str, Potential] = {}
@@ -63,7 +64,10 @@ def _resolve_potentials(
         return Potential.from_csv(value)
 
     resolved: dict[str, Potential] = {}
-    for iface, default_fam in _INTERFACE_POTENTIAL.items():
+    # The intra-peptide term is resolvable but is not an interface: it stays out of
+    # _INTERFACE_POTENTIAL, which drives the three scores and the total. MJ, because TCRen is
+    # derived from TCR↔peptide contacts and says nothing about a chain's contacts with itself.
+    for iface, default_fam in {**_INTERFACE_POTENTIAL, "peptide_internal": "mj"}.items():
         value = spec.get(iface)
         resolved[iface] = _load(default_fam if value is None else value)
     return resolved
@@ -135,6 +139,7 @@ def run(
     tcr_regions: str = "all",
     contact_weight: str = "residue",
     reference_aa: str | None = None,
+    intra_weight: float = 0.0,
 ) -> PipelineResult:
     """Run the full pipeline on one structure (path or parsed :class:`Structure`).
 
@@ -162,6 +167,12 @@ def run(
             :func:`tcren.ddg.reference_delta`, i.e. its energy minus the energy of a
             poly-``reference_aa`` peptide threaded onto the same contact map. Off by
             default, so the default ``scores`` dict is unchanged.
+        intra_weight: weight of the intra-peptide term. Non-zero adds
+            ``scores["peptide_internal"]`` — the peptide's contact energy with **itself**
+            (:func:`tcren.intra_peptide_energy`), which every interface sum omits — and folds
+            ``intra_weight *`` that energy into ``scores["total"]``. ``0.0`` (default) computes
+            nothing and leaves ``scores`` unchanged. Its potential is MJ unless
+            ``potentials["peptide_internal"]`` overrides it.
 
     Returns:
         A :class:`PipelineResult` with the markup, contacts, per-interface scores and (if
@@ -181,7 +192,8 @@ def run(
         rmsd = info.rmsd
 
     cm = ContactMap.from_structure(
-        s, cutoff=cutoff, count_atoms=(contact_weight == "atomic")
+        s, cutoff=cutoff, count_atoms=(contact_weight == "atomic"),
+        peptide_internal=bool(intra_weight),
     )
     resolved = _resolve_potentials(potentials)
     scores = {
@@ -193,6 +205,16 @@ def run(
         for iface in _INTERFACE_POTENTIAL
     }
     scores["total"] = sum(scores.values())
+
+    if intra_weight:
+        # The peptide's contacts with itself: reported raw, folded into the total at its weight,
+        # so the term and the weight given to it stay separable in the output.
+        from .scoring import intra_peptide_energy
+
+        scores["peptide_internal"] = intra_peptide_energy(
+            cm, resolved["peptide_internal"], contact_weight=contact_weight
+        )
+        scores["total"] += intra_weight * scores["peptide_internal"]
 
     if reference_aa is not None:
         # ΔF = F(peptide) − F(poly-reference peptide) per interface, on THIS structure's own
@@ -245,7 +267,7 @@ def score_row(result: PipelineResult) -> dict:
     """Flatten a :class:`PipelineResult` to a one-row scores dict (for a CSV table).
 
     The ``d_*`` reference-normalised columns are present only when the pipeline was run with
-    ``reference_aa`` set.
+    ``reference_aa`` set, and ``F_pep_int`` only when it was run with a non-zero ``intra_weight``.
     """
     mhc = next((c for c in result.mhc_calls if c.chain_role == "MHCa"), None)
     row = {
@@ -260,6 +282,8 @@ def score_row(result: PipelineResult) -> dict:
         "F_pep_mhc": result.scores["peptide_mhc"],
         "F_total": result.scores["total"],
     }
+    if "peptide_internal" in result.scores:
+        row["F_pep_int"] = result.scores["peptide_internal"]
     if "delta_total" in result.scores:
         row.update({
             "dF_tcr_pep": result.scores["delta_tcr_peptide"],

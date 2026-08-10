@@ -18,7 +18,7 @@ from . import geometry, torsions
 from .contactmap import ContactMap, ModeCentroid, binding_mode, registered_map
 from .geometry import LoopInternalCoords, cdr3_internal_coords
 from .torsions import cdr3_torsions, chain_torsions, residue_torsions
-from .contacts import all_atom_contacts, ca_distance_matrix
+from .contacts import all_atom_contacts, ca_distance_matrix, peptide_internal_contacts
 from .cpl import (ResponseMatrix, equimolar_effect, mutation_effect, position_scan,
                   response_matrix)
 from .ddg import alanine_scan, ddg, neoantigen_ddg, reference_delta
@@ -30,7 +30,8 @@ from .pipeline import run as run_pipeline
 from .potential import Potential, derive_tcren, derive_tcren_loo
 from .refine import check_register, fix_register, refine_peptide, substitute_peptide
 from .refine.interface import interface_energy
-from .scoring import RecognitionMatrix, recognition_matrix, score_peptides, score_structures
+from .scoring import (RecognitionMatrix, intra_peptide_energy, recognition_matrix, score_peptides,
+                      score_structures)
 from .scoring_rank import background_peptides, percentile_rank
 from .structure import Structure, import_structure, parse_structure
 
@@ -56,10 +57,11 @@ __all__ = [
     "import_structure",
     "Structure",
     "all_atom_contacts",
+    "peptide_internal_contacts",
     "ca_distance_matrix",
     "ContactMap", "ModeCentroid", "binding_mode", "registered_map", "geometry", "torsions",
     "cdr3_internal_coords", "LoopInternalCoords",
-    "score_peptides", "recognition_matrix", "RecognitionMatrix",
+    "score_peptides", "recognition_matrix", "RecognitionMatrix", "intra_peptide_energy",
     "score_structures",
     "percentile_rank",
     "background_peptides",
