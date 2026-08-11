@@ -375,6 +375,37 @@ def mj1996() -> Potential:
 
 
 @lru_cache(maxsize=None)
+def mj_partition_energy() -> dict[str, float]:
+    """Miyazawa--Jernigan effective partition energies, one value per residue.
+
+    The one-body term of the MJ framework: the energy of transferring a residue from water
+    into the protein interior, which is what a contact energy carries in addition to any
+    interaction between two identities. A pairwise matrix cannot supply this on its own, so
+    it is bundled separately rather than derived.
+
+    Larger is more hydrophobic: Phe 4.37, Met 4.22, Ile 4.17 at one end, Lys 1.23, Asp 1.67,
+    Asn 1.70 at the other. Note the sign convention is opposite to a contact energy, where
+    lower is more favourable.
+
+    Provenance: AAindex accession MIYS850101, retrieved from two endpoints of the AAindex
+    database that returned identical values. As an independent check, this scale correlates
+    at ``r = +0.98`` with the hydrophobicity axis recovered by
+    :meth:`Potential.hydrophobicity_fit` from :func:`mj1996`, which was transcribed from a
+    different source entirely.
+
+    Reference: Miyazawa S, Jernigan RL. Estimation of effective interresidue contact
+    energies from protein crystal structures: quasi-chemical approximation. Macromolecules.
+    1985;18:534-552.
+
+    Returns:
+        Amino acid one-letter code → partition energy. The mapping is cached; copy it before
+        mutating.
+    """
+    table = pl.read_csv(_bundled("MJ1985_partition_energies.csv"))
+    return {row["residue.aa"]: float(row["value"]) for row in table.iter_rows(named=True)}
+
+
+@lru_cache(maxsize=None)
 def keskin() -> Potential:
     """Load the bundled Keskin contact potential (cached; treat as read-only)."""
     return Potential.from_csv(_bundled("MJ_Keskin_potentials.csv"), name="Keskin")

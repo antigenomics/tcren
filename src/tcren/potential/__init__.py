@@ -2,7 +2,8 @@
 
 from .derive import derive_tcren, derive_tcren_loo, symmetrize_counts
 from .model import (AA20, AA21, HydrophobicityFit, Potential,
-                    PotentialDecomposition, keskin, mj, mj1996, tcren)
+                    PotentialDecomposition, keskin, mj, mj1996,
+                    mj_partition_energy, tcren)
 from .redundancy import alphabeta_ids, cluster_weights, nonredundant_ids
 
 __all__ = [
@@ -17,6 +18,7 @@ __all__ = [
     "tcren",
     "mj",
     "mj1996",
+    "mj_partition_energy",
     "keskin",
     "nonredundant_ids",
     "alphabeta_ids",
