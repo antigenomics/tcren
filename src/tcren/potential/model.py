@@ -335,8 +335,43 @@ def tcren() -> Potential:
 
 @lru_cache(maxsize=None)
 def mj() -> Potential:
-    """Load the bundled Miyazawa–Jernigan potential (cached; treat as read-only)."""
+    """Load the bundled Miyazawa–Jernigan potential (cached; treat as read-only).
+
+    Note that this matrix takes both signs and has a mean near zero, so it is a
+    contact-*pair* matrix, not raw contact energies; :func:`mj1996` is the raw form. Its
+    exact upstream table is not recorded, which is a known gap -- see :func:`mj1996` for
+    what is and is not established about the difference. Every score in the package is
+    built on this file, so it is left exactly as it is.
+    """
     return Potential.from_csv(_bundled("MJ_Keskin_potentials.csv"), name="MJ")
+
+
+@lru_cache(maxsize=None)
+def mj1996() -> Potential:
+    """Miyazawa--Jernigan 1996 inter-residue contact energies, ``e_ij``, in RT units.
+
+    The 20x20 attractive contact energies of Table 3, re-evaluated by the authors on 1168
+    structures. Every entry is negative, from ``-7.37`` (Leu--Leu) to ``-0.12``, and
+    Ala--Ala is ``-2.72``; a raw contact matrix looks like this, and the bundled
+    :func:`mj` matrix does not, which is how the two are told apart.
+
+    Provenance is recorded because the older bundled matrix has none: the numbers here were
+    transcribed from a published copy of Table 3 (AAindex accession MIYS960101) and checked
+    against a second independent copy, agreeing on the alphabet order ``CMFILVWYAGTSNQDEHRKP``,
+    on Ala--Ala, and on the full range. They correlate with the bundled ``MJ`` matrix at
+    ``r = 0.89``, so the two are related but not the same quantity, and the bundled one is
+    *not* the double-centred pair part of this one (``r = 0.51``). What the bundled matrix
+    actually is remains unresolved.
+
+    The companion repulsive packing-density term of the same paper is **not** included; it
+    is a function of coordination number rather than of a residue pair, so it does not fit
+    the :class:`Potential` shape and nothing here uses it.
+
+    Reference: Miyazawa S, Jernigan RL. Residue-residue potentials with a favorable contact
+    pair term and an unfavorable high packing density term, for simulation and threading.
+    J Mol Biol. 1996;256(3):623-644. doi:10.1006/jmbi.1996.0114.
+    """
+    return Potential.from_csv(_bundled("MJ1996_contact_energies.csv"), name="MJ1996")
 
 
 @lru_cache(maxsize=None)
