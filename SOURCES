@@ -1,0 +1,78 @@
+# SOURCES — where the bundled data came from
+
+Every table shipped in `src/tcren/data/` and loaded by the library. Each entry gives the origin, how
+to re-fetch or regenerate it, and whether the values are **published** (transcribed from a paper or
+database), **derived** (computed by us from structures), or **unresolved**.
+
+The authoritative per-value detail lives in the loader docstrings in `src/tcren/potential/model.py`
+— including the cross-checks. This file exists so the provenance question can be answered without
+reading the code, and so an unrecorded origin is visible as such rather than assumed.
+
+Structure datasets (`Native2022`, `Native2026`, `Canonical2026`, the modelled sets) are not here:
+they are not bundled, they are fetched from Hugging Face, and `DATASETS.md` covers them.
+
+---
+
+## `TCRen_potential.csv` — derived
+
+The classic TCRen TCR↔peptide potential. **Directed**: rows are the TCR side, columns the peptide
+side, so it must not be symmetrised or decomposed.
+
+- Origin: derived by us from the Native2022 TCR:pMHC contact statistics (Karnaukhov et al. 2024).
+- Regenerate: `tcren derive-potential -s <structures> -o TCRen_potential.csv`; the current file is
+  the published 2024 derivation, not a re-run.
+- Loader: `tcren.potential.tcren()`.
+
+## `TCRen_potential_rederived.csv` — derived
+
+The same quantity re-derived on Native2026. Shipped for comparison; no scoring path defaults to it.
+
+- Regenerate: `tcren derive-potential` over Native2026.
+
+## `MJ_Keskin_potentials.csv` — UNRESOLVED
+
+Loaded as both `mj()` and `keskin()`. **Every score in the package is built on this file.**
+
+- Origin: **not recorded**, and not recoverable from the repo history. Carried over from the original
+  R implementation.
+- What is established (2026-08-11, see `mj1996()`): it is **not** MJ 1996 Table 3 — that table is
+  attractive everywhere (Ala–Ala −2.72, range −7.37 to −0.12) while this one takes both signs
+  (Ala–Ala −0.12, range −1.19 to +0.76). It correlates with Table 3 at r = 0.89 but is not its
+  double-centred pair part either (r = 0.51).
+- Status: left byte-for-byte untouched, since changing it would change every published number. Cite
+  it as "the bundled MJ-style contact-pair matrix", **not** as Miyazawa & Jernigan 1996.
+
+## `MJ1996_contact_energies.csv` — published
+
+Miyazawa–Jernigan 1996 inter-residue contact energies `e_ij` (RT units), Table 3.
+
+- Origin: AAindex accession `MIYS960101`, transcribed from a published copy of Table 3 and
+  cross-checked against a second independent copy — agreeing on the alphabet order
+  `CMFILVWYAGTSNQDEHRKP`, on Ala–Ala (−2.72), and on the full range (−7.37 to −0.12).
+- Re-fetch: <https://www.genome.jp/dbget-bin/www_bget?aaindex:MIYS960101>
+- Excluded on purpose: the companion repulsive packing-density term of the same paper, which is a
+  function of coordination number rather than of a residue pair.
+- Reference: Miyazawa S, Jernigan RL. *J Mol Biol.* 1996;256(3):623–644. doi:10.1006/jmbi.1996.0114
+- Loader: `tcren.potential.mj1996()`.
+
+## `MJ1985_partition_energies.csv` — published
+
+Effective partition energies, one per residue — the one-body term a pairwise matrix cannot supply.
+Sign convention is opposite to a contact energy: larger is more hydrophobic.
+
+- Origin: AAindex accession `MIYS850101`, retrieved from two endpoints of the AAindex database that
+  returned identical values.
+- Re-fetch: <https://www.genome.jp/dbget-bin/www_bget?aaindex:MIYS850101>
+- Independent check: correlates at r = +0.98 with the hydrophobicity axis
+  `Potential.hydrophobicity_fit()` recovers from `MJ1996_contact_energies.csv`, which was
+  transcribed from a different source — a transcription error would break that agreement.
+- Reference: Miyazawa S, Jernigan RL. *Macromolecules.* 1985;18:534–552.
+- Loader: `tcren.potential.mj_partition_energy()`.
+
+## `q_native_reference.csv` — derived
+
+Native-crystal reference means and standard deviations for the Q interface-quality score, so Q is
+defined for a single structure rather than only within a cohort.
+
+- Origin: computed by us over the Canonical2026 native crystals.
+- Loader: `tcren.cohort` (`q_score`).

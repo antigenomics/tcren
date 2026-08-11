@@ -149,6 +149,14 @@ tcren.contact_types module
    :undoc-members:
    :show-inheritance:
 
+tcren.stacking module
+~~~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: tcren.stacking
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 tcren.geometry module
 ~~~~~~~~~~~~~~~~~~~~~~~
 

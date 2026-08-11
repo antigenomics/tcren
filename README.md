@@ -298,6 +298,42 @@ score_peptides(cm, cands, tcren(), intra_weight=0.5, intra_potential=mj())
 res = run_pipeline("complex.pdb", intra_weight=0.5)             # + scores["peptide_internal"]
 ```
 
+### What a contact potential can and cannot express
+
+A contact energy is not purely an interaction: burying a residue against *any* partner costs
+something that depends on that residue alone. `decompose()` separates the two exactly, and only the
+pair part `J` is beyond what a per-position model can already write down.
+
+```python
+from tcren.potential import mj, mj1996, mj_partition_energy
+
+d = mj1996().decompose()          # e(a,b) = mean + H(a) + H(b) + J(a,b), J double-centred
+d.h("F"), d.j("F", "W")           # one-body term; the genuinely pairwise remainder
+d.energy("F", "W")                # reassembles the original value
+
+f = mj1996().hydrophobicity_fit()  # C0 + C1(q_a + q_b) + C2 q_a q_b
+f.r2, f.eigenvalue_share           # 0.98 on MJ1996, 0.85 on the bundled mj
+mj_partition_energy()["F"]         # 4.37 — MJ's own one-body scale (larger = more hydrophobic)
+```
+
+Where a potential has that shape the interaction term is only `C2·q_a·q_b`, so it **cannot prefer
+one pair of side chains over another of equal hydrophobicity**. Both calls refuse a directed
+potential — TCRen is TCR→peptide and must not be split this way.
+
+### Ring stacking: the geometry identity cannot carry
+
+A contact potential scores a pair by identity, so two rings face-to-face at 3.5 Å score exactly like
+the same two residues brushing past edge-on. This measures the difference and returns **no energy**:
+
+```python
+from tcren import ring_stacking
+ring_stacking(structure, cutoff=7.5)   # centroid_distance, interplanar_angle, vertical, lateral
+```
+
+`interplanar_angle` near 0 is face-to-face, near 90 edge-to-face; a parallel-displaced stack shows a
+small `vertical` with a few Å of `lateral`. Proline is included — its pyrrolidine ring packs face-on
+against aromatics through CH–π contacts.
+
 ### CPL response matrices from one template structure
 
 A positional-scanning combinatorial peptide library fixes position *i* to residue *a* and leaves
@@ -448,7 +484,8 @@ Worked examples of every view, with images: **[Figure gallery](https://docs.isal
 | `tcren.annotation` | chain typing — TCR loci/CDRs via `arda`, peptide, MHC; αβ/γδ C-gene call |
 | `tcren.mhc` | map MHC chains to allele/class/role; partition the groove (helices/floor); NetMHCpan pseudosequence |
 | `tcren.contacts` / `contactmap` | closest-atom 5 Å contacts, Cα distances, multi-layer (5/8/12 Å) contact tables, interface partitioning |
-| `tcren.potential` | `Potential` (TCRen/MJ/Keskin); `derive_tcren` (classic/AM/LOO) with non-redundancy filtering |
+| `tcren.potential` | `Potential` (TCRen/MJ/Keskin/MJ1996 + MJ partition energies); `decompose` / `hydrophobicity_fit` — the one-body vs pair split; `derive_tcren` (classic/AM/LOO) with non-redundancy filtering |
+| `tcren.stacking` | ring-stacking **geometry** (centroid distance, interplanar angle, vertical/lateral offset) — the directional signal a contact potential cannot see |
 | `tcren.scoring` / `scoring_rank` | substitution scoring of candidate peptides; percentile rank vs a background |
 | `tcren.ddg` | fast virtual-matrix ΔΔG — alanine scan, neoantigen mutants |
 | `tcren.cpl` | CPL response-matrix prediction from one template complex; equimolar and wild-type references; per-position and per-cell queries |

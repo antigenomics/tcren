@@ -5,6 +5,51 @@ All notable changes to `tcren` are recorded here. Format follows
 
 ## [Unreleased]
 
+## [2.8.0] — 2026-08-11
+
+### Added
+- **The one-body / pair split of a contact potential.** A contact energy is not purely an
+  interaction: burying a residue against *any* partner costs something that depends on that residue
+  alone, and only the remainder is chemistry between two identities. Summing a contact matrix over
+  pairs and calling the total an interaction credits it with an additive component a per-position
+  model already has.
+  - `Potential.decompose()` → `e(a, b) = mean + H(a) + H(b) + J(a, b)`, by double-centring. Exact and
+    unique; `J` has zero marginals and is **the only part a sum over positions cannot express**.
+  - `Potential.hydrophobicity_fit()` → `C0 + C1(q_a + q_b) + C2 q_a q_b`, for a matrix that ships no
+    solvent reference. Li, Tang & Wingreen (*Phys Rev Lett* 79:765, 1997) showed the MJ matrix is
+    nearly rank one, so the one-body term can be recovered from the matrix itself. R² = 0.85 on the
+    bundled `mj`, 0.98 on `mj1996`. The consequence is worth stating: where a potential has that
+    shape, the interaction term is only `C2·q_a·q_b`, so it **cannot prefer one pair of side chains
+    over another of equal hydrophobicity**.
+  - Both refuse a directed potential — TCRen is TCR→peptide and must not be split this way.
+- **Two Miyazawa–Jernigan reference tables, with recorded provenance.**
+  - `mj1996()` — the 1996 Table 3 contact energies (`e_ij`, RT units), transcribed from AAindex
+    `MIYS960101` and cross-checked against a second independent copy (same alphabet order, same
+    Ala–Ala, same range). The companion repulsive packing-density term is deliberately excluded: it
+    is a function of coordination number, not of a residue pair.
+  - `mj_partition_energy()` — the 1985 effective partition energies (AAindex `MIYS850101`), the
+    one-body term a pairwise matrix cannot supply. Cross-check: it correlates at r = +0.98 with the
+    hydrophobicity axis `hydrophobicity_fit()` recovers from `mj1996`, which was transcribed from an
+    unrelated source — a transcription slip would break that agreement rather than hide in it.
+  - **What this settles about the bundled `mj` matrix**: it is *not* MJ 1996 Table 3. Table 3 is
+    attractive everywhere (Ala–Ala −2.72, range −7.37 to −0.12); the bundled one takes both signs
+    (Ala–Ala −0.12, range −1.19 to +0.76). They correlate at r = 0.89, but the bundled matrix is not
+    Table 3's double-centred pair part either (r = 0.51), so **what it is remains open**. The file is
+    left untouched — every score in the package is built on it — and `mj()` now says so.
+- **`ring_stacking()`** (`tcren.stacking`) — a contact potential scores a residue pair by identity
+  alone, so it treats two rings face to face at 3.5 Å exactly like the same two residues brushing
+  past edge-on. This measures the difference from coordinates: centroid separation, interplanar
+  angle, and the split of the separation into the gap between the planes (`vertical`) and the
+  sideways slide (`lateral`) — enough to separate a parallel-displaced stack from an edge-to-face
+  contact from two rings that merely happen to be nearby. Proline is included despite not being
+  aromatic: its pyrrolidine ring packs face-on against aromatics through CH–π contacts, and omitting
+  it would miss the interaction the module exists to measure. **Nothing here returns an energy** — it
+  says the rings are or are not arranged the way a stack is.
+- **`SOURCES`** records the origin of every bundled potential table: upstream accession or paper, the
+  transcription check, and whether each value is measured, published or derived. Two of the five had
+  no recorded origin before; one of those (`MJ_Keskin_potentials.csv`) still does not, and is now
+  labelled unresolved rather than left to be assumed.
+
 ## [2.7.0] — 2026-08-11
 
 ### Added

@@ -168,6 +168,42 @@ QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses ar
   Turning ATLAS Garcia-like (thread a within-TCR panel on one pose) partly recovers the signal — proof
   it's the task setup (within-receptor ranking vs cross-complex affinity), not the potential.
 
+## Potential decomposition + the MJ reference tables — `tcren.potential`
+
+- **A contact matrix is not purely an interaction.** `Potential.decompose()` splits it exactly by
+  double-centring: `e(a,b) = mean + H(a) + H(b) + J(a,b)`, `J` with zero marginals. `mean` and both
+  `H` depend on one residue each, so an additive per-position model already absorbs them — **`J` is
+  the only part a sum over positions cannot express.** Report `J`, not the raw sum, when the claim is
+  "this is pairwise chemistry".
+- `Potential.hydrophobicity_fit()` → `C0 + C1(q_a+q_b) + C2 q_a q_b` (Li–Tang–Wingreen, PRL 79:765,
+  1997: the MJ matrix is nearly rank one). R² = **0.98** on `mj1996`, **0.85** on the bundled `mj`.
+  Consequence to state when using such a potential: the interaction term is only `C2·q_a·q_b`, so it
+  **cannot prefer one pair of side chains over another of equal hydrophobicity**.
+- **Both refuse a directed potential.** TCRen is TCR→peptide; decomposing it is meaningless.
+- `mj1996()` = MJ 1996 Table 3 raw contact energies (AAindex MIYS960101, transcribed and
+  cross-checked against a second copy). `mj_partition_energy()` = MJ 1985 one-body scale (MIYS850101,
+  larger = more hydrophobic; **opposite sign convention** to a contact energy). Cross-check that
+  validates both: r = +0.98 between the partition scale and the `q` axis recovered from the 1996
+  matrix, which came from an unrelated source.
+- **The bundled `mj()` is NOT MJ 1996 Table 3** and its upstream table is unrecorded. Table 3 is
+  attractive everywhere (Ala–Ala −2.72); the bundled one takes both signs (Ala–Ala −0.12). r = 0.89
+  between them, but it is not Table 3's double-centred pair part either (r = 0.51). Left untouched
+  because every score in the package is built on it — but **do not cite it as Miyazawa–Jernigan
+  1996**. See `SOURCES`.
+
+## Ring stacking — `tcren.stacking.ring_stacking` (geometry, NOT an energy)
+
+- A contact potential scores a pair by identity alone, so two rings face-to-face at 3.5 Å score the
+  same as the same two residues brushing past edge-on. `ring_stacking(source, cutoff=7.5,
+  min_seq_sep=1)` measures what identity cannot carry: `centroid_distance`, `interplanar_angle`
+  (0 = face-to-face, 90 = edge-to-face), `vertical` (gap between planes) and `lateral` (sideways
+  slide). Parallel-displaced stack = small vertical + a few Å lateral.
+- **Pro is in `RING_ATOMS`** although not aromatic — its pyrrolidine ring packs face-on against
+  aromatics via CH–π, which is the interaction the module exists to measure. Trp is represented by
+  its six-membered ring (the face that stacks).
+- Returns **no energy** by design. It says the rings are or are not arranged the way a stack is;
+  valuing that is left to whoever has a potential that can.
+
 ## Intra-peptide term — `tcren.intra_peptide_energy` (the contacts a chain makes with ITSELF)
 
 - Every Φ in the package sums over contacts between two **different** chains, so a peptide held in its
