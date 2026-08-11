@@ -33,6 +33,70 @@ _LONG_COLUMNS = {"residue.aa.from", "residue.aa.to", "potential", "value"}
 
 
 @dataclass(slots=True)
+class PotentialDecomposition:
+    """A potential split as ``e(a, b) = mean + H(a) + H(b) + J(a, b)``.
+
+    Attributes:
+        name: Name of the potential this came from.
+        mean: The grand mean of the matrix.
+        one_body: ``H``, indexed like ``index``; the per-residue part.
+        pair: ``J``, double-centred, so every row and column sums to zero.
+        index: Amino-acid → row/column index.
+    """
+
+    name: str
+    mean: float
+    one_body: np.ndarray
+    pair: np.ndarray
+    index: dict[str, int]
+
+    def h(self, aa: str) -> float:
+        """One-body term of a residue."""
+        return float(self.one_body[self.index[aa]])
+
+    def j(self, aa: str, bb: str) -> float:
+        """Pair-specific term of a residue pair, with the one-body parts removed."""
+        return float(self.pair[self.index[aa], self.index[bb]])
+
+    def energy(self, aa: str, bb: str) -> float:
+        """Reassemble the original contact energy; equals the potential's own value."""
+        return self.mean + self.h(aa) + self.h(bb) + self.j(aa, bb)
+
+
+@dataclass(slots=True)
+class HydrophobicityFit:
+    """A potential approximated as ``C0 + C1 (q_a + q_b) + C2 q_a q_b``.
+
+    Attributes:
+        name: Name of the potential this came from.
+        c0, c1, c2: Fitted coefficients.
+        q: One value per residue, from the leading eigenvector; orders by hydrophobicity.
+        index: Amino-acid → index into ``q``.
+        r2: Fraction of the matrix variance the three-parameter form reproduces.
+        eigenvalue_share: ``|lambda_1| / sum |lambda|``, i.e. how nearly rank-one the
+            matrix is to begin with.
+    """
+
+    name: str
+    c0: float
+    c1: float
+    c2: float
+    q: np.ndarray
+    index: dict[str, int]
+    r2: float
+    eigenvalue_share: float
+
+    def value(self, aa: str, bb: str) -> float:
+        """The fitted contact energy for a residue pair."""
+        qa, qb = self.q[self.index[aa]], self.q[self.index[bb]]
+        return self.c0 + self.c1 * (qa + qb) + self.c2 * qa * qb
+
+    def one_body(self, aa: str) -> float:
+        """``C1 q_a`` -- the per-residue term, which is what ``H(a)`` refers to."""
+        return self.c1 * float(self.q[self.index[aa]])
+
+
+@dataclass(slots=True)
 class Potential:
     """A pairwise amino-acid potential in long form.
 
@@ -90,6 +154,101 @@ class Potential:
                 dense[index[fr], index[to]] = row["value"]
         self._matrix_cache = (dense, index)
         return self._matrix_cache
+
+    def decompose(self) -> "PotentialDecomposition":
+        """Split the potential into a one-body part and a genuinely pairwise part.
+
+        A contact energy is not purely an interaction. Burying any residue against any
+        partner costs or gains something that depends only on that residue -- its transfer
+        propensity -- and only what is left after removing those one-body terms is an
+        interaction between the two identities. Miyazawa and Jernigan make this split
+        explicitly; here it is taken directly off the matrix, which needs no solvent
+        reference and works for any potential:
+
+            e(a, b) = mean + H(a) + H(b) + J(a, b)
+
+        with ``H(a)`` the row mean of ``a`` less the grand mean, and ``J`` the double-centred
+        remainder, whose every row and column sums to zero. The split is exact and unique.
+
+        Why it matters for scoring: an additive per-position model can already absorb
+        ``mean`` and both ``H`` terms, because they depend on one residue each. ``J`` is the
+        only part that cannot be written as a sum over positions, so it is the only part a
+        per-position model is actually missing.
+
+        Returns:
+            A :class:`PotentialDecomposition`.
+
+        Raises:
+            ValueError: If the dense matrix is not square and symmetric, since the split is
+                only defined for an undirected potential (TCRen is *directed* and must not
+                be decomposed this way).
+        """
+        dense, index = self.as_matrix()
+        if dense.shape[0] != dense.shape[1] or not np.allclose(dense, dense.T, equal_nan=True):
+            raise ValueError(
+                f"potential {self.name!r} is not symmetric; the one-body/pair split is "
+                "only defined for an undirected potential"
+            )
+        grand = float(np.nanmean(dense))
+        row = np.nanmean(dense, axis=1) - grand
+        pair = dense - grand - row[:, None] - row[None, :]
+        return PotentialDecomposition(
+            name=self.name, mean=grand, one_body=row, pair=pair, index=index
+        )
+
+    def hydrophobicity_fit(self) -> "HydrophobicityFit":
+        """Fit ``e(a,b) = C0 + C1 (q_a + q_b) + C2 q_a q_b`` -- one number per residue.
+
+        Where the one-body term comes from, for a matrix that does not ship one. Miyazawa
+        and Jernigan derive their own one-body terms from residue--solvent contact energies,
+        which the bundled matrices do not carry, so that route is unavailable here. Li,
+        Tang and Wingreen showed it is not needed: the MJ matrix is dominated by a single
+        eigenvalue, and reconstructing it from the leading eigenvector ``q`` gives the form
+        above, with ``q`` ordering the residues by hydrophobicity.
+
+        The consequence is worth stating plainly, because it limits what any MJ-based score
+        can express. Not only is the one-body part a function of ``q``; so is the
+        interaction, which is just ``C2 q_a q_b``. A potential of that shape knows how
+        hydrophobic each residue is and nothing else -- it cannot prefer one specific pair
+        of side chains over another pair of equal hydrophobicity.
+
+        Reference: Li H, Tang C, Wingreen NS. Nature of driving force for protein folding:
+        a result from analyzing the statistical potential. Phys Rev Lett. 1997;79:765.
+        arXiv:cond-mat/9512111.
+
+        Returns:
+            A :class:`HydrophobicityFit`. Check its ``r2`` before relying on it; the form is
+            an approximation, not an identity, unlike :meth:`decompose`.
+
+        Raises:
+            ValueError: If the matrix is not square and symmetric.
+        """
+        dense, index = self.as_matrix()
+        if dense.shape[0] != dense.shape[1] or not np.allclose(dense, dense.T, equal_nan=True):
+            raise ValueError(
+                f"potential {self.name!r} is not symmetric; the hydrophobicity fit is only "
+                "defined for an undirected potential"
+            )
+        eigenvalues, eigenvectors = np.linalg.eigh(dense)
+        lead = int(np.argmax(np.abs(eigenvalues)))
+        q = eigenvectors[:, lead]
+        if q.mean() < 0:                      # sign of an eigenvector is arbitrary
+            q = -q
+        n = dense.shape[0]
+        design = np.empty((n * n, 3))
+        design[:, 0] = 1.0
+        design[:, 1] = (q[:, None] + q[None, :]).reshape(-1)
+        design[:, 2] = (q[:, None] * q[None, :]).reshape(-1)
+        target = dense.reshape(-1)
+        coef, *_ = np.linalg.lstsq(design, target, rcond=None)
+        fitted = (design @ coef).reshape(n, n)
+        ss_res = float(((dense - fitted) ** 2).sum())
+        ss_tot = float(((dense - dense.mean()) ** 2).sum())
+        return HydrophobicityFit(
+            name=self.name, c0=float(coef[0]), c1=float(coef[1]), c2=float(coef[2]),
+            q=q, index=index, r2=1.0 - ss_res / ss_tot,
+            eigenvalue_share=float(abs(eigenvalues[lead]) / np.abs(eigenvalues).sum()),
+        )
 
     def to_csv(self, path: str | Path) -> None:
         """Write the potential to a long-form CSV (``from, to, value``)."""
@@ -176,8 +335,74 @@ def tcren() -> Potential:
 
 @lru_cache(maxsize=None)
 def mj() -> Potential:
-    """Load the bundled Miyazawa–Jernigan potential (cached; treat as read-only)."""
+    """Load the bundled Miyazawa–Jernigan potential (cached; treat as read-only).
+
+    Note that this matrix takes both signs and has a mean near zero, so it is a
+    contact-*pair* matrix, not raw contact energies; :func:`mj1996` is the raw form. Its
+    exact upstream table is not recorded, which is a known gap -- see :func:`mj1996` for
+    what is and is not established about the difference. Every score in the package is
+    built on this file, so it is left exactly as it is.
+    """
     return Potential.from_csv(_bundled("MJ_Keskin_potentials.csv"), name="MJ")
+
+
+@lru_cache(maxsize=None)
+def mj1996() -> Potential:
+    """Miyazawa--Jernigan 1996 inter-residue contact energies, ``e_ij``, in RT units.
+
+    The 20x20 attractive contact energies of Table 3, re-evaluated by the authors on 1168
+    structures. Every entry is negative, from ``-7.37`` (Leu--Leu) to ``-0.12``, and
+    Ala--Ala is ``-2.72``; a raw contact matrix looks like this, and the bundled
+    :func:`mj` matrix does not, which is how the two are told apart.
+
+    Provenance is recorded because the older bundled matrix has none: the numbers here were
+    transcribed from a published copy of Table 3 (AAindex accession MIYS960101) and checked
+    against a second independent copy, agreeing on the alphabet order ``CMFILVWYAGTSNQDEHRKP``,
+    on Ala--Ala, and on the full range. They correlate with the bundled ``MJ`` matrix at
+    ``r = 0.89``, so the two are related but not the same quantity, and the bundled one is
+    *not* the double-centred pair part of this one (``r = 0.51``). What the bundled matrix
+    actually is remains unresolved.
+
+    The companion repulsive packing-density term of the same paper is **not** included; it
+    is a function of coordination number rather than of a residue pair, so it does not fit
+    the :class:`Potential` shape and nothing here uses it.
+
+    Reference: Miyazawa S, Jernigan RL. Residue-residue potentials with a favorable contact
+    pair term and an unfavorable high packing density term, for simulation and threading.
+    J Mol Biol. 1996;256(3):623-644. doi:10.1006/jmbi.1996.0114.
+    """
+    return Potential.from_csv(_bundled("MJ1996_contact_energies.csv"), name="MJ1996")
+
+
+@lru_cache(maxsize=None)
+def mj_partition_energy() -> dict[str, float]:
+    """Miyazawa--Jernigan effective partition energies, one value per residue.
+
+    The one-body term of the MJ framework: the energy of transferring a residue from water
+    into the protein interior, which is what a contact energy carries in addition to any
+    interaction between two identities. A pairwise matrix cannot supply this on its own, so
+    it is bundled separately rather than derived.
+
+    Larger is more hydrophobic: Phe 4.37, Met 4.22, Ile 4.17 at one end, Lys 1.23, Asp 1.67,
+    Asn 1.70 at the other. Note the sign convention is opposite to a contact energy, where
+    lower is more favourable.
+
+    Provenance: AAindex accession MIYS850101, retrieved from two endpoints of the AAindex
+    database that returned identical values. As an independent check, this scale correlates
+    at ``r = +0.98`` with the hydrophobicity axis recovered by
+    :meth:`Potential.hydrophobicity_fit` from :func:`mj1996`, which was transcribed from a
+    different source entirely.
+
+    Reference: Miyazawa S, Jernigan RL. Estimation of effective interresidue contact
+    energies from protein crystal structures: quasi-chemical approximation. Macromolecules.
+    1985;18:534-552.
+
+    Returns:
+        Amino acid one-letter code → partition energy. The mapping is cached; copy it before
+        mutating.
+    """
+    table = pl.read_csv(_bundled("MJ1985_partition_energies.csv"))
+    return {row["residue.aa"]: float(row["value"]) for row in table.iter_rows(named=True)}
 
 
 @lru_cache(maxsize=None)
