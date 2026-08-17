@@ -29,6 +29,16 @@ All notable changes to `tcren` are recorded here. Format follows
   answers whether to trust it. On 8002 typed contacts from 370 structures **no type reaches 5% cell
   occupancy**, so the review's own sparsity concern is confirmed and the filter is the usable half.
 
+- **`_relax.repack` + `tcren.repack` + `tcren refine --repack`** — the native side-chain packer.
+  On the same wrong-rotamer input and the same atom set, it recovers peptide side-chain RMSD from
+  **4.131 Å to 2.364 Å in 6 ms**, where OpenMM's anchor-restrained minimisation returns 4.133 Å
+  (unchanged) in 3103 ms — a local minimiser cannot cross a torsional barrier. 8/8 structures
+  improved (3.93 → 1.66 Å median). The kernel reproduces the Python prototype's per-residue energy
+  exactly (0.0, not a tolerance), and a crystal in gives the crystal back.
+- **`notebooks/surface_topology.py`** (marimo) + its rendered page in the docs gallery: elevation,
+  charge and hydropathy maps with the featureless-vs-bulged epitope comparison.
+- `tcren score --soft` scores over rotamer-averaged contact probabilities.
+
 ### Changed
 - **Contact typing rewritten** (`scheme="v2"`, default). `other` falls from **72.3% to 13.9%** of
   TCR:peptide contacts: `polar`/`vdw`/`cation_pi`/`stacking` classes added, apolarity decided per

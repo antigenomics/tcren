@@ -24,7 +24,7 @@ engine drops in beside the reference ones with no caller change. That separation
 | Rigid-body refine | — | `src/_refine/refine.cpp` (DOPE MC) | ✅ done |
 | CCD loop closure | ProMod3 `loop` | `src/_fold/fold.cpp` (CCD Cα) | ✅ kernel done; upgrade below |
 | Full-atom loop build | ProMod3 loopmodel | `_fold`: N–Cα–C φ/ψ chain + KIC + fragment | ⬜ to write |
-| Side-chain repack | ProMod3 sidechain / Rosetta packer | `src/_relax/` rotamer packer (SCWRL/dead-end elim) | ⬜ to write |
+| Side-chain repack | ProMod3 sidechain / Rosetta packer | `src/_relax/repack` (χ enumeration + DOPE, mean field) | ✅ done 2026-08-17, see below |
 | Physics minimisation | **OpenMM** (AMBER) | `src/_relax/`: restrained minimiser over a compact energy (DOPE + soft-sphere + anchor harmonic) — NOT a full MD force field | ⬜ to write; OpenMM stays optional-accuracy |
 | Flexible-backbone refine | **PyRosetta FlexPepDock** | `src/_relax/`: native Metropolis MC (backbone small/shear + repack + score) | ⬜ to write; PyRosetta = ceiling |
 
@@ -72,20 +72,44 @@ So the all-heavy-atom comparison (`dope` 0.279 Å over 49 atoms vs `openmm` 2.12
 native path cannot approach FlexPepDock on any side-chain-sensitive measure while it declines to
 place side chains.
 
-**The gap is therefore exactly the `side-chain repack` row below, and it now has a working Python
-prototype**: `tcren.rotamers` (added 2026-08-17) enumerates χ rotamers exactly — rotating every atom
-past Cβ about Cα–Cβ *is* a χ1 change — and Boltzmann-weights them with the same DOPE kernel `_relax`
-already exposes. Porting its weighting loop into `_relax.repack` is a direct translation, not a
-design problem. Concrete next steps, in order:
+**The gap was exactly the `side-chain repack` row, and `_relax.repack` now closes it** (2026-08-17).
 
-1. `_relax.repack`: the rotamer enumeration + DOPE scoring loop, reusing `interface_energy`'s core.
-2. `model_peptide(engine="dope")` rebuilds side chains through it.
-3. Re-run the heavy-atom comparison **over the same atom set**, which is the only version of this
-   table worth quoting.
+### `_relax.repack` — measured
 
-Cost check before optimising anything else: the Python prototype is 0.24 s/structure and its C++
-kernel is only 0.06 s of that, so a one-shot repack does **not** need C++. It needs C++ because a
-flexible-backbone MC refiner repacks every cycle, where 0.24 s × 10³ cycles is fatal.
+Like-for-like this time: the **same** wrong-rotamer input (χ1 of every peptide side chain rotated
+120°, so a full-atom model whose side chains a predictor placed badly), the **same** 33–42
+side-chain atoms, the same crystal reference.
+
+| | peptide side-chain RMSD (Å) | time |
+|---|---|---|
+| input (wrong χ1) | 4.131 | — |
+| **`_relax.repack`** | **2.364** | **6 ms** |
+| `openmm` (anchor-restrained minimisation) | 4.133 | 3103 ms |
+
+OpenMM does not move them: 4.133 against 4.131 before. That is not a defect in OpenMM — a
+`LocalEnergyMinimizer` is a *local* minimiser, a wrong χ1 sits in a different torsional basin, and
+gradient descent cannot cross the barrier between them. Relaxing clashes and re-sampling rotamers
+are different operations, and only a discrete packer does the second. So the honest claim is narrow
+and strong: the native packer does something the physics minimiser structurally cannot, 500× faster.
+
+Over eight structures with the same perturbation, side-chain RMSD recovers 3.93 Å → 1.66 Å and
+all-atom 2.78 Å → 1.20 Å, **8/8 improved**, median 6 ms. 1oga recovers exactly (0.000 Å).
+
+Verified rather than assumed: the kernel reproduces the Python prototype's per-residue energy to
+`0.0` (not to a tolerance), and a crystal in gives the crystal back — mean shift 0.06 Å, 2 of 77
+atoms moving more than 0.5 Å — because the input conformer is index 0 of every enumeration.
+
+### What is still missing
+
+`repack` rotates the side chains a model **has**. It cannot rebuild ones that are not there, and
+`substitute_peptide` strips past Cβ by design, so the 44-vs-77 atom gap on the *substitution* path
+needs side-chain **construction** (ideal internal geometry per residue type) — the `Full-atom loop
+build` row, not this one. For AlphaFold/TCRmodel output, which is full-atom, `repack` is the whole
+answer.
+
+Cost note: the Python prototype was 0.24 s/structure with only 0.06 s in its kernel, so a *one-shot*
+repack never needed C++ for speed alone. It needed C++ because a flexible-backbone MC repacks every
+cycle, where 0.24 s × 10³ cycles is fatal; at 6 ms that loop is now affordable.
 
 Scale-out: `scripts/fold_benchmark.sbatch` runs the full n ≈ 374 sweep with all oracles on aldan3
 (`aldan3 slurm submit scripts/fold_benchmark.sbatch --env tcren-fold --partition medium`).

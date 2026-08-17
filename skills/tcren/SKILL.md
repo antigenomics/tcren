@@ -359,6 +359,20 @@ QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses ar
 - Rotating everything past Cβ about Cα–Cβ **is** χ1 exactly. `max_chi=2` default (3^n rotamers).
   ~0.24 s/structure — see `refine/CPP_REWRITE.md` for when this needs to be C++ (MC loops, not one-shot).
 
+## Side-chain repack — `tcren.repack` (native `_relax.repack`)
+
+- `repack(structure, chains=("PEPTIDE",), max_chi=2) -> (structure, report)`. Places each side chain
+  in the χ conformer DOPE prefers; `report` carries `n_conformers`, `energy`, `p_best` per residue.
+- **Same input, same atoms, measured**: side-chain RMSD 4.131 → **2.364 Å in 6 ms**; OpenMM returns
+  4.133 Å (unchanged) in 3103 ms, because a local minimiser cannot cross a torsional barrier.
+  8/8 structures improved. `tcren refine --repack` runs it after the rigid-body MC.
+- **It rotates side chains a model has; it does not build missing ones.** `substitute_peptide` strips
+  past Cβ, so that path still returns 44 of 77 heavy atoms — side-chain *construction* is a separate,
+  open roadmap row (`refine/CPP_REWRITE.md`).
+- Conventions the kernel relies on: the input conformer is index 0 of every enumeration (so a repack
+  can never be worse than its input), and weighting is **mean field** (each residue against its
+  neighbours at their input conformation — coupled side chains are not resolved).
+
 ## Peptide position — `tcren.scoring`
 
 - `peptide_positions(cm, structure)` adds `peptide.pos` (1-based), `peptide.aa`, `peptide.role`

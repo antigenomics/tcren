@@ -37,11 +37,15 @@ for achieved accuracy, and `docs/` (`features.rst`, `kit.rst`) for the current A
 Acting on `review/rev17aug26.md` PART 1 + the surface-topology ask. All six items landed; see
 CHANGELOG `[Unreleased]`. Open loops out of it:
 
-- [ ] **`_relax.repack` (C++)** — the one thing standing between the native refiner and a real
-  accuracy claim against FlexPepDock. `dope` returns 44 heavy atoms where the crystal peptide has 77;
-  it never rebuilds side chains, so every "native beats OpenMM" number so far is a 44-atom score
-  against a 77-atom one. `tcren.rotamers` is the working Python prototype. Full analysis and the
-  measured table: `src/tcren/refine/CPP_REWRITE.md`.
+- [x] **`_relax.repack` (C++)** — done. Same input, same atoms: side-chain RMSD 4.131 → **2.364 Å in
+  6 ms**, where OpenMM returns 4.133 Å (unchanged) in 3.1 s, because a local minimiser cannot cross a
+  torsional barrier. 8/8 improved. `tcren repack` / `tcren refine --repack`.
+- [ ] **Side-chain *construction*** — `repack` rotates the side chains a model has; it cannot rebuild
+  ones `substitute_peptide` stripped, so that path still returns 44 of 77 heavy atoms. Needs ideal
+  internal geometry per residue type (the `Full-atom loop build` row). AlphaFold output is full-atom,
+  so `repack` already covers the main case.
+- [ ] **Flexible-backbone MC** (`_relax.relax_interface`) — the FlexPepDock row. Now affordable: a
+  repack per cycle is 6 ms, against the 0.24 s the Python prototype would have cost.
 - [ ] **Full-scale fold benchmark on aldan3** — `scripts/fold_benchmark.sbatch`, n ≈ 374 with all
   oracles. FlexPepDock burned 21 min of CPU on six structures locally without finishing.
 - [ ] **PART 2 of the review** (deferred, agreed): a C++ kernel for *de novo* peptide placement into

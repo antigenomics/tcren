@@ -314,3 +314,164 @@ def soft_energy(structure, potential, interface: str = "tcr_peptide", **kwargs) 
     if p.is_empty():
         return 0.0
     return _interface_energy(p, potential, weights=p["p"].to_numpy())
+
+
+# =========================================================================================
+# native repack (the C++ kernel this module prototypes)
+# =========================================================================================
+def _pack_spec(structure, chains, max_chi, shell):
+    """Flatten a structure into the flat int arrays ``_relax.repack`` consumes.
+
+    Everything that needs residue chemistry — which bonds rotate, which atoms move with them —
+    is decided here; the kernel only does geometry and energy.
+    """
+    from scipy.spatial import cKDTree
+
+    from .refine import _dope
+
+    _table, atom_class, _x0, _dx, _nb = _dope()
+
+    # EVERY heavy atom goes into the array; `chains` only selects which residues get repacked.
+    # A side chain has to be scored against the partner chains it packs against, so an array
+    # holding the peptide alone repacks it in vacuum — which moved crystal rotamers by up to 9 Å.
+    xyz, cls, span, residues, selected = [], [], [], [], []
+    for chain in structure.chains:
+        pick = chains is None or chain.chain_type in chains
+        for res in chain.residues:
+            lo = len(xyz)
+            for a in res.atoms:
+                if a.element == "H":
+                    continue
+                xyz.append(a.coord)
+                cls.append(atom_class.get(f"{res.resname}:{a.name}", -1))
+            span.append((lo, len(xyz)))
+            residues.append((chain, res))
+            if pick and len(xyz) > lo:
+                selected.append(len(residues) - 1)
+    if not selected:
+        raise ValueError("no residues selected to repack; is the structure chain-typed?")
+
+    # Torsions, indexed into the flat atom array. chi_axes indexes into residue.atoms including
+    # hydrogens, so remap through the heavy-atom order actually packed above.
+    chi_a, chi_b, chi_mov_ptr, moving, res_chi_ptr = [], [], [0], [], [0]
+    for r in selected:
+        res = residues[r][1]
+        base = span[r][0]
+        heavy = [i for i, a in enumerate(res.atoms) if a.element != "H"]
+        remap = {i: base + k for k, i in enumerate(heavy)}
+        for start, end, mov in chi_axes(res)[:max_chi]:
+            if start not in remap or end not in remap:
+                continue
+            kept = [remap[i] for i in mov.tolist() if i in remap]
+            if not kept:
+                continue
+            chi_a.append(remap[start])
+            chi_b.append(remap[end])
+            moving.extend(kept)
+            chi_mov_ptr.append(len(moving))
+        res_chi_ptr.append(len(chi_a))
+
+    # Per-residue environment: every atom of a *different* residue within `shell`.
+    flat = np.asarray(xyz, dtype=np.float64)
+    owner = np.concatenate([np.full(hi - lo, r) for r, (lo, hi) in enumerate(span)])
+    tree = cKDTree(flat)
+    env_atom, env_ptr = [], [0]
+    for r in selected:
+        lo, hi = span[r]
+        hits = tree.query_ball_point(flat[lo:hi], shell)
+        near = np.unique(np.concatenate([np.asarray(h, dtype=int) for h in hits if h]
+                                        or [np.zeros(0, dtype=int)]))
+        env_atom.extend(near[owner[near] != r].tolist())
+        env_ptr.append(len(env_atom))
+
+    return {
+        "xyz": flat,
+        "atom_class": np.asarray(cls, dtype=np.int32),
+        "res_lo": np.asarray([span[r][0] for r in selected], dtype=np.int32),
+        "res_hi": np.asarray([span[r][1] for r in selected], dtype=np.int32),
+        "res_chi_ptr": np.asarray(res_chi_ptr, dtype=np.int32),
+        "chi_a": np.asarray(chi_a, dtype=np.int32),
+        "chi_b": np.asarray(chi_b, dtype=np.int32),
+        "chi_mov_ptr": np.asarray(chi_mov_ptr, dtype=np.int32),
+        "moving": np.asarray(moving, dtype=np.int32),
+        "env_atom": np.asarray(env_atom, dtype=np.int32),
+        "env_ptr": np.asarray(env_ptr, dtype=np.int32),
+    }, [residues[r] for r in selected], [span[r][0] for r in selected]
+
+
+def repack(structure, *, chains: "tuple[str, ...] | None" = (PEPTIDE_TYPE,), max_chi: int = 2,
+           step: float = DEFAULT_STEP, temperature: float = DEFAULT_TEMPERATURE,
+           shell: float = 12.0):
+    """Place each side chain in the χ conformer DOPE likes best — the native ``_relax`` packer.
+
+    This is what the rigid-body refiner could not do. ``substitute_peptide`` strips a peptide to
+    backbone + Cβ and the DOPE Monte Carlo moves it rigidly, so a refined model came back with 44
+    heavy atoms where the crystal peptide has 77 — nothing to compare against OpenMM or FlexPepDock
+    on any side-chain-sensitive measure. See ``refine/CPP_REWRITE.md``.
+
+    The same enumeration as :func:`residue_rotamers`, run in C++: exact χ rotations (every atom past
+    the axis moves together, so deeper torsions are carried unchanged), scored with the same DOPE
+    table :func:`contact_probabilities` uses, mean field (each residue against its neighbours at
+    their input conformation).
+
+    Args:
+        structure: chain-typed structure.
+        chains: which ``chain_type`` values to repack. ``None`` repacks everything, which is slow
+            and rarely what you want — the default is the peptide alone.
+        max_chi: how many χ angles per residue (``3 ** max_chi`` conformers).
+        step: degrees between conformers.
+        temperature: Boltzmann temperature for the reported weights, in DOPE units.
+        shell: only atoms within this distance enter a residue's energy.
+
+    Returns:
+        ``(structure, report)`` — a copy with the repacked side chains, and a
+        :class:`polars.DataFrame` with ``chain.id``, ``residue.index``, ``residue.aa``,
+        ``n_conformers``, ``energy`` (of the chosen conformer) and ``p_best`` (its Boltzmann
+        weight; near 1 means the choice was unambiguous).
+
+    Raises:
+        ValueError: if nothing is selected to repack.
+    """
+    import dataclasses
+
+    from . import _relax
+    from .refine import _dope
+
+    table, _amap, x_start, dx, nbins = _dope()
+    spec, residues, res_base = _pack_spec(structure, chains, max_chi, shell)
+    out = _relax.repack(dope_table=table, n_cls=table.shape[0], n_bins=nbins,
+                        x_start=x_start, dx=dx, n_steps=max(int(round(360.0 / step)), 1),
+                        temperature=temperature, **spec)
+
+    new_xyz = np.asarray(out["xyz"], dtype=np.float64)
+    weights, wptr = np.asarray(out["weights"]), np.asarray(out["weight_ptr"])
+    moved = {}
+    for r, (chain, res) in enumerate(residues):
+        base = res_base[r]
+        heavy = [i for i, a in enumerate(res.atoms) if a.element != "H"]
+        atoms = list(res.atoms)
+        for k, i in enumerate(heavy):
+            atoms[i] = dataclasses.replace(atoms[i], coord=new_xyz[base + k])
+        moved[(chain.chain_id, res.seq_index)] = dataclasses.replace(res, atoms=tuple(atoms))
+
+    from .structure.model import Chain, Structure
+
+    chains_out = [
+        Chain(c.chain_id, [moved.get((c.chain_id, r.seq_index), r) for r in c.residues],
+              chain_type=c.chain_type, chain_supertype=c.chain_supertype,
+              allele_info=c.allele_info, regions=c.regions)
+        for c in structure.chains
+    ]
+    repacked = Structure(structure.pdb_id, chains_out,
+                         complex_species=structure.complex_species, cell_type=structure.cell_type)
+
+    report = pl.DataFrame({
+        "chain.id": [c.chain_id for c, _ in residues],
+        "residue.index": [r.seq_index for _, r in residues],
+        "residue.aa": [r.aa for _, r in residues],
+        "n_conformers": np.asarray(out["n_conformers"], dtype=np.int64),
+        "energy": np.asarray(out["energy"], dtype=np.float64),
+        "p_best": np.array([weights[wptr[r]:wptr[r + 1]].max() if wptr[r + 1] > wptr[r] else 1.0
+                            for r in range(len(residues))]),
+    })
+    return repacked, report

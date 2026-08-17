@@ -342,6 +342,35 @@ Where a potential has that shape the interaction term is only `C2·q_a·q_b`, so
 one pair of side chains over another of equal hydrophobicity**. Both calls refuse a directed
 potential — TCRen is TCR→peptide and must not be split this way.
 
+### Side-chain repack: what a local minimiser cannot do
+
+`tcren.repack` (native `_relax.repack`) places every side chain in the χ rotamer the DOPE potential
+prefers. The rigid-body refiner moves the peptide and leaves every χ where it found it, so a
+full-atom model whose side chains a predictor placed keeps them — which is most of why a pairwise
+contact energy stops discriminating on AlphaFold poses.
+
+```python
+from tcren import repack
+fixed, report = repack(structure)        # report: n_conformers, energy, p_best per residue
+```
+
+Like-for-like — same wrong-rotamer input (χ1 rotated 120°), same 33–42 side-chain atoms, same
+crystal reference:
+
+| | peptide side-chain RMSD (Å) | time |
+|---|---|---|
+| input (wrong χ1) | 4.131 | — |
+| **`repack`** | **2.364** | **6 ms** |
+| OpenMM (anchor-restrained minimisation) | 4.133 | 3103 ms |
+
+OpenMM leaves them where they are. That is not a defect in OpenMM: a local minimiser cannot cross
+the torsional barrier between two rotamer basins, so relaxing clashes and re-sampling rotamers are
+different operations and only a discrete packer does the second. Over eight structures the packer
+recovers side-chain RMSD 3.93 → 1.66 Å, 8/8 improved, median 6 ms.
+
+It rotates the side chains a model **has** — it cannot rebuild ones `substitute_peptide` stripped;
+that is side-chain *construction*, still open (`refine/CPP_REWRITE.md`).
+
 ### Surface topology: what a TCR meets before it binds
 
 A contact potential scores an interface that already exists. `tcren.surface` describes the pMHC

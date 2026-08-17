@@ -19,7 +19,7 @@ from .contactmap import ContactMap, ModeCentroid, binding_mode, registered_map
 from .geometry import LoopInternalCoords, cdr3_internal_coords
 from .torsions import cdr3_torsions, chain_torsions, residue_torsions
 from .contacts import all_atom_contacts, ca_distance_matrix, peptide_internal_contacts
-from .rotamers import contact_probabilities, soft_energy
+from .rotamers import contact_probabilities, repack, soft_energy
 from .stacking import RING_ATOMS, ring_stacking
 from .surface import (SurfaceMap, surface_distance, surface_map, surface_stats,
                       surface_table, surface_tree)
@@ -62,7 +62,7 @@ __all__ = [
     "Structure",
     "all_atom_contacts",
     "peptide_internal_contacts",
-    "ring_stacking", "contact_probabilities", "soft_energy",
+    "ring_stacking", "contact_probabilities", "soft_energy", "repack",
     "SurfaceMap", "surface_map", "surface_stats", "surface_table",
     "surface_distance", "surface_tree",
     "RING_ATOMS",
