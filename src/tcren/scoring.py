@@ -104,6 +104,7 @@ def score_peptides(
     contact_weight: str = "residue",
     intra_weight: float = 0.0,
     intra_potential: Potential | None = None,
+    weights: "np.ndarray | None" = None,
 ) -> pl.DataFrame:
     """Score candidate peptides against a structure's contact map.
 
@@ -133,13 +134,16 @@ def score_peptides(
         intra_potential: potential for the intra-peptide term; defaults to **MJ**, not to
             ``potential`` — TCRen is derived from TCR↔peptide contacts and says nothing about a
             chain's contacts with itself.
+        weights: an explicit per-contact multiplier applied on top of ``contact_weight``, one value
+            per row of the selected interface and in its row order. This is how a rotamer-averaged
+            contact probability (:func:`tcren.rotamers.contact_probabilities`), a per-position
+            weight (:func:`position_weights`) or a contact-type filter enters the sum. ``None``
+            (default) leaves the score byte-identical.
 
     Returns:
         Columns ``complex.id``, ``peptide``, ``potential``, ``score`` sorted by
         ``complex.id`` then ascending ``score``.
     """
-    if contact_weight not in ("residue", "atomic"):
-        raise ValueError(f"contact_weight must be 'residue' or 'atomic', got {contact_weight!r}")
     side = substituted_side or _PEPTIDE_SIDE[interface]
     if side not in ("to", "from"):
         raise ValueError(f"substituted_side must be 'to' or 'from', got {side!r}")
@@ -159,15 +163,9 @@ def score_peptides(
     fixed_aa = iface[f"residue.aa.{fixed}"].to_list()
     fixed_idx = np.array([index.get(a, -1) for a in fixed_aa], dtype=np.int64)
 
-    if contact_weight == "atomic":
-        if "n_atom_contacts" not in iface.columns:
-            raise ValueError(
-                "contact_weight='atomic' needs the n_atom_contacts column; build the "
-                "contact map with ContactMap.from_structure(..., count_atoms=True)"
-            )
-        weights = np.asarray(iface["n_atom_contacts"].to_list(), dtype=np.float64)
-    else:
-        weights = np.ones(len(pos), dtype=np.float64)
+    from .pipeline import _contact_weights          # local: pipeline imports scoring at module level
+
+    weights = _contact_weights(iface, contact_weight, weights)
 
     if intra_weight:
         intra_potential = intra_potential or mj()
@@ -310,3 +308,172 @@ def recognition_matrix(
     return RecognitionMatrix(positions=order, aa=_AA20,
                              energy=np.vstack(rows) if rows else np.zeros((0, 20)),
                              side=side, interface=interface)
+
+
+# =========================================================================================
+# peptide position: role annotation, weighting, and the per-position energy profile
+# =========================================================================================
+#: Named per-position weighting schemes for :func:`position_weights`.
+POSITION_SCHEMES = ("uniform", "central", "tcr_facing")
+
+
+def peptide_positions(contact_map: ContactMap, structure=None, interface: Interface = "tcr_peptide",
+                      tcr_regions: str = "all") -> pl.DataFrame:
+    """Annotate an interface's contacts with the peptide position and role they involve.
+
+    The position was always there — ``pos.to`` on the ``tcr_peptide`` interface is the 0-based
+    peptide index, because the peptide chain carries one full-length region starting at 0 — and
+    :mod:`tcren.refine.anchors` has always predicted anchors. The two were never joined, so nothing
+    downstream could ask whether a contact sits on an anchor or in the TCR-facing bulge.
+
+    Args:
+        contact_map: the structure's contact map.
+        structure: the source structure. Passed to :func:`tcren.refine.predict_anchors`, which then
+            uses the real MHC-class call rather than the peptide-length heuristic. Recommended for
+            class II, where a 12-20mer would otherwise be misread as class I.
+        interface: which interface (must have a peptide side).
+        tcr_regions: TCR-region filter, passed through to :meth:`ContactMap.interface`.
+
+    Returns:
+        The interface frame plus ``peptide.pos`` (1-based P-number), ``peptide.aa`` and
+        ``peptide.role`` (``"anchor"`` or ``"tcr_facing"``).
+
+    Raises:
+        ValueError: if the peptide side carries no region markup (null positions).
+    """
+    from .refine.anchors import predict_anchors
+
+    side = _PEPTIDE_SIDE[interface]
+    iface = contact_map.interface(interface, tcr_regions=tcr_regions)
+    if iface.height == 0:
+        return iface.with_columns(pl.lit(None, dtype=pl.Int64).alias("peptide.pos"),
+                                  pl.lit(None, dtype=pl.Utf8).alias("peptide.aa"),
+                                  pl.lit(None, dtype=pl.Utf8).alias("peptide.role"))
+    pos_col = iface[f"pos.{side}"]
+    if pos_col.null_count():
+        raise ValueError(f"the peptide side carries no region markup; {pos_col.null_count()} of "
+                         f"{len(pos_col)} contacts have a null 'pos.{side}'")
+
+    # Take the sequence from the structure when we have it. Reassembling it from the contacts
+    # leaves 'X' wherever the TCR touches nothing, and the class-II register heuristic slides a
+    # 9-mer window over the sequence — on a peptide that is mostly X it picks a register from
+    # almost no evidence.
+    peptide = None
+    if structure is not None:
+        from .refine.anchors import native_peptide
+        try:
+            peptide = native_peptide(structure)
+        except (ValueError, KeyError):
+            peptide = None
+    if peptide is None:
+        aa_by_pos = dict(zip(pos_col.to_list(), iface[f"residue.aa.{side}"].to_list()))
+        length = contact_map.peptide_length or (max(aa_by_pos) + 1)
+        peptide = "".join(aa_by_pos.get(i, "X") for i in range(length))
+    anchors = set(predict_anchors(peptide, structure).anchors)
+
+    pos = np.asarray(pos_col.to_list(), dtype=np.int64)
+    return iface.with_columns(
+        pl.Series("peptide.pos", pos + 1),
+        pl.Series("peptide.aa", [peptide[p] if 0 <= p < len(peptide) else "X" for p in pos]),
+        pl.Series("peptide.role", ["anchor" if p in anchors else "tcr_facing" for p in pos]),
+    )
+
+
+def position_weights(annotated: pl.DataFrame, scheme: str = "uniform",
+                     length: int | None = None) -> np.ndarray:
+    """Per-contact weights from where along the peptide each contact sits.
+
+    A contact potential sums every contact alike, so a clash at an anchor — which the groove
+    tolerates and a TCR never touches — costs the same as one under the CDR3 loops. These schemes
+    let the sum say otherwise; feed the result to ``score_peptides(..., weights=...)``.
+
+    Args:
+        annotated: the frame :func:`peptide_positions` returns.
+        scheme: ``"uniform"`` (all ones — the default everywhere, so nothing moves unless asked),
+            ``"central"`` (triangular in ``peptide.pos``, peaking at the middle of the peptide and
+            falling to 0 at either terminus), or ``"tcr_facing"`` (1 off the anchors, 0 on them).
+        length: peptide length for the ``"central"`` ramp; taken from the annotation when omitted.
+
+    Returns:
+        One float per row of ``annotated``, in its row order.
+
+    Raises:
+        ValueError: for an unknown ``scheme``.
+    """
+    if scheme not in POSITION_SCHEMES:
+        raise ValueError(f"scheme must be one of {POSITION_SCHEMES}, got {scheme!r}")
+    n = annotated.height
+    if scheme == "uniform" or n == 0:
+        return np.ones(n, dtype=np.float64)
+    if scheme == "tcr_facing":
+        return (np.asarray(annotated["peptide.role"].to_list()) == "tcr_facing").astype(np.float64)
+
+    pos = np.asarray(annotated["peptide.pos"].to_list(), dtype=np.float64)
+    length = float(length or annotated["peptide.pos"].max())
+    centre = (length + 1.0) / 2.0
+    half = max(centre - 1.0, 1.0)
+    return np.clip(1.0 - np.abs(pos - centre) / half, 0.0, 1.0)
+
+
+def position_profile(contact_map: ContactMap, potential: Potential, structure=None,
+                     interface: Interface = "tcr_peptide", tcr_regions: str = "all",
+                     contact_weight: str = "residue") -> pl.DataFrame:
+    """Per-peptide-position decomposition of the interface energy.
+
+    The sum :func:`score_peptides` reports, resolved along the peptide instead of collapsed: which
+    positions carry the interaction, and which carry strain. Summing ``phi`` reproduces the total.
+
+    Args:
+        contact_map: the structure's contact map.
+        potential: the pairwise potential (TCRen for TCR:peptide).
+        structure: source structure, for the anchor call (see :func:`peptide_positions`).
+        interface: which interface.
+        tcr_regions: TCR-region filter.
+        contact_weight: ``"residue"`` or ``"atomic"``, as elsewhere.
+
+    Returns:
+        One row per contacted position: ``complex.id``, ``peptide.pos``, ``peptide.aa``,
+        ``peptide.role``, ``n_contacts``, ``phi``.
+    """
+    from .pipeline import _contact_weights
+
+    ann = peptide_positions(contact_map, structure, interface, tcr_regions)
+    if ann.height == 0:
+        return pl.DataFrame(schema={"complex.id": pl.Utf8, "peptide.pos": pl.Int64,
+                                    "peptide.aa": pl.Utf8, "peptide.role": pl.Utf8,
+                                    "n_contacts": pl.UInt32, "phi": pl.Float64})
+    w = _contact_weights(ann, contact_weight)
+    matrix, index = potential.as_matrix()
+    i = np.array([index.get(a, -1) for a in ann["residue.aa.from"].to_list()], dtype=np.int64)
+    j = np.array([index.get(b, -1) for b in ann["residue.aa.to"].to_list()], dtype=np.int64)
+    e = np.where((i >= 0) & (j >= 0), matrix[np.clip(i, 0, None), np.clip(j, 0, None)], np.nan) * w
+
+    return (ann.with_columns(pl.Series("phi", np.nan_to_num(e, nan=0.0)))
+            .group_by("peptide.pos", "peptide.aa", "peptide.role", maintain_order=True)
+            .agg(pl.len().alias("n_contacts"), pl.col("phi").sum())
+            .with_columns(pl.lit(contact_map.pdb_id).alias("complex.id"))
+            .select("complex.id", "peptide.pos", "peptide.aa", "peptide.role", "n_contacts", "phi")
+            .sort("peptide.pos"))
+
+
+def central_strain(profile: pl.DataFrame, band: float = 1 / 3) -> float:
+    """Interface energy carried by the peptide's central, TCR-facing band.
+
+    The review's concern, made a number: a TCR has to clear the middle of the peptide to dock at
+    all, so an unfavourable (positive) energy there is a viability question in a way that the same
+    value at P1 or PΩ is not. Positive = the centre is repulsive.
+
+    Args:
+        profile: the frame :func:`position_profile` returns.
+        band: fraction of the peptide's length counted as central, centred on the middle.
+
+    Returns:
+        Summed ``phi`` over the central band, or ``nan`` for an empty profile.
+    """
+    if profile.height == 0:
+        return float("nan")
+    pos = np.asarray(profile["peptide.pos"].to_list(), dtype=np.float64)
+    lo, hi = pos.min(), pos.max()
+    centre, half = (lo + hi) / 2.0, max((hi - lo + 1) * band / 2.0, 0.5)
+    sel = np.abs(pos - centre) <= half
+    return float(np.asarray(profile["phi"].to_list())[sel].sum())

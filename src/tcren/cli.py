@@ -371,6 +371,24 @@ def fetch_recent(
         typer.echo(f"{k}: {v}")
 
 
+def _score_weights(structure, cm, interface, regions, drop_untyped, position_scheme):
+    """Combine the optional contact-type and peptide-position weights, or None when both are off."""
+    import numpy as np
+
+    if not drop_untyped and position_scheme == "uniform":
+        return None
+    w = np.ones(cm.interface(interface, tcr_regions=regions).height, dtype=np.float64)
+    if drop_untyped:
+        from .contact_types import classify_contacts, stacked_pairs, type_weights
+        typed = classify_contacts(cm.interface(interface, tcr_regions=regions), "v2",
+                                  stacked_pairs(structure))
+        w *= type_weights(typed)
+    if position_scheme != "uniform":
+        from .scoring import peptide_positions, position_weights
+        w *= position_weights(peptide_positions(cm, structure, interface, regions), position_scheme)
+    return w
+
+
 @app.command(rich_help_panel=_P_SCORE)
 def score(
     structures: Path = typer.Option(..., "-s", "--structures", help="structure file, directory, or .tar.gz (.pdb/.cif/.pdb.gz/.cif.gz)"),
@@ -382,6 +400,8 @@ def score(
     organism: str = typer.Option("human", "--organism"),
     cutoff: float = typer.Option(5.0, "--cutoff"),
     intra_weight: float = typer.Option(0.0, "--intra-weight", help="weight of the intra-peptide term: score = interface energy + w x the candidate's contact energy with itself (0 = off, the default)"),
+    drop_untyped: bool = typer.Option(False, "--drop-untyped", help="ignore contacts that are only proximity (no salt bridge / h-bond / stacking / hydrophobic / polar chemistry)"),
+    position_scheme: str = typer.Option("uniform", "--position-weights", help="weight contacts by where they sit on the peptide: uniform|central|tcr_facing"),
 ) -> None:
     """Score candidate epitopes against input structures (end-to-end pipeline).
 
@@ -390,17 +410,26 @@ def score(
     with **itself** (5 Å, sequence separation >= 3, MJ). It is off by default; a class-I 9-mer is
     extended and makes zero to two such contacts, so it separates candidates only where the peptide
     is genuinely bulged or self-packed.
+
+    ``--drop-untyped`` and ``--position-weights`` both reweight the same sum, and both default to
+    off so the score is unchanged unless asked. The first uses the chemical typing to ignore pairs
+    that are within 5 Å but make no interaction; the second says a contact under the CDR3 loops in
+    the middle of the peptide is not worth the same as one at an anchor the TCR never touches.
     """
     if regions not in TCR_REGIONS:
         raise typer.BadParameter("--regions must be one of all|cdr|cdr+fr")
+    from .scoring import POSITION_SCHEMES
+    if position_scheme not in POSITION_SCHEMES:
+        raise typer.BadParameter(f"--position-weights must be one of {'|'.join(POSITION_SCHEMES)}")
     pot = _load_potential(potential)
     cands = _read_candidates(candidates)
     frames = []
     for _pid, s in iter_structures(structures, importer=parse_structure):
         classify_chains(s, organism=organism)
         cm = ContactMap.from_structure(s, cutoff=cutoff, peptide_internal=bool(intra_weight))
+        w = _score_weights(s, cm, interface, regions, drop_untyped, position_scheme)
         frames.append(score_peptides(cm, cands, pot, interface=interface, tcr_regions=regions,
-                                     intra_weight=intra_weight))
+                                     intra_weight=intra_weight, weights=w))
     result = pl.concat(frames) if frames else pl.DataFrame()
     result.write_csv(str(out))
     typer.echo(f"The ranked list of candidate epitopes can be found in {out}")

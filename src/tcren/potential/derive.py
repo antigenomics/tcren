@@ -223,3 +223,74 @@ def derive_tcren_loo(
             .with_columns(pl.lit(pid).alias("pdb.id"))
         )
     return pl.concat(frames)
+
+
+def derive_tcren_by_type(
+    contacts: pl.DataFrame,
+    *,
+    min_count: int = 30,
+    **kwargs,
+) -> tuple[dict[str, Potential], pl.DataFrame]:
+    """Derive one potential per contact type, plus the occupancy report that says whether to trust it.
+
+    The review's suggestion: a contact potential scores a residue pair by identity alone, so it gives
+    the same energy to a Lys–Asp salt bridge and a Lys–Asp pair that merely drifts within 5 Å.
+    Conditioning the counts on :mod:`tcren.contact_types` separates them. The review also names the
+    risk, and it is the real one: splitting a fixed set of contacts across eight types multiplies the
+    sparsity of a 20×20 matrix by eight.
+
+    So this returns the report alongside the potentials rather than only the matrices. Read the
+    report first: ``n_contacts`` per type, and ``frac_cells_ge_min`` — the share of the 400 cells that
+    reach ``min_count`` observations. A type where that is near zero has a matrix made mostly of
+    pseudocount, whatever its numbers look like.
+
+    **Measured on Canonical2026** (8002 typed TCR:peptide contacts, 370 structures): the concern is
+    the correct one. No type reaches 5% cell occupancy at ``min_count=30``. ``polar``, the largest
+    bucket at 3221 contacts, populates 4.75% of cells with a median of 6.5 observations each;
+    ``salt_bridge`` (136 contacts) reaches 11 cells of 400; ``stacking`` 13. Correlation with the
+    pooled matrix tracks the count and nothing else — polar 0.57, hydrophobic 0.28, cation_pi 0.03 —
+    which is what noise looks like, not distinct chemistry. (The pipeline itself is fine: the pooled
+    re-derivation reproduces the shipped ``TCRen_potential.csv`` at r = +0.85.)
+
+    On a set this size, use the type to **filter** contacts instead
+    (:func:`tcren.contact_types.type_weights`); this function is here so the decision can be re-taken
+    against a larger set rather than argued about.
+
+    Args:
+        contacts: a contact table carrying ``contact.type`` — from
+            :func:`tcren.paper.helpers.contact_table` with ``contact_types=True``, or
+            :func:`tcren.contact_types.residue_pair_types`.
+        min_count: observations a cell needs before it counts as populated in the report.
+        **kwargs: passed through to :func:`derive_tcren`.
+
+    Returns:
+        ``(potentials, report)`` — a ``{contact_type: Potential}`` mapping and a polars frame with
+        ``contact.type``, ``n_contacts``, ``n_cells_observed``, ``frac_cells_ge_min``,
+        ``median_count``.
+
+    Raises:
+        ValueError: if ``contacts`` has no ``contact.type`` column.
+    """
+    if "contact.type" not in contacts.columns:
+        raise ValueError("contacts must carry a 'contact.type' column; build the table with "
+                         "contact_table(..., contact_types=True) or residue_pair_types()")
+
+    potentials, rows = {}, []
+    for ctype in sorted(contacts["contact.type"].drop_nulls().unique().to_list()):
+        sub = contacts.filter(pl.col("contact.type") == ctype)
+        cells = sub.group_by("residue.aa.from", "residue.aa.to").agg(pl.len().alias("count"))
+        rows.append({
+            "contact.type": ctype,
+            "n_contacts": sub.height,
+            "n_cells_observed": cells.height,
+            "frac_cells_ge_min": float((cells["count"] >= min_count).sum()) / 400.0,
+            "median_count": float(cells["count"].median()) if cells.height else 0.0,
+        })
+        potentials[ctype] = derive_tcren(sub, **kwargs)
+        potentials[ctype].name = f"TCRen[{ctype}]"
+
+    report = pl.DataFrame(rows, schema={
+        "contact.type": pl.Utf8, "n_contacts": pl.Int64, "n_cells_observed": pl.Int64,
+        "frac_cells_ge_min": pl.Float64, "median_count": pl.Float64,
+    }).sort("n_contacts", descending=True)
+    return potentials, report

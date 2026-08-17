@@ -145,3 +145,56 @@ def test_symmetric_default_off_keeps_legacy_matrix():
     assert derive_tcren(contacts, variant="classic").matrix.equals(
         derive_tcren(contacts, variant="classic", symmetric=False).matrix
     )
+
+
+# --- contact-type-conditioned derivation ----------------------------------------------------------
+def test_derive_by_type_needs_the_type_column():
+    from tcren.potential.derive import derive_tcren_by_type
+
+    df = pl.DataFrame({"pdb.id": ["a"], "residue.aa.from": ["L"], "residue.aa.to": ["V"]})
+    with pytest.raises(ValueError, match="contact.type"):
+        derive_tcren_by_type(df)
+
+
+def test_derive_by_type_reports_the_sparsity_it_creates():
+    """The report is the point: splitting a fixed contact set across types is what makes it sparse."""
+    from tcren.potential.derive import derive_tcren_by_type
+
+    rng = np.random.default_rng(0)
+    aas = list("LFIMVWYHAGPTSQNDERK")
+    n = 600
+    df = pl.DataFrame({
+        "pdb.id": ["s%d" % (i % 20) for i in range(n)],
+        "residue.aa.from": rng.choice(aas, n).tolist(),
+        "residue.aa.to": rng.choice(aas, n).tolist(),
+        "contact.type": rng.choice(["polar", "hydrogen_bond", "salt_bridge"], n,
+                                   p=[0.7, 0.25, 0.05]).tolist(),
+    })
+    pots, report = derive_tcren_by_type(df, min_count=30)
+
+    assert set(pots) == {"polar", "hydrogen_bond", "salt_bridge"}
+    assert report["n_contacts"].sum() == n
+    assert report["contact.type"].to_list()[0] == "polar"        # sorted by count, descending
+    # Every type must be scoreable even where it is sparse (pseudocount fills the empty cells)...
+    for p in pots.values():
+        assert p.as_matrix()[0].shape == (20, 20)   # full alphabet, holes filled by pseudocount
+        assert p.name.startswith("TCRen[")
+    # ...and the report must say so rather than let the matrix imply otherwise.
+    assert (report["frac_cells_ge_min"] < 0.1).all()
+
+
+def test_derive_by_type_partitions_the_contacts():
+    """Each contact goes to exactly one type, so the per-type counts sum to the pooled count."""
+    from tcren.potential.derive import derive_tcren_by_type
+
+    rng = np.random.default_rng(1)
+    aas = list("LFIVAG")
+    n = 200
+    df = pl.DataFrame({
+        "pdb.id": ["s"] * n,
+        "residue.aa.from": rng.choice(aas, n).tolist(),
+        "residue.aa.to": rng.choice(aas, n).tolist(),
+        "contact.type": rng.choice(["polar", "hydrophobic"], n).tolist(),
+    })
+    _pots, report = derive_tcren_by_type(df)
+    assert report["n_contacts"].sum() == df.height

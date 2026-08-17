@@ -23,7 +23,8 @@ _CONTACT_COLS = [
 
 
 def contact_table(
-    structure: Structure, cutoff: float = 5.0, count_atoms: bool = False
+    structure: Structure, cutoff: float = 5.0, count_atoms: bool = False,
+    contact_types: bool = False,
 ) -> pl.DataFrame:
     """TCR↔peptide contact table for an annotated structure (the mir-replacement).
 
@@ -35,6 +36,10 @@ def contact_table(
     When ``count_atoms`` is set, an extra ``n_atom_contacts`` column (the heavy-atom-pair
     count per residue pair) is carried through for atomic-weighted scoring. Default
     ``False`` keeps the schema byte-identical to the legacy output.
+
+    ``contact_types`` adds ``contact.type`` from :func:`tcren.contact_types.residue_pair_types`.
+    Without it a cached contact table cannot be typed after the fact — ``atom.from``, ``atom.to``
+    and ``dist`` are all dropped here — which is what blocked a type-aware potential derivation.
     """
     tp = ContactMap.from_structure(
         structure, cutoff=cutoff, count_atoms=count_atoms
@@ -42,7 +47,16 @@ def contact_table(
     cols = list(_CONTACT_COLS)
     if count_atoms:
         cols.append("n_atom_contacts")
-    return tp.select(cols).unique()
+    out = tp.select(cols).unique()
+    if contact_types:
+        from ..contact_types import residue_pair_types
+        typed = residue_pair_types(structure, "tcr_peptide", cutoff=cutoff).select(
+            "chain.id.from", "residue.index.from", "chain.id.to", "residue.index.to",
+            "contact.type")
+        keys = ["residue.index.from", "residue.index.to"]
+        out = out.join(typed.select(keys + ["contact.type"]).unique(subset=keys),
+                       on=keys, how="left")
+    return out
 
 
 def annotate_structure_set(

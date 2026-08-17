@@ -330,3 +330,40 @@ def contact_type_counts(cm, interface: str = "tcr_peptide", tcr_regions: str = "
         if sub.height:
             out[f"pairs_{t}"] = sub.select(_PAIR_KEYS).unique().height
     return out
+
+
+#: Types that carry no chemistry beyond proximity — what :func:`type_weights` drops.
+UNTYPED = ("vdw", "other")
+
+
+def type_weights(typed: pl.DataFrame, drop: "tuple[str, ...]" = UNTYPED) -> "np.ndarray":
+    """0/1 per-contact weights that keep only chemically-typed contacts.
+
+    The review's fallback, and the cheap half of a type-aware potential: rather than re-derive the
+    matrix conditioned on the contact type, use the type to *discard* pairs that are within 5 Å but
+    make no interaction — a contact map built on proximity alone counts them the same as a salt
+    bridge. Feed the result to ``score_peptides(..., weights=...)``.
+
+    Args:
+        typed: a frame carrying the ``is_<type>`` booleans, from :func:`classify_contacts` with
+            ``scheme="v2"`` or from :func:`residue_pair_types`.
+        drop: types to zero out. The default drops only the two that mean "nothing but proximity".
+
+    Returns:
+        One float (0.0 or 1.0) per row of ``typed``, in its row order.
+
+    Raises:
+        ValueError: if the frame carries no ``is_<type>`` columns (it was typed under ``"v1"``).
+    """
+    import numpy as np
+
+    keep_types = [t for t in TYPES_V2 if t not in drop]
+    have = [f"is_{t}" for t in keep_types if f"is_{t}" in typed.columns]
+    if not have:
+        raise ValueError("no is_<type> columns; classify with scheme='v2' or use residue_pair_types")
+    if typed.height == 0:
+        return np.zeros(0, dtype=np.float64)
+    keep = np.zeros(typed.height, dtype=bool)
+    for col in have:
+        keep |= np.asarray(typed[col].to_list(), dtype=bool)
+    return keep.astype(np.float64)

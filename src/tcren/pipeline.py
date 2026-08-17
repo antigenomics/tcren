@@ -95,26 +95,60 @@ class PipelineResult:
     extra: dict = field(default_factory=dict)
 
 
-def _interface_energy(
-    contacts: pl.DataFrame, potential: Potential, contact_weight: str = "residue"
-) -> float:
-    """Sum the residue-pair ``potential`` over an interface's contacts (unknown residues skipped).
+def _contact_weights(contacts: pl.DataFrame, contact_weight: str = "residue",
+                     weights: "np.ndarray | None" = None) -> np.ndarray:
+    """Per-contact multiplier for an energy sum.
 
-    With ``contact_weight="residue"`` (default, legacy) each contacting residue pair adds
-    ``potential[a, b]``. With ``contact_weight="atomic"`` each pair is multiplied by its
-    ``n_atom_contacts`` heavy-atom-pair count (which the contacts table must carry).
+    Every score in the package is ``sum_ij w_ij * e(a_i, b_j)``; this is the only place ``w``
+    comes from, so a rotamer-averaged contact probability
+    (:func:`tcren.rotamers.contact_probabilities`), a position weight
+    (:func:`tcren.scoring.position_weights`) or a contact-type filter all enter the same way.
+
+    Args:
+        contacts: the interface frame the energy is summed over.
+        contact_weight: ``"residue"`` (unit weight per contacting residue pair) or ``"atomic"``
+            (its ``n_atom_contacts`` heavy-atom-pair count).
+        weights: an explicit per-row multiplier, applied **on top of** ``contact_weight``. Must
+            be one value per row.
+
+    Raises:
+        ValueError: for an unknown ``contact_weight``, a missing ``n_atom_contacts`` column, or a
+            ``weights`` array of the wrong length.
     """
-    if contacts.is_empty():
-        return 0.0
+    if contact_weight not in ("residue", "atomic"):
+        raise ValueError(f"contact_weight must be 'residue' or 'atomic', got {contact_weight!r}")
     if contact_weight == "atomic":
         if "n_atom_contacts" not in contacts.columns:
             raise ValueError(
                 "contact_weight='atomic' needs the n_atom_contacts column; build the "
                 "contact map with count_atoms=True"
             )
-        weights = np.asarray(contacts["n_atom_contacts"].to_list(), dtype=np.float64)
+        out = np.asarray(contacts["n_atom_contacts"].to_list(), dtype=np.float64)
     else:
-        weights = np.ones(contacts.height, dtype=np.float64)
+        out = np.ones(contacts.height, dtype=np.float64)
+    if weights is not None:
+        weights = np.asarray(weights, dtype=np.float64)
+        if weights.shape != (contacts.height,):
+            raise ValueError(f"weights must have one value per contact "
+                             f"({contacts.height}), got {weights.shape}")
+        out = out * weights
+    return out
+
+
+def _interface_energy(
+    contacts: pl.DataFrame, potential: Potential, contact_weight: str = "residue",
+    weights: "np.ndarray | None" = None,
+) -> float:
+    """Sum the residue-pair ``potential`` over an interface's contacts (unknown residues skipped).
+
+    With ``contact_weight="residue"`` (default, legacy) each contacting residue pair adds
+    ``potential[a, b]``. With ``contact_weight="atomic"`` each pair is multiplied by its
+    ``n_atom_contacts`` heavy-atom-pair count (which the contacts table must carry). ``weights``
+    multiplies on top — see :func:`_contact_weights`.
+    """
+    if contacts.is_empty():
+        return 0.0
+    weights = _contact_weights(contacts, contact_weight, weights)
     # Vectorized gather off the dense matrix instead of a per-row polars filter
     # (Potential.value): O(contacts) lookups, not O(contacts × potential_rows). Pairs whose
     # residue is outside the alphabet, or absent from the matrix (nan), are dropped — exactly
