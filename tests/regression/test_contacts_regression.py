@@ -72,10 +72,42 @@ def _oracle_set(pdb_id: str, oracle: pl.DataFrame) -> set[tuple]:
     )
 
 
+# Structures deposited with explicit hydrogens. The legacy pipeline counted H-mediated pairs as
+# residue contacts, so its contact set for these is a superset of ours: tcren now filters hydrogens
+# in `_atom_arrays`, because otherwise the same complex scores differently depending only on whether
+# the depositor modelled H (5jhd: 7 of 28 TCR:peptide contacts and -58.5% on F_tcr_pep; 7qpj: 8 of 33
+# and +38.6%). Parity is asserted on the heavy-atom subset, which is what both pipelines mean by a
+# 5 Å contact.
+_HAS_HYDROGENS = {"5jhd", "7qpj"}
+
+
+def _has_hydrogens(path) -> bool:
+    return any(line.startswith(("ATOM", "HETATM")) and line[76:78].strip() == "H"
+               for line in path.read_text().splitlines())
+
+
 @pytest.mark.parametrize("pdb_id", ["5m01", "1ao7", "5jhd", "6v0y", "7qpj", "9nmx"])
 def test_tcr_peptide_contacts_match_oracle(pdb_id):
     oracle = pl.read_csv(CONTACT_MAPS)
-    assert _tcr_peptide_contact_set(pdb_id, oracle) == _oracle_set(pdb_id, oracle)
+    got, want = _tcr_peptide_contact_set(pdb_id, oracle), _oracle_set(pdb_id, oracle)
+    if pdb_id in _HAS_HYDROGENS:
+        assert got <= want, "heavy-atom contacts must be a subset of the legacy H-inclusive set"
+        assert len(got) >= 0.7 * len(want), "too many contacts lost; this is more than the H pairs"
+    else:
+        assert got == want
+
+
+@pytest.mark.parametrize("pdb_id", sorted(_HAS_HYDROGENS))
+def test_hydrogens_do_not_change_the_contact_set(pdb_id):
+    """Stripping H from the file must give the same contacts as filtering them in the reader."""
+    import dataclasses
+
+    structure = parse_structure(PDB_DIR / f"{pdb_id}.pdb")
+    stripped = parse_structure(PDB_DIR / f"{pdb_id}.pdb")
+    for chain in stripped.chains:
+        chain.residues = [dataclasses.replace(r, atoms=tuple(a for a in r.atoms if a.element != "H"))
+                          for r in chain.residues]
+    assert all_atom_contacts(structure, cutoff=5.0).equals(all_atom_contacts(stripped, cutoff=5.0))
 
 
 @pytest.mark.skipif(not os.getenv("RUN_BENCHMARK"), reason="set RUN_BENCHMARK=1 to run")
@@ -83,8 +115,12 @@ def test_all_structures_contacts_match_oracle():
     oracle = pl.read_csv(CONTACT_MAPS)
     mismatched = []
     for pdb_id in oracle["pdb.id"].unique().to_list():
-        if not (PDB_DIR / f"{pdb_id}.pdb").exists():
+        path = PDB_DIR / f"{pdb_id}.pdb"
+        if not path.exists():
             continue
-        if _tcr_peptide_contact_set(pdb_id, oracle) != _oracle_set(pdb_id, oracle):
+        got, want = _tcr_peptide_contact_set(pdb_id, oracle), _oracle_set(pdb_id, oracle)
+        # H-bearing depositions: the legacy set includes H-mediated pairs, so ours is a subset.
+        ok = (got <= want) if _has_hydrogens(path) else (got == want)
+        if not ok:
             mismatched.append(pdb_id)
     assert not mismatched, f"{len(mismatched)} structures mismatched: {mismatched}"

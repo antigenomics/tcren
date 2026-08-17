@@ -19,7 +19,9 @@ other's local axes). For interpretable in-plane / tilt angles use :func:`tcren.o
 (``crossing_angle`` = the groove-plane "scanning" angle; ``incident_angle`` = the tilt); this module adds the
 full rigid-body pose that those two scalars do not capture.
 
-MHC-I core positions are mapped by BLOSUM-aligning the α chain to TCRdock's class-I template; TCR core
+Class-I core positions are mapped by BLOSUM-aligning the α chain to TCRdock's class-I template. Class II uses
+the same six within-domain strand offsets, mapped through the canonical α1 (MHCa) and β1 (MHCb) sequences in
+``mhc_canonical.json`` — the two halves live on separate chains there, but they are the same floor. TCR core
 positions are the conserved IMGT framework positions, located from tcren's arda region markup.
 
 Provenance note (validated on 618 TCRvdb TCRmodel2 models, 2026-07-05): tcren's ``crossing_angle`` reproduces
@@ -49,6 +51,14 @@ CLASS1_TEMPLATE_SEQ = (
     "RCWALGFYPADITLTWQLNGEELTQDMELVETRPAGDGTFQKWASVVVPLGKEQNYTCRVYHEGLPEPLTLRWEP"
 )
 CLASS1_CORE_POS_0X = [p - 1 for p in (4, 6, 8, 10, 23, 25, 94, 96, 98, 100, 113, 115)]
+
+# The 12 class-I columns are the same six within-domain offsets taken twice: α1 at {3,5,7,9,22,24} and α2 at
+# 90 + the same. Class II is the same floor with the two halves on separate chains — α1 on MHCa, β1 on MHCb —
+# so the identical offsets, counted from each chain's own canonical mature start, name the corresponding
+# strand positions. Mapped through the canonical sequences in ``mhc_canonical.json`` rather than a second
+# hard-coded template, because those already carry the GROOVE_FLOOR markup for both class-II roles.
+CORE_OFFSETS_0X = (3, 5, 7, 9, 22, 24)
+_MIN_CORE_PAIRS = 4              # a half-pair drops when either side fails to align (6v0y loses offset 7)
 
 # --- TCR core: conserved IMGT framework positions located from region boundaries -------------------------
 # TCRdock uses 13 IMGT positions [21,23,25, 39,41, 53,54,55, 78, 89, 102,103,104]; we use the 11 that anchor
@@ -185,8 +195,16 @@ def _blosum_map(template: str, query: str) -> dict[int, int]:
     return mp
 
 
-def _mhc_core_ca(structure) -> np.ndarray | None:
-    """12 class-I β-sheet-floor CAs (α1 half then α2 half) via BLOSUM alignment to the TCRdock template."""
+def _paired_halves(a_ca: list, b_ca: list) -> np.ndarray | None:
+    """Stack two half-cores, keeping only offsets present on both sides (the 2-fold pairs)."""
+    keep = [i for i, (a, b) in enumerate(zip(a_ca, b_ca)) if a is not None and b is not None]
+    if len(keep) < _MIN_CORE_PAIRS:
+        return None
+    return np.asarray([a_ca[i] for i in keep] + [b_ca[i] for i in keep])
+
+
+def _mhc_core_ca_class1(structure) -> np.ndarray | None:
+    """Class-I β-sheet-floor CAs (α1 half then α2 half) via BLOSUM alignment to the TCRdock template."""
     chain = next((c for c in structure.chains if c.chain_type in _MHC_A_TYPES), None)
     if chain is None:
         return None
@@ -194,16 +212,39 @@ def _mhc_core_ca(structure) -> np.ndarray | None:
     if len(seq) < 120:
         return None
     tmap = _blosum_map(CLASS1_TEMPLATE_SEQ, seq)
-    out = []
-    for pos in CLASS1_CORE_POS_0X:
-        q = tmap.get(pos)
-        if q is None:
-            return None
-        ca = _ca(chain, q)
-        if ca is None:
-            return None
-        out.append(ca)
-    return np.asarray(out)
+    half = len(CLASS1_CORE_POS_0X) // 2
+    cas = [None if (q := tmap.get(pos)) is None else _ca(chain, q) for pos in CLASS1_CORE_POS_0X]
+    return _paired_halves(cas[:half], cas[half:])
+
+
+def _canonical_core_ca(structure, chain_type: str, canon_key: str) -> list | None:
+    """Half-core CAs of one class-II groove domain, mapped through its canonical mature sequence."""
+    from ..mhc.domains import groove_for
+    from ..mhc.regions import _canonical_to_query
+
+    chain = next((c for c in structure.chains if c.chain_type == chain_type), None)
+    groove = groove_for(*canon_key)
+    if chain is None or groove is None:
+        return None
+    seq = "".join(r.aa for r in chain.residues if getattr(r, "aa", None))
+    if not seq:
+        return None
+    cmap = _canonical_to_query(seq, groove["sequence"])
+    return [None if (q := cmap.get(pos)) is None else _ca(chain, int(q)) for pos in CORE_OFFSETS_0X]
+
+
+def _mhc_core_ca_class2(structure) -> np.ndarray | None:
+    """Class-II β-sheet-floor CAs: the α1 half on MHCa, the β1 half on MHCb."""
+    a = _canonical_core_ca(structure, _MHC_A_TYPES[0], ("MHCII", "MHCa"))
+    b = _canonical_core_ca(structure, _MHC_B_TYPES[0], ("MHCII", "MHCb"))
+    return None if a is None or b is None else _paired_halves(a, b)
+
+
+def _mhc_core_ca(structure) -> np.ndarray | None:
+    """β-sheet-floor CAs of the groove's two pseudo-symmetric halves, class I or class II."""
+    if any(c.chain_type in _MHC_B_TYPES for c in structure.chains):
+        return _mhc_core_ca_class2(structure)
+    return _mhc_core_ca_class1(structure)
 
 
 # =======================================================================================================
@@ -241,7 +282,8 @@ def docking_geometry(structure) -> DockingGeometry:
     """
     mhc_ca = _mhc_core_ca(structure)
     if mhc_ca is None:
-        raise ValueError("could not locate the class-I MHC β-sheet core (class-II not yet supported)")
+        raise ValueError("could not locate the MHC β-sheet core (needs an MHC-annotated groove: class-I "
+                         "MHCa, or class-II MHCa + MHCb)")
     tcr_ca = None
     for va, vb in (_AB_PAIR, _GD_PAIR):
         tcr_ca = _tcr_core_ca(structure, va, vb)

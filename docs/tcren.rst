@@ -157,6 +157,14 @@ tcren.stacking module
    :undoc-members:
    :show-inheritance:
 
+tcren.surface module
+~~~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: tcren.surface
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 tcren.geometry module
 ~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -495,6 +503,14 @@ tcren.viz.svg2d module
 ~~~~~~~~~~~~~~~~~~~~~~~
 
 .. automodule:: tcren.viz.svg2d
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+tcren.viz.surface2d module
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: tcren.viz.surface2d
    :members:
    :undoc-members:
    :show-inheritance:

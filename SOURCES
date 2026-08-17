@@ -76,3 +76,17 @@ defined for a single structure rather than only within a cohort.
 
 - Origin: computed by us over the Canonical2026 native crystals.
 - Loader: `tcren.cohort` (`q_score`).
+
+## Kyte–Doolittle hydropathy — published (not a bundled file)
+
+The 20 hydropathy values painted onto the ``phobic`` channel of a surface-topology map. Kept as a
+literal in `src/tcren/surface.py` (`KYTE_DOOLITTLE`) rather than a CSV: twenty numbers that have not
+changed since 1982.
+
+- Origin: Kyte J, Doolittle RF. *A simple method for displaying the hydropathic character of a
+  protein.* J Mol Biol. 1982;157(1):105–132. Table 1, the "hydropathy index" column.
+- Independent check: r = +0.84 (n = 20) against the hydrophobicity axis
+  `Potential.hydrophobicity_fit()` recovers from `MJ1996_contact_energies.csv` — the alternative
+  scale `surface_map(..., scale="mj")` selects. Two unrelated derivations of the same axis, so a
+  transcription slip would break the agreement rather than hide in it.
+- Loader: `tcren.surface.KYTE_DOOLITTLE`.

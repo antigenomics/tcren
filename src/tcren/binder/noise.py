@@ -16,7 +16,9 @@ The derivation is ``models/fit_frozen.py::envelope`` in the benchmark repo, whic
 three constants exactly and is regression-tested there. Two caveats it records: the pitch *lower*
 bound of 0 deg is the domain floor of an unsigned angle rather than a percentile (p01 = 0.04), and
 the pitch axis is derived from a cached ``pitch_angle`` column carrying AlphaFold-confidence
-leakage -- the scanning and contact-count axes are clean.
+leakage -- the scanning and contact-count axes are clean. Because that bound is a floor on an
+*unsigned* angle, the pitch is compared as ``abs(pitch_angle)``: tcren's own
+``DockingAngles.incident_angle`` is signed, and a downward tilt is the same tilt.
 """
 
 from __future__ import annotations
@@ -71,5 +73,8 @@ def is_real_interface(
     return (
         n_contacts >= N_CONTACTS_MIN
         and SCANNING_RANGE[0] <= scanning_angle <= SCANNING_RANGE[1]
-        and PITCH_RANGE[0] <= pitch_angle <= PITCH_RANGE[1]
+        # abs(): the envelope was fit on an unsigned pitch, but DockingAngles.incident_angle is signed
+        # [-90, 90]. Comparing the signed value against a floor of 0 rejects every downward tilt --
+        # 5xot (a class-I crystal, incident -9.9) and both class-II fixtures fail that way.
+        and PITCH_RANGE[0] <= abs(pitch_angle) <= PITCH_RANGE[1]
     )

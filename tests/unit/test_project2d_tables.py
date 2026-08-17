@@ -50,9 +50,10 @@ def test_contacts_table_matches_geometry():
         "min_dist", "contact_type", "backbone_1", "backbone_2",
     }
     assert ct["min_dist"].max() <= 5.0
-    assert ct["contact_type"].is_in(
-        ["salt_bridge", "hydrogen_bond", "aromatic", "hydrophobic", "polar", "other"]
-    ).all()
+    # Vocabulary is tcren.contact_types' v2 scheme, minus `stacking` (this path has no ring geometry).
+    from tcren.contact_types import TYPES_V2
+
+    assert ct["contact_type"].is_in([t for t in TYPES_V2 if t != "stacking"]).all()
 
 
 def test_residue_markup_schema_and_keys():

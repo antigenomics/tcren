@@ -14,7 +14,16 @@ from ..structure.model import Structure
 
 
 def _atom_arrays(structure: Structure):
-    """Flatten the structure into per-atom coordinate and metadata arrays."""
+    """Flatten the structure into per-atom coordinate and metadata arrays.
+
+    Hydrogens are dropped. Every contact definition in the package is a *heavy-atom* one — the
+    thresholds, the potentials derived from them, and the chemical typing in
+    :mod:`tcren.contact_types` all assume it — but ``parse_structure``/``import_structure`` keep
+    hydrogens by default, so a model that carries them (AlphaFold relaxed, OpenMM, PDBFixer) used
+    to report an H as the closest atom of a pair and defeat the typing entirely.
+    :mod:`tcren.clashes` and :mod:`tcren.stability` already filtered here; this brings the contact
+    layer in line.
+    """
     coords: list[np.ndarray] = []
     chain_ids: list[str] = []
     res_idx: list[int] = []
@@ -23,6 +32,8 @@ def _atom_arrays(structure: Structure):
     for chain in structure.chains:
         for res in chain.residues:
             for atom in res.atoms:
+                if atom.element == "H":
+                    continue
                 coords.append(atom.coord)
                 chain_ids.append(chain.chain_id)
                 res_idx.append(res.seq_index)
@@ -44,6 +55,7 @@ def all_atom_contacts(
     cutoff: float = 5.0,
     count_atoms: bool = False,
     scope: str = "inter",
+    atom_pairs: bool = False,
 ) -> pl.DataFrame:
     """Closest atom contact for each residue pair within ``cutoff`` Å.
 
@@ -66,6 +78,11 @@ def all_atom_contacts(
             sequence neighbours, which are in contact by covalent geometry rather than
             by folding — filter on sequence separation before interpreting them
             (:func:`peptide_internal_contacts` does this).
+        atom_pairs: When ``True`` return **every** heavy-atom pair within ``cutoff`` instead of
+            collapsing each residue pair to its closest one. Chemical typing needs this: a salt
+            bridge whose nearest atom pair happens to be Arg CG–Asp OD1 is invisible in the
+            collapsed table, because the charged NH1–OD2 pair it also makes was discarded.
+            Changes the row count, not the schema.
 
     Returns:
         Columns: ``chain.id.from``, ``residue.index.from``, ``chain.id.to``,
@@ -140,8 +157,9 @@ def all_atom_contacts(
     if count_atoms:
         # One row per atom-atom pair, so the group size is the heavy-atom-pair count.
         df = df.with_columns(pl.len().over(group_keys).alias("n_atom_contacts"))
-    # Keep the closest atom pair per residue pair.
-    df = df.sort("dist").group_by(group_keys, maintain_order=True).first()
+    if not atom_pairs:
+        # Keep the closest atom pair per residue pair.
+        df = df.sort("dist").group_by(group_keys, maintain_order=True).first()
     return df.select(list(schema.keys()))
 
 

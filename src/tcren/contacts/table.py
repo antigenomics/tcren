@@ -70,7 +70,8 @@ def symmetrize(contacts: pl.DataFrame) -> pl.DataFrame:
 
 
 def tidy_contacts(
-    structure: Structure, cutoff: float = 5.0, count_atoms: bool = False
+    structure: Structure, cutoff: float = 5.0, count_atoms: bool = False,
+    atom_pairs: bool = False,
 ) -> pl.DataFrame:
     """Symmetrised, fully annotated contact table for a structure.
 
@@ -81,9 +82,12 @@ def tidy_contacts(
     When ``count_atoms`` is set, the ``n_atom_contacts`` per-residue-pair heavy-atom
     count is carried through (it is symmetric, so it survives the from/to swap
     unchanged). Default ``False`` keeps the table byte-identical to the legacy output.
+
+    ``atom_pairs`` passes through to :func:`~tcren.contacts.geometry.all_atom_contacts`: every
+    heavy-atom pair instead of each residue pair's closest one. Chemical typing needs it.
     """
     contacts = symmetrize(
-        all_atom_contacts(structure, cutoff=cutoff, count_atoms=count_atoms)
+        all_atom_contacts(structure, cutoff=cutoff, count_atoms=count_atoms, atom_pairs=atom_pairs)
     )
     ann = residue_annotation(structure)
 

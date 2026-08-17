@@ -70,3 +70,75 @@ def test_docking_geometry_dataclass_roundtrip():
     d = dg.to_dict()
     assert set(d) == {"d", "torsion", "tcr_unit_y", "tcr_unit_z", "mhc_unit_y", "mhc_unit_z"}
     assert d["d"] == pytest.approx(29.1)
+
+
+# --- end-to-end: the class-I and class-II grooves -------------------------------------------------------
+# The MHC core is chain-typed by hand here so these run without mmseqs; only the TCR framework markup
+# (arda) is imported. The class-II halves live on separate chains (α1 on MHCa, β1 on MHCb) but resolve to
+# the same six strand offsets as class I -- see tcrdock_geometry.CORE_OFFSETS_0X.
+_MHC_TYPING = {
+    "1ao7": {"A": ("MHCa", "MHCI"), "B": ("B2M", "MHCI"), "C": ("PEPTIDE", None),
+             "D": ("TRA", None), "E": ("TRB", None)},
+    "4ozg": {"A": ("MHCa", "MHCII"), "B": ("MHCb", "MHCII"), "J": ("PEPTIDE", None),
+             "G": ("TRA", None), "H": ("TRB", None)},
+    "6v0y": {"A": ("MHCa", "MHCII"), "B": ("MHCb", "MHCII"), "C": ("PEPTIDE", None),
+             "D": ("TRA", None), "E": ("TRB", None)},
+}
+
+
+def _typed(pdb_id):
+    from pathlib import Path
+
+    from tcren.annotation import annotate_tcr_chains
+    from tcren.structure import parse_structure
+
+    pdb_dir = Path(__file__).resolve().parents[1] / "assets" / "pdb"
+    s = parse_structure(pdb_dir / f"{pdb_id}.pdb")
+    for c in s.chains:
+        if c.chain_id in _MHC_TYPING[pdb_id]:
+            c.chain_type, c.chain_supertype = _MHC_TYPING[pdb_id][c.chain_id]
+    annotate_tcr_chains(s)
+    return s
+
+
+def test_class_i_core_keeps_all_six_pairs():
+    from tcren.orient.tcrdock_geometry import _mhc_core_ca
+
+    pytest.importorskip("arda")
+    core = _mhc_core_ca(_typed("1ao7"))
+    assert core.shape == (12, 3)          # 6 pairs, unchanged from the pre-class-II behaviour
+
+
+@pytest.mark.parametrize("pdb_id", ["4ozg", "6v0y"])
+def test_class_ii_core_pairs_both_chains(pdb_id):
+    from tcren.orient.tcrdock_geometry import _MIN_CORE_PAIRS, _mhc_core_ca
+
+    pytest.importorskip("arda")
+    core = _mhc_core_ca(_typed(pdb_id))
+    assert core is not None, "class-II β-sheet core not located"
+    assert core.shape[0] >= 2 * _MIN_CORE_PAIRS and core.shape[0] % 2 == 0
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("pdb_id", ["1ao7", "4ozg", "6v0y"])
+def test_docking_geometry_runs_on_both_mhc_classes(pdb_id):
+    from tcren.orient.tcrdock_geometry import docking_geometry
+
+    pytest.importorskip("arda")
+    g = docking_geometry(_typed(pdb_id))
+    # Class II must land in the same physical range as class I, not merely "not raise".
+    assert 20.0 < g.d < 45.0
+    assert 0.0 <= g.torsion < 2 * np.pi
+    for u in (g.tcr_unit_y, g.tcr_unit_z, g.mhc_unit_y, g.mhc_unit_z):
+        assert -1.0 <= u <= 1.0
+
+
+@pytest.mark.slow
+def test_class_i_docking_geometry_is_unchanged():
+    from tcren.orient.tcrdock_geometry import docking_geometry
+
+    pytest.importorskip("arda")
+    g = docking_geometry(_typed("1ao7"))
+    # Pinned against the pre-class-II implementation (verified bit-identical, not merely close).
+    assert g.d == pytest.approx(31.301818408808607, abs=1e-9)
+    assert np.degrees(g.torsion) == pytest.approx(192.05654000750124, abs=1e-9)

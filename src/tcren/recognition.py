@@ -20,6 +20,7 @@ from __future__ import annotations
 import gzip
 import json
 import math
+import warnings
 from functools import lru_cache
 from pathlib import Path
 
@@ -761,8 +762,12 @@ def recognition_features(source, *, organism: str = "human", potential=None,
         row.update(dock_d=float(dg.d), dock_torsion=float(dg.torsion),
                    dock_tcr_uy=float(dg.tcr_unit_y), dock_tcr_uz=float(dg.tcr_unit_z),
                    dock_mhc_uy=float(dg.mhc_unit_y), dock_mhc_uz=float(dg.mhc_unit_z))
-    except Exception:
-        pass
+    except (ValueError, KeyError, AttributeError) as exc:
+        # Six features (dock_d, dock_torsion, dock_{tcr,mhc}_u{y,z}) stay NaN here. Say why: a bare
+        # `except Exception: pass` made an unannotated or unsupported groove indistinguishable from
+        # a computed result, and the feature dict has no room for a reason column.
+        warnings.warn(f"{s.pdb_id}: docking geometry unavailable ({exc}); "
+                      f"the six dock_* features are NaN", RuntimeWarning, stacklevel=2)
 
     tm = cm.interface("tcr_mhc", tcr_regions="all")                  # interface energetics
     row["F_tcr_mhc"] = float(_interface_energy(tm, mj_pot))
@@ -789,8 +794,10 @@ def recognition_features(source, *, organism: str = "human", potential=None,
     row["n_pep_contacted"] = float(tp.select("residue.index.to").unique().height if tp.height else 0)
     row["n_contacts_tm"] = float(tm.height)
 
-    ctp = contact_type_counts(cm, "tcr_peptide")                     # contact types
-    ctm = contact_type_counts(cm, "tcr_mhc")
+    # scheme="v1" is pinned, not defaulted: the frozen classifiers below were fitted on these
+    # counts, and the current typing (tcren.contact_types "v2") gives different ones.
+    ctp = contact_type_counts(cm, "tcr_peptide", scheme="v1")        # contact types
+    ctm = contact_type_counts(cm, "tcr_mhc", scheme="v1")
     for t in _CT_TYPES:
         if t != "hydrogen_bond":              # emitted once, as n_hbond (the name Eq. Q uses)
             row[f"ct_tp_{t}"] = float(ctp[f"pairs_{t}"])

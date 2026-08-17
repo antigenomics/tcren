@@ -10,6 +10,7 @@ Scoring & prediction
     * ``tcren energy`` — DOPE atom-level interface interaction energy (the ΔΔG ``e_native`` scorer).
     * ``tcren mechanics`` — interface mechanics (stiffness / rupture / coupling) — the koff proxies.
     * ``tcren scoring`` — per-interface contact energies Φ (``--delta`` for ΔΦ, ``--geometry`` for Q).
+    * ``tcren surface`` — pMHC surface topology: height/hydropathy/charge maps + epitope comparison.
 
 Annotation & contacts
     * ``tcren annotate`` — chain typing + region markup (TCR CDR/FR, MHC groove, peptide; ``--pseudo``).
@@ -598,6 +599,70 @@ def binder(
         rows.append(row)
     pl.DataFrame(rows).write_csv(str(out))
     typer.echo(f"wrote {out}")
+
+
+@app.command(rich_help_panel=_P_SCORE)
+def surface(
+    structures: Path = typer.Option(..., "-s", "--structures", help="pMHC / TCR-pMHC file, directory, or .tar.gz"),
+    out: Path = typer.Option("surface.csv", "-o", "--out", help="per-structure surface-topology descriptors"),
+    organism: str = typer.Option("human", "--organism"),
+    grid: str = typer.Option("64x32", "--grid", help="map cells as <n_y>x<n_x> (along groove x across)"),
+    scale: str = typer.Option("kd", "--scale", help="hydropathy scale: kd (Kyte-Doolittle) or mj"),
+    channel: str = typer.Option("h", "--channel", help="channel for --svg and --compare: h, phobic, charge"),
+    region: str = typer.Option(None, "--region", help="restrict --compare to one source, e.g. peptide"),
+    compare: Path = typer.Option(None, "--compare", help="also write the pairwise map-distance matrix here"),
+    cells: Path = typer.Option(None, "--cells", help="also write the long per-cell table here"),
+    svg: Path = typer.Option(None, "--svg", help="directory to write one SVG map per structure"),
+) -> None:
+    """Map the pMHC surface a TCR sees — height + hydropathy + charge over the groove.
+
+    Emits, per structure, the scalars that say how *featured* the presented surface is: ``relief``
+    (height spread over the peptide's footprint), ``peak_to_valley``, ``frac_above_ridge`` (how much
+    peptide surface clears the MHC helix crests) and the mean/central hydropathy. A flat,
+    MHC-dominated landscape — a "featureless" epitope — scores low on all of them.
+
+    The groove frame is refit from each structure, so maps are comparable without prealigning the
+    inputs: ``--compare`` writes the pairwise Manhattan map distance, which clusters structures of
+    the same epitope together.
+    """
+    from .surface import surface_distance, surface_map, surface_table
+
+    try:
+        n_y, n_x = (int(v) for v in grid.lower().split("x"))
+    except ValueError as exc:
+        raise typer.BadParameter(f"--grid must look like 64x32, got {grid!r}") from exc
+
+    maps, rows = [], []
+    for _pid, s in iter_structures(structures, importer=parse_structure):
+        try:
+            if all(c.chain_type is None for c in s.chains):
+                classify_chains(s, organism=organism, autodetect_species=True)
+            from .mhc import annotate_mhc
+            annotate_mhc(s)
+            maps.append(surface_map(s, grid=(n_y, n_x), scale=scale))
+        except Exception as exc:  # noqa: BLE001 - keep the batch resilient, report per structure
+            rows.append({"structure.id": s.pdb_id, "error": f"{type(exc).__name__}: {exc}"})
+
+    table = surface_table(maps)
+    if rows:
+        table = pl.concat([table, pl.DataFrame(rows)], how="diagonal")
+    table.write_csv(str(out))
+    typer.echo(f"wrote {out} ({len(maps)} mapped, {len(rows)} failed)")
+
+    if cells is not None and maps:
+        pl.concat([m.to_frame() for m in maps], how="vertical").write_csv(str(cells))
+        typer.echo(f"wrote {cells}")
+    if compare is not None and maps:
+        ids, dist = surface_distance(maps, channel=channel, region=region)
+        pl.DataFrame({"structure.id": ids, **{i: dist[:, k] for k, i in enumerate(ids)}}
+                     ).write_csv(str(compare))
+        typer.echo(f"wrote {compare}")
+    if svg is not None and maps:
+        from .viz.surface2d import render_surface_map
+        svg.mkdir(parents=True, exist_ok=True)
+        for m in maps:
+            (svg / f"{m.structure_id}_{channel}.svg").write_text(render_surface_map(m, channel))
+        typer.echo(f"wrote {len(maps)} SVG maps to {svg}")
 
 
 @app.command(rich_help_panel=_P_SCORE)

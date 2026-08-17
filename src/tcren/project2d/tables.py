@@ -30,12 +30,6 @@ _COMPLEX_CHAINS = set(_COMPLEX_CHAIN)
 # Backbone atom names (for the backbone vs sidechain flag).
 _BACKBONE = {"N", "CA", "C", "O"}
 
-# Charged side-chain atoms for the salt-bridge test.
-_ACIDIC = {("D", "OD1"), ("D", "OD2"), ("E", "OE1"), ("E", "OE2")}
-_BASIC = {("K", "NZ"), ("R", "NH1"), ("R", "NH2"), ("R", "NE"),
-          ("H", "ND1"), ("H", "NE2")}
-_AROMATIC_AA = {"F", "W", "Y", "H"}
-
 
 def _complex_region(region_type: str | None) -> str | None:
     """Normalise a region type to the complex_region vocabulary."""
@@ -136,32 +130,22 @@ def ca_contacts_table(structure: Structure, threshold: float = 8.0) -> pl.DataFr
     return pl.DataFrame(rows, schema=schema)
 
 
-def _element(atom_name: str) -> str:
-    return atom_name[0] if atom_name else ""
-
-
 def classify_contact(aa1: str, aa2: str, atom1: str, atom2: str, dist: float) -> str:
-    """Heuristically classify a residue–residue contact from its closest atom pair.
+    """Classify a residue–residue contact from its closest atom pair.
 
-    Returns one of ``salt_bridge``, ``hydrogen_bond``, ``aromatic``, ``hydrophobic``,
-    ``polar``, ``other``. Cutoffs are pragmatic, not a force field — documented and kept
-    in this pure function for easy tuning.
+    Delegates to :mod:`tcren.contact_types` so the map and the contact tables agree. There used to
+    be two independent classifiers with the same vocabulary and different rules: this one had no
+    distance bound on ``aromatic`` or ``hydrophobic`` at all, so every C–C pair out to the 5 Å map
+    cutoff read as hydrophobic.
+
+    Returns one of ``salt_bridge``, ``hydrogen_bond``, ``cation_pi``, ``aromatic``, ``hydrophobic``,
+    ``polar``, ``other``. ``stacking`` cannot appear here: it needs ring geometry, which this
+    signature does not carry.
     """
-    a1, a2 = (aa1, atom1), (aa2, atom2)
-    if dist <= 4.0 and (
-        (a1 in _ACIDIC and a2 in _BASIC) or (a1 in _BASIC and a2 in _ACIDIC)
-    ):
-        return "salt_bridge"
-    e1, e2 = _element(atom1), _element(atom2)
-    if dist <= 3.5 and e1 in ("N", "O") and e2 in ("N", "O"):
-        return "hydrogen_bond"
-    if aa1 in _AROMATIC_AA and aa2 in _AROMATIC_AA and e1 == "C" and e2 == "C":
-        return "aromatic"
-    if e1 == "C" and e2 == "C":
-        return "hydrophobic"
-    if "N" in (e1, e2) or "O" in (e1, e2):
-        return "polar"
-    return "other"
+    from ..contact_types import TYPES_V2, _types_v2
+
+    hit = _types_v2(aa1, aa2, atom1, atom2, dist)
+    return next((t for t in TYPES_V2 if t in hit), "other")
 
 
 def contacts_table(structure: Structure, threshold: float = 5.0) -> pl.DataFrame:
@@ -299,7 +283,7 @@ def region_pair_summary(
 
     Aggregates :func:`region_pair_contacts` to one row per ``(region_1, region_2)`` pair with
     ``n_contacts``. For ``kind="closest"`` it adds a column per bond type
-    (``n_hydrogen_bond, n_salt_bridge, n_aromatic, n_hydrophobic, n_polar, n_other``), so
+    (one ``n_<type>`` per :data:`tcren.contact_types.TYPES_V2` entry bar ``stacking``), so
     hydrogen bonds (and the rest) are reported for **every** region pair in the complex, not
     just the MHC interface.
     """
@@ -309,7 +293,8 @@ def region_pair_summary(
         return contacts.select(keys).head(0).with_columns(pl.lit(0, dtype=pl.Int64).alias("n_contacts"))
     summary = contacts.group_by(keys).agg(pl.len().alias("n_contacts"))
     if kind == "closest":
-        types = ["hydrogen_bond", "salt_bridge", "aromatic", "hydrophobic", "polar", "other"]
+        from ..contact_types import TYPES_V2
+        types = [t for t in TYPES_V2 if t != "stacking"]   # no ring geometry on this path
         breakdown = contacts.group_by(keys).agg(
             [(pl.col("contact_type") == t).sum().alias(f"n_{t}") for t in types]
         )
