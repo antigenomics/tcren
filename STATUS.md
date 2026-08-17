@@ -32,6 +32,24 @@ for achieved accuracy, and `docs/` (`features.rst`, `kit.rst`) for the current A
 | **CLI** | `cli.py` | `info/annotate/contacts/derive-potential/score/rank/ddg/pipeline/recognize/orient/superimpose …` |
 | **Docs** | `docs/` | Sphinx + 3 tutorial notebooks (`notebooks/`); zero-warning build |
 
+## In flight (branch `feature/review-aug26-surface-topology`, 2026-08-17)
+
+Acting on `review/rev17aug26.md` PART 1 + the surface-topology ask. All six items landed; see
+CHANGELOG `[Unreleased]`. Open loops out of it:
+
+- [ ] **`_relax.repack` (C++)** — the one thing standing between the native refiner and a real
+  accuracy claim against FlexPepDock. `dope` returns 44 heavy atoms where the crystal peptide has 77;
+  it never rebuilds side chains, so every "native beats OpenMM" number so far is a 44-atom score
+  against a 77-atom one. `tcren.rotamers` is the working Python prototype. Full analysis and the
+  measured table: `src/tcren/refine/CPP_REWRITE.md`.
+- [ ] **Full-scale fold benchmark on aldan3** — `scripts/fold_benchmark.sbatch`, n ≈ 374 with all
+  oracles. FlexPepDock burned 21 min of CPU on six structures locally without finishing.
+- [ ] **PART 2 of the review** (deferred, agreed): a C++ kernel for *de novo* peptide placement into
+  an empty groove, benchmarked against FlexPepDock. `_refine` + `_fold` already cover template-based
+  placement; the rotamer machinery above is its first half.
+- [ ] `2wbj` is the one class-II Canonical2026 structure whose β-sheet core still fails to map.
+- [ ] Lawrence–Colman shape complementarity (`src/_geom/geom.cpp:13`) — the surface work makes it cheap.
+
 ## TODO / pending
 
 - [ ] **AI-model refinement** (`refine/`): batch-refine predicted PDBs → canonical → score; QC (anchor RMSD, plDDT, completeness). Inputs in `data/TCRpMHCmodels/`, `data/Bigot/`, `data/Bobisse/`.

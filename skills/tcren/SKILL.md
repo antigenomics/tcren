@@ -316,12 +316,59 @@ QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses ar
 - Everything except `render`/`probe_rotation` is pure Python and unit-tested without PyMOL
   (`tests/unit/test_pymol_viz.py`); the two that shell out are `slow` + skip when pymol is absent.
 
-## Contact typing — `tcren.contact_types` (DSSP-style, dep-light)
+## Contact typing — `tcren.contact_types` (two schemes; v1 is frozen)
 
-- `contact_type_counts(cm, interface='tcr_peptide', tcr_regions='all') -> {n_<type>, pairs_<type>}` and
-  `classify_contacts(interface_df) -> df + 'contact.type'`. Types by priority: `salt_bridge`, `hydrogen_bond`,
-  `aromatic`, `hydrophobic`, `other`, from heavy-atom geometry (no H, no external DSSP). `pairs_hydrogen_bond`
-  is the documented, reproducible replacement for the lost ad-hoc `n_hbond` (tracks it at r≈0.68).
+- **`scheme="v2"` (default)**: `salt_bridge, hydrogen_bond, cation_pi, stacking, aromatic, hydrophobic,
+  polar, vdw, other`. `other` now means only "too far to be anything", never "unrecognised" — it fell
+  from **72.3% to 13.9%** of TCR:peptide contacts on five crystals. A contact carries *several* types
+  (`is_<type>` booleans are independent); `contact.type` is only the top-priority label.
+- **`scheme="v1"`** is the old five-type residue-level scheme, kept byte-for-byte. `recognition.py`
+  **pins it** — the frozen classifiers were fitted on its `ct_*` counts. Do not change v1.
+- What v2 fixed: apolarity is decided per *atom* (a carbon with no bonded N/O), not per residue —
+  v1's residue set excluded Tyr, the commonest TCR interface residue. H-bonds reach 3.9 Å with
+  donor/acceptor typing (two carbonyl oxygens are no longer an H-bond). `stacking.ring_stacking` is
+  finally joined via `stacked_pairs(structure)`.
+- `residue_pair_types(structure, interface)` types from **every** atom pair, not the closest one —
+  a salt bridge whose nearest contact is two carbons is invisible otherwise. `type_weights(typed)`
+  gives 0/1 weights that drop pure-proximity contacts (`tcren score --drop-untyped`).
+- **Hydrogens are now filtered** in `all_atom_contacts`. This changes contacts and energies for
+  H-bearing depositions (5jhd: +7 of 28 contacts, −58.5% F_tcr_pep) and breaks legacy-oracle parity
+  on 5jhd/7qpj, recorded as a subset relation in the regression test.
+
+## Surface topology — `tcren.surface` / `tcren surface`
+
+- `surface_map(structure) -> SurfaceMap` — height + hydropathy + charge on a 64×32 raster over the
+  groove; `surface_stats` gives `relief`, `peak_to_valley`, `frac_above_ridge`, `phobic_centre`;
+  `surface_distance`/`surface_tree` compare epitopes (SURFMAP Manhattan distance + linkage).
+- **The frame is refit per structure** — z from the groove-floor plane normal, **y from the peptide**
+  (the floor's own principal axis is NOT the groove axis), origin on the peptide centroid. So maps
+  compare without prealigning inputs, and `force_pca`/canonicalisation are not prerequisites.
+- Heights come from **ray casting in the groove frame**, not Shrake-Rupley points: sphere sampling is
+  fixed in global axes, so the map wobbled 1.35 Å (median cell) under a rigid rotation of the input.
+- Validated on all 374 Canonical2026: `frac_above_ridge` 0.054 (8-mers) → 0.569 (13-mers); same-epitope
+  maps closer than cross-epitope at P = 0.917.
+- Figures: `viz.surface2d.render_surface_map(smap, channel)` → SVG string (hand-built, zero deps).
+
+## Rotamer-averaged contacts — `tcren.rotamers`
+
+- `contact_probabilities(structure, interface) -> df[..., p]` and `soft_energy(structure, potential)`.
+  Replaces the 0/1 contact indicator with `p_ij` averaged over χ rotamers, Boltzmann-weighted under
+  **DOPE** (never under the potential being scored — that would be circular).
+- Why: under a deliberately wrong χ1 the hard contact set keeps Jaccard 0.66 and the energy moves by
+  |ΔΦ| = 0.524; the averaged map keeps 0.95 and moves 0.054, against energies of magnitude 0.4–2.2.
+- Rotating everything past Cβ about Cα–Cβ **is** χ1 exactly. `max_chi=2` default (3^n rotamers).
+  ~0.24 s/structure — see `refine/CPP_REWRITE.md` for when this needs to be C++ (MC loops, not one-shot).
+
+## Peptide position — `tcren.scoring`
+
+- `peptide_positions(cm, structure)` adds `peptide.pos` (1-based), `peptide.aa`, `peptide.role`
+  (anchor/tcr_facing). **Pass the structure**: the sequence comes from it, not from the contacts —
+  the class-II 9-mer register heuristic needs the whole peptide (4ozg's gliadin core resolves to
+  P1/P4/P6/P9 = positions 2/5/7/10, the published register).
+- `position_weights(ann, "uniform"|"central"|"tcr_facing")` → `score_peptides(..., weights=)`.
+  `position_profile` decomposes Φ along the peptide (sums exactly to the total); `central_strain`
+  isolates the middle band.
+- All scoring reweighting goes through one hook: `pipeline._contact_weights`.
 
 ## Wrong-TCR decoys — `tcren.shuffle` (`tcren shuffle`)
 

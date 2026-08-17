@@ -5,6 +5,50 @@ All notable changes to `tcren` are recorded here. Format follows
 
 ## [Unreleased]
 
+### Added
+- **MHC class II docking geometry.** `docking_geometry` raised on every class-II complex, so six of
+  the 34 recognition features were silently NaN for DR/DQ/DP. Class II is the same β-sheet floor with
+  its two pseudo-symmetric halves on separate chains, so the same six within-domain strand offsets
+  taken from the α1 (MHCa) and β1 (MHCb) canonical sequences name the corresponding positions.
+  **93/94 class-II Canonical2026 structures now compute** (was 0/94), d = 31.5 Å mean against class
+  I's 30.6. The class-I path is bit-identical, verified against the previous implementation.
+- **`tcren.surface` + `tcren surface`** — pMHC surface topology: a height field over the groove with
+  hydropathy and charge, following SURFMAP (Schweke 2022) and Protein Surface Topography (Berkut
+  2019), plus Manhattan map distance and a hierarchical epitope tree. Makes "featureless" a number:
+  validated on all 374 Canonical2026 complexes, `relief`/`peak_to_valley`/`frac_above_ridge` all rise
+  with class-I peptide length (`frac_above_ridge` 0.054 for 8-mers → 0.569 for 13-mers; Spearman on
+  relief +0.414, p = 5.5e-13), and maps of the same epitope are closer to each other than to a
+  different one (P[within < between] = 0.917, p = 1.6e-94).
+- **`tcren.rotamers`** — rotamer-averaged contact probabilities. Under a deliberately wrong χ1 the
+  hard 5 Å contact set keeps a Jaccard of 0.66; the averaged map keeps 0.95, and mean |ΔΦ| falls
+  from 0.524 to 0.054 against energies whose own magnitude is 0.4–2.2.
+- **Peptide position** — `peptide_positions`, `position_weights`, `position_profile`,
+  `central_strain`. The position was always on the contact table and `refine.anchors` always
+  predicted anchors; they were never joined.
+- **`derive_tcren_by_type`** — the type-conditioned potential, with the occupancy report that
+  answers whether to trust it. On 8002 typed contacts from 370 structures **no type reaches 5% cell
+  occupancy**, so the review's own sparsity concern is confirmed and the filter is the usable half.
+
+### Changed
+- **Contact typing rewritten** (`scheme="v2"`, default). `other` falls from **72.3% to 13.9%** of
+  TCR:peptide contacts: `polar`/`vdw`/`cation_pi`/`stacking` classes added, apolarity decided per
+  atom rather than per residue (which had excluded Tyr entirely), the H-bond cutoff widened to 3.9 Å
+  with donor/acceptor typing, and `stacking.ring_stacking` finally joined. A contact may carry
+  several types. The old scheme is kept verbatim as `scheme="v1"`, which `recognition.py` pins,
+  because the frozen classifiers were fitted on its counts.
+- **Hydrogens are filtered from contacts.** `all_atom_contacts` documented heavy atoms and did not
+  enforce it, so the same complex scored differently depending only on whether the depositor modelled
+  H (5jhd gained 7 of 28 TCR:peptide contacts, −58.5% on F_tcr_pep). Breaks legacy-oracle parity on
+  the two H-bearing fixtures, which the regression test now records as a subset relation.
+- `score_peptides` / `_interface_energy` take an explicit per-contact `weights` array; `tcren score`
+  gains `--drop-untyped` and `--position-weights`. All default to the previous behaviour.
+
+### Fixed
+- `binder.noise.is_real_interface` compared a **signed** incident angle against an unsigned envelope
+  whose floor is 0°, rejecting every downward tilt — including class-I crystals (5xot, −9.9°).
+- `recognition_features` swallowed a failed docking geometry in a bare `except Exception: pass`; it
+  now warns and says which six features are NaN.
+
 ## [2.8.0] — 2026-08-11
 
 ### Added
