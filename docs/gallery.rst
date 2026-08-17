@@ -168,5 +168,14 @@ Two notebooks in ``notebooks/`` drive all of the above:
       pip install marimo
       marimo run notebooks/pymol_interactive.py     # or `marimo edit` to change the code
 
+``surface_topology.py``
+   pMHC surface topography — elevation, charge and hydropathy over the groove, with the
+   featureless-vs-bulged epitope comparison drawn on one colour scale. Rendered with its figures
+   at :doc:`notebooks/surface_topology`; run it live to change the channel, grid and structure.
+
+   .. code-block:: bash
+
+      marimo run notebooks/surface_topology.py
+
 For a viewer inside a Jupyter notebook without leaving Python,
 :func:`tcren.viz.view_pocket_cdr` returns a ``py3Dmol`` view of the same oriented groove.

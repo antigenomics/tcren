@@ -68,6 +68,7 @@ What tcren does
    notebooks/contact_thresholds_and_bondtypes
    notebooks/mhc_pseudosequence_mps
    notebooks/example_gil_a02_rs_motif
+   notebooks/surface_topology
    notebooks/tcren_analysis
 
 Indices

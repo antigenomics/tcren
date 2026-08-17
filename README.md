@@ -124,6 +124,28 @@ tcren scoring -s complex.pdb -o scores.csv --tcr-mhc-potential keskin
 # contribute on the TCR side (cdr = CDR1-3 only; cdr+fr adds FR1-3; all = unfiltered, default).
 tcren score -s complex.pdb -c candidates.txt -o ranked.csv --regions cdr+fr
 
+# Surface topology: the pMHC face a TCR meets, BEFORE any TCR is there. A height field over
+# the groove with hydropathy and charge painted on, per structure, plus the scalars that make
+# "featureless" a number: relief, peak_to_valley, frac_above_ridge.
+tcren surface -s complex.pdb -o surface.csv
+
+# --compare writes the pairwise map distance (SURFMAP's Manhattan metric) so epitopes cluster;
+# --svg writes one figure per structure; --cells writes the long per-cell table.
+tcren surface -s models/ -o surface.csv --compare dist.csv --svg figs/ --channel h
+tcren surface -s models/ -o surface.csv --channel phobic --scale kd   # or --scale mj
+
+# Three opt-in reweightings of the SAME energy sum, all off by default so nothing moves
+# unless asked:
+#   --drop-untyped      ignore contacts that are only proximity (no h-bond / salt bridge /
+#                       stacking / hydrophobic / polar chemistry)
+#   --position-weights  weight by where a contact sits on the peptide (central | tcr_facing);
+#                       a clash at an anchor the TCR never touches is not a clash at P5
+#   --soft              replace the hard 5 A cutoff with a contact PROBABILITY averaged over
+#                       side-chain rotamers, Boltzmann-weighted under DOPE
+tcren score -s complex.pdb -c candidates.txt -o ranked.csv --drop-untyped
+tcren score -s complex.pdb -c candidates.txt -o ranked.csv --position-weights central
+tcren score -s complex.pdb -c candidates.txt -o ranked.csv --soft
+
 # Opt-in intra-peptide term: every interface energy sums over contacts between two DIFFERENT
 # chains, so a candidate held in the template's conformation by its own side chains costs the
 # same as one that is not. --intra-weight w adds score = Φ + w·E_intra (5 Å, |i-j| >= 3, MJ).
@@ -319,6 +341,57 @@ mj_partition_energy()["F"]         # 4.37 — MJ's own one-body scale (larger = 
 Where a potential has that shape the interaction term is only `C2·q_a·q_b`, so it **cannot prefer
 one pair of side chains over another of equal hydrophobicity**. Both calls refuse a directed
 potential — TCRen is TCR→peptide and must not be split this way.
+
+### Surface topology: what a TCR meets before it binds
+
+A contact potential scores an interface that already exists. `tcren.surface` describes the pMHC
+*beforehand*: the peptide sits in a groove between two helices, and a TCR coming down meets one
+surface, so the descriptor is a height field `h(x, y)` over that groove with hydropathy and charge
+painted on. Method follows [SURFMAP](https://doi.org/10.1021/acs.jcim.1c01269) (surface shell,
+per-cell feature, 8-neighbour smoothing, Manhattan map distance, hierarchical tree) and
+[Protein Surface Topography](https://doi.org/10.1074/jbc.RA119.010494) (centre the chart on the
+functional site). A flat raster rather than SURFMAP's equal-area spherical chart, because the
+TCR-facing surface is an open, near-planar patch that a plane does not distort.
+
+```python
+from tcren import surface_map, surface_stats, surface_distance, surface_tree
+smap = surface_map(structure)              # channels: h, phobic, charge; source: peptide/helix/floor
+surface_stats(smap)["frac_above_ridge"]    # how much peptide surface clears the MHC helix crests
+ids, d = surface_distance([m1, m2, m3])    # pairwise map distance -> epitopes cluster
+```
+
+Two things worth knowing, because both were defects first:
+
+* **The frame is refit from every structure** — z from the groove-floor plane normal, **y from the
+  peptide**, origin on the peptide centroid. The floor's own principal axis is *not* the groove axis
+  (its β-strands run across the groove), which put the two helices diagonally across the map. Because
+  the frame is intrinsic, maps compare without prealigning the inputs — SURFMAP's standing caveat.
+* **Heights come from ray casting in the groove frame**, not from Shrake-Rupley surface points.
+  Sphere sampling is fixed in global axes, so the same structure rotated gave a different map (median
+  cell moved 1.35 Å, `relief` by 19%). Ray casting is exactly equivariant and needs no probe test —
+  the highest surface in a column is by definition the one nothing is above.
+
+**"Featureless" becomes a number.** Over the 374 Canonical2026 complexes (230 distinct epitopes), the
+epitopes the literature *names* as featureless and as bulged separate completely:
+
+| epitope | source | rank by `frac_above_ridge` | `frac_above_ridge` | `relief` (Å) |
+|---|---|---|---|---|
+| LPEPLPQGQLTAY | EBV BZLF1 13-mer, HLA-B\*35 — **bulged** | **2 / 230** | 0.749 | 2.81 |
+| HPVGEADYFEY | HCMV pp65 11-mer, HLA-B\*35:08 — **bulged** | 5 / 230 | 0.562 | 3.59 |
+| EPLPQGQLTAY | EBV BZLF1 11-mer, HLA-B\*35 — **bulged** | 8 / 230 | 0.416 | 2.54 |
+| LLFGYPVYV | HTLV-1 Tax, HLA-A\*02:01 — prominent P5-Tyr | 46 / 230 | 0.145 | 2.15 |
+| GILGFVFTL | influenza M1, HLA-A\*02:01 — **featureless** | 139 / 230 | **0.000** | 1.16 |
+| TAFTIPSI | HIV RT 8-mer, HLA-B\*51:01 — **featureless** | 205 / 230 | **0.000** | 0.95 |
+
+Five of the eight most-protruding epitopes are literature-named bulged HLA-B\*35 epitopes; both named
+featureless ones have *no* peptide surface clearing the helix crest at all. Structure-level AUC is
+1.000 on `relief`, `peak_to_valley` and `frac_above_ridge` (p ≤ 0.001, 9 featureless vs 5 bulged
+structures) — though with two distinct epitopes per group that is a 2-vs-2 comparison, so the
+properly-powered evidence is the trend over all 279 class-I structures: `frac_above_ridge` rises
+0.054 (8-mers) → 0.569 (13-mers), Spearman on `relief` +0.414, p = 5.5e-13.
+
+`notebooks/surface_topology.py` (marimo) draws the elevation / charge / hydropathy maps and
+reproduces this comparison.
 
 ### Ring stacking: the geometry identity cannot carry
 
@@ -528,6 +601,8 @@ Runnable examples under [`notebooks/`](notebooks/) (rendered in the
 - `pymol_canonical_figures` — ray-traced PyMOL panels (overlay, groove, interface) by class/species
 - `mhc_pseudosequence_mps` — NetMHCpan MHC pseudosequence (MPS) residues vs. peptide contacts
 - `example_gil_a02_rs_motif` — GILGFVFTL/HLA-A*02 and the public CDR3β Arg–Ser motif
+- `surface_topology.py` — **marimo**: elevation / charge / hydropathy maps over the groove, and the
+  featureless-vs-bulged epitope comparison against the structures the literature names
 - `natcompsci2022/` — full reproduction of the Nat Comput Sci 2022 analyses
 
 ## Performance
