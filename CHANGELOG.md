@@ -29,6 +29,14 @@ All notable changes to `tcren` are recorded here. Format follows
   answers whether to trust it. On 8002 typed contacts from 370 structures **no type reaches 5% cell
   occupancy**, so the review's own sparsity concern is confirmed and the filter is the usable half.
 
+- **`_relax.relax_interface` + `tcren.dynamics`** — flexible-backbone Metropolis MC of the peptide,
+  reporting conformational stability (`rmsf`, `drift`, `energy_gap`) rather than a better pose, with
+  the intra-peptide term as a switch. Built to test Sewell's hypothesis that intra-peptide
+  interactions stabilise the productive conformation and explain where an additive contact model
+  fails. On 2102 CPL structures across seven clones: **stability beats the contact energy in 4/4
+  clones where the contact model fails and 0/3 where it works** (ila1 0.348 → 0.862; sb27 0.570 →
+  0.934). Removing the intra-peptide term lets best binders wander further (Δrmsf +0.021 Å, 4.4σ) but
+  not worst binders (+0.002 Å); best vs worst p = 0.042. `scripts/sewell_stability.py`.
 - **`_relax.repack` + `tcren.repack` + `tcren refine --repack`** — the native side-chain packer.
   On the same wrong-rotamer input and the same atom set, it recovers peptide side-chain RMSD from
   **4.131 Å to 2.364 Å in 6 ms**, where OpenMM's anchor-restrained minimisation returns 4.133 Å

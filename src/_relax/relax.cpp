@@ -1,5 +1,9 @@
 // Interface energy + (later) sampling for native ΔΔG — the FlexPepDock/InterfaceAnalyzer replacement.
 //
+// relax_interface: flexible-backbone Metropolis MC of the peptide — how stable is the conformation
+// it was handed? The readout is RMSF/drift under thermal sampling, not a better pose, and the
+// intra-peptide term is switchable so its contribution to that stability can be measured directly.
+//
 // repack: the rotamer packer — every side chain placed in the chi conformer DOPE likes best, with the
 // Boltzmann weights over conformers so a caller can average instead of choose. This is what the native
 // refiner was missing: `dope` returned 44 heavy atoms where the crystal peptide has 77, so it could not
@@ -17,6 +21,7 @@
 #include <pybind11/stl.h>
 
 #include <cmath>
+#include <random>
 #include <vector>
 
 #ifndef M_PI  // MSVC does not define M_PI without _USE_MATH_DEFINES
@@ -104,16 +109,6 @@ double interface_energy(py::array_t<double> pep_xyz, py::array_t<int> pep_class,
 // Mean field, deliberately: each residue is weighted against every other residue held at its INPUT
 // conformation. Two side chains that would have to move together are not coupled, which is the
 // approximation a dead-end-elimination packer removes and this one does not.
-// The layout the caller hands over, all flat int arrays:
-//   res_lo[r], res_hi[r]                -> this residue's atoms in `xyz`
-//   res_chi_ptr[r],  res_chi_ptr[r+1]   -> its torsions in chi_a / chi_b / chi_mov_ptr
-//   chi_a[i], chi_b[i]                  -> the two atoms defining torsion i's axis
-//   moving[chi_mov_ptr[i] : ptr[i+1]]   -> the atoms torsion i rotates
-//   env_atom[env_ptr[r] : ptr[r+1]]     -> the atoms residue r is scored against
-//
-// `xyz` holds EVERY heavy atom of the structure, not only the residues being repacked: a side chain
-// has to be scored against the partner chains it packs against, and indexing the environment into a
-// peptide-only array repacked it in vacuum.
 inline void rotate_about(std::vector<Vec3>& xyz, const Vec3& a, const Vec3& b,
                          const int* mov, int n_mov, double angle) {
     const double ux = b.x - a.x, uy = b.y - a.y, uz = b.z - a.z;
@@ -161,6 +156,16 @@ inline double residue_energy(const std::vector<Vec3>& xyz, const std::vector<int
     return e;
 }
 
+// The layout the caller hands over, all flat int arrays:
+//   res_lo[r], res_hi[r]                -> this residue's atoms in `xyz`
+//   res_chi_ptr[r],  res_chi_ptr[r+1]   -> its torsions in chi_a / chi_b / chi_mov_ptr
+//   chi_a[i], chi_b[i]                  -> the two atoms defining torsion i's axis
+//   moving[chi_mov_ptr[i] : ptr[i+1]]   -> the atoms torsion i rotates
+//   env_atom[env_ptr[r] : ptr[r+1]]     -> the atoms residue r is scored against
+//
+// `xyz` holds EVERY heavy atom of the structure, not only the residues being repacked: a side chain
+// has to be scored against the partner chains it packs against, and indexing the environment into a
+// peptide-only array repacked it in vacuum.
 py::dict repack(py::array_t<double> xyz_in, py::array_t<int> atom_class,
                 py::array_t<int> res_lo, py::array_t<int> res_hi, py::array_t<int> res_chi_ptr,
                 py::array_t<int> chi_a, py::array_t<int> chi_b, py::array_t<int> chi_mov_ptr,
@@ -280,6 +285,176 @@ py::dict repack(py::array_t<double> xyz_in, py::array_t<int> atom_class,
     return res;
 }
 
+// Flexible-backbone Metropolis MC of the peptide — how stable is the conformation it was given?
+//
+// The question this exists to answer is not "what is the best pose" but "does the pose hold". A
+// contact potential scores whichever conformation it is handed; it cannot tell a peptide that its
+// own side chains hold in the TCR-facing conformation from one that merely happens to be drawn that
+// way. Sampling backbone torsions at temperature and measuring how far the peptide wanders does.
+//
+// Moves are torsional: perturb one backbone phi or psi and rotate everything downstream of it. On a
+// peptide both of whose termini are free that is exact and needs no loop closure — the same
+// rotate_about primitive the packer uses, applied to N-CA and CA-C instead of CA-CB.
+//
+// Energy(pose) = DOPE(peptide <-> partner)                     the interface
+//              + intra_w * DOPE(peptide <-> peptide, |i-j| >= min_sep)   the peptide with itself
+//              + anchor_w * sum ||x - x0||^2  over the anchor atoms      it stays in the groove
+//
+// `intra_w` is the switch the hypothesis needs. Sewell (2026-08): intra-peptide interactions
+// stabilise the productive bulge, and a poor binder can make many contacts yet fail to hold that
+// conformation — so an additive contact model should fail exactly where the intra term matters.
+// Running the same MC with intra_w = 1 and intra_w = 0 measures that directly.
+py::dict relax_interface(py::array_t<double> xyz_in, py::array_t<int> atom_class,
+                         int pep_lo, int pep_hi, py::array_t<int> pep_res,
+                         py::array_t<int> tor_a, py::array_t<int> tor_b,
+                         py::array_t<int> tor_mov_ptr, py::array_t<int> tor_mov,
+                         py::array_t<int> par_atom, py::array_t<int> anchor_atom,
+                         py::array_t<float> dope_table, int n_cls, int n_bins,
+                         double x_start, double dx, int n_steps, double temperature,
+                         double sigma_deg, double intra_w, double anchor_w, int min_sep,
+                         int burn_in, int seed) {
+    auto load_xyz = [](py::array_t<double> a) {
+        auto r = a.unchecked<2>();
+        std::vector<Vec3> v(r.shape(0));
+        for (py::ssize_t i = 0; i < r.shape(0); ++i) v[i] = {r(i, 0), r(i, 1), r(i, 2)};
+        return v;
+    };
+    auto load_int = [](py::array_t<int> a) {
+        auto r = a.unchecked<1>();
+        std::vector<int> v(r.shape(0));
+        for (py::ssize_t i = 0; i < r.shape(0); ++i) v[i] = r(i);
+        return v;
+    };
+
+    std::vector<Vec3> xyz = load_xyz(xyz_in);
+    std::vector<int> cls = load_int(atom_class), pres = load_int(pep_res);
+    std::vector<int> ta = load_int(tor_a), tb = load_int(tor_b), tmp = load_int(tor_mov_ptr);
+    std::vector<int> tmov = load_int(tor_mov), par = load_int(par_atom);
+    std::vector<int> anc = load_int(anchor_atom);
+    std::vector<float> table(dope_table.data(), dope_table.data() + dope_table.size());
+
+    const int n_pep = pep_hi - pep_lo;
+    const int n_tor = static_cast<int>(ta.size());
+    const double d_max = x_start + (n_bins - 1) * dx;
+    const double d_max2 = d_max * d_max;
+    const std::vector<Vec3> start(xyz.begin() + pep_lo, xyz.begin() + pep_hi);
+
+    // Tabulated pair term, used for both the interface and the intra-peptide sum.
+    auto pair_e = [&](const Vec3& p, int cp, const Vec3& q, int cq) -> double {
+        if (cp < 0 || cq < 0) return 0.0;
+        const double d2 = dist2(p, q);
+        if (d2 >= d_max2) return 0.0;
+        const float* knots = table.data() + (static_cast<size_t>(cp) * n_cls + cq) * n_bins;
+        const double t = (std::sqrt(d2) - x_start) / dx;
+        if (t <= 0.0) return knots[0];
+        const int k = static_cast<int>(t);
+        if (k >= n_bins - 1) return knots[n_bins - 1];
+        return knots[k] * (1.0 - (t - k)) + knots[k + 1] * (t - k);
+    };
+
+    auto total_energy = [&](const std::vector<Vec3>& c) -> double {
+        double e = 0.0;
+        for (int a = pep_lo; a < pep_hi; ++a) {
+            for (size_t b = 0; b < par.size(); ++b) e += pair_e(c[a], cls[a], c[par[b]], cls[par[b]]);
+        }
+        if (intra_w != 0.0) {
+            // Sequence-local pairs are in contact by covalent geometry, not by folding, so they
+            // carry no information about whether the conformation is held together.
+            for (int a = pep_lo; a < pep_hi; ++a) {
+                for (int b = a + 1; b < pep_hi; ++b) {
+                    if (std::abs(pres[a - pep_lo] - pres[b - pep_lo]) < min_sep) continue;
+                    e += intra_w * pair_e(c[a], cls[a], c[b], cls[b]);
+                }
+            }
+        }
+        if (anchor_w != 0.0) {
+            for (size_t k = 0; k < anc.size(); ++k) {
+                const int a = anc[k];
+                e += anchor_w * dist2(c[a], start[a - pep_lo]);
+            }
+        }
+        return e;
+    };
+
+    std::mt19937 rng(static_cast<unsigned>(seed));
+    std::uniform_real_distribution<double> uni(0.0, 1.0);
+    std::normal_distribution<double> gauss(0.0, sigma_deg * M_PI / 180.0);
+    std::uniform_int_distribution<int> pick(0, std::max(n_tor - 1, 0));
+
+    const double e_start = total_energy(xyz);
+    double e_cur = e_start, e_best = e_cur;
+    std::vector<Vec3> best(xyz.begin() + pep_lo, xyz.begin() + pep_hi);
+    // Running mean and sum-of-squares per peptide atom, over the post-burn-in samples: RMSF is the
+    // spread of the ensemble, drift the distance of its mean from where it started.
+    std::vector<Vec3> mean(n_pep, {0.0, 0.0, 0.0});
+    std::vector<double> sq(n_pep, 0.0);
+    long n_sample = 0, n_accept = 0;
+
+    if (n_tor > 0) {
+        py::gil_scoped_release release;
+        std::vector<Vec3> work;
+        for (int step = 0; step < n_steps; ++step) {
+            work = xyz;
+            const int t = pick(rng);
+            rotate_about(work, work[ta[t]], work[tb[t]], tmov.data() + tmp[t],
+                         tmp[t + 1] - tmp[t], gauss(rng));
+            const double e_new = total_energy(work);
+            if (e_new <= e_cur || uni(rng) < std::exp(-(e_new - e_cur) / temperature)) {
+                xyz.swap(work);
+                e_cur = e_new;
+                ++n_accept;
+                if (e_cur < e_best) {
+                    e_best = e_cur;
+                    best.assign(xyz.begin() + pep_lo, xyz.begin() + pep_hi);
+                }
+            }
+            if (step >= burn_in) {
+                ++n_sample;
+                for (int i = 0; i < n_pep; ++i) {
+                    const Vec3& p = xyz[pep_lo + i];
+                    mean[i].x += p.x;
+                    mean[i].y += p.y;
+                    mean[i].z += p.z;
+                    sq[i] += p.x * p.x + p.y * p.y + p.z * p.z;
+                }
+            }
+        }
+    }
+
+    double rmsf = 0.0, drift = 0.0;
+    if (n_sample > 0) {
+        for (int i = 0; i < n_pep; ++i) {
+            const double mx = mean[i].x / n_sample, my = mean[i].y / n_sample,
+                         mz = mean[i].z / n_sample;
+            // Var(x)+Var(y)+Var(z) = <r.r> - <r>.<r>; clamped because catastrophic cancellation can
+            // push a genuinely rigid atom microscopically below zero.
+            rmsf += std::max(0.0, sq[i] / n_sample - (mx * mx + my * my + mz * mz));
+            const double dxm = mx - start[i].x, dym = my - start[i].y, dzm = mz - start[i].z;
+            drift += dxm * dxm + dym * dym + dzm * dzm;
+        }
+        rmsf = std::sqrt(rmsf / n_pep);
+        drift = std::sqrt(drift / n_pep);
+    }
+
+    py::array_t<double> out_xyz(std::vector<py::ssize_t>{n_pep, 3});
+    auto w = out_xyz.mutable_unchecked<2>();
+    for (int i = 0; i < n_pep; ++i) {
+        w(i, 0) = best[i].x;
+        w(i, 1) = best[i].y;
+        w(i, 2) = best[i].z;
+    }
+    py::dict res;
+    res["xyz"] = out_xyz;
+    res["energy"] = e_best;
+    res["energy_start"] = e_start;
+    res["energy_final"] = e_cur;
+    res["rmsf"] = rmsf;
+    res["drift"] = drift;
+    res["accept_rate"] = n_tor > 0 ? static_cast<double>(n_accept) / n_steps : 0.0;
+    res["n_samples"] = static_cast<long>(n_sample);
+    return res;
+}
+
 }  // namespace
 
 PYBIND11_MODULE(_relax, m) {
@@ -295,5 +470,14 @@ PYBIND11_MODULE(_relax, m) {
           py::arg("n_cls"), py::arg("n_bins"), py::arg("x_start"), py::arg("dx"),
           py::arg("n_steps") = 3, py::arg("temperature") = 1.0,
           "Rotamer repack: best chi conformer per residue under DOPE, plus Boltzmann weights.");
-    m.attr("__version__") = "0.2.0";
+    m.def("relax_interface", &relax_interface, py::arg("xyz"), py::arg("atom_class"),
+          py::arg("pep_lo"), py::arg("pep_hi"), py::arg("pep_res"), py::arg("tor_a"),
+          py::arg("tor_b"), py::arg("tor_mov_ptr"), py::arg("tor_mov"), py::arg("par_atom"),
+          py::arg("anchor_atom"), py::arg("dope_table"), py::arg("n_cls"), py::arg("n_bins"),
+          py::arg("x_start"), py::arg("dx"), py::arg("n_steps") = 4000,
+          py::arg("temperature") = 4.0, py::arg("sigma_deg") = 6.0, py::arg("intra_w") = 1.0,
+          py::arg("anchor_w") = 1.0, py::arg("min_sep") = 3, py::arg("burn_in") = 500,
+          py::arg("seed") = 0,
+          "Flexible-backbone Metropolis MC of the peptide; returns the best pose plus RMSF/drift.");
+    m.attr("__version__") = "0.3.0";
 }

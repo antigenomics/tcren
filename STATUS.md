@@ -44,8 +44,18 @@ CHANGELOG `[Unreleased]`. Open loops out of it:
   ones `substitute_peptide` stripped, so that path still returns 44 of 77 heavy atoms. Needs ideal
   internal geometry per residue type (the `Full-atom loop build` row). AlphaFold output is full-atom,
   so `repack` already covers the main case.
-- [ ] **Flexible-backbone MC** (`_relax.relax_interface`) — the FlexPepDock row. Now affordable: a
-  repack per cycle is 6 ms, against the 0.24 s the Python prototype would have cost.
+- [x] **Flexible-backbone MC** (`_relax.relax_interface` / `tcren.dynamics`) — done, and used to
+  test Sewell's intra-peptide-stabilisation hypothesis on the CPL set (2102 structures). Stability
+  beats the contact energy in 4/4 clones where the contact model fails and 0/3 where it works.
+  The mechanism is supported; the specific 4C6 guess is not (4c6's contact AUC is 0.955 here).
+- [ ] **Follow up the stability result**: it is currently a *diagnostic*, not a shipped score. Open
+  questions — does it survive on crystal rather than modelled structures; does it hold at more MC
+  steps and more seeds; is the combined contact+stability score worth shipping (n = 7 clones is too
+  few to tell, Wilcoxon p = 0.22); and does the per-position stability profile localise to the P3/P6
+  pair Dolton et al. Fig. S4 names.
+- [ ] **Repack inside the MC loop** — `relax_interface` currently samples backbone only, with χ
+  fixed. A repack per cycle is affordable now (6 ms) and is what would make it a real FlexPepDock
+  analogue rather than a stability probe.
 - [ ] **Full-scale fold benchmark on aldan3** — `scripts/fold_benchmark.sbatch`, n ≈ 374 with all
   oracles. FlexPepDock burned 21 min of CPU on six structures locally without finishing.
 - [ ] **PART 2 of the review** (deferred, agreed): a C++ kernel for *de novo* peptide placement into

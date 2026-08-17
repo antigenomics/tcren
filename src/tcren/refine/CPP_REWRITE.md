@@ -26,7 +26,7 @@ engine drops in beside the reference ones with no caller change. That separation
 | Full-atom loop build | ProMod3 loopmodel | `_fold`: N–Cα–C φ/ψ chain + KIC + fragment | ⬜ to write |
 | Side-chain repack | ProMod3 sidechain / Rosetta packer | `src/_relax/repack` (χ enumeration + DOPE, mean field) | ✅ done 2026-08-17, see below |
 | Physics minimisation | **OpenMM** (AMBER) | `src/_relax/`: restrained minimiser over a compact energy (DOPE + soft-sphere + anchor harmonic) — NOT a full MD force field | ⬜ to write; OpenMM stays optional-accuracy |
-| Flexible-backbone refine | **PyRosetta FlexPepDock** | `src/_relax/`: native Metropolis MC (backbone small/shear + repack + score) | ⬜ to write; PyRosetta = ceiling |
+| Flexible-backbone refine | **PyRosetta FlexPepDock** | `src/_relax/relax_interface` (backbone φ/ψ MC + DOPE) | ◐ sampler done 2026-08-17; χ still fixed per cycle |
 
 ## What each reference oracle is for
 
@@ -98,6 +98,20 @@ all-atom 2.78 Å → 1.20 Å, **8/8 improved**, median 6 ms. 1oga recovers exact
 Verified rather than assumed: the kernel reproduces the Python prototype's per-residue energy to
 `0.0` (not to a tolerance), and a crystal in gives the crystal back — mean shift 0.06 Å, 2 of 77
 atoms moving more than 0.5 Å — because the input conformer is index 0 of every enumeration.
+
+### `relax_interface` — what it is for
+
+Built as a **stability probe**, not a refiner: the readout is how far the peptide wanders under
+thermal sampling (`rmsf`, `drift`), because that is the quantity an additive contact model cannot
+see. Moves are torsional and exact — perturb one φ/ψ, rotate everything downstream; a peptide has
+two free termini so no loop closure is needed.
+
+It found a real result. On 2102 CPL structures (seven clones, best vs worst binders), stability
+beats the contact energy in **4/4 clones where the contact model fails and 0/3 where it works**
+(ila1 0.348 → 0.862, sb27 0.570 → 0.934). See README and `scripts/sewell_stability.py`.
+
+To become the FlexPepDock analogue rather than a probe it needs **a repack inside the MC loop** — χ
+is currently held fixed. That is affordable now (6 ms per repack) and is the next step on this row.
 
 ### What is still missing
 

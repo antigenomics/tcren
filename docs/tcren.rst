@@ -157,6 +157,14 @@ tcren.stacking module
    :undoc-members:
    :show-inheritance:
 
+tcren.dynamics module
+~~~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: tcren.dynamics
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 tcren.rotamers module
 ~~~~~~~~~~~~~~~~~~~~~~~
 

@@ -359,6 +359,26 @@ QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses ar
 - Rotating everything past Cβ about Cα–Cβ **is** χ1 exactly. `max_chi=2` default (3^n rotamers).
   ~0.24 s/structure — see `refine/CPP_REWRITE.md` for when this needs to be C++ (MC loops, not one-shot).
 
+## Peptide conformational stability — `tcren.dynamics` (the Sewell hypothesis)
+
+- `peptide_stability(structure, intra_weight=1.0) -> Stability`: flexible-backbone Metropolis MC of
+  the peptide's φ/ψ against DOPE. The readout is **not a better pose** — it is `rmsf` (ensemble
+  spread), `drift` (how far the mean moves from the input) and `energy_gap`.
+- **Why it exists**: a contact potential scores whichever conformation it is handed and cannot tell a
+  peptide held in the TCR-facing conformation by its own side chains from one merely drawn there.
+  Sewell (`suggestions/sewell.txt`): intra-peptide interactions stabilise the productive bulge, and
+  "poor binders could perhaps still make many contacts but fail to stabilise" it.
+- **`intra_weight` is the switch.** `1.0` includes the peptide's DOPE contacts with itself, `0.0`
+  removes them; `stability_table` runs both at the same seed and reports `delta_rmsf`.
+- Moves are torsional and exact — perturb one φ/ψ, rotate everything downstream. Both peptide termini
+  are free so no loop closure is needed. `backbone_torsions` is the tree; **φ moves the side chain**
+  (Cβ hangs off Cα, off the N–Cα axis), **ψ does not** (Cβ is on the Cα side of Cα–C).
+- **Noise**: `rmsf` is the least noisy readout (CV 0.115 over seeds), `drift` 0.25, `energy_gap` 1.56
+  — the last is a max over the trajectory, so do not use it for per-structure comparisons. Aggregate
+  over structures; ~0.9 s per run at 4000 steps.
+- **Not MD**: no solvent, no force field, no time. DOPE is knowledge-based, so `rmsf` compares
+  *between* structures run with the same settings, not against an MD RMSF in Å.
+
 ## Side-chain repack — `tcren.repack` (native `_relax.repack`)
 
 - `repack(structure, chains=("PEPTIDE",), max_chi=2) -> (structure, report)`. Places each side chain

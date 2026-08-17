@@ -342,6 +342,55 @@ Where a potential has that shape the interaction term is only `C2·q_a·q_b`, so
 one pair of side chains over another of equal hydrophobicity**. Both calls refuse a directed
 potential — TCRen is TCR→peptide and must not be split this way.
 
+### Peptide conformational stability: what a contact model cannot see
+
+A contact potential scores whichever conformation it is handed. It cannot tell a peptide that its
+own side chains **hold** in the TCR-facing conformation from one that merely happens to have been
+modelled there — both present the same contact list. `tcren.dynamics` samples peptide φ/ψ by
+Metropolis Monte Carlo against DOPE and reports how far it wanders, not a better pose.
+
+```python
+from tcren import peptide_stability, stability_table
+peptide_stability(structure).rmsf                       # ensemble spread, A -- larger = floppier
+stability_table([s1, s2]) ["delta_rmsf"]                # intra-peptide term ON vs OFF, paired
+```
+
+**The hypothesis it was built to test** (Sewell, 2026-08): intra-peptide interactions stabilise the
+productive bulge a TCR reads, and *"poor binders could perhaps still make many contacts but fail to
+stabilise the productive peptide conformation"* — which would explain why an additive contact model
+describes some systems well and others badly.
+
+Tested on the CPL set: ~160 best-binder and ~160 worst-binder modelled complexes for each of seven
+clones, 2102 structures (`scripts/sewell_stability.py`). AUC is best-vs-worst discrimination.
+
+| clone | contact energy | **stability** |
+|---|---|---|
+| ila1 | 0.348 | **0.862** |
+| 868 | 0.537 | **0.677** |
+| sb27 | 0.570 | **0.934** |
+| mel8 | 0.690 | **0.876** |
+| 4c6 | **0.955** | 0.519 |
+| 1e6 | **0.973** | 0.707 |
+| mel5 | **0.974** | 0.859 |
+
+**Stability beats the contact energy in 4/4 clones where the contact model fails, and 0/3 where it
+works.** Mean AUC over the failing clones goes 0.536 → 0.837; over the working ones the contact
+energy stays ahead (0.967 vs 0.695). Combining the two (within-clone z-sum) lifts the mean AUC from
+0.721 to 0.826, improved in 5/7 — though with seven clones that paired test is underpowered
+(Wilcoxon p = 0.22).
+
+**The intra-peptide term is a switch, and flipping it does what the hypothesis says.** Removing the
+peptide's contacts with itself lets the *best* binders' backbones wander further (Δrmsf = +0.021 Å,
+SE 0.005, i.e. 4.4σ) and leaves the *worst* binders unchanged (+0.002 Å, SE 0.007); best vs worst
+p = 0.042. The same term also sharpens the stability discrimination itself, by +0.024 AUC on average
+and in 5/7 clones (Wilcoxon p = 0.078).
+
+So the **mechanism** Sewell proposed is supported, while the **system** he guessed is not: 4c6 is one
+of the clones the contact model handles well here (0.955), and the ones it fails on are ila1, 868,
+sb27 and mel8. Caveats worth carrying: these are modelled structures, the MC is knowledge-based
+rather than MD (no solvent, no force field, no time), Δrmsf is a mechanistic signal and not a useful
+classifier on its own (AUC 0.526), and every clone-level test has n = 7.
+
 ### Side-chain repack: what a local minimiser cannot do
 
 `tcren.repack` (native `_relax.repack`) places every side chain in the χ rotamer the DOPE potential
