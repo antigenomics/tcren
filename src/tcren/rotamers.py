@@ -238,7 +238,10 @@ def contact_probabilities(structure, interface: str = "tcr_peptide", *, cutoff: 
         hits = tree.query_ball_point(all_xyz[idx], radius)
         if len(hits) == 0:
             return np.zeros(0, dtype=int)
-        near = np.unique(np.fromiter((j for h in hits for j in h), dtype=int))
+        # np.concatenate over the per-atom hit arrays, not a generator over every hit: flattening
+        # ~1.6M indices one at a time cost more than the whole DOPE evaluation.
+        near = np.unique(np.concatenate([np.asarray(h, dtype=int) for h in hits if h]
+                                        or [np.zeros(0, dtype=int)]))
         return near[owner[near] != idx]
 
     # Per-residue rotamer sets and their Boltzmann weights, each against everything else held fixed.
