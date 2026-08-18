@@ -1,9 +1,11 @@
 # tcren — project status & TODO
 
 Status of the Python re-implementation of TCRen (`src/tcren/`). The legacy R/Java pipeline
-is preserved (tag `legacy-r-1.0`) and serves as the numerical oracle. Current release: **v2.8.0**
-(feature table + AF-orthogonal kit: `recognize --full --scores`, `kit_score`, `forced_pose_score`,
-interface mechanics, binder identification, configurable potentials, fast ΔΔG; `arda-mapper >= 2.5.7`).
+is preserved (tag `legacy-r-1.0`) and serves as the numerical oracle. Current release: **v2.9.0**
+(MHC class II docking geometry, contact typing `v2`, surface topology, rotamer-averaged contacts, the
+native side-chain packer and the flexible-backbone sampler, on top of the v2.8 feature table +
+AF-orthogonal kit: `recognize --full --scores`, `kit_score`, interface mechanics, binder
+identification, configurable potentials, fast ΔΔG; `arda-mapper >= 2.5.7`).
 See **[CHANGELOG.md](CHANGELOG.md)** for the authoritative per-release record, [BENCHMARKS.md](BENCHMARKS.md)
 for achieved accuracy, and `docs/` (`features.rst`, `kit.rst`) for the current API.
 
@@ -32,12 +34,12 @@ for achieved accuracy, and `docs/` (`features.rst`, `kit.rst`) for the current A
 | **CLI** | `cli.py` | `info/annotate/contacts/derive-potential/score/rank/ddg/pipeline/recognize/orient/superimpose …` |
 | **Docs** | `docs/` | Sphinx + 3 tutorial notebooks (`notebooks/`); zero-warning build |
 
-## Shipped since 2.8.0, not yet released
+## Shipped in v2.9.0
 
 `review/rev17aug26.md` PART 1 plus the surface-topology ask: MHC-II docking geometry, contact typing
 `v2`, rotamer-averaged contacts, the type-conditioned potential, peptide-position weighting,
 `tcren.surface`, the native side-chain packer and the flexible-backbone sampler. CHANGELOG
-`[Unreleased]` is the record, with the measurement that says whether each one worked. Defaults are
+`[2.9.0]` is the record, with the measurement that says whether each one worked. Defaults are
 unchanged throughout, so no existing number moves unless asked.
 
 ## Roadmap

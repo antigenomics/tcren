@@ -3,7 +3,7 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
-## [Unreleased]
+## [2.9.0] — 2026-08-18
 
 Everything below acts on [`review/rev17aug26.md`](review/rev17aug26.md), which raised seven points
 about what a contact potential cannot see, plus a PART 2 asking how likely a T cell is to recognise
