@@ -363,7 +363,7 @@ QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses ar
 - Rotating everything past Cβ about Cα–Cβ **is** χ1 exactly. `max_chi=2` default (3^n rotamers).
   ~0.24 s/structure — see `refine/CPP_REWRITE.md` for when this needs to be C++ (MC loops, not one-shot).
 
-## Peptide conformational stability — `tcren.dynamics` (the Sewell hypothesis)
+## Backbone dynamics / peptide conformational stability — `tcren.dynamics` (the Sewell hypothesis)
 
 - **Library only — there is no `tcren stability` command.** Call `peptide_stability` /
   `stability_table`, both exported from the top-level `tcren` namespace. Batch driver, with the CPL

@@ -373,8 +373,9 @@ potential — TCRen is TCR→peptide and must not be split this way.
 
 A contact potential scores whichever conformation it is handed. It cannot tell a peptide that its
 own side chains **hold** in the TCR-facing conformation from one that merely happens to have been
-modelled there — both present the same contact list. `tcren.dynamics` samples peptide φ/ψ by
-Metropolis Monte Carlo against DOPE and reports how far it wanders, not a better pose.
+modelled there — both present the same contact list. `tcren.dynamics` puts the backbone in motion:
+it samples peptide φ/ψ by Metropolis Monte Carlo against DOPE and reports how far the peptide
+wanders, not a better pose.
 
 ```python
 from tcren import peptide_stability, stability_table
