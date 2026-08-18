@@ -49,7 +49,7 @@ chain plus ±1 unresolved terminal residues — not a tcren error.
 | `notebooks/complementarity_map_2d.ipynb` | 2D interface map (SVG) + contact tables + polars summaries |
 | `notebooks/pocket_cdr_3d.ipynb` | 3D groove + peptide + CDR overlay (py3Dmol) + matplotlib fallback |
 | `notebooks/tcren_analysis.ipynb` | potential heatmaps (TCRen/MJ/Keskin), contact distributions per region & peptide/CDR3 position-vs-length |
-| `tcren native derive-potential` | re-derive TCRen from TCR3D native structures |
+| `tcren derive-potential` | re-derive TCRen from TCR3D native structures |
 
 ## Peptide modelling — open-source fold engines (draft, milestone S6 QC)
 

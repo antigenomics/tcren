@@ -161,27 +161,27 @@ Interface energies
    * - ``F_tcr_pep``
      - TCRen
      - Raw TCR↔peptide interface energy (whole interface, all TCR regions).
-     - :func:`tcren.pipeline` energy
+     - :mod:`tcren.pipeline` energy
    * - ``F_tcr_mhc``
      - MJ
      - Raw TCR↔MHC interface energy.
-     - :func:`tcren.pipeline` energy
+     - :mod:`tcren.pipeline` energy
    * - ``F_pep_mhc``
      - MJ
      - Raw peptide↔MHC interface energy.
-     - :func:`tcren.pipeline` energy
+     - :mod:`tcren.pipeline` energy
    * - ``F_cdr12``
      - TCRen
      - TCR↔peptide energy over the CDR1+CDR2 loops only.
-     - :func:`tcren.pipeline` energy
+     - :mod:`tcren.pipeline` energy
    * - ``F_cdr3a``
      - TCRen
      - TCR↔peptide energy over the CDR3α loop only.
-     - :func:`tcren.pipeline` energy
+     - :mod:`tcren.pipeline` energy
    * - ``F_cdr3b``
      - TCRen
      - TCR↔peptide energy over the CDR3β loop only.
-     - :func:`tcren.pipeline` energy
+     - :mod:`tcren.pipeline` energy
    * - ``dF_tcr_pep``
      - TCRen
      - Poly-alanine reference delta of the TCR↔peptide energy (geometry-normalized ΔΦ).
