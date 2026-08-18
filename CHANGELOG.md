@@ -5,6 +5,16 @@ All notable changes to `tcren` are recorded here. Format follows
 
 ## [Unreleased]
 
+Everything below acts on [`review/rev17aug26.md`](review/rev17aug26.md), which raised seven points
+about what a contact potential cannot see, plus a PART 2 asking how likely a T cell is to recognise
+a given pMHC at all. All of PART 1 is implemented, each with the measurement that says whether it
+worked. Every one is opt-in: defaults are unchanged, so no existing number moves unless asked.
+
+**Still open from PART 2**: a fast in-house kernel for *de novo* peptide placement into an empty
+groove, to compare against FlexPepDock. Two of its three pieces now exist — the side-chain packer and
+the backbone sampler below — but building side chains that were never there, and placing a peptide
+with no template, are not done. See [`refine/CPP_REWRITE.md`](src/tcren/refine/CPP_REWRITE.md).
+
 ### Added
 - **MHC class II docking geometry.** `docking_geometry` raised on every class-II complex, so six of
   the 34 recognition features were silently NaN for DR/DQ/DP. Class II is the same β-sheet floor with
@@ -18,13 +28,17 @@ All notable changes to `tcren` are recorded here. Format follows
   validated on all 374 Canonical2026 complexes, `relief`/`peak_to_valley`/`frac_above_ridge` all rise
   with class-I peptide length (`frac_above_ridge` 0.054 for 8-mers → 0.569 for 13-mers; Spearman on
   relief +0.414, p = 5.5e-13), and maps of the same epitope are closer to each other than to a
-  different one (P[within < between] = 0.917, p = 1.6e-94).
+  different one (P[within < between] = 0.917, p = 1.6e-94). Against the literature: the epitopes
+  named as bulged rank **2nd, 5th and 8th of 230** on `frac_above_ridge`, and both named featureless
+  ones sit at exactly **0.000** — no peptide surface clears the helix crest at all.
 - **`tcren.rotamers`** — rotamer-averaged contact probabilities. Under a deliberately wrong χ1 the
   hard 5 Å contact set keeps a Jaccard of 0.66; the averaged map keeps 0.95, and mean |ΔΦ| falls
   from 0.524 to 0.054 against energies whose own magnitude is 0.4–2.2.
 - **Peptide position** — `peptide_positions`, `position_weights`, `position_profile`,
-  `central_strain`. The position was always on the contact table and `refine.anchors` always
-  predicted anchors; they were never joined.
+  `central_strain`, answering the review's "contacts in the centre of the peptide matter more than
+  at the edges". The position was always on the contact table and `refine.anchors` always predicted
+  anchors; they were never joined. The per-position Φ sums exactly to the total, and the class-II
+  register resolves 4ozg's gliadin core to the published P1/P4/P6/P9.
 - **`derive_tcren_by_type`** — the type-conditioned potential, with the occupancy report that
   answers whether to trust it. On 8002 typed contacts from 370 structures **no type reaches 5% cell
   occupancy**, so the review's own sparsity concern is confirmed and the filter is the usable half.
@@ -53,7 +67,10 @@ All notable changes to `tcren` are recorded here. Format follows
   atom rather than per residue (which had excluded Tyr entirely), the H-bond cutoff widened to 3.9 Å
   with donor/acceptor typing, and `stacking.ring_stacking` finally joined. A contact may carry
   several types. The old scheme is kept verbatim as `scheme="v1"`, which `recognition.py` pins,
-  because the frozen classifiers were fitted on its counts.
+  because the frozen classifiers were fitted on its counts. Two things the typing then measured:
+  interface ring stacks are genuinely rare (**1 across 10 crystals** — the 22–39 stacks per structure
+  are core packing, not recognition), and `--drop-untyped` removes **~17%** of TCR:peptide pairs on
+  crystals, every one of them `vdw`/`other`.
 - **Hydrogens are filtered from contacts.** `all_atom_contacts` documented heavy atoms and did not
   enforce it, so the same complex scored differently depending only on whether the depositor modelled
   H (5jhd gained 7 of 28 TCR:peptide contacts, −58.5% on F_tcr_pep). Breaks legacy-oracle parity on

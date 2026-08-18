@@ -66,30 +66,6 @@ benchmark neither the raw contact energy nor its poly-alanine difference predict
 (|ρ|≤0.3). The one affinity-adjacent quantity a structure predicts is the off-rate koff, via interface
 mechanics (`tcren mechanics`) — not the contact sum.
 
-## Acting on the August 2026 review
-
-[`review/rev17aug26.md`](review/rev17aug26.md) raised seven points about what the contact model
-cannot see. All of PART 1 is implemented, each with the measurement that says whether it worked.
-Every one is opt-in: defaults are unchanged, so no existing number moves unless asked.
-
-| The review said | What shipped | Measured |
-|---|---|---|
-| `dock_geometry` and everything downstream are unsupported for MHC II — the fix would allow the complete analysis of INSR-reactive clones | class-II β-sheet core in [`orient/tcrdock_geometry.py`](src/tcren/orient/tcrdock_geometry.py) | **93/94** class-II Canonical2026 structures now compute (was 0/94); `d` = 31.5 Å against class I's 30.6. Class-I path bit-identical |
-| `classify_contacts` rarely finds contact types besides `other` | [`contact_types`](src/tcren/contact_types.py) scheme `v2`: per-atom apolarity, donor/acceptor typing, `polar`/`vdw`/`cation_pi`/`stacking` | `other` **72.3% → 13.9%**, and now means only "too far", never "unrecognised" |
-| Rotamers of the generated structure are not always optimal — scanning rotations and taking a weighted average of the potentials should do better | [`rotamers`](src/tcren/rotamers.py): χ enumeration, Boltzmann-weighted contact **probabilities** (`tcren score --soft`), plus the native [`_relax.repack`](src/_relax/relax.cpp) | Under a deliberately wrong χ1, mean \|ΔΦ\| falls **0.524 → 0.054**; repack recovers side-chain RMSD **4.13 → 2.36 Å in 6 ms**, where OpenMM returns 4.13 Å in 3.1 s |
-| Contact geometry and type are not taken into account while scoring — stacking needs a particular geometry | `stacking.ring_stacking` joined into the typing; `tcren score --drop-untyped` | Interface ring stacks are genuinely rare (1 across 10 crystals); the 22–39 stacks per structure are core packing |
-| The TCRen matrix could be recalculated with contact type as well — though that may increase sparsity | `derive_tcren_by_type`, returning the occupancy report alongside the matrices | The sparsity concern is **confirmed**: on 8002 typed contacts from 370 structures **no type reaches 5% cell occupancy**; correlation with the pooled matrix tracks count, not chemistry |
-| At least the annotation lets us discard contacts that are only proximity | `contact_types.type_weights` → `tcren score --drop-untyped` | Drops ~17% of TCR:peptide pairs on crystals, all of them `vdw`/`other` |
-| Contacts in the centre of the peptide matter more than at the edges; high TCRen there should raise concerns about viability | [`scoring`](src/tcren/scoring.py): `peptide_positions`, `position_weights`, `position_profile`, `central_strain` | Per-position Φ sums exactly to the total; the class-II register resolves 4ozg's gliadin core to the published P1/P4/P6/P9 |
-| *(PART 2)* estimate paratope complementarity — how likely a T cell is to recognise a given pMHC | [`surface`](src/tcren/surface.py) + `tcren surface` | Literature-named bulged epitopes rank 2nd, 5th, 8th of 230; both named featureless ones sit at exactly 0.000 |
-
-**Still open from PART 2**: a fast in-house kernel for *de novo* peptide placement into an empty
-groove, to compare against FlexPepDock. Two of its three pieces now exist — the
-[side-chain packer](#side-chain-repack-what-a-local-minimiser-cannot-do) and the
-[backbone sampler](#peptide-conformational-stability-what-a-contact-model-cannot-see) — but
-building side chains that were never there, and placing a peptide with no template, are not done.
-See [`refine/CPP_REWRITE.md`](src/tcren/refine/CPP_REWRITE.md).
-
 ## Install
 
 ```bash
