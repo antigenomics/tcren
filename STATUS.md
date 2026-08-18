@@ -36,7 +36,7 @@ for achieved accuracy, and `docs/` (`features.rst`, `kit.rst`) for the current A
 
 ## Shipped in v2.9.0
 
-`review/rev17aug26.md` PART 1 plus the surface-topology ask: MHC-II docking geometry, contact typing
+The August 2026 review's PART 1 plus the surface-topology ask: MHC-II docking geometry, contact typing
 `v2`, rotamer-averaged contacts, the type-conditioned potential, peptide-position weighting,
 `tcren.surface`, the native side-chain packer and the flexible-backbone sampler. CHANGELOG
 `[2.9.0]` is the record, with the measurement that says whether each one worked. Defaults are

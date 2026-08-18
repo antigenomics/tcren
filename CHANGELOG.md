@@ -5,10 +5,10 @@ All notable changes to `tcren` are recorded here. Format follows
 
 ## [2.9.0] — 2026-08-18
 
-Everything below acts on [`review/rev17aug26.md`](review/rev17aug26.md), which raised seven points
-about what a contact potential cannot see, plus a PART 2 asking how likely a T cell is to recognise
-a given pMHC at all. All of PART 1 is implemented, each with the measurement that says whether it
-worked. Every one is opt-in: defaults are unchanged, so no existing number moves unless asked.
+Everything below acts on an August 2026 review that raised seven points about what a contact
+potential cannot see, plus a PART 2 asking how likely a T cell is to recognise a given pMHC at all.
+All of PART 1 is implemented, each with the measurement that says whether it worked. Every one is
+opt-in: defaults are unchanged, so no existing number moves unless asked.
 
 **Still open from PART 2**: a fast in-house kernel for *de novo* peptide placement into an empty
 groove, to compare against FlexPepDock. Two of its three pieces now exist — the side-chain packer and
