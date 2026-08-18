@@ -50,6 +50,9 @@ From one TCR–peptide–MHC structure (crystal or model), each task is one comm
 | Graft a TCR onto another pMHC (chimera) | `tcren substitute-tcr` | `substitute_tcr` |
 | Wrong-TCR decoy set (recognition negatives) | `tcren shuffle` | `make_decoys`, `graft_tcr` |
 | Substitute a peptide + refine its pose | `tcren refine` | `substitute_peptide`, `refine_peptide` |
+| **Surface topology of the pMHC face — is this epitope featureless?** | `tcren surface` | `surface_map`, `surface_stats`, `surface_distance` |
+| **Backbone dynamics — does the peptide hold its TCR-facing conformation?** | — | `peptide_stability`, `stability_table` |
+| Repack side chains into their preferred rotamers | `tcren refine --repack` | `repack` |
 | DOPE interface energy (ΔΔG `e_native`) | `tcren energy` | `interface_energy` |
 | Interface mechanics — koff proxies (stiffness / rupture) | `tcren recognize --mechanics`, or `tcren mechanics` alone | `interface_mechanics` |
 | Re-derive the statistical potential | `tcren derive-potential` | `derive_tcren` |

@@ -32,14 +32,14 @@ for achieved accuracy, and `docs/` (`features.rst`, `kit.rst`) for the current A
 | **CLI** | `cli.py` | `info/annotate/contacts/derive-potential/score/rank/ddg/pipeline/recognize/orient/superimpose …` |
 | **Docs** | `docs/` | Sphinx + 3 tutorial notebooks (`notebooks/`); zero-warning build |
 
-## In flight (branch `feature/review-aug26-surface-topology`, 2026-08-17)
+## In flight (on `master`, merged 2026-08-18)
 
 Acting on `review/rev17aug26.md` PART 1 + the surface-topology ask. All six items landed; see
 CHANGELOG `[Unreleased]`. Open loops out of it:
 
 - [x] **`_relax.repack` (C++)** — done. Same input, same atoms: side-chain RMSD 4.131 → **2.364 Å in
   6 ms**, where OpenMM returns 4.133 Å (unchanged) in 3.1 s, because a local minimiser cannot cross a
-  torsional barrier. 8/8 improved. `tcren repack` / `tcren refine --repack`.
+  torsional barrier. 8/8 improved. `tcren.repack` / `tcren refine --repack`.
 - [ ] **Side-chain *construction*** — `repack` rotates the side chains a model has; it cannot rebuild
   ones `substitute_peptide` stripped, so that path still returns 44 of 77 heavy atoms. Needs ideal
   internal geometry per residue type (the `Full-atom loop build` row). AlphaFold output is full-atom,

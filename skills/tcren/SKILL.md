@@ -337,6 +337,10 @@ QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses ar
 
 ## Surface topology — `tcren.surface` / `tcren surface`
 
+- **Reach for it when the question is about the pMHC alone**, with no TCR in the structure or before
+  one is docked: how featureless is this epitope, which epitopes present a similar face, is the
+  peptide bulged. A contact potential cannot answer any of these — it needs an interface that exists.
+  CLI: `tcren surface -s <in> -o <out> [--compare] [--svg <dir>] [--cells <csv>] [--channel h]`.
 - `surface_map(structure) -> SurfaceMap` — height + hydropathy + charge on a 64×32 raster over the
   groove; `surface_stats` gives `relief`, `peak_to_valley`, `frac_above_ridge`, `phobic_centre`;
   `surface_distance`/`surface_tree` compare epitopes (SURFMAP Manhattan distance + linkage).
@@ -361,6 +365,9 @@ QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses ar
 
 ## Peptide conformational stability — `tcren.dynamics` (the Sewell hypothesis)
 
+- **Library only — there is no `tcren stability` command.** Call `peptide_stability` /
+  `stability_table`, both exported from the top-level `tcren` namespace. Batch driver, with the CPL
+  design and the AUC bookkeeping: `scripts/sewell_stability.py`.
 - `peptide_stability(structure, intra_weight=1.0) -> Stability`: flexible-backbone Metropolis MC of
   the peptide's φ/ψ against DOPE. The readout is **not a better pose** — it is `rmsf` (ensemble
   spread), `drift` (how far the mean moves from the input) and `energy_gap`.

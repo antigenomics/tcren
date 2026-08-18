@@ -30,7 +30,16 @@ What tcren does
 * **Canonical orientation** — ``orient`` / ``superimpose``: one common MHC frame, docking angles,
   reverse-dock detection.
 * **Peptide substitution & refinement** — ``refine``: backbone-preserving substitution plus a
-  DOPE-scored Monte-Carlo pose refinement (with CCD/OpenMM/ProMod3/FlexPepDock engines).
+  DOPE-scored Monte-Carlo pose refinement (with CCD/OpenMM/ProMod3/FlexPepDock engines), and
+  ``--repack`` to place every side chain in the χ rotamer DOPE prefers.
+* **Surface topology** — ``surface``: the pMHC face a TCR meets *before* it binds, as a height field
+  over the groove with hydropathy and charge painted on, plus the scalars that make "featureless" a
+  number (``relief``, ``peak_to_valley``, ``frac_above_ridge``) and a map distance that clusters
+  epitopes (:mod:`tcren.surface`).
+* **Backbone dynamics** — :func:`tcren.peptide_stability`: flexible-backbone Metropolis Monte Carlo
+  of the peptide's φ/ψ against DOPE, reporting how far the peptide *wanders* rather than a better
+  pose — whether its own side chains hold the TCR-facing conformation, which a contact potential
+  scoring a single handed-in pose cannot see (:mod:`tcren.dynamics`).
 * **Potential derivation** — ``derive-potential``: re-derive the TCRen potential (classic/AM/LOO,
   with non-redundancy filtering) from a structure set.
 * **QC, mechanics & maps** — steric-clash and register checks, an interface spring-network /

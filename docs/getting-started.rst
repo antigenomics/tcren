@@ -128,7 +128,8 @@ validated to have all five required chains):
 What tcren can answer
 ---------------------
 
-From a single TCR–peptide–MHC structure (crystal or model), each task is one command:
+From a single TCR–peptide–MHC structure (crystal or model), each task is one command — or, where the
+task has no command of its own, one call:
 
 =================================================  ==========================================================
 question                                           command
@@ -139,6 +140,8 @@ How does a mutation change recognition (ΔΔG)?       ``tcren ddg -s c.pdb --nat
 Is this modelled TCR a binder or a non-binder?      ``tcren binder -s model.pdb -o binder.csv``
 Three-interface energy Φ (and ΔΦ, and Q)?           ``tcren scoring -s c.pdb --delta --geometry``
 Substitute a peptide and relax its pose?            ``tcren refine -s c.pdb --substitute KQWLVWLFL -o out/``
+What does a TCR meet on this pMHC surface?         ``tcren surface -s c.pdb -o surf.csv --compare``
+Does the peptide hold its own conformation?        ``peptide_stability(structure).rmsf``
 =================================================  ==========================================================
 
 Case studies
@@ -169,6 +172,41 @@ Case studies
   potential — deliberately *independent* of the TCRen/MJ scoring potentials so the pose is not
   optimised against the quantity it is later scored with. This is not physics relaxation; use Rosetta
   FlexPepDock for that.
+
+* **Map the surface a TCR meets, before any TCR is there.** A contact potential scores an interface
+  that already exists; ``tcren surface`` describes the pMHC beforehand, as a height field over the
+  groove with hydropathy and charge painted on. The per-structure scalars turn "featureless" into a
+  number — ``relief``, ``peak_to_valley`` and ``frac_above_ridge``, the fraction of peptide surface
+  clearing the MHC helix crests — and ``--compare`` writes the pairwise map distance, under which
+  structures of the same epitope cluster. Over the 374 Canonical2026 complexes the literature-named
+  bulged epitopes rank 2nd, 5th and 8th of 230 while both named featureless ones sit at exactly
+  0.000. ``notebooks/surface_topology.py`` draws all three channels; see
+  :doc:`notebooks/surface_topology` and :mod:`tcren.surface`.
+
+  .. code-block:: python
+
+     from tcren import surface_map, surface_stats, surface_distance
+     smap = surface_map(structure)              # channels h / phobic / charge on a 64×32 raster
+     surface_stats(smap)["frac_above_ridge"]    # how much peptide clears the helix crests
+     ids, d = surface_distance([m1, m2, m3])    # pairwise map distance -> epitopes cluster
+
+* **Ask whether the peptide holds its own conformation (backbone dynamics).** The same contact list
+  comes back whether the peptide's own side chains *hold* it in the TCR-facing conformation or it
+  merely happens to have been modelled there, so a static score cannot separate the two.
+  :func:`tcren.peptide_stability` samples peptide φ/ψ by Metropolis Monte Carlo against DOPE and
+  reports how far it wanders — ``rmsf`` (ensemble spread) and ``drift`` — rather than a better pose.
+  ``intra_weight`` switches the peptide's contacts with itself on and off, and
+  :func:`tcren.stability_table` runs both at one seed to give the paired ``delta_rmsf``. On the CPL
+  set (2102 modelled complexes, seven clones) stability separates best from worst binders in 4/4
+  clones where the additive contact energy fails and 0/3 where it works. Not MD: no solvent, no force
+  field, no time, so ``rmsf`` compares between structures run at the same settings, never against an
+  MD RMSF in Å. See :mod:`tcren.dynamics`.
+
+  .. code-block:: python
+
+     from tcren import peptide_stability, stability_table
+     peptide_stability(structure).rmsf          # ensemble spread, Å -- larger = floppier
+     stability_table([s1, s2])["delta_rmsf"]    # intra-peptide term ON vs OFF, paired
 
 * **Graft a TCR onto another pMHC (build a chimera).** ``tcren substitute-tcr`` takes a *host* and a
   *donor* TCR:pMHC complex and returns a new complex with the **host peptide + MHC** and the **donor
