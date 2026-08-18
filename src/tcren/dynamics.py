@@ -45,6 +45,11 @@ DEFAULT_TEMPERATURE = 4.0     #: MC temperature in DOPE units
 DEFAULT_SIGMA = 6.0           #: st. dev. of a single φ/ψ perturbation, degrees
 DEFAULT_ANCHOR_W = 1.0        #: harmonic weight holding the anchor Cα in their pockets
 
+# The CPL result quoted in CHANGELOG and README came from a hotter, wider sampler than these
+# defaults: temperature=20.0, sigma_deg=10.0 (scripts/sewell_stability.py). Neither setting is more
+# correct — rmsf only compares across structures sampled identically — but reproducing those numbers
+# means passing those values, not the defaults.
+
 
 @dataclass(slots=True)
 class Stability:
