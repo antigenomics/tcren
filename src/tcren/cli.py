@@ -11,6 +11,8 @@ Scoring & prediction
     * ``tcren mechanics`` — interface mechanics (stiffness / rupture / coupling) — the koff proxies.
     * ``tcren scoring`` — per-interface contact energies Φ (``--delta`` for ΔΦ, ``--geometry`` for Q).
     * ``tcren surface`` — pMHC surface topology: height/hydropathy/charge maps + epitope comparison.
+    * ``tcren cpl`` — combinatorial-peptide-library response matrix from one template structure.
+    * ``tcren recognize`` — every interface descriptor + joint P(real), one row per structure.
 
 Annotation & contacts
     * ``tcren annotate`` — chain typing + region markup (TCR CDR/FR, MHC groove, peptide; ``--pseudo``).
@@ -19,9 +21,11 @@ Annotation & contacts
 Orientation & refinement
     * ``tcren superimpose`` — orient structure(s) onto the canonical database by MHC.
     * ``tcren refine`` — potential-guided peptide-pose refinement (DOPE MC; optional ``--substitute``).
+    * ``tcren substitute-tcr`` — graft a donor TCR onto a host pMHC (a chimeric complex).
 
 Reference data & potentials
     * ``tcren orient`` — build a canonical database from native complexes.
+    * ``tcren shuffle`` — wrong-TCR-on-real-pMHC decoys, the negatives for a recognition model.
     * ``tcren derive-potential`` — derive a TCRen potential from a contact-map table.
     * ``tcren fetch-data`` / ``fetch-recent`` — fetch reference sets / recent RCSB TCR-pMHC entries.
     * ``tcren build-mhc-ref`` — build the IMGT/HLA + mouse MHC allele reference.
@@ -1227,5 +1231,19 @@ def substitute_tcr_cmd(
     typer.echo(f"grafted {d.pdb_id} TCR onto {h.pdb_id} pMHC (by {by}) -> {out}")
 
 
+def main() -> None:
+    """Console-script entry point.
+
+    Every command takes ``-s`` as a free-form spec (file, directory, glob, manifest, archive), so
+    Typer cannot check it exists and a typo'd path surfaced as an 80-line Rich traceback out of
+    Biopython. One line is what the user needs; ``typer.BadParameter`` covers the rest.
+    """
+    try:
+        app()
+    except OSError as exc:
+        typer.secho(f"Error: {exc}", fg=typer.colors.RED, err=True)
+        raise SystemExit(1) from None
+
+
 if __name__ == "__main__":
-    app()
+    main()

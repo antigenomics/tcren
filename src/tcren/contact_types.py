@@ -30,6 +30,7 @@ every atom pair a residue pair makes.
 """
 from __future__ import annotations
 
+import numpy as np
 import polars as pl
 
 # --- residue-level sets (v1 and, where still correct, v2) -----------------------------------------
@@ -336,7 +337,7 @@ def contact_type_counts(cm, interface: str = "tcr_peptide", tcr_regions: str = "
 UNTYPED = ("vdw", "other")
 
 
-def type_weights(typed: pl.DataFrame, drop: "tuple[str, ...]" = UNTYPED) -> "np.ndarray":
+def type_weights(typed: pl.DataFrame, drop: tuple[str, ...] = UNTYPED) -> np.ndarray:
     """0/1 per-contact weights that keep only chemically-typed contacts.
 
     The review's fallback, and the cheap half of a type-aware potential: rather than re-derive the
@@ -355,8 +356,6 @@ def type_weights(typed: pl.DataFrame, drop: "tuple[str, ...]" = UNTYPED) -> "np.
     Raises:
         ValueError: if the frame carries no ``is_<type>`` columns (it was typed under ``"v1"``).
     """
-    import numpy as np
-
     keep_types = [t for t in TYPES_V2 if t not in drop]
     have = [f"is_{t}" for t in keep_types if f"is_{t}" in typed.columns]
     if not have:

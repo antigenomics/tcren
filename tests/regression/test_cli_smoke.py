@@ -141,3 +141,30 @@ def test_cpl_predicts_a_full_response_matrix(tmp_path):
     df = pl.read_csv(out)
     # A CPL matrix is 20 amino acids at each peptide position.
     assert df.height == 20 * len(NATIVE_PEPTIDE) or df.width >= 20, (df.shape, df.columns)
+
+
+def test_surface_writes_the_featureless_scalars_and_the_extra_outputs(tmp_path):
+    pytest.importorskip("arda")
+    out, svg, dist = tmp_path / "surface.csv", tmp_path / "svg", tmp_path / "d.csv"
+    run("surface", "-s", ASSET, "-o", out, "--svg", svg, "--compare", dist)
+    df = pl.read_csv(out)
+    assert df.height == 1
+    assert {"relief", "peak_to_valley", "frac_above_ridge", "phobic_centre"} <= set(df.columns)
+    assert df["peptide"][0] == NATIVE_PEPTIDE
+    assert list(svg.glob("*.svg")), "--svg wrote no map"
+    assert dist.exists()
+
+
+def test_a_missing_structure_is_one_line_not_a_traceback(monkeypatch, capsys, tmp_path):
+    """``-s`` takes files, globs, manifests and archives, so Typer cannot check it — the CLI must."""
+    import sys
+
+    from tcren.cli import main
+
+    monkeypatch.setattr(sys, "argv",
+                        ["tcren", "contacts", "-s", "/no/such.pdb", "-o", str(tmp_path / "c.csv")])
+    with pytest.raises(SystemExit) as exc:
+        main()
+    assert exc.value.code == 1
+    err = capsys.readouterr().err.strip()
+    assert err.startswith("Error:") and "\n" not in err, err

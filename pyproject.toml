@@ -60,7 +60,7 @@ Repository = "https://github.com/antigenomics/tcren"
 Documentation = "https://docs.isalgo.dev/tcren/"
 
 [project.scripts]
-tcren = "tcren.cli:app"
+tcren = "tcren.cli:main"
 
 [tool.scikit-build]
 wheel.packages = ["src/tcren"]

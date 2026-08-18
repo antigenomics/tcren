@@ -40,9 +40,6 @@ import polars as pl
 
 from .structure.model import PEPTIDE_TYPE
 
-#: Backbone atoms, in the order a torsion tree assumes they appear within a residue.
-_BACKBONE = ("N", "CA", "C", "O")
-
 DEFAULT_STEPS = 4000
 DEFAULT_TEMPERATURE = 4.0     #: MC temperature in DOPE units
 DEFAULT_SIGMA = 6.0           #: st. dev. of a single φ/ψ perturbation, degrees

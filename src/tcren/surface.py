@@ -30,7 +30,7 @@ three; a bulged epitope scores high.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import numpy as np
 import polars as pl
@@ -274,14 +274,17 @@ def _height_candidates(local: np.ndarray, radii: np.ndarray, grid, extent):
 # the map
 # =========================================================================================
 def _smooth(a: np.ndarray) -> np.ndarray:
-    """Average each cell with its 8 neighbours, ignoring empty ones (SURFMAP step 5)."""
-    filled = np.nan_to_num(a, nan=0.0)
-    mask = np.isfinite(a).astype(float)
-    acc, cnt = np.zeros_like(filled), np.zeros_like(mask)
-    for dy in (-1, 0, 1):
-        for dx in (-1, 0, 1):
-            acc += np.roll(np.roll(filled, dy, 0), dx, 1)
-            cnt += np.roll(np.roll(mask, dy, 0), dx, 1)
+    """Average each cell with its 8 neighbours, ignoring empty ones (SURFMAP step 5).
+
+    Padded, not wrapped. The map is a flat window over one groove, not a torus, and both helices run
+    the full length of it — ``np.roll`` here averaged the far end of the groove into the near one
+    (90 of 1820 occupied cells on 1ao7, by up to 4.3 Å).
+    """
+    n_y, n_x = a.shape
+    filled = np.pad(np.nan_to_num(a, nan=0.0), 1)
+    mask = np.pad(np.isfinite(a).astype(float), 1)
+    acc = sum(filled[dy:dy + n_y, dx:dx + n_x] for dy in (0, 1, 2) for dx in (0, 1, 2))
+    cnt = sum(mask[dy:dy + n_y, dx:dx + n_x] for dy in (0, 1, 2) for dx in (0, 1, 2))
     out = np.where(cnt > 0, acc / np.maximum(cnt, 1), np.nan)
     return np.where(np.isfinite(a), out, np.nan)      # never invent a cell the surface never reached
 

@@ -167,6 +167,21 @@ def test_surface_map_cells_carry_their_residue_chemistry(annotated):
     assert set(np.round(finite, 3)) <= {round(v, 3) for v in KYTE_DOOLITTLE.values()}
 
 
+def test_smoothing_does_not_wrap_around_the_map_edges():
+    """The map is a flat window over one groove, not a torus.
+
+    Both MHC helices run its full length and reach the y edges, so a wrapped neighbourhood averages
+    the far end of the groove into the near one.
+    """
+    from tcren.surface import _smooth
+
+    a = np.full((4, 4), np.nan)
+    a[0, 0], a[-1, -1] = 10.0, 0.0                  # opposite corners, adjacent only under a wrap
+    out = _smooth(a)
+    assert out[0, 0] == 10.0
+    assert out[-1, -1] == 0.0
+
+
 @pytest.mark.slow
 def test_smoothing_never_invents_an_unoccupied_cell(annotated):
     rough = surface_map(annotated["1ao7"], smooth=False)
