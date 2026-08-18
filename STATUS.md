@@ -32,47 +32,17 @@ for achieved accuracy, and `docs/` (`features.rst`, `kit.rst`) for the current A
 | **CLI** | `cli.py` | `info/annotate/contacts/derive-potential/score/rank/ddg/pipeline/recognize/orient/superimpose …` |
 | **Docs** | `docs/` | Sphinx + 3 tutorial notebooks (`notebooks/`); zero-warning build |
 
-## In flight (on `master`, merged 2026-08-18)
+## Shipped since 2.8.0, not yet released
 
-Acting on `review/rev17aug26.md` PART 1 + the surface-topology ask. All six items landed; see
-CHANGELOG `[Unreleased]`. Open loops out of it:
+`review/rev17aug26.md` PART 1 plus the surface-topology ask: MHC-II docking geometry, contact typing
+`v2`, rotamer-averaged contacts, the type-conditioned potential, peptide-position weighting,
+`tcren.surface`, the native side-chain packer and the flexible-backbone sampler. CHANGELOG
+`[Unreleased]` is the record, with the measurement that says whether each one worked. Defaults are
+unchanged throughout, so no existing number moves unless asked.
 
-- [x] **`_relax.repack` (C++)** — done. Same input, same atoms: side-chain RMSD 4.131 → **2.364 Å in
-  6 ms**, where OpenMM returns 4.133 Å (unchanged) in 3.1 s, because a local minimiser cannot cross a
-  torsional barrier. 8/8 improved. `tcren.repack` / `tcren refine --repack`.
-- [ ] **Side-chain *construction*** — `repack` rotates the side chains a model has; it cannot rebuild
-  ones `substitute_peptide` stripped, so that path still returns 44 of 77 heavy atoms. Needs ideal
-  internal geometry per residue type (the `Full-atom loop build` row). AlphaFold output is full-atom,
-  so `repack` already covers the main case.
-- [x] **Flexible-backbone MC** (`_relax.relax_interface` / `tcren.dynamics`) — done, and used to
-  test Sewell's intra-peptide-stabilisation hypothesis on the CPL set (2102 structures). Stability
-  beats the contact energy in 4/4 clones where the contact model fails and 0/3 where it works.
-  The mechanism is supported; the specific 4C6 guess is not (4c6's contact AUC is 0.955 here).
-- [ ] **Follow up the stability result**: it is currently a *diagnostic*, not a shipped score. Open
-  questions — does it survive on crystal rather than modelled structures; does it hold at more MC
-  steps and more seeds; is the combined contact+stability score worth shipping (n = 7 clones is too
-  few to tell, Wilcoxon p = 0.22); and does the per-position stability profile localise to the P3/P6
-  pair Dolton et al. Fig. S4 names.
-- [ ] **Repack inside the MC loop** — `relax_interface` currently samples backbone only, with χ
-  fixed. A repack per cycle is affordable now (6 ms) and is what would make it a real FlexPepDock
-  analogue rather than a stability probe.
-- [ ] **Full-scale fold benchmark on aldan3** — `scripts/fold_benchmark.sbatch`, n ≈ 374 with all
-  oracles. FlexPepDock burned 21 min of CPU on six structures locally without finishing.
-- [ ] **PART 2 of the review** (deferred, agreed): a C++ kernel for *de novo* peptide placement into
-  an empty groove, benchmarked against FlexPepDock. `_refine` + `_fold` already cover template-based
-  placement; the rotamer machinery above is its first half.
-- [ ] `2wbj` is the one class-II Canonical2026 structure whose β-sheet core still fails to map.
-- [ ] Lawrence–Colman shape complementarity (`src/_geom/geom.cpp:13`) — the surface work makes it cheap.
+## Roadmap
 
-## TODO / pending
-
-- [ ] **AI-model refinement** (`refine/`): batch-refine predicted PDBs → canonical → score; QC (anchor RMSD, plDDT, completeness). Inputs in `data/TCRpMHCmodels/`, `data/Bigot/`, `data/Bobisse/`.
-- [ ] **FlexPepDock** (`flexpep/`, optional): peptide substitution + Rosetta relaxation; gated on a discovered Rosetta binary. Needs `keep_c_gene=True`.
-- [ ] **Standalone `orient/` module**: generalise `native/align.py` (multi-structure overlay, canonical chain renumbering, write oriented PDBs).
-- [ ] **Regenerate stale `tcren_am/` outputs** from the current contact data (see the spawned task).
-- [ ] **MHC mapper speed**: prebuild the mmseqs index (currently ~7 s/structure from per-call `easy_search`).
-- [ ] **2D map polish**: optional "contacting residues only" mode for less cluttered overlays.
-- [ ] Mouse class-II MHC reference is sparse (TRGC3/4 skipped); extend if needed.
+Moved to **[ROADMAP.md](ROADMAP.md)** — the single place for forward plans.
 
 ## Known caveats
 

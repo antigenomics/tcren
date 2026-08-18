@@ -263,7 +263,7 @@ wrong-TCR *shuffled* decoys: code in [`tcren.recognition`](src/tcren/recognition
 `src/tcren/data/shuffle_logistic.json.gz`, and the full derivation (PyMC fit, encoding, ROC/PR,
 posterior forest) in the technical appendix, which lives with the manuscript rather than here —
 `logistic_stan/`, with the Gaussian-BN companion in `shuffle_bn/`. Decoys come from
-`tcren shuffle`. See [Technical appendix](#technical-appendix) below.
+`tcren shuffle`.
 
 **(c) physics of the interaction.** The koff proxies fold into the same table with `--mechanics`;
 only the mutation scan, which is per-residue rather than per-structure, needs its own command:
@@ -723,21 +723,12 @@ pytest                        # add the arda/mmseqs-backed regression tests
 RUN_BENCHMARK=1 pytest -k benchmark -s
 ```
 
-## Methods appendix
+## Project state
 
-### Technical appendix
-
-The coordinate-level extensions — backbone-preserving peptide substitution and the potential-guided
-Monte-Carlo refinement kernel (energy function, the restraint-necessity argument, sampler, and
-citations) — are written up in `tcren.tex`, alongside the PyMC derivation of the shipped
-`shuffle_logistic.json.gz` (`logistic_stan/`) and the Gaussian-BN companion for
-`shuffle_bn.json.gz` (`shuffle_bn/`).
-
-**That appendix is not in this repo.** It is manuscript material, it was 2.4 MB of the source
-distribution, and it moved to the manuscript repository on 2026-07-28
-(`2026-tcren/archive/tcren-appendix/`, with a dated tarball beside it). Every file remains in this
-repository's git history — `git log --all -- appendix/` — if the derivations are ever needed here
-again.
+- [CHANGELOG.md](CHANGELOG.md) — what has landed, per release, with the measurement for each.
+- [STATUS.md](STATUS.md) — where the modules stand, and the known caveats.
+- [ROADMAP.md](ROADMAP.md) — where it is going, and what each direction is waiting on.
+- [BENCHMARKS.md](BENCHMARKS.md) — achieved accuracy.
 
 ## Citing
 
