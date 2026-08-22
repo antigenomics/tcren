@@ -97,6 +97,24 @@ def _load_potential(spec: str | None) -> Potential:
     )
 
 
+def _iter_typed(structures: Path, organism: str = "human"):
+    """Yield chain-typed structures, annotating a whole directory in one batch.
+
+    ``classify_chains`` per structure spawns one ``mmseqs easy-search`` per structure, each
+    building a temporary database from a handful of query sequences; the process startup dominates
+    and the cost is roughly an order of magnitude. :func:`~tcren.paper.iter_annotated_set` sends
+    every chain of every structure in a single call per organism, which is why the directory case
+    goes through it. A single file has nothing to batch and takes the direct path.
+    """
+    if Path(structures).is_dir():
+        from .paper.helpers import iter_annotated_set
+        yield from iter_annotated_set(structures)
+        return
+    for _pid, s in iter_structures(structures, importer=parse_structure):
+        classify_chains(s, organism=organism)
+        yield s
+
+
 def _read_candidates(path: Path) -> list[str]:
     lines = [line.strip() for line in path.read_text().splitlines() if line.strip()]
     return [line for line in lines if line.lower() != "peptide"]
@@ -146,8 +164,8 @@ def annotate(
     keep = None if regions == "all" else _REGION_CHAINS[regions]
 
     frames = []
-    for pid, s in iter_structures(structures, importer=parse_structure):
-        classify_chains(s, organism=organism)
+    for s in _iter_typed(structures, organism):
+        pid = s.pdb_id
         if want_mhc:
             from .mhc import annotate_mhc
             annotate_mhc(s)
@@ -175,11 +193,11 @@ def contacts(
     if regions not in TCR_REGIONS:
         raise typer.BadParameter("--regions must be one of all|cdr|cdr+fr")
     frames = []
-    for _pid, s in iter_structures(structures, importer=parse_structure):
-        classify_chains(s, organism=organism)
+    for s in _iter_typed(structures, organism):
         cm = ContactMap.from_structure(s, cutoff=cutoff)
         frames.append(
-            cm.contacts if interface == "all" else cm.interface(interface, tcr_regions=regions)
+            (cm.contacts if interface == "all" else cm.interface(interface, tcr_regions=regions))
+            .with_columns(pl.lit(s.pdb_id).alias("pdb.id"))
         )
     pl.concat(frames).write_csv(str(out))
     typer.echo(f"wrote {out}")
@@ -485,8 +503,7 @@ def score(
     pot = _load_potential(potential)
     cands = _read_candidates(candidates)
     frames = []
-    for _pid, s in iter_structures(structures, importer=parse_structure):
-        classify_chains(s, organism=organism)
+    for s in _iter_typed(structures, organism):
         cm = ContactMap.from_structure(s, cutoff=cutoff, peptide_internal=bool(intra_weight))
         if soft:
             from .mhc import annotate_mhc
