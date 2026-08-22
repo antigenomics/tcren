@@ -98,15 +98,21 @@ def _load_potential(spec: str | None) -> Potential:
 
 
 def _iter_typed(structures: Path, organism: str = "human"):
-    """Yield chain-typed structures, annotating a whole directory in one batch.
+    """Yield chain-typed structures, annotating a whole set in one batch.
 
     ``classify_chains`` per structure spawns one ``mmseqs easy-search`` per structure, each
     building a temporary database from a handful of query sequences; the process startup dominates
     and the cost is roughly an order of magnitude. :func:`~tcren.paper.iter_annotated_set` sends
-    every chain of every structure in a single call per organism, which is why the directory case
-    goes through it. A single file has nothing to batch and takes the direct path.
+    every chain of every structure in a single call per organism, which is why anything resolving
+    to more than one structure -- a directory, a glob, a manifest -- goes through it. A single
+    file has nothing to batch and takes the direct path.
     """
-    if Path(structures).is_dir():
+    from .structure import structure_paths
+    try:
+        many = len(structure_paths(structures)) > 1
+    except Exception:  # .tar.gz and anything structure_paths cannot enumerate
+        many = False
+    if many:
         from .paper.helpers import iter_annotated_set
         yield from iter_annotated_set(structures)
         return
