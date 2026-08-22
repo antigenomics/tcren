@@ -1,0 +1,58 @@
+{
+  "_comment": [
+    "Provenance manifest for every potential matrix shipped in this package.",
+    "tests/regression/test_shipped_potentials.py enforces it: a potential-shaped CSV in",
+    "this folder with no entry fails, and any entry with a `derive-potential` recipe must",
+    "reproduce its file bit-for-bit. Add an entry in the same commit that adds a matrix.",
+    "source: 'contact-maps' | 'structure-dir' -> reproducible by CLI and checked;",
+    "         'published'                      -> external table, existence checked only;",
+    "         'unknown'                        -> provenance not established, see status.",
+    "known_unresolved: historical files whose provenance cannot be recovered. The suite fails on any source='unknown' entry NOT listed here, so a new unprovenanced matrix cannot be added silently."
+  ],
+  "potentials": {
+    "classic": {
+      "file": "TCRen_potential.csv",
+      "description": "Nat Comput Sci 2022 derivation; the historical default loaded by tcren.potential.tcren().",
+      "source": "contact-maps",
+      "contacts": "tests/assets/oracle/data/contact_maps_PDB.csv",
+      "summary": "tests/assets/oracle/data/summary_PDB_structures.csv",
+      "flags": [
+        "--nonred"
+      ],
+      "variant": "classic",
+      "pseudocount": 1
+    },
+    "tcren2": {
+      "file": "TCRen2_potential.csv",
+      "description": "TCRen2: epitope-weighted derivation over the 374 Native2026 crystals, one epitope one vote.",
+      "source": "structure-dir",
+      "structure_dir": "Native2026",
+      "flags": [
+        "--epitope-weight"
+      ],
+      "variant": "classic",
+      "pseudocount": 1
+    },
+    "rederived_2026": {
+      "file": "TCRen_potential_rederived.csv",
+      "description": "Unpromoted 2026 candidate. Loaded by no code path; see docs/rederivation.md.",
+      "source": "unknown",
+      "status": "deprecated: provenance not established, no recipe reproduces it"
+    },
+    "mj1996": {
+      "file": "MJ1996_contact_energies.csv",
+      "description": "Miyazawa & Jernigan 1996 contact energies, used on the presentation interfaces.",
+      "source": "published",
+      "reference": "Miyazawa S, Jernigan RL. J Mol Biol 1996;256:623-644."
+    },
+    "mj_keskin": {
+      "file": "MJ_Keskin_potentials.csv",
+      "description": "Keskin et al. residue contact potentials.",
+      "source": "published",
+      "reference": "Keskin O, et al. Protein Sci 1998;7:2578-2586."
+    }
+  },
+  "known_unresolved": [
+    "rederived_2026"
+  ]
+}

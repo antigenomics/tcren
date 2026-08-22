@@ -116,6 +116,33 @@ def cluster_weights(
     return {ids[i]: 1.0 / sizes[cl[i]] for i in range(len(ids))}
 
 
+def epitope_weights(markup: pl.DataFrame, field: str = "peptide") -> dict[str, float]:
+    """One-epitope-one-vote weight for each ``pdb.id``.
+
+    Every structure carrying a given peptide gets weight ``1 / n``, where ``n`` is the
+    number of structures in the set with that peptide, so each distinct epitope
+    contributes a total weight of ``1`` to the derivation however often it was
+    crystallized. A peptide seen once gets weight ``1.0``. Feed the result to
+    :func:`tcren.potential.derive.derive_tcren`'s ``weights`` argument.
+
+    This is the weighting the TCRen2 derivation uses. It is orthogonal to
+    :func:`cluster_weights`, which down-weights *receptor* redundancy rather than
+    epitope redundancy; the two mappings can be multiplied per ``pdb.id``.
+
+    Args:
+        markup: Per-structure table with ``pdb.id`` and ``field`` columns.
+        field: Column holding the peptide sequence.
+
+    Returns:
+        Mapping ``{pdb.id: 1 / n_structures_sharing_that_peptide}``.
+    """
+    rows = markup.select("pdb.id", field).drop_nulls().rows()
+    counts: dict[str, int] = {}
+    for _, pep in rows:
+        counts[pep] = counts.get(pep, 0) + 1
+    return {pid: 1.0 / counts[pep] for pid, pep in rows}
+
+
 def alphabeta_ids(contacts: pl.DataFrame) -> list[str]:
     """``pdb.id`` of complexes whose receptor contacts are exclusively TRA/TRB (αβ TCRs).
 

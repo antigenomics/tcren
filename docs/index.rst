@@ -60,6 +60,7 @@ What tcren does
 
    getting-started
    oracle
+   potentials
    features
    gallery
    kit

@@ -278,6 +278,11 @@ def derive_potential(
     ),
     variant: str = typer.Option("classic", "--variant", help="classic|am"),
     pseudocount: int = typer.Option(1, "--pseudocount"),
+    epitope_weight: bool = typer.Option(
+        False, "--epitope-weight",
+        help="weight each structure by 1/(structures sharing its peptide), so every "
+             "distinct epitope contributes equally (requires --structure-dir)",
+    ),
     loo: bool = typer.Option(False, "--loo", help="emit leave-one-out potentials instead"),
 ) -> None:
     """Derive a TCRen potential from observed contacts.
@@ -309,11 +314,19 @@ def derive_potential(
         ab = alphabeta_ids(contacts)
         include = nonredundant_ids(markup.filter(pl.col("pdb.id").is_in(ab)), t=redundancy_t)
 
+    weights = None
+    if epitope_weight:
+        from .potential import epitope_weights
+        if markup is None:
+            raise typer.BadParameter("--epitope-weight requires markup (use --structure-dir)")
+        weights = epitope_weights(markup)
+
     if loo:
         ids = include or contacts["pdb.id"].unique().to_list()
         derive_tcren_loo(contacts, ids, variant=variant, pseudocount=pseudocount).write_csv(str(out))
     else:
-        pot = derive_tcren(contacts, include=include, variant=variant, pseudocount=pseudocount)
+        pot = derive_tcren(contacts, include=include, variant=variant,
+                           pseudocount=pseudocount, weights=weights)
         pot.to_csv(out)
     typer.echo(f"wrote {out}")
 
