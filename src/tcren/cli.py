@@ -268,21 +268,22 @@ def derive_potential(
     contact_maps: Path | None = typer.Option(None, "-i", "--contact-maps", help="contact-map CSV"),
     out: Path = typer.Option("TCRen_potential.csv", "-o", "--out"),
     summary: Path | None = typer.Option(None, "--summary", help="summary CSV with a nonred flag"),
-    nonred: bool = typer.Option(False, "--nonred", help="restrict to non-redundant structures"),
+    nonred: bool = typer.Option(False, "--nonred", help="NOT USED FOR TCRen2. restrict to non-redundant structures"),
     structure_dir: Path | None = typer.Option(
         None, "--structure-dir",
         help="folder of PDBs to assemble contacts from (PDBs→contacts) when no -i CSV is given",
     ),
     redundancy_t: float | None = typer.Option(
         None, "--redundancy-t",
-        help="non-redundancy clustering cutoff over αβ structures (off by default; "
+        help="NOT USED FOR TCRen2. non-redundancy clustering cutoff over αβ structures (off by default; "
              "requires markup, available with --structure-dir)",
     ),
     variant: str = typer.Option("classic", "--variant", help="classic|am"),
     pseudocount: int = typer.Option(1, "--pseudocount"),
     smooth_beta: float = typer.Option(
         0.0, "--smooth-beta",
-        help="BLOSUM62 substitution pseudocounts: a cell holding this many observations is pulled "
+        help="NOT USED FOR TCRen2 (under evaluation). BLOSUM62 substitution pseudocounts: a cell "
+             "holding this many observations is pulled "
              "halfway to the prior its chemically similar cells imply (0 = off). Tune on an "
              "endpoint, never on split-half agreement -- see docs/potentials.rst",
     ),
@@ -293,7 +294,7 @@ def derive_potential(
              "re-solved complex counts once while a novel receptor on a common epitope "
              "still counts (requires --structure-dir)",
     ),
-    loo: bool = typer.Option(False, "--loo", help="emit leave-one-out potentials instead"),
+    loo: bool = typer.Option(False, "--loo", help="NOT USED FOR TCRen2. emit leave-one-out potentials instead"),
 ) -> None:
     """Derive a TCRen potential from observed contacts.
 
@@ -369,6 +370,11 @@ def derive_dfire(
     rc: float = typer.Option(14.5, "--rc", help="radial cutoff of the reference state (A)"),
 ) -> None:
     """Derive DFIRE reference-state corrections for a contact potential.
+
+    NOT part of the TCRen2 derivation. The shipped matrix comes from ``derive-potential
+    --structure-dir Native2026 --balance both``; this is an independent reference state, measured
+    against it. Which interface the corrections are estimated on decides their sign -- transferred
+    from peptide:MHC they improve CPL peptide ranking, pooled over all interfaces they harm it.
 
     A plain contact count throws away how far apart two residues sit and how they are turned
     relative to each other. This recovers both from the same coordinates: the finite-size

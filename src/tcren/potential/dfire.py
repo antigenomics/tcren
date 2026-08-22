@@ -58,6 +58,7 @@ from scipy.spatial import cKDTree
 
 from ..structure.model import Structure
 from .model import AA20, Potential
+from .._provenance import not_in_tcren2
 
 #: Finite-size radial exponent of the DFIRE reference state (Zhou & Zhou 2002).
 ALPHA = 1.61
@@ -103,6 +104,7 @@ class DfireDecomposition:
         return Potential(name="DFIRE2", matrix=long, alphabet=AA20)
 
 
+@not_in_tcren2('As pair_geometry.')
 def geometry_set(struct_dir, rc: float = RC, on_error: str = "skip") -> tuple[pl.DataFrame, int]:
     """Stack :func:`pair_geometry` over a folder of structures.
 
@@ -128,6 +130,7 @@ def geometry_set(struct_dir, rc: float = RC, on_error: str = "skip") -> tuple[pl
     return (pl.concat(frames) if frames else pl.DataFrame()), n
 
 
+@not_in_tcren2('DFIRE reference states are an independent line of work, evaluated against TCRen2 rather than folded into it.')
 def pair_geometry(structure: Structure, rc: float = RC) -> pl.DataFrame:
     """Distance and mutual orientation of every inter-chain residue pair within ``rc``.
 
@@ -250,6 +253,7 @@ _SCOPES = {
 }
 
 
+@not_in_tcren2('As corrections.')
 def select_scope(geom: pl.DataFrame, scope: str = "all") -> pl.DataFrame:
     """Restrict a :func:`pair_geometry` table to one interface, orienting each pair.
 
@@ -272,6 +276,7 @@ def select_scope(geom: pl.DataFrame, scope: str = "all") -> pl.DataFrame:
     return pl.concat([geom.filter(fwd), swapped])
 
 
+@not_in_tcren2('As pair_geometry.')
 def radial_potential(
     geom: pl.DataFrame, rc: float = RC, dr: float = DR, pseudocount: float = 1.0
 ) -> pl.DataFrame:
@@ -382,6 +387,7 @@ def _rotation_term(
     )
 
 
+@not_in_tcren2('The distance and rotation corrections are measured against TCRen2, not applied to the shipped matrix. Which interface they are estimated on decides their sign: transferred from peptide:MHC they improve CPL, pooled over all interfaces they harm it.')
 def corrections(
     geom: pl.DataFrame, scope: str = "all", n_structures: int = 0, rc: float = RC,
     min_oriented: int = MIN_ORIENTED,
@@ -448,6 +454,7 @@ def corrections(
     return DfireDecomposition(table=table, radial=radial, scope=scope, n_structures=n_structures)
 
 
+@not_in_tcren2('As corrections.')
 def apply_corrections(
     potential: Potential, decomposition: DfireDecomposition,
     terms: tuple[str, ...] = ("dist", "rot"), name: str | None = None,

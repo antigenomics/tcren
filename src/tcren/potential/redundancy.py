@@ -19,6 +19,7 @@ import numpy as np
 import polars as pl
 from scipy.cluster.hierarchy import fcluster, linkage
 from scipy.spatial.distance import squareform
+from .._provenance import not_in_tcren2
 
 
 def _cluster(
@@ -53,6 +54,7 @@ def _cluster(
     return ids, cl
 
 
+@not_in_tcren2("Excludes cluster members outright. TCRen2 down-weights instead, which keeps every structure's data.")
 def nonredundant_ids(
     markup: pl.DataFrame,
     t: float | None = 6.0,
@@ -85,6 +87,7 @@ def nonredundant_ids(
     return [ids[i] for i in range(len(ids)) if not (cl[i] in seen or seen.add(cl[i]))]
 
 
+@not_in_tcren2('Down-weights by sequence-distance clusters rather than exact identity. Needs a threshold, and conflates the epitope and receptor axes that --balance separates.')
 def cluster_weights(
     markup: pl.DataFrame,
     t: float = 6.0,
@@ -168,6 +171,7 @@ def balanced_weights(
     }
 
 
+@not_in_tcren2("TCRen2 balances the epitope AND receptor axes; this single-axis alias is what the manuscript's earlier matrix used. Receptor redundancy is the larger of the two on Native2026 (223 structures share a receptor against 212 an epitope).")
 def epitope_weights(markup: pl.DataFrame, field: str = "peptide") -> dict[str, float]:
     """One-epitope-one-vote weight for each ``pdb.id``.
 

@@ -57,6 +57,7 @@ import numpy as np
 import polars as pl
 
 from .model import AA20
+from .._provenance import not_in_tcren2
 
 #: Default pseudocount weight. A cell is pulled halfway to its substitution prior at this many
 #: observations, so it is the count below which a cell is treated as under-observed.
@@ -71,6 +72,7 @@ def _scores(name: str) -> np.ndarray:
     return np.array([[float(mat[a, b]) for b in AA20] for a in AA20])
 
 
+@not_in_tcren2('Substitution-matrix pseudocounts are under evaluation against TCRen2, not part of it. See docs/potentials.rst for the measurements.')
 def blosum_background(name: str = "BLOSUM62") -> np.ndarray:
     """The background frequencies implied by a substitution matrix's own scores.
 
@@ -102,6 +104,7 @@ def blosum_background(name: str = "BLOSUM62") -> np.ndarray:
     return p / p.sum()
 
 
+@not_in_tcren2('As blosum_background.')
 def blosum_conditional(name: str = "BLOSUM62") -> np.ndarray:
     """``P(a | a')`` over :data:`~tcren.potential.model.AA20`, from a substitution matrix.
 
@@ -125,6 +128,7 @@ def blosum_conditional(name: str = "BLOSUM62") -> np.ndarray:
     return q / q.sum(axis=0, keepdims=True)
 
 
+@not_in_tcren2('As blosum_background.')
 def smooth_counts(
     counts: pl.DataFrame,
     beta: float = DEFAULT_BETA,
@@ -174,6 +178,94 @@ def smooth_counts(
         out = (n * f + beta * g) / (n + beta)
         out *= total / out.sum()  # cosmetic: the log-odds downstream is scale-invariant
 
+    return grid.with_columns(
+        pl.Series(count_col, [out[idx[a], idx[b]] for a, b in
+                              zip(grid["residue.aa.from"], grid["residue.aa.to"])])
+    )
+
+
+@not_in_tcren2('As blosum_background.')
+def impute_thin_cells(
+    counts: pl.DataFrame,
+    min_count: int = 10,
+    donors: int = 1,
+    matrix: str = "BLOSUM62",
+    count_col: str = "count",
+) -> pl.DataFrame:
+    """Rebuild under-observed cells from their nearest substitutable neighbours.
+
+    The alternative to :func:`smooth_counts`, and a sharper instrument. Smoothing moves *every*
+    cell toward a prior averaged over all 400, weighted by substitutability; this leaves
+    well-observed cells exactly where they are and rebuilds only the thin ones, each from the
+    single closest cell that has enough data. Nothing is blended into a cell that did not need it.
+
+    What transfers is the donor's **enrichment**, not its count. With row and column marginals
+    :math:`N_{a\\cdot}, N_{\\cdot b}` and grand total :math:`N`, the independence expectation for a
+    cell is :math:`E_{ab} = N_{a\\cdot} N_{\\cdot b} / N` and its enrichment is
+    :math:`\\rho_{ab} = n_{ab} / E_{ab}`. A thin cell takes the donor's :math:`\\rho` and keeps its
+    own :math:`E`, so the imputed count is :math:`\\rho_{a'b'} E_{ab}`. Enrichment is what the
+    log-odds :math:`-\\ln \\rho_{ab}` reads, so this is a statement about the energy and not about
+    how often the residue pair happens to occur.
+
+    Donors are ranked by :math:`s(a, a') + s(b, b')` in the substitution matrix over the cells
+    holding at least ``min_count`` observations, and a cell is never its own donor. On the
+    reference crystals this **subsumes the thin-row case**: cysteine on the TCR side carries 4
+    contacts in total, so all 20 of its cells are thin and each is rebuilt from its own best
+    partner rather than the whole row being copied from one neighbouring residue.
+
+    Args:
+        counts: Long table with ``residue.aa.from``, ``residue.aa.to`` and ``count_col``. Cells
+            absent are zero, and zero is thin.
+        min_count: Observations a cell needs to be left alone, and to be eligible as a donor.
+            ``0`` disables imputation.
+        donors: How many nearest donors to average the enrichment over. ``1`` is the nearest
+            neighbour outright.
+        matrix: Substitution matrix behind the neighbour ranking.
+        count_col: Name of the count column.
+
+    Returns:
+        The same schema over the full 20x20 grid, rescaled to the input's grand total. As in
+        :func:`smooth_counts` the rescaling is cosmetic.
+
+    Raises:
+        ValueError: if ``donors`` is not positive, or no cell clears ``min_count``.
+
+    Example:
+        >>> import polars as pl
+        >>> c = pl.DataFrame({"residue.aa.from": ["I", "L", "C"], "residue.aa.to": ["F", "F", "F"],
+        ...                   "count": [40.0, 60.0, 1.0]})
+        >>> out = impute_thin_cells(c, min_count=10)
+        >>> bool(out["count"].sum() > 0) and out.height == 400
+        True
+    """
+    if donors < 1:
+        raise ValueError(f"donors must be positive, got {donors}")
+    idx = {a: i for i, a in enumerate(AA20)}
+    n = np.zeros((20, 20))
+    for a, b, c in counts.select("residue.aa.from", "residue.aa.to", count_col).iter_rows():
+        if a in idx and b in idx:
+            n[idx[a], idx[b]] += float(c)
+
+    total = n.sum()
+    out = n
+    if total > 0 and min_count > 0:
+        rows, cols = n.sum(axis=1), n.sum(axis=0)
+        expected = np.outer(rows, cols) / total
+        with np.errstate(divide="ignore", invalid="ignore"):
+            rho = np.where(expected > 0, n / expected, 0.0)
+        fat = n >= min_count
+        if not fat.any():
+            raise ValueError(f"no cell holds {min_count} observations; nothing can donate")
+        s = _scores(matrix)
+        fi, fj = np.nonzero(fat)
+        out = n.copy()
+        for i, j in zip(*np.nonzero(~fat)):
+            near = np.argsort(-(s[i, fi] + s[j, fj]))[:donors]
+            out[i, j] = float(np.mean(rho[fi[near], fj[near]])) * expected[i, j]
+        out *= total / out.sum()
+
+    grid = pl.DataFrame([(a, b) for a in AA20 for b in AA20],
+                        schema=["residue.aa.from", "residue.aa.to"], orient="row")
     return grid.with_columns(
         pl.Series(count_col, [out[idx[a], idx[b]] for a, b in
                               zip(grid["residue.aa.from"], grid["residue.aa.to"])])

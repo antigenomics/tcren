@@ -16,6 +16,7 @@ from pathlib import Path
 
 import numpy as np
 import polars as pl
+from .._provenance import not_in_tcren2
 
 #: 20 standard amino acids (one-letter), TCRen ordering used in the paper.
 AA20: tuple[str, ...] = (
@@ -328,6 +329,7 @@ def _bundled(filename: str) -> Path:
 
 
 @lru_cache(maxsize=None)
+@not_in_tcren2('The 2022 matrix, kept as the historical default of this loader. TCRen2 is tcren.potential.tcren2(); the two correlate at r = 0.875 with max |d| 0.846 and are not interchangeable.')
 def tcren() -> Potential:
     """Load the bundled classic TCRen potential (cached; treat as read-only)."""
     return Potential.from_csv(_bundled("TCRen_potential.csv"), name="TCRen")
@@ -346,6 +348,7 @@ def tcren2() -> Potential:
 
 
 @lru_cache(maxsize=None)
+@not_in_tcren2('A physics-reference baseline TCRen2 is compared against, not a component of it.')
 def dfire2() -> Potential:
     """Load the bundled residue-level DFIRE2 potential (cached; treat as read-only).
 
@@ -357,6 +360,7 @@ def dfire2() -> Potential:
 
 
 @lru_cache(maxsize=None)
+@not_in_tcren2('A DFIRE-corrected variant under evaluation, not the shipped TCRen2.')
 def tcren2_dfire() -> Potential:
     """Load the bundled DFIRE-corrected TCRen2 potential (cached; treat as read-only).
 

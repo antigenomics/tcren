@@ -13,6 +13,7 @@ from itertools import product
 import polars as pl
 
 from .model import AA20, AA21, Potential
+from .._provenance import not_in_tcren2
 
 # Classic derivation enumerates the 20 standard amino acids (Cys included in the
 # grid; dropped from the *from* axis only after the log-odds are computed) — the
@@ -80,6 +81,8 @@ def derive_tcren(
     symmetric: bool = False,
     smooth_beta: float = 0.0,
     smooth_matrix: str = "BLOSUM62",
+    impute_min_count: int = 0,
+    impute_donors: int = 1,
 ) -> Potential:
     """Derive a TCRen potential from a table of residue contacts.
 
@@ -121,7 +124,13 @@ def derive_tcren(
             aimed at the rare residues -- tryptophan, cysteine, methionine -- whose cells are
             otherwise set by the flat pseudocount. ``0.0`` (default) is off and byte-identical to
             the unsmoothed derivation.
-        smooth_matrix: Substitution matrix behind that prior.
+        smooth_matrix: Substitution matrix behind that prior, and behind the imputation.
+        impute_min_count: Rebuild cells holding fewer than this many observations from their
+            nearest substitutable neighbours
+            (:func:`tcren.potential.smoothing.impute_thin_cells`), leaving every other cell
+            untouched. ``0`` disables it. Applied after ``smooth_beta`` when both are given, so
+            the imputation sees the smoothed counts. NOT USED FOR TCRen2.
+        impute_donors: How many nearest donor cells that imputation averages over.
 
     Returns:
         The derived :class:`Potential`. For ``"am"`` the long matrix additionally
@@ -165,11 +174,15 @@ def derive_tcren(
         # total doubles alongside them.
         counts = symmetrize_counts(counts)
         n_contacts = n_contacts * 2
-    if smooth_beta:
+    if smooth_beta or impute_min_count:
         if variant != "classic":
-            raise ValueError("smooth_beta is defined over the 20 standard residues (variant='classic')")
-        from .smoothing import smooth_counts
-        counts = smooth_counts(counts, beta=smooth_beta, matrix=smooth_matrix)
+            raise ValueError("smoothing is defined over the 20 standard residues (variant='classic')")
+        from .smoothing import impute_thin_cells, smooth_counts
+        if smooth_beta:
+            counts = smooth_counts(counts, beta=smooth_beta, matrix=smooth_matrix)
+        if impute_min_count:
+            counts = impute_thin_cells(counts, min_count=impute_min_count,
+                                       donors=impute_donors, matrix=smooth_matrix)
     if variant == "am":
         # The gap/gap cell is seeded with the total number of contacts, mirroring the
         # rbind(tibble("-","-", count = nrow(res))) line in tcren_am.Rmd.
@@ -221,6 +234,7 @@ def derive_tcren(
     return Potential(name="TCRen", matrix=long, alphabet=out_alphabet)
 
 
+@not_in_tcren2('Leave-one-out derivation, for testing how much any single structure moves the matrix. Diagnostic, not a production path.')
 def derive_tcren_loo(
     contacts: pl.DataFrame,
     pdb_ids: list[str],
