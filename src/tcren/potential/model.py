@@ -347,26 +347,6 @@ def tcren2() -> Potential:
     return Potential.from_csv(_bundled("TCRen2_potential.csv"), name="TCRen2")
 
 
-@lru_cache(maxsize=None)
-@not_in_tcren2('A physics-reference baseline TCRen2 is compared against, not a component of it.')
-def dfire2() -> Potential:
-    """Load the bundled residue-level DFIRE2 potential (cached; treat as read-only).
-
-    ``E0 + C_rot`` of :mod:`tcren.potential.dfire`, derived over every inter-chain residue
-    pair of the 374 ``Native2026`` crystals: a physics-reference contact energy, in contrast
-    to TCRen's selection-reference log-odds.
-    """
-    return Potential.from_csv(_bundled("DFIRE2_potential.csv"), name="DFIRE2")
-
-
-@lru_cache(maxsize=None)
-@not_in_tcren2('A DFIRE-corrected variant under evaluation, not the shipped TCRen2.')
-def tcren2_dfire() -> Potential:
-    """Load the bundled DFIRE-corrected TCRen2 potential (cached; treat as read-only).
-
-    TCRen2 plus the distance and rotation corrections of :func:`tcren.potential.dfire.corrections`.
-    """
-    return Potential.from_csv(_bundled("TCRen2_dfire_potential.csv"), name="TCRen2+dfire")
 
 
 @lru_cache(maxsize=None)

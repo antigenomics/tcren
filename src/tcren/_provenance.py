@@ -1,10 +1,9 @@
 """Marking what is, and is not, part of the shipped TCRen2 derivation.
 
 The package accumulated alternatives faster than it used them: three redundancy-weighting schemes,
-a leave-one-out derivation, DFIRE reference states, substitution-matrix pseudocounts, a
-side-chain-participation contact annotation. Exactly one combination produces the matrix the paper
-reports, and a reader of the source cannot tell which. That is how three mutually inconsistent
-potentials came to be in circulation at once.
+a leave-one-out derivation, a second matrix from 2022. Exactly one combination produces the matrix
+the paper reports, and a reader of the source cannot tell which. That is how three mutually
+inconsistent potentials came to be in circulation at once.
 
 :func:`not_in_tcren2` marks the rest. It is not ``@deprecated`` -- most of these are correct,
 tested and worth keeping, and some were measured and rejected, which is a result rather than a

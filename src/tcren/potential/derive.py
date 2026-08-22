@@ -79,10 +79,6 @@ def derive_tcren(
     weights: dict[str, float] | None = None,
     weight_col: str | None = None,
     symmetric: bool = False,
-    smooth_beta: float = 0.0,
-    smooth_matrix: str = "BLOSUM62",
-    impute_min_count: int = 0,
-    impute_donors: int = 1,
 ) -> Potential:
     """Derive a TCRen potential from a table of residue contacts.
 
@@ -131,6 +127,11 @@ def derive_tcren(
             untouched. ``0`` disables it. Applied after ``smooth_beta`` when both are given, so
             the imputation sees the smoothed counts. NOT USED FOR TCRen2.
         impute_donors: How many nearest donor cells that imputation averages over.
+        prior: A ``(20, 20)`` array summing to 1 that redistributes the ``pseudocount`` mass over
+            the grid instead of spreading it uniformly -- see
+            :func:`tcren.potential.smoothing.composition_prior`. The total mass added is
+            unchanged, so ``pseudocount`` means the same thing either way. ``None`` keeps the flat
+            prior. NOT USED FOR TCRen2.
 
     Returns:
         The derived :class:`Potential`. For ``"am"`` the long matrix additionally
@@ -174,15 +175,6 @@ def derive_tcren(
         # total doubles alongside them.
         counts = symmetrize_counts(counts)
         n_contacts = n_contacts * 2
-    if smooth_beta or impute_min_count:
-        if variant != "classic":
-            raise ValueError("smoothing is defined over the 20 standard residues (variant='classic')")
-        from .smoothing import impute_thin_cells, smooth_counts
-        if smooth_beta:
-            counts = smooth_counts(counts, beta=smooth_beta, matrix=smooth_matrix)
-        if impute_min_count:
-            counts = impute_thin_cells(counts, min_count=impute_min_count,
-                                       donors=impute_donors, matrix=smooth_matrix)
     if variant == "am":
         # The gap/gap cell is seeded with the total number of contacts, mirroring the
         # rbind(tibble("-","-", count = nrow(res))) line in tcren_am.Rmd.

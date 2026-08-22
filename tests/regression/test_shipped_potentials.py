@@ -8,7 +8,6 @@ different flags, or an unrelated file is dropped into ``data/`` and nothing noti
 Entries whose ``source`` is ``structure-dir`` need the reference structures, which are
 fetched separately (``tcren fetch-data``); those skip when the folder is absent. An entry
 names its own CLI subcommand via ``command`` (default ``derive-potential``), because the
-DFIRE-derived matrices come out of ``derive-dfire``.
 """
 
 from __future__ import annotations

@@ -35,36 +35,6 @@
       "variant": "classic",
       "pseudocount": 1
     },
-    "dfire2": {
-      "file": "DFIRE2_potential.csv",
-      "description": "Residue-level DFIRE2 over every inter-chain residue pair of the 374 Native2026 crystals: the orientation-free DFIRE energy of a contact plus its orientational term (E0 + C_rot). A physics-reference contact energy, against TCRen's selection-reference log-odds.",
-      "source": "structure-dir",
-      "command": "derive-dfire",
-      "structure_dir": "Native2026",
-      "flags": [
-        "--scope",
-        "all",
-        "--emit",
-        "dfire2"
-      ]
-    },
-    "tcren2_dfire": {
-      "file": "TCRen2_dfire_potential.csv",
-      "description": "TCRen2 with the DFIRE distance and DFIRE2 rotation corrections added. The corrections are estimated on all inter-chain pairs, where the occupancies support them; TCRen2 itself is derived from the ~8,000 TCR:peptide contacts, where they would not be.",
-      "source": "structure-dir",
-      "command": "derive-dfire",
-      "structure_dir": "Native2026",
-      "flags": [
-        "--scope",
-        "all",
-        "--emit",
-        "corrected",
-        "--correct",
-        "tcren2",
-        "--terms",
-        "dist,rot"
-      ]
-    },
     "mj1996": {
       "file": "MJ1996_contact_energies.csv",
       "description": "Miyazawa & Jernigan 1996 contact energies, used on the presentation interfaces.",
