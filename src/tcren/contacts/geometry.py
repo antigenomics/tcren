@@ -12,6 +12,10 @@ from scipy.spatial import cKDTree
 
 from ..structure.model import Structure
 
+#: Main-chain heavy atoms. Everything else (CB onward) belongs to the side chain, which is what a
+#: residue's one-letter identity stands for -- and what a residue-level potential prices.
+BACKBONE_ATOMS = frozenset({"N", "CA", "C", "O", "OXT"})
+
 
 def _atom_arrays(structure: Structure):
     """Flatten the structure into per-atom coordinate and metadata arrays.
@@ -56,6 +60,7 @@ def all_atom_contacts(
     count_atoms: bool = False,
     scope: str = "inter",
     atom_pairs: bool = False,
+    sidechain: bool = False,
 ) -> pl.DataFrame:
     """Closest atom contact for each residue pair within ``cutoff`` Å.
 
@@ -78,6 +83,13 @@ def all_atom_contacts(
             sequence neighbours, which are in contact by covalent geometry rather than
             by folding — filter on sequence separation before interpreting them
             (:func:`peptide_internal_contacts` does this).
+        sidechain: When ``True`` add ``sc.from``, ``sc.to`` and ``n_sc_pairs``: whether each side
+            puts a **side-chain** heavy atom within ``cutoff`` of the other residue, and how many
+            of the residue pair's atom pairs are side-chain to side-chain. A 5 Å residue pair whose
+            only atoms in range are the two backbones is not an interaction between those two
+            residue *identities*, and a residue-level potential that prices it is charging for
+            chemistry that is not happening. The flags are computed over **all** atom pairs, so
+            they survive the collapse to the closest one.
         atom_pairs: When ``True`` return **every** heavy-atom pair within ``cutoff`` instead of
             collapsing each residue pair to its closest one. Chemical typing needs this: a salt
             bridge whose nearest atom pair happens to be Arg CG–Asp OD1 is invisible in the
@@ -105,6 +117,10 @@ def all_atom_contacts(
     }
     if count_atoms:
         schema["n_atom_contacts"] = pl.UInt32
+    if sidechain:
+        schema["sc.from"] = pl.Boolean
+        schema["sc.to"] = pl.Boolean
+        schema["n_sc_pairs"] = pl.UInt32
     if len(coords) == 0:
         return pl.DataFrame(schema=schema)
 
@@ -157,6 +173,16 @@ def all_atom_contacts(
     if count_atoms:
         # One row per atom-atom pair, so the group size is the heavy-atom-pair count.
         df = df.with_columns(pl.len().over(group_keys).alias("n_atom_contacts"))
+    if sidechain:
+        # Aggregated over the group before any collapse, so the flags describe the whole residue
+        # pair rather than whichever atom pair happens to be closest.
+        bb = list(BACKBONE_ATOMS)
+        scf, sct = ~pl.col("atom.from").is_in(bb), ~pl.col("atom.to").is_in(bb)
+        df = df.with_columns(
+            scf.any().over(group_keys).alias("sc.from"),
+            sct.any().over(group_keys).alias("sc.to"),
+            (scf & sct).sum().over(group_keys).cast(pl.UInt32).alias("n_sc_pairs"),
+        )
     if not atom_pairs:
         # Keep the closest atom pair per residue pair.
         df = df.sort("dist").group_by(group_keys, maintain_order=True).first()

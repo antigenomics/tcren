@@ -34,8 +34,19 @@ Shipped matrices
    * - ``tcren2``
      - ``TCRen2_potential.csv``
      - 380
-     - **TCRen2.** Epitope-weighted derivation over the 374 ``Native2026`` crystals, one
-       epitope one vote. This is the matrix the TCRen2 manuscript describes.
+     - **TCRen2.** Redundancy-balanced derivation over the 374 ``Native2026`` crystals,
+       weighting each structure on both the epitope and the receptor axis (``--balance
+       both``). This is the matrix the TCRen2 manuscript reports.
+   * - ``dfire2``
+     - ``DFIRE2_potential.csv``
+     - 400
+     - Residue-level DFIRE2 over every inter-chain residue pair of the 374 ``Native2026``
+       crystals. A *physics*-reference contact energy, against TCRen's selection-reference
+       log-odds, and so an independent baseline rather than a variant.
+   * - ``tcren2_dfire``
+     - ``TCRen2_dfire_potential.csv``
+     - 380
+     - TCRen2 with the DFIRE distance and DFIRE2 rotation corrections added.
    * - ``mj1996``
      - ``MJ1996_contact_energies.csv``
      - 400
@@ -47,8 +58,9 @@ Shipped matrices
      - 400
      - Keskin *et al.* residue contact potentials, published table.
 
-``classic`` and ``tcren2`` differ substantially — Pearson :math:`r` of about 0.83 over the
-380 shared cells, with a maximum absolute difference near 0.86 on a range of roughly 3.0.
+``classic`` and ``tcren2`` differ substantially — Pearson :math:`r` = 0.875 over the 380
+shared cells, with a maximum absolute difference of 0.846 on a TCRen2 range of 2.88
+(-1.14 to +1.74).
 They are not interchangeable, and a score computed under one cannot be compared with a
 score computed under the other.
 
@@ -74,12 +86,60 @@ Reproducing them
 
    $ tcren derive-potential \
        --structure-dir "$TCREN_DATA_DIR/Native2026" \
-       --epitope-weight \
+       --balance both \
        -o TCRen2_potential.csv
 
 The second command runs the whole pipeline — parse, annotate, contacts, derive — over all
 374 structures in roughly 20 seconds, so there is no reason to cache a derived matrix
 rather than rebuild it.
+
+DFIRE reference states
+----------------------
+
+A contact count discards two things the coordinates already hold: how far apart the two
+residues are, and how they are turned relative to each other. DFIRE (Zhou & Zhou 2002)
+supplies the radial reference for the first — in a *finite* globular system the number of
+pairs at separation :math:`r` grows as :math:`r^{1.61}`, not as the ideal-gas :math:`r^2` —
+and DFIRE2 (Yang & Zhou 2008) adds the orientation coordinate. ``tcren derive-dfire`` builds
+both from the same structures and returns, per amino-acid pair,
+
+``E0``
+    the orientation-free DFIRE energy of a contact, the direct analogue of one TCRen cell;
+``C_dist``
+    the change in TCRen's own log-odds when each contact is weighted by the DFIRE volume
+    element :math:`(r/r_c)^{-1.61}` rather than counted once;
+``C_rot``
+    :math:`-\mathrm{KL}(P(\cos\theta_a, \cos\theta_b \mid a, b) \,\|\, \mathrm{uniform})`,
+    the orientational free energy a contact-only count cannot see. It is :math:`\le 0` by
+    construction and its magnitude is the pair's orientational information in nats.
+
+``DFIRE2 = E0 + C_rot``, and the corrected TCRen is ``TCRen2 + C_dist + C_rot``.
+
+**Why the corrections transfer and the resolved potential does not.** A distance- and
+orientation-resolved 20×20 potential needs an occupancy per pair *per distance bin per
+orientation cell*. The 374 crystals hold about 8,000 TCR:peptide contacts, and on that
+interface alone the median amino-acid pair has **11** orientable contacts — so with a count
+floor set where the estimator is trustworthy, **not one of the 400 cells qualifies**. Pooled
+over every inter-chain pair of every interface the same floor admits 202 of 400. The
+corrections are one number per pair and are properties of packing geometry rather than of TCR
+biology, so they are estimated on the wide sample (``--scope all``, the default) and added to
+the sparse TCR:peptide derivation.
+
+.. code-block:: console
+
+   $ tcren derive-dfire --structure-dir "$TCREN_DATA_DIR/Native2026" \
+       --scope all --emit dfire2 -o DFIRE2_potential.csv
+
+   $ tcren derive-dfire --structure-dir "$TCREN_DATA_DIR/Native2026" \
+       --scope all --emit corrected --correct tcren2 --terms dist,rot \
+       -o TCRen2_dfire_potential.csv
+
+``--emit corrections`` writes the three columns themselves, and ``--emit radial`` the
+distance-resolved :math:`u(a, b, r)` behind them. Glycine has no Cα→Cβ direction, so its
+cells carry no rotation term; a pair with fewer than
+:data:`~tcren.potential.dfire.MIN_ORIENTED` orientable contacts is given zero rather than the
+value its Miller–Madow-corrected divergence would suggest, because at those counts the
+estimator's residual bias is the size of the effect.
 
 Weighting
 ---------
@@ -118,12 +178,6 @@ which is *less* than either agrees with the unweighted matrix.
 
 Both feed ``derive_tcren``'s ``weights`` argument, which multiplies each structure's
 contribution to the amino-acid pair counts.
-
-.. note::
-
-   ``TCRen2_potential.csv`` as shipped is balanced on the **epitope axis only**, which is
-   the derivation the TCRen2 manuscript describes. ``--balance both`` additionally removes
-   receptor redundancy and differs from it at max \\|Δ\\| 0.500 over the shared cells.
 
 Choosing one in code
 --------------------

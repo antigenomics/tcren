@@ -76,6 +76,7 @@ def derive_tcren(
     beta: float = 44.0,
     drop_cys: bool | None = None,
     weights: dict[str, float] | None = None,
+    weight_col: str | None = None,
     symmetric: bool = False,
 ) -> Potential:
     """Derive a TCRen potential from a table of residue contacts.
@@ -99,6 +100,12 @@ def derive_tcren(
             this down-weights redundancy while keeping all data (see
             :func:`tcren.potential.redundancy.cluster_weights`). ``None`` (default) is
             unweighted and byte-identical to the legacy derivation.
+        weight_col: Name of a **per-contact** weight column in ``contacts``, multiplied with the
+            per-structure ``weights``. This is how a contact is down-weighted rather than dropped:
+            excluding backbone-only pairs outright removes 46 % of the observations and empties 69
+            of 380 cells, whereas giving them a fractional vote keeps every cell populated. A
+            contact whose two residues are merely co-located, and will only sample an interacting
+            geometry some of the time, is exactly a fractional observation.
         symmetric: Fold the raw counts onto their transpose (:func:`symmetrize_counts`)
             before the log-odds, yielding a **symmetric** ``value[a,b] == value[b,a]``
             potential over an unordered amino-acid pair — the same convention as the
@@ -125,17 +132,18 @@ def derive_tcren(
     if symmetric:
         drop_cys = False  # dropping the "from" Cys row would break the symmetry we just built
 
-    if weights is None:
+    if weights is None and weight_col is None:
         # Unweighted: one row = one count (byte-identical to the legacy path).
         n_contacts = df.height
         counts = df.group_by("residue.aa.from", "residue.aa.to").agg(
             pl.len().alias("count")
         )
     else:
-        # Weighted: each row contributes its structure's weight (default 1.0).
-        w = df["pdb.id"].replace_strict(
-            weights, default=1.0, return_dtype=pl.Float64
-        )
+        # Weighted: each row contributes its structure's weight times its own (default 1.0 each).
+        w = (df["pdb.id"].replace_strict(weights, default=1.0, return_dtype=pl.Float64)
+             if weights is not None else pl.Series([1.0] * df.height))
+        if weight_col is not None:
+            w = w * df[weight_col].cast(pl.Float64)
         df = df.with_columns(w.alias("_w"))
         n_contacts = float(df["_w"].sum())
         counts = df.group_by("residue.aa.from", "residue.aa.to").agg(

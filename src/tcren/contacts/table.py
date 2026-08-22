@@ -65,13 +65,14 @@ def symmetrize(contacts: pl.DataFrame) -> pl.DataFrame:
             "atom.from": "atom.to",
             "atom.to": "atom.from",
         }
+        | ({"sc.from": "sc.to", "sc.to": "sc.from"} if "sc.from" in contacts.columns else {})
     ).select(contacts.columns)
     return pl.concat([contacts, swapped])
 
 
 def tidy_contacts(
     structure: Structure, cutoff: float = 5.0, count_atoms: bool = False,
-    atom_pairs: bool = False,
+    atom_pairs: bool = False, sidechain: bool = False,
 ) -> pl.DataFrame:
     """Symmetrised, fully annotated contact table for a structure.
 
@@ -84,10 +85,13 @@ def tidy_contacts(
     unchanged). Default ``False`` keeps the table byte-identical to the legacy output.
 
     ``atom_pairs`` passes through to :func:`~tcren.contacts.geometry.all_atom_contacts`: every
-    heavy-atom pair instead of each residue pair's closest one. Chemical typing needs it.
+    heavy-atom pair instead of each residue pair's closest one. Chemical typing needs it. So does
+    ``sidechain``, which adds the ``sc.from``/``sc.to``/``n_sc_pairs`` side-chain-participation
+    flags; the two ``sc`` flags are swapped along with the rest when the table is symmetrised.
     """
     contacts = symmetrize(
-        all_atom_contacts(structure, cutoff=cutoff, count_atoms=count_atoms, atom_pairs=atom_pairs)
+        all_atom_contacts(structure, cutoff=cutoff, count_atoms=count_atoms,
+                          atom_pairs=atom_pairs, sidechain=sidechain)
     )
     ann = residue_annotation(structure)
 

@@ -54,6 +54,7 @@ class ContactMap:
         count_atoms: bool = False,
         peptide_internal: bool = False,
         atom_pairs: bool = False,
+        sidechain: bool = False,
     ) -> "ContactMap":
         """Build a contact map from an (annotated) structure.
 
@@ -68,13 +69,19 @@ class ContactMap:
         :func:`tcren.score_peptides` and :func:`tcren.pipeline.run`) and are stored apart
         from ``contacts``, which is unaffected either way.
 
+        When ``sidechain`` is set, ``contacts`` carries ``sc.from``, ``sc.to`` and ``n_sc_pairs``:
+        which of the two residues put a side-chain heavy atom within the cutoff, and how many of
+        the pair's atom pairs are side chain to side chain. A pair whose only atoms in range are
+        the two backbones is not an interaction between those two residue identities.
+
         When ``atom_pairs`` is set, ``contacts`` holds every heavy-atom pair rather than each
         residue pair's closest one. Every interface selection works unchanged (it only filters
         and adds positions), so this is the map :mod:`tcren.contact_types` types from; energies
         must **not** be summed over it, since each residue pair then appears many times.
         """
         df = tidy_contacts(
-            structure, cutoff=cutoff, count_atoms=count_atoms, atom_pairs=atom_pairs
+            structure, cutoff=cutoff, count_atoms=count_atoms, atom_pairs=atom_pairs,
+            sidechain=sidechain,
         ).with_columns(pl.lit(structure.pdb_id).alias("pdb.id"))
         peptide_length = next(
             (len(c.residues) for c in structure.chains if c.chain_type == PEPTIDE_TYPE),

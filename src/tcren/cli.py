@@ -45,7 +45,8 @@ import typer
 from . import __version__
 from .annotation import classify_chains
 from .contactmap import TCR_REGIONS, ContactMap
-from .potential import Potential, derive_tcren, derive_tcren_loo, keskin, mj, tcren
+from .potential import (Potential, derive_tcren, derive_tcren_loo, dfire2, keskin, mj,
+                        tcren, tcren2, tcren2_dfire)
 from .scoring import score_peptides
 from .structure import iter_structures, parse_structure
 
@@ -78,7 +79,8 @@ def paper_bootstrap(
     for k, v in summary.items():
         typer.echo(f"{k}: {v}")
 
-_BUNDLED_POTENTIALS = {"tcren": tcren, "mj": mj, "keskin": keskin}
+_BUNDLED_POTENTIALS = {"tcren": tcren, "tcren2": tcren2, "dfire2": dfire2,
+                       "tcren2_dfire": tcren2_dfire, "mj": mj, "keskin": keskin}
 
 
 def _load_potential(spec: str | None) -> Potential:
@@ -335,6 +337,59 @@ def derive_potential(
         pot = derive_tcren(contacts, include=include, variant=variant,
                            pseudocount=pseudocount, weights=weights)
         pot.to_csv(out)
+    typer.echo(f"wrote {out}")
+
+
+@app.command("derive-dfire", rich_help_panel=_P_DATA)
+def derive_dfire(
+    structure_dir: Path = typer.Option(..., "--structure-dir", help="folder of PDB/mmCIF complexes"),
+    out: Path = typer.Option("dfire_corrections.csv", "-o", "--out"),
+    emit: str = typer.Option(
+        "corrections", "--emit",
+        help="corrections (E0/C_dist/C_rot per pair) | dfire2 (the DFIRE2 matrix) | "
+             "radial (the distance-resolved u(a,b,r)) | corrected (--correct plus the terms)",
+    ),
+    scope: str = typer.Option(
+        "all", "--scope",
+        help="which residue pairs to estimate on: all|tcr_peptide|tcr_mhc|peptide_mhc. "
+             "'all' pools every inter-chain pair, which is the widest sample and the reason "
+             "the corrections are estimable where a full resolved potential is not",
+    ),
+    correct: str = typer.Option(
+        None, "--correct",
+        help="potential to correct with --emit corrected: a bundled name or a CSV path",
+    ),
+    terms: str = typer.Option("dist,rot", "--terms", help="corrections to add: dist,rot"),
+    rc: float = typer.Option(14.5, "--rc", help="radial cutoff of the reference state (A)"),
+) -> None:
+    """Derive DFIRE reference-state corrections for a contact potential.
+
+    A plain contact count throws away how far apart two residues sit and how they are turned
+    relative to each other. This recovers both from the same coordinates: the finite-size
+    radial reference of DFIRE and the orientation coordinate of DFIRE2, as one correction
+    per amino-acid pair that can be added to a potential derived on far fewer contacts.
+    """
+    from .potential import apply_corrections, corrections as dfire_corrections, geometry_set
+
+    if emit not in ("corrections", "dfire2", "radial", "corrected"):
+        raise typer.BadParameter("--emit must be corrections|dfire2|radial|corrected")
+    if (emit == "corrected") != (correct is not None):
+        raise typer.BadParameter("--correct is required by, and only by, --emit corrected")
+
+    geom, n = geometry_set(structure_dir, rc=rc)
+    dec = dfire_corrections(geom, scope=scope, n_structures=n, rc=rc)
+    typer.echo(f"{n} structures, {geom.height} pairs, {dec.table['n_contacts'].sum()} contacts "
+               f"({dec.table['n_oriented'].sum()} orientable) in scope {scope!r}")
+
+    if emit == "corrections":
+        dec.table.write_csv(str(out))
+    elif emit == "radial":
+        dec.radial.write_csv(str(out))
+    elif emit == "dfire2":
+        dec.dfire2().to_csv(out)
+    else:
+        chosen = tuple(x.strip() for x in terms.split(",") if x.strip())
+        apply_corrections(_load_potential(correct), dec, terms=chosen).to_csv(out)
     typer.echo(f"wrote {out}")
 
 

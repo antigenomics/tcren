@@ -59,6 +59,48 @@ def contact_table(
     return out
 
 
+def iter_annotated_set(struct_dir: str | Path, on_error: str = "skip"):
+    """Parse and chain-type every structure in a folder, yielding annotated structures.
+
+    Annotation is **batched**: one arda call per organism covers every chain of every
+    structure, because the per-call process startup dominates and per-structure annotation
+    is an order of magnitude slower over a set the size of ``Native2026``. Global chain ids
+    (``"<struct_idx>|<chain_id>"``) keep chains distinct across structures, and the records
+    are sliced back per structure for ``classify_chains``.
+
+    Args:
+        struct_dir: Folder of PDB/mmCIF structures.
+        on_error: ``"skip"`` (default) drops a structure that fails to parse or annotate;
+            ``"raise"`` propagates.
+
+    Yields:
+        Chain-typed :class:`~tcren.structure.model.Structure` objects.
+    """
+    from ..annotation import classify_chains
+    from ..annotation.arda_adapter import _import_arda
+    from ..structure import parse_structure, structure_id_from_path, structure_paths
+
+    structures: list[Structure] = []
+    for path in structure_paths(Path(struct_dir)):
+        # id resolved from the filename (handles "<id>.pdb(.gz)" and "<id>_renumbered.cif").
+        try:
+            structures.append(parse_structure(path, pdb_id=structure_id_from_path(path)))
+        except Exception:
+            if on_error == "raise":
+                raise
+
+    records_by_struct = _batch_annotate(structures, _import_arda())
+    for idx, s in enumerate(structures):
+        try:
+            classify_chains(s, organism="human", autodetect_species=True,
+                            precomputed_records=records_by_struct[idx])
+        except Exception:
+            if on_error == "raise":
+                raise
+            continue
+        yield s
+
+
 def annotate_structure_set(
     struct_dir: str | Path, on_error: str = "skip", count_atoms: bool = False
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
@@ -75,33 +117,10 @@ def annotate_structure_set(
     When ``count_atoms`` is set, each contact row carries an ``n_atom_contacts``
     heavy-atom-pair count (needed for atomic-weighted scoring).
     """
-    from ..annotation import classify_chains
-    from ..annotation.arda_adapter import _import_arda
-    from ..structure import parse_structure, structure_id_from_path, structure_paths
-
-    struct_dir = Path(struct_dir)
-    paths = structure_paths(struct_dir)
-    structures: list[Structure] = []
-    for path in paths:
-        # id resolved from the filename (handles "<id>.pdb(.gz)" and "<id>_renumbered.cif").
-        pdb_id = structure_id_from_path(path)
-        try:
-            structures.append(parse_structure(path, pdb_id=pdb_id))
-        except Exception:
-            if on_error == "raise":
-                raise
-
-    # One arda call per organism over every chain of every structure. Global ids
-    # (``"<struct_idx>|<chain_id>"``) keep chains unique across structures; the records
-    # are sliced back per structure and fed to classify_chains (no per-chain mmseqs).
-    records_by_struct = _batch_annotate(structures, _import_arda())
-
     contacts, markup = [], []
-    for idx, s in enumerate(structures):
+    for s in iter_annotated_set(struct_dir, on_error=on_error):
         pdb_id = s.pdb_id
         try:
-            classify_chains(s, organism="human", autodetect_species=True,
-                            precomputed_records=records_by_struct[idx])
             ct = contact_table(s, count_atoms=count_atoms)
             if ct.height:
                 contacts.append(ct)

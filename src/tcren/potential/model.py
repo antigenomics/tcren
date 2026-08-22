@@ -334,6 +334,38 @@ def tcren() -> Potential:
 
 
 @lru_cache(maxsize=None)
+def tcren2() -> Potential:
+    """Load the bundled TCRen2 potential (cached; treat as read-only).
+
+    The redundancy-balanced derivation over the 374 ``Native2026`` crystals, and the matrix
+    the TCRen2 manuscript reports. It is **not** interchangeable with :func:`tcren`: the two
+    correlate at Pearson *r* = 0.875 with a maximum absolute difference of 0.846 over a range
+    of 2.88, so scores computed under one cannot be compared with scores under the other.
+    """
+    return Potential.from_csv(_bundled("TCRen2_potential.csv"), name="TCRen2")
+
+
+@lru_cache(maxsize=None)
+def dfire2() -> Potential:
+    """Load the bundled residue-level DFIRE2 potential (cached; treat as read-only).
+
+    ``E0 + C_rot`` of :mod:`tcren.potential.dfire`, derived over every inter-chain residue
+    pair of the 374 ``Native2026`` crystals: a physics-reference contact energy, in contrast
+    to TCRen's selection-reference log-odds.
+    """
+    return Potential.from_csv(_bundled("DFIRE2_potential.csv"), name="DFIRE2")
+
+
+@lru_cache(maxsize=None)
+def tcren2_dfire() -> Potential:
+    """Load the bundled DFIRE-corrected TCRen2 potential (cached; treat as read-only).
+
+    TCRen2 plus the distance and rotation corrections of :func:`tcren.potential.dfire.corrections`.
+    """
+    return Potential.from_csv(_bundled("TCRen2_dfire_potential.csv"), name="TCRen2+dfire")
+
+
+@lru_cache(maxsize=None)
 def mj() -> Potential:
     """Load the bundled Miyazawa–Jernigan potential (cached; treat as read-only).
 

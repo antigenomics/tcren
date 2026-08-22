@@ -6,8 +6,9 @@ different flags, or an unrelated file is dropped into ``data/`` and nothing noti
 ``src/tcren/data/potentials.json`` records the recipe; this module re-runs it.
 
 Entries whose ``source`` is ``structure-dir`` need the reference structures, which are
-fetched separately (``tcren fetch-data``); those are marked ``slow`` and skip when the
-folder is absent.
+fetched separately (``tcren fetch-data``); those skip when the folder is absent. An entry
+names its own CLI subcommand via ``command`` (default ``derive-potential``), because the
+DFIRE-derived matrices come out of ``derive-dfire``.
 """
 
 from __future__ import annotations
@@ -96,8 +97,11 @@ def test_recipe_reproduces_the_shipped_matrix(name, tmp_path):
     shipped = DATA / e["file"]
     out = tmp_path / "derived.csv"
 
-    cmd = [*_cli(), "derive-potential", "-o", str(out),
-           "--variant", e["variant"], "--pseudocount", str(e["pseudocount"]), *e["flags"]]
+    cmd = [*_cli(), e.get("command", "derive-potential"), "-o", str(out)]
+    for opt in ("variant", "pseudocount"):
+        if opt in e:
+            cmd += [f"--{opt}", str(e[opt])]
+    cmd += e["flags"]
 
     if e["source"] == "contact-maps":
         cmd += ["-i", str(REPO / e["contacts"])]

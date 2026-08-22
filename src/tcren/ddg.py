@@ -1,11 +1,26 @@
-"""Fast ΔΔG of peptide point mutations (virtual-matrix path).
+"""ΔΔG of peptide point mutations, virtually or on rebuilt coordinates.
 
-Implements the paper's fast ΔΔG: no atoms move and no re-docking is performed.
-A mutation's effect is read straight off the substitution potential by re-scoring
-the mutant sequence on the *same* contact map. ``ddg = E(native) - E(mutant)``, and
-lower energy is a more favourable interface throughout ``tcren``, so a **positive**
-value flags a **stabilising** mutation: the mutant scores below the native and binds
-better. A negative value is the destabilising one.
+``ddg = E(native) - E(mutant)``, and lower energy is a more favourable interface throughout
+``tcren``, so a **positive** value flags a **stabilising** mutation: the mutant scores below the
+native and binds better. A negative value is the destabilising one.
+
+Two ways to get ``E(mutant)``, and they are not the same measurement.
+
+**Virtual** (no ``structure`` argument) is the paper's fast path: no atoms move, and the mutant
+sequence is re-indexed against the potential over the *native* contact map. It is exact for the
+energy bookkeeping and wrong about geometry — a contact that exists only because a long arginine
+reaches across is still counted after that arginine is notionally an alanine, whose Cβ stops 4 Å
+short. On the 374 reference crystals only 54 % of 5 Å TCR:peptide residue pairs have both side
+chains in range at all, so this is not a rare corner.
+
+**Structural** (pass ``structure=``) rebuilds the mutant's coordinates with
+:func:`tcren.refine.substitute.substitute_peptide`, recomputes its contact map, and scores that.
+For an **alanine** target it is exact and needs no relaxation, because alanine's heavy atoms are
+exactly backbone + Cβ: truncating at Cβ *is* the alanine, and a position mutated from glycine gets
+an ideal-geometry Cβ built. Contacts the wild-type side chain alone was reaching then disappear, as
+they physically must. For any other target the substituted residue is left as a Cβ stub, so its
+reach is under-stated -- see :func:`tcren.refine.substitute.substitute_peptide` for what would
+have to be built.
 """
 
 from __future__ import annotations
@@ -17,6 +32,7 @@ import polars as pl
 from .contactmap import ContactMap, Interface
 from .potential import Potential
 from .scoring import score_peptides
+from .structure.model import Structure
 
 #: Interfaces whose contacts include the peptide. A peptide point mutation can only
 #: change the energy of an interface that the peptide is part of; for any other
@@ -45,6 +61,15 @@ def _score_one(
     return float(res["score"][0])
 
 
+def _mutant_map(structure: Structure, mutant: str, cutoff: float, sidechain: bool) -> ContactMap:
+    """The mutant's own contact map, from rebuilt coordinates."""
+    from .refine.substitute import substitute_peptide
+
+    return ContactMap.from_structure(
+        substitute_peptide(structure, mutant), cutoff=cutoff, sidechain=sidechain
+    )
+
+
 def ddg(
     contact_map: ContactMap,
     native: str,
@@ -54,6 +79,9 @@ def ddg(
     interface: Interface = "tcr_peptide",
     tcr_regions: str = "all",
     contact_weight: str = "residue",
+    structure: Structure | None = None,
+    cutoff: float = 5.0,
+    sidechain: bool = False,
 ) -> float:
     """ΔΔG of a peptide mutation as ``E(native) - E(mutant)``.
 
@@ -67,6 +95,13 @@ def ddg(
             ``score_peptides``).
         contact_weight: ``"residue"`` (default) or ``"atomic"``; passed through to
             ``score_peptides``.
+        structure: When given, the mutant is **built** — its side chains are replaced and its
+            contact map recomputed — rather than re-indexed on the native map. Exact for an
+            alanine target; a Cβ stub for anything longer (see the module docstring).
+        cutoff: Contact distance threshold for the rebuilt map (Å). Ignored when ``structure``
+            is ``None``, in which case ``contact_map``'s own cutoff applies.
+        sidechain: Passed to the rebuilt contact map, so a caller filtering on side-chain
+            participation filters the mutant by the *mutant's* reach and not the native's.
 
     Returns:
         ``E(native) - E(mutant)``; positive means the mutant has the LOWER energy, i.e. the
@@ -79,8 +114,10 @@ def ddg(
     e_native = _score_one(
         contact_map, native, potential, interface, tcr_regions, contact_weight
     )
+    mutant_map = (contact_map if structure is None
+                  else _mutant_map(structure, mutant, cutoff, sidechain))
     e_mutant = _score_one(
-        contact_map, mutant, potential, interface, tcr_regions, contact_weight
+        mutant_map, mutant, potential, interface, tcr_regions, contact_weight
     )
     return e_native - e_mutant
 
@@ -93,11 +130,19 @@ def alanine_scan(
     interface: Interface = "tcr_peptide",
     tcr_regions: str = "all",
     contact_weight: str = "residue",
+    structure: Structure | None = None,
+    cutoff: float = 5.0,
+    sidechain: bool = False,
 ) -> pl.DataFrame:
     """Alanine scan of the native peptide.
 
     Mutates each position of ``native`` to alanine in turn and reports the ΔΔG of
     that single substitution. One row per peptide position.
+
+    With ``structure`` the mutant at each position is **built** and its contact map recomputed, so
+    a position whose side chain was the only thing reaching the TCR loses those contacts, as it
+    physically must. This is the case the structural path gets exactly right (see the module
+    docstring), and it costs one contact-map rebuild per position.
 
     Args:
         contact_map: The structure's contact map.
@@ -107,6 +152,9 @@ def alanine_scan(
         tcr_regions: Which TCR regions to keep on the TCR side.
         contact_weight: ``"residue"`` (default) or ``"atomic"``; passed through to
             ``score_peptides``.
+        structure: Build each alanine mutant and rescore it on its own contact map.
+        cutoff: Contact threshold for the rebuilt maps (Å).
+        sidechain: Passed to the rebuilt maps.
 
     Returns:
         Columns ``pos`` (0-based), ``wt_aa`` (native residue at that position) and
@@ -124,8 +172,10 @@ def alanine_scan(
     for pos, wt in enumerate(native):
         if peptide_iface:
             mutant = native[:pos] + "A" + native[pos + 1 :]
+            mutant_map = (contact_map if structure is None
+                          else _mutant_map(structure, mutant, cutoff, sidechain))
             e_mut = _score_one(
-                contact_map, mutant, potential, interface, tcr_regions, contact_weight
+                mutant_map, mutant, potential, interface, tcr_regions, contact_weight
             )
             ddg_val = e_native - e_mut
         else:
@@ -173,6 +223,9 @@ def reference_delta(
     reference_aa: str = "A",
     tcr_regions: str = "all",
     contact_weight: str = "residue",
+    structure: Structure | None = None,
+    cutoff: float = 5.0,
+    sidechain: bool = False,
 ) -> float:
     """Poly-alanine reference difference ΔΦ = Φ(peptide) − Φ(reference) on this contact map.
 
@@ -200,6 +253,16 @@ def reference_delta(
         reference_aa: The amino acid the reference peptide is made of (default alanine).
         tcr_regions: Which TCR regions to keep on the TCR side.
         contact_weight: ``"residue"`` (default) or ``"atomic"``.
+        structure: **Build** the reference peptide and score it on its own contact map instead of
+            re-indexing it on the candidate's. This changes what ΔΦ means. Virtually, the poly-Ala
+            baseline is charged for every contact the real side chains make, so ΔΦ measures only
+            the substitution of identities on a fixed contact set. Structurally, the baseline is
+            what the *backbone plus Cβ* alone can reach, so ΔΦ measures what the side chains
+            contribute at all -- which is what the poly-alanine reference is meant to mean, and on
+            1ao7 is the difference between 29 TCR:peptide contacts and 14.
+        cutoff: Contact threshold for the rebuilt reference map (Å).
+        sidechain: Passed to the rebuilt reference map, so a side-chain-filtered score filters the
+            reference by the reference's own reach.
 
     Returns:
         ΔΦ = Φ(peptide) − Φ(reference); more negative = the sequence adds more favourable contacts than
@@ -207,4 +270,5 @@ def reference_delta(
     """
     reference = reference_aa * len(peptide)
     return ddg(contact_map, peptide, reference, potential,
-               interface=interface, tcr_regions=tcr_regions, contact_weight=contact_weight)
+               interface=interface, tcr_regions=tcr_regions, contact_weight=contact_weight,
+               structure=structure, cutoff=cutoff, sidechain=sidechain)
