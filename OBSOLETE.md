@@ -38,7 +38,15 @@ and the markings disagree.
 | Substitution pseudocounts | `potential/smoothing.py`, the `--smooth-beta` CLI option | under evaluation — see below |
 | The 2022 matrix | `potential.tcren()` and `data/TCRen_potential.csv` | published results predating TCRen2 |
 
-`potential/smoothing.py` is the one entry not to delete on sight: BLOSUM62 pseudocounts at
-β ≈ 20–50 improve every CPL read-out (mean per-clone AUC ΔΦ 0.858 → 0.907 combined with the 6 Å
-cutoff, Spearman against graded activation 0.532 → 0.579, 7 clones and 2,103 models). If that
-survives the kinetics and TCRvdb endpoints it moves into the recipe rather than out of the package.
+`potential/smoothing.py` is the one entry not to delete wholesale. Its two schemes measured
+differently on the best-powered endpoint available (TCRvdb receptor ranking against DESeq2 log fold
+change, clean cohort YLQPRTFLL, n = 423 poses, paired bootstrap over 5,000 resamples):
+
+| | Delta Spearman vs the 6 A matrix | P(Delta > 0) |
+|---|---|---|
+| `smooth_counts`, beta = 20 | -0.009 [-0.049, +0.032] | 0.35 |
+| `impute_thin_cells`, min_count = 10 | **+0.063 [+0.022, +0.109]** | **0.997** |
+
+So **`smooth_counts` goes** with the rest of this list, and `impute_thin_cells` is a candidate for
+the recipe rather than for deletion. It carries `blosum_conditional` and `blosum_background` with
+it, which is why those stay listed but not condemned.
