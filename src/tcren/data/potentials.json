@@ -28,16 +28,11 @@
       "source": "structure-dir",
       "structure_dir": "Native2026",
       "flags": [
-        "--epitope-weight"
+        "--balance",
+        "epitope"
       ],
       "variant": "classic",
       "pseudocount": 1
-    },
-    "rederived_2026": {
-      "file": "TCRen_potential_rederived.csv",
-      "description": "Unpromoted 2026 candidate. Loaded by no code path; see docs/rederivation.md.",
-      "source": "unknown",
-      "status": "deprecated: provenance not established, no recipe reproduces it"
     },
     "mj1996": {
       "file": "MJ1996_contact_energies.csv",
@@ -52,7 +47,5 @@
       "reference": "Keskin O, et al. Protein Sci 1998;7:2578-2586."
     }
   },
-  "known_unresolved": [
-    "rederived_2026"
-  ]
+  "known_unresolved": []
 }

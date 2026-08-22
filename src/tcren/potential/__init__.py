@@ -4,8 +4,8 @@ from .derive import derive_tcren, derive_tcren_loo, symmetrize_counts
 from .model import (AA20, AA21, HydrophobicityFit, Potential,
                     PotentialDecomposition, keskin, mj, mj1996,
                     mj_partition_energy, tcren)
-from .redundancy import (alphabeta_ids, cluster_weights, epitope_weights,
-                         nonredundant_ids)
+from .redundancy import (alphabeta_ids, balanced_weights, cluster_weights,
+                         epitope_weights, nonredundant_ids)
 
 __all__ = [
     "AA20",
@@ -25,4 +25,5 @@ __all__ = [
     "alphabeta_ids",
     "cluster_weights",
     "epitope_weights",
+    "balanced_weights",
 ]

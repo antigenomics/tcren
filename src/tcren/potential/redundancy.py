@@ -116,18 +116,69 @@ def cluster_weights(
     return {ids[i]: 1.0 / sizes[cl[i]] for i in range(len(ids))}
 
 
+def balanced_weights(
+    markup: pl.DataFrame,
+    axes: Sequence[Sequence[str]] = (("peptide",), ("cdr3a", "cdr3b")),
+) -> dict[str, float]:
+    """Henikoff-style weight balancing several redundancy axes at once.
+
+    The PDB is biased on more than one axis: some epitopes are crystallized many times and
+    so are some receptors, and correcting only one leaves the other. For structure ``i``
+    with ``n_a(i)`` structures sharing its value on axis ``a``,
+
+    .. math::
+        w_i = \\frac{1}{|A|} \\sum_{a \\in A} \\frac{1}{n_a(i)}
+
+    the mean of the per-axis inverse counts. The mean, rather than the product, is what
+    keeps novelty on *either* axis: a previously unseen receptor against a nine-times
+    crystallized epitope scores ``(1/9 + 1/1)/2 = 0.556``, not ``1/9``, because it is a
+    genuinely new recognition event. A structure unique on every axis gets ``1.0``; a true
+    re-solve, duplicated on all of them, gets ``1/n``.
+
+    With a single axis this reduces exactly to inverse frequency on that axis, which is
+    what :func:`epitope_weights` is. Overall scale cancels in the log-odds derivation, so
+    the result needs no normalization.
+
+    Complementary to :func:`cluster_weights`, which clusters the joint object by sequence
+    *distance* and so also catches near-duplicates such as point mutants, at the cost of a
+    threshold and of conflating the axes.
+
+    Args:
+        markup: Per-structure table with ``pdb.id`` and every column named in ``axes``.
+        axes: One tuple of column names per axis; the columns in a tuple are matched
+            jointly, so ``("cdr3a", "cdr3b")`` keys on the receptor as a whole.
+
+    Returns:
+        Mapping ``{pdb.id: weight}`` over structures with no null on any axis.
+    """
+    cols = ["pdb.id"] + [c for ax in axes for c in ax]
+    rows = markup.select(cols).drop_nulls().rows()
+    offs, k = [], 1
+    for ax in axes:
+        offs.append((k, k + len(ax)))
+        k += len(ax)
+    counts: list[dict[tuple, int]] = [{} for _ in axes]
+    for r in rows:
+        for c, (lo, hi) in zip(counts, offs):
+            key = r[lo:hi]
+            c[key] = c.get(key, 0) + 1
+    return {
+        r[0]: sum(1.0 / c[r[lo:hi]] for c, (lo, hi) in zip(counts, offs)) / len(axes)
+        for r in rows
+    }
+
+
 def epitope_weights(markup: pl.DataFrame, field: str = "peptide") -> dict[str, float]:
     """One-epitope-one-vote weight for each ``pdb.id``.
 
     Every structure carrying a given peptide gets weight ``1 / n``, where ``n`` is the
     number of structures in the set with that peptide, so each distinct epitope
     contributes a total weight of ``1`` to the derivation however often it was
-    crystallized. A peptide seen once gets weight ``1.0``. Feed the result to
-    :func:`tcren.potential.derive.derive_tcren`'s ``weights`` argument.
+    crystallized. A peptide seen once gets weight ``1.0``.
 
-    This is the weighting the TCRen2 derivation uses. It is orthogonal to
-    :func:`cluster_weights`, which down-weights *receptor* redundancy rather than
-    epitope redundancy; the two mappings can be multiplied per ``pdb.id``.
+    The single-axis case of :func:`balanced_weights`. It corrects epitope bias only; in
+    ``Native2026`` receptor redundancy is comparable (226 distinct receptors against 230
+    distinct epitopes over 374 structures), so consider balancing both axes.
 
     Args:
         markup: Per-structure table with ``pdb.id`` and ``field`` columns.
@@ -136,11 +187,7 @@ def epitope_weights(markup: pl.DataFrame, field: str = "peptide") -> dict[str, f
     Returns:
         Mapping ``{pdb.id: 1 / n_structures_sharing_that_peptide}``.
     """
-    rows = markup.select("pdb.id", field).drop_nulls().rows()
-    counts: dict[str, int] = {}
-    for _, pep in rows:
-        counts[pep] = counts.get(pep, 0) + 1
-    return {pid: 1.0 / counts[pep] for pid, pep in rows}
+    return balanced_weights(markup, axes=((field,),))
 
 
 def alphabeta_ids(contacts: pl.DataFrame) -> list[str]:

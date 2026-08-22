@@ -69,3 +69,68 @@ def test_weighting_changes_the_derived_potential():
         return m["value"].item()
 
     assert cell(unweighted, "W", "K") != pytest.approx(cell(weighted, "W", "K"), abs=1e-9)
+
+
+# --- balanced_weights: several redundancy axes at once ------------------------------
+
+
+def _mk(rows: list[tuple[str, str, str, str]]) -> pl.DataFrame:
+    return pl.DataFrame(
+        {"pdb.id": [r[0] for r in rows], "peptide": [r[1] for r in rows],
+         "cdr3a": [r[2] for r in rows], "cdr3b": [r[3] for r in rows]}
+    )
+
+
+def test_single_axis_is_exactly_epitope_weights():
+    from tcren.potential import balanced_weights
+    m = _mk([("a", "P", "X", "X"), ("b", "P", "Y", "Y"), ("c", "Q", "Z", "Z")])
+    assert balanced_weights(m, axes=(("peptide",),)) == epitope_weights(m)
+
+
+def test_novel_receptor_on_a_common_epitope_keeps_most_of_its_weight():
+    """The case the mean exists for: 1/9 under a product rule, 0.556 under the mean."""
+    from tcren.potential import balanced_weights
+    rows = [(f"dup{i}", "P", f"A{i}", f"B{i}") for i in range(8)]
+    rows.append(("novel", "P", "UNIQUE_A", "UNIQUE_B"))
+    w = balanced_weights(_mk(rows))
+    assert w["novel"] == pytest.approx((1 / 9 + 1 / 1) / 2)
+    assert w["novel"] > 0.5
+
+
+def test_true_resolve_duplicated_on_every_axis_gets_one_over_n():
+    from tcren.potential import balanced_weights
+    rows = [(f"s{i}", "P", "A", "B") for i in range(4)]
+    w = balanced_weights(_mk(rows))
+    assert all(v == pytest.approx(0.25) for v in w.values())
+
+
+def test_unique_on_every_axis_gets_full_weight():
+    from tcren.potential import balanced_weights
+    w = balanced_weights(_mk([("a", "P", "A", "B"), ("b", "Q", "C", "D")]))
+    assert w == {"a": pytest.approx(1.0), "b": pytest.approx(1.0)}
+
+
+def test_receptor_axis_is_keyed_on_both_cdr3_loops_jointly():
+    """Sharing only cdr3a is not the same receptor."""
+    from tcren.potential import balanced_weights
+    m = _mk([("a", "P", "A", "B1"), ("b", "Q", "A", "B2")])
+    w = balanced_weights(m, axes=(("cdr3a", "cdr3b"),))
+    assert w == {"a": pytest.approx(1.0), "b": pytest.approx(1.0)}
+    shared = _mk([("a", "P", "A", "B"), ("b", "Q", "A", "B")])
+    w2 = balanced_weights(shared, axes=(("cdr3a", "cdr3b"),))
+    assert w2 == {"a": pytest.approx(0.5), "b": pytest.approx(0.5)}
+
+
+def test_axis_order_does_not_matter():
+    from tcren.potential import balanced_weights
+    m = _mk([("a", "P", "A", "B"), ("b", "P", "C", "D"), ("c", "Q", "A", "B")])
+    f = balanced_weights(m, axes=(("peptide",), ("cdr3a", "cdr3b")))
+    r = balanced_weights(m, axes=(("cdr3a", "cdr3b"), ("peptide",)))
+    assert f == pytest.approx(r)
+
+
+def test_weight_is_bounded_by_the_per_axis_extremes():
+    from tcren.potential import balanced_weights
+    m = _mk([("a", "P", "A", "B"), ("b", "P", "C", "D"), ("c", "P", "A", "B")])
+    w = balanced_weights(m)
+    assert all(0.0 < v <= 1.0 for v in w.values())

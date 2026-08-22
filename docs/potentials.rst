@@ -36,12 +36,6 @@ Shipped matrices
      - 380
      - **TCRen2.** Epitope-weighted derivation over the 374 ``Native2026`` crystals, one
        epitope one vote. This is the matrix the TCRen2 manuscript describes.
-   * - ``rederived_2026``
-     - ``TCRen_potential_rederived.csv``
-     - 380
-     - An unpromoted 2026 candidate. Loaded by no code path, and no recipe reproduces it;
-       see ``docs/rederivation.md``. Retained only for historical comparison — do not use
-       it, and do not treat its values as derived by any documented procedure.
    * - ``mj1996``
      - ``MJ1996_contact_energies.csv``
      - 400
@@ -90,25 +84,46 @@ rather than rebuild it.
 Weighting
 ---------
 
-``derive-potential`` supports two independent weighting schemes. They answer different
-questions and can be combined.
+The PDB is redundant on more than one axis, and the two are comparable in size. Over the
+374 ``Native2026`` crystals there are 230 distinct epitopes and 226 distinct receptors;
+212 structures share their epitope with at least one other and 223 share their receptor,
+with largest groups of 9 and 10 respectively. Correcting only for epitope leaves receptor
+bias untouched, and the two corrections pull the matrix in measurably different directions
+— an epitope-balanced and a receptor-balanced matrix agree at only Pearson *r* = 0.86,
+which is *less* than either agrees with the unweighted matrix.
 
-``--epitope-weight``
-    Every structure carrying a given peptide gets weight :math:`1/n`, where :math:`n` is
-    the number of structures with that peptide, so each distinct epitope contributes a
-    total weight of 1 however often it was crystallized. In ``Native2026`` the weights run
-    from 1.000 down to 0.111, the latter for the nine GILGFVFTL complexes. This corrects
-    for the PDB's epitope bias and is what TCRen2 uses. The underlying helper is
+``--balance epitope|tcr|both``
+    For structure :math:`i` with :math:`n_a(i)` structures sharing its value on axis
+    :math:`a`, the weight is the mean of the per-axis inverse counts
+
+    .. math::
+        w_i = \\frac{1}{|A|} \\sum_{a \\in A} \\frac{1}{n_a(i)}
+
+    The **mean**, not the product, is the point. A previously unseen receptor against a
+    nine-times-crystallized epitope is a genuinely new recognition event, and scores
+    :math:`(1/9 + 1)/2 = 0.556` rather than the :math:`1/9` a product rule would give it.
+    A structure unique on every axis gets 1.0; a true re-solve, duplicated on all of them,
+    gets :math:`1/n`. With one axis this is plain inverse frequency. Overall scale cancels
+    in the log-odds, so no normalization is applied. The epitope axis keys on the peptide
+    sequence and the receptor axis on the CDR3α/CDR3β pair jointly. Helpers:
+    :func:`tcren.potential.balanced_weights` and its single-axis alias
     :func:`tcren.potential.epitope_weights`.
 
 ``--redundancy-t``
-    Clusters αβ complexes by CDR3α/CDR3β/peptide distance and keeps one representative per
-    cluster. This corrects for *receptor* redundancy, not epitope redundancy. The related
-    :func:`tcren.potential.cluster_weights` down-weights instead of excluding, keeping every
-    structure's data.
+    A different operation: clusters αβ complexes by CDR3α/CDR3β/peptide *distance* and
+    keeps one representative per cluster, so unlike exact-identity balancing it also
+    catches near-duplicates such as point mutants — at the cost of a threshold, and of
+    conflating the two axes into one. :func:`tcren.potential.cluster_weights` down-weights
+    instead of excluding, keeping every structure's data.
 
 Both feed ``derive_tcren``'s ``weights`` argument, which multiplies each structure's
 contribution to the amino-acid pair counts.
+
+.. note::
+
+   ``TCRen2_potential.csv`` as shipped is balanced on the **epitope axis only**, which is
+   the derivation the TCRen2 manuscript describes. ``--balance both`` additionally removes
+   receptor redundancy and differs from it at max \\|Δ\\| 0.500 over the shared cells.
 
 Choosing one in code
 --------------------

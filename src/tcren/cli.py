@@ -278,10 +278,12 @@ def derive_potential(
     ),
     variant: str = typer.Option("classic", "--variant", help="classic|am"),
     pseudocount: int = typer.Option(1, "--pseudocount"),
-    epitope_weight: bool = typer.Option(
-        False, "--epitope-weight",
-        help="weight each structure by 1/(structures sharing its peptide), so every "
-             "distinct epitope contributes equally (requires --structure-dir)",
+    balance: str | None = typer.Option(
+        None, "--balance",
+        help="down-weight PDB redundancy: epitope|tcr|both. Each structure is weighted by "
+             "the mean of 1/(structures sharing its value) over the chosen axes, so a "
+             "re-solved complex counts once while a novel receptor on a common epitope "
+             "still counts (requires --structure-dir)",
     ),
     loo: bool = typer.Option(False, "--loo", help="emit leave-one-out potentials instead"),
 ) -> None:
@@ -315,11 +317,16 @@ def derive_potential(
         include = nonredundant_ids(markup.filter(pl.col("pdb.id").is_in(ab)), t=redundancy_t)
 
     weights = None
-    if epitope_weight:
-        from .potential import epitope_weights
+    if balance is not None:
+        from .potential import balanced_weights
+        axes = {"epitope": (("peptide",),),
+                "tcr": (("cdr3a", "cdr3b"),),
+                "both": (("peptide",), ("cdr3a", "cdr3b"))}.get(balance)
+        if axes is None:
+            raise typer.BadParameter("--balance must be one of: epitope, tcr, both")
         if markup is None:
-            raise typer.BadParameter("--epitope-weight requires markup (use --structure-dir)")
-        weights = epitope_weights(markup)
+            raise typer.BadParameter("--balance requires markup (use --structure-dir)")
+        weights = balanced_weights(markup, axes=axes)
 
     if loo:
         ids = include or contacts["pdb.id"].unique().to_list()
