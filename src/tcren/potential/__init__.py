@@ -3,6 +3,7 @@
 from .derive import derive_tcren, derive_tcren_loo, symmetrize_counts
 from .dfire import (DfireDecomposition, apply_corrections, corrections,
                     geometry_set, pair_geometry, radial_potential)
+from .smoothing import blosum_background, blosum_conditional, smooth_counts
 from .model import (AA20, AA21, HydrophobicityFit, Potential,
                     PotentialDecomposition, dfire2, keskin, mj, mj1996,
                     mj_partition_energy, tcren, tcren2, tcren2_dfire)
@@ -16,6 +17,9 @@ __all__ = [
     "PotentialDecomposition",
     "HydrophobicityFit",
     "derive_tcren",
+    "smooth_counts",
+    "blosum_background",
+    "blosum_conditional",
     "derive_tcren_loo",
     "symmetrize_counts",
     "tcren",

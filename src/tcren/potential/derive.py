@@ -78,6 +78,8 @@ def derive_tcren(
     weights: dict[str, float] | None = None,
     weight_col: str | None = None,
     symmetric: bool = False,
+    smooth_beta: float = 0.0,
+    smooth_matrix: str = "BLOSUM62",
 ) -> Potential:
     """Derive a TCRen potential from a table of residue contacts.
 
@@ -112,6 +114,14 @@ def derive_tcren(
             bundled Miyazawa–Jernigan matrix, and therefore directly comparable to it.
             Default ``False`` keeps the directed TCR→peptide potential, which is the
             shipped ``TCRen_potential.csv``.
+        smooth_beta: Substitution-matrix pseudocount weight
+            (:func:`tcren.potential.smoothing.smooth_counts`), applied to the pair counts before
+            the log-odds. A cell holding ``smooth_beta`` observations is pulled halfway to the
+            prior its chemically similar cells imply; a well-observed cell is left alone. This is
+            aimed at the rare residues -- tryptophan, cysteine, methionine -- whose cells are
+            otherwise set by the flat pseudocount. ``0.0`` (default) is off and byte-identical to
+            the unsmoothed derivation.
+        smooth_matrix: Substitution matrix behind that prior.
 
     Returns:
         The derived :class:`Potential`. For ``"am"`` the long matrix additionally
@@ -155,6 +165,11 @@ def derive_tcren(
         # total doubles alongside them.
         counts = symmetrize_counts(counts)
         n_contacts = n_contacts * 2
+    if smooth_beta:
+        if variant != "classic":
+            raise ValueError("smooth_beta is defined over the 20 standard residues (variant='classic')")
+        from .smoothing import smooth_counts
+        counts = smooth_counts(counts, beta=smooth_beta, matrix=smooth_matrix)
     if variant == "am":
         # The gap/gap cell is seeded with the total number of contacts, mirroring the
         # rbind(tibble("-","-", count = nrow(res))) line in tcren_am.Rmd.

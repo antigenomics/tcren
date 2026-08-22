@@ -280,6 +280,12 @@ def derive_potential(
     ),
     variant: str = typer.Option("classic", "--variant", help="classic|am"),
     pseudocount: int = typer.Option(1, "--pseudocount"),
+    smooth_beta: float = typer.Option(
+        0.0, "--smooth-beta",
+        help="BLOSUM62 substitution pseudocounts: a cell holding this many observations is pulled "
+             "halfway to the prior its chemically similar cells imply (0 = off). Tune on an "
+             "endpoint, never on split-half agreement -- see docs/potentials.rst",
+    ),
     balance: str | None = typer.Option(
         None, "--balance",
         help="down-weight PDB redundancy: epitope|tcr|both. Each structure is weighted by "
@@ -335,7 +341,7 @@ def derive_potential(
         derive_tcren_loo(contacts, ids, variant=variant, pseudocount=pseudocount).write_csv(str(out))
     else:
         pot = derive_tcren(contacts, include=include, variant=variant,
-                           pseudocount=pseudocount, weights=weights)
+                           pseudocount=pseudocount, weights=weights, smooth_beta=smooth_beta)
         pot.to_csv(out)
     typer.echo(f"wrote {out}")
 

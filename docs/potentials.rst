@@ -141,6 +141,30 @@ cells carry no rotation term; a pair with fewer than
 value its Miller–Madow-corrected divergence would suggest, because at those counts the
 estimator's residual bias is the size of the effect.
 
+Smoothing a sparse matrix
+-------------------------
+
+Split-half derivations of the 380-cell TCRen2 matrix -- two disjoint halves of the reference
+crystals, correlated over the 231 cells with at least ten observations -- agree at Pearson
+*r* = 0.45. The cells are **undersampled, not overfitted**, and the tail is worse than the median:
+tryptophan, cysteine and methionine columns hold a handful of observations each.
+
+``--smooth-beta`` applies substitution-matrix pseudocounts (:mod:`tcren.potential.smoothing`,
+the Henikoff scheme used by PSI-BLAST): a cell's prior is the BLOSUM62-weighted average of the
+cells that *were* observed, blended in with weight :math:`\beta / (n + \beta)`. If Ile:Leu
+contacts are common, Val:Leu is not really unknown. The BLOSUM background is recovered from the
+published scores by a linear solve rather than transcribed, and agrees with the usually quoted
+values to within the rounding of those scores (Ala 0.082 against 0.074, Trp 0.012 against 0.013).
+
+.. warning::
+
+   **Do not tune** :math:`\beta` **on split-half reproducibility.** It rises monotonically with
+   smoothing -- 0.45 at :math:`\beta = 0` to 0.56 at :math:`\beta = 100` -- for the trivial reason
+   that both halves are being pulled toward the same prior, and it would reach 1 in the limit where
+   the matrix contains no data at all. On the Yang/Garcia B*27:05 potency series the same smoothing
+   takes Spearman(:math:`\Phi`, log EC50) from +0.60 to +0.11 at :math:`\beta = 10`. Choose
+   :math:`\beta` on a held-out endpoint, and note that on this data set the answer was zero.
+
 Weighting
 ---------
 
