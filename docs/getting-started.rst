@@ -170,8 +170,16 @@ Case studies
 * **Substitute + refine a pose.** ``tcren refine --substitute`` threads a new equal-length peptide
   onto the backbone and runs a knowledge-based Monte-Carlo refinement scored by the DOPE atom-level
   potential — deliberately *independent* of the TCRen/MJ scoring potentials so the pose is not
-  optimised against the quantity it is later scored with. This is not physics relaxation; use Rosetta
-  FlexPepDock for that.
+  optimised against the quantity it is later scored with. This is not physics relaxation: it moves
+  the peptide as a rigid body and leaves crystal strain, missing hydrogens and off-rotamer side
+  chains elsewhere in the complex exactly where the input file put them. For that,
+  ``scripts/relax_openmm.py`` minimizes every atom of the complex in amber14 with GBn2 implicit
+  solvent -- the energy family an all-atom MD run evaluates, and 10-30x faster than a Rosetta
+  FastRelax. It relieves the interface strain of an AlphaFold forced pose without moving the model
+  off its pose, and it puts a structure in the state MD scores it in rather than the state it was
+  deposited in, which matters whenever a residue-level contact score is regressed against an
+  all-atom energy. Minimization, not equilibration. Needs ``openmm`` and ``pdbfixer``, which are not
+  tcren dependencies; the script's docstring gives the environment and the sharding command.
 
 * **Map the surface a TCR meets, before any TCR is there.** A contact potential scores an interface
   that already exists; ``tcren surface`` describes the pMHC beforehand, as a height field over the
