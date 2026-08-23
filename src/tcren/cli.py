@@ -79,11 +79,11 @@ def paper_bootstrap(
     for k, v in summary.items():
         typer.echo(f"{k}: {v}")
 
-_BUNDLED_POTENTIALS = {"tcren": tcren, "tcren2": tcren2, "mj": mj, "keskin": keskin}
+from .pipeline import _BUNDLED_POTENTIALS  # the one map; see pipeline.py
 
 
 def _load_potential(spec: str | None) -> Potential:
-    """Resolve a potential from ``None`` (bundled TCRen), a bundled name, or a CSV path."""
+    """Resolve a potential from ``None`` (the 2022 matrix), a bundled name, or a CSV path."""
     if spec is None:
         return tcren()
     if spec in _BUNDLED_POTENTIALS:
@@ -913,7 +913,7 @@ def scoring(
     db: Path = typer.Option(None, "--db", help="canonical database dir (default: data/Canonical2026)"),
     organism: str = typer.Option("human", "--organism"),
     cutoff: float = typer.Option(5.0, "--cutoff", help="heavy-atom contact distance threshold (Å)"),
-    tcr_peptide_potential: str = typer.Option(None, "--tcr-peptide-potential", help="potential for the TCR↔peptide interface: bundled name (tcren|mj|keskin) or CSV path (default: tcren)"),
+    tcr_peptide_potential: str = typer.Option(None, "--tcr-peptide-potential", help="potential for the TCR↔peptide interface: bundled name (tcren2|karnaukhov2022|mj|keskin) or CSV path (default: karnaukhov2022)"),
     tcr_mhc_potential: str = typer.Option(None, "--tcr-mhc-potential", help="potential for the TCR↔MHC interface: bundled name or CSV path (default: mj)"),
     peptide_mhc_potential: str = typer.Option(None, "--peptide-mhc-potential", help="potential for the peptide↔MHC interface: bundled name or CSV path (default: mj)"),
     regions: str = typer.Option("all", "--regions", help="TCR regions on the TCR side: all|cdr|cdr+fr (default: all)"),
@@ -948,8 +948,9 @@ def scoring(
     native-crystal reference so it is defined for a single structure (:func:`tcren.q_score`).
     For the complete descriptor catalogue plus P(real), use ``tcren recognize``.
 
-    Each interface's potential can be overridden with a bundled name (``tcren``/``mj``/
-    ``keskin``) or a CSV path; an unset option keeps the default family for that interface.
+    Each interface's potential can be overridden with a bundled name (``tcren2``,
+    ``karnaukhov2022``, ``mj``, ``keskin``) or a CSV path; an unset option keeps the default
+    family for that interface.
 
     Examples::
 
@@ -979,44 +980,40 @@ def scoring(
     kw = dict(organism=organism, superimpose=not no_superimpose, db_dir=db, cutoff=cutoff,
               potentials=potentials, tcr_regions=regions, contact_weight=contact_weight,
               reference_aa=reference_aa if delta else None, intra_weight=intra_weight)
-    def score_struct(s):
-        return score_row(run_pipeline(s, **kw))
+    def score_struct(s, typed=False):
+        return score_row(run_pipeline(s, typed=typed, **kw))
+
+    # Chain typing is one mmseqs search per structure and dominated a cohort run. It is done
+    # here for the whole cohort in a handful of searches (one per organism) and the scorer is
+    # told not to repeat it -- threads only ever hid that cost behind more concurrent mmseqs
+    # processes, each of which defaults to every core.
+    structs = [s for src in resolve_sources(structures) for s in _iter_typed(src, organism)]
 
     rows, failed, first_error = [], 0, None
+    def one(s):
+        try:
+            return score_struct(s, typed=True)
+        except Exception as exc:  # noqa: BLE001 - keep the batch resilient
+            return {"pdb.id": s.pdb_id, "F_total": None,
+                    "error": f"{type(exc).__name__}: {str(exc)[:80]}"}
+
     if threads == 1:
-        for _pid, s in ((p, x) for src in resolve_sources(structures)
-                        for p, x in iter_structures(src, importer=parse_structure)):
-            try:
-                rows.append(score_struct(s))
-            except Exception as exc:  # noqa: BLE001 - keep the batch resilient
-                failed += 1
-                err = f"{type(exc).__name__}: {str(exc)[:80]}"
-                first_error = first_error or err
-                if not skip_errors:
-                    rows.append({"pdb.id": s.pdb_id, "F_total": None, "error": err})
+        results = map(one, structs)
     else:
-        # A cohort run is dominated by the per-structure mmseqs annotation, which releases the
-        # GIL inside a subprocess — so plain threads parallelise it without pickling structures.
         import os as _os
         from concurrent.futures import ThreadPoolExecutor
         n = threads if threads > 0 else (_os.cpu_count() or 1)
-        structs = [s for src in resolve_sources(structures)
-                   for _pid, s in iter_structures(src, importer=parse_structure)]
-
-        def one(s):
-            try:
-                return score_struct(s)
-            except Exception as exc:  # noqa: BLE001
-                return {"pdb.id": s.pdb_id, "F_total": None,
-                        "error": f"{type(exc).__name__}: {str(exc)[:80]}"}
-        with ThreadPoolExecutor(max_workers=n) as ex:
-            for r in ex.map(one, structs):
-                if r.get("F_total") is None and "error" in r:
-                    failed += 1
-                    first_error = first_error or r["error"]
-                    if skip_errors:
-                        continue
-                rows.append(r)
+        # What is left after annotation is contact-map construction and the energy sums, which
+        # spend their time in numpy and release the GIL.
+        ex = ThreadPoolExecutor(max_workers=n)
+        results = ex.map(one, structs)
+    for r in results:
+        if r.get("F_total") is None and "error" in r:
+            failed += 1
+            first_error = first_error or r["error"]
+            if skip_errors:
+                continue
+        rows.append(r)
     if not rows:
         raise typer.BadParameter(f"no structures scored from {list(structures)}")
     table = pl.DataFrame(rows, strict=False)

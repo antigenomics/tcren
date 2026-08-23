@@ -27,14 +27,14 @@ def test_default_equals_explicit_equal_mapping():
     res_explicit = run(
         _FIXTURE,
         superimpose=False,
-        potentials={"tcr_peptide": "tcren", "tcr_mhc": "mj", "peptide_mhc": "mj"},
+        potentials={"tcr_peptide": "karnaukhov2022", "tcr_mhc": "mj", "peptide_mhc": "mj"},
     )
     assert res_default.scores == res_explicit.scores
 
 
 def test_swapping_tcr_mhc_to_tcren_changes_score():
     res_default = run(_FIXTURE, superimpose=False)
-    res_swapped = run(_FIXTURE, superimpose=False, potentials={"tcr_mhc": "tcren"})
+    res_swapped = run(_FIXTURE, superimpose=False, potentials={"tcr_mhc": "karnaukhov2022"})
     # The TCR↔MHC interface now uses TCRen instead of MJ, so its energy must change.
     assert res_swapped.scores["tcr_mhc"] != res_default.scores["tcr_mhc"]
     # The other interfaces keep their default potential and are unchanged.

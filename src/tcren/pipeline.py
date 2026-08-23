@@ -25,15 +25,26 @@ from .annotation import classify_chains
 from .contactmap import ContactMap
 from .contacts.table import residue_annotation
 from .mhc import MhcCall, annotate_mhc
-from .potential import Potential, keskin, mj, tcren
+from .potential import Potential, keskin, mj, tcren, tcren2
 from .structure.io import import_structure
 from .structure.model import PEPTIDE_TYPE, Structure
 
 # Interface → potential family (TCRen for the TCR↔peptide contact map; MJ elsewhere).
-_INTERFACE_POTENTIAL = {"tcr_peptide": "tcren", "tcr_mhc": "mj", "peptide_mhc": "mj"}
+_INTERFACE_POTENTIAL = {"tcr_peptide": "karnaukhov2022", "tcr_mhc": "mj", "peptide_mhc": "mj"}
 
-# Bundled potential loaders, keyed by the name accepted in the ``potentials`` spec.
-_BUNDLED_POTENTIALS = {"tcren": tcren, "mj": mj, "keskin": keskin}
+# Bundled potential loaders, keyed by the name accepted in the ``potentials`` spec. This is the
+# ONE map -- the CLI imports it rather than keeping a second one, because when the two drifted
+# apart `tcren2` resolved in `tcren score` and fell through to a path lookup in `tcren scoring`,
+# which then reported "FileNotFoundError: tcren2" once per structure.
+#
+# `tcren2` is the current matrix; the 2022 one is `karnaukhov2022` after its paper. The bare name
+# `tcren` is deliberately absent: it read as "the TCRen potential" while meaning the 2022 matrix.
+_BUNDLED_POTENTIALS = {
+    "tcren2": tcren2,
+    "karnaukhov2022": tcren,
+    "mj": mj,
+    "keskin": keskin,
+}
 
 
 def _resolve_potentials(
@@ -44,7 +55,8 @@ def _resolve_potentials(
     Args:
         spec: Maps an interface name (``"tcr_peptide"``, ``"tcr_mhc"``, ``"peptide_mhc"``, or
             ``"peptide_internal"`` for the intra-peptide term) to a :class:`Potential`, a bundled
-            name (``"tcren"``/``"mj"``/``"keskin"``), a CSV path, or ``None``. A missing or ``None``
+            name (``"tcren2"``/``"karnaukhov2022"``/``"mj"``/``"keskin"``), a CSV path, or ``None``.
+            A missing or ``None``
             entry falls back to the default family for that interface.
 
     Returns:
@@ -174,6 +186,7 @@ def run(
     contact_weight: str = "residue",
     reference_aa: str | None = None,
     intra_weight: float = 0.0,
+    typed: bool = False,
 ) -> PipelineResult:
     """Run the full pipeline on one structure (path or parsed :class:`Structure`).
 
@@ -185,7 +198,8 @@ def run(
         cutoff: contact distance threshold (Å).
         potentials: optional per-interface potential override mapping an interface name
             (``"tcr_peptide"``, ``"tcr_mhc"``, ``"peptide_mhc"``) to a :class:`Potential`,
-            a bundled name (``"tcren"``/``"mj"``/``"keskin"``), a CSV path, or ``None``.
+            a bundled name (``"tcren2"``/``"karnaukhov2022"``/``"mj"``/``"keskin"``), a CSV
+            path, or ``None``.
             ``None`` (or a missing entry) keeps the default family for that interface, so
             the default output is unchanged.
         tcr_regions: which TCR regions to keep on the TCR side of the TCR-containing
@@ -201,6 +215,11 @@ def run(
             :func:`tcren.ddg.reference_delta`, i.e. its energy minus the energy of a
             poly-``reference_aa`` peptide threaded onto the same contact map. Off by
             default, so the default ``scores`` dict is unchanged.
+        typed: the structure's chains are already typed, so skip :func:`classify_chains`.
+            Chain typing costs one ``mmseqs easy-search`` per structure and a caller scoring a
+            whole cohort should have typed it in one batched call
+            (:func:`tcren.paper.iter_annotated_set`) rather than paying that per structure.
+            Only meaningful when ``structure`` is an already-parsed :class:`Structure`.
         intra_weight: weight of the intra-peptide term. Non-zero adds
             ``scores["peptide_internal"]`` — the peptide's contact energy with **itself**
             (:func:`tcren.intra_peptide_energy`), which every interface sum omits — and folds
@@ -215,7 +234,8 @@ def run(
     if contact_weight not in ("residue", "atomic"):
         raise ValueError(f"contact_weight must be 'residue' or 'atomic', got {contact_weight!r}")
     s = structure if isinstance(structure, Structure) else import_structure(structure)
-    classify_chains(s, organism=organism)
+    if not typed:
+        classify_chains(s, organism=organism)
     calls = annotate_mhc(s)
 
     oriented = rmsd = None
