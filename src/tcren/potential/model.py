@@ -329,7 +329,7 @@ def _bundled(filename: str) -> Path:
 
 
 @lru_cache(maxsize=None)
-@not_in_tcren2('The 2022 matrix, kept for reproducing published results. TCRen2 is tcren.potential.tcren2() and is the default since 2.11.0; the two correlate at r = 0.867 with max |d| 0.943 and are not interchangeable.')
+@not_in_tcren2('The 2022 matrix, kept for reproducing published results. TCRen2 is tcren.potential.tcren2() and is the default since 2.11.0; the two correlate at r = 0.867 with a maximum absolute difference of 0.943 and are not interchangeable.')
 def tcren() -> Potential:
     """Load the bundled classic TCRen potential (cached; treat as read-only)."""
     return Potential.from_csv(_bundled("TCRen_potential.csv"), name="TCRen")

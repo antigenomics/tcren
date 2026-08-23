@@ -16,6 +16,8 @@ Grep ``not_in_tcren2`` for the full list.
 
 from __future__ import annotations
 
+import inspect
+
 from collections.abc import Callable
 from typing import TypeVar
 
@@ -49,7 +51,11 @@ def not_in_tcren2(reason: str) -> Callable[[T], T]:
                 f"   :class: caution\n\n"
                 f"   {reason}\n\n"
                 f"   The shipped matrix comes from ``{TCREN2_RECIPE}`` and nothing else.\n\n")
-        obj.__doc__ = note + (obj.__doc__ or "")
+        # cleandoc, not a bare concat: the note is unindented and a function docstring's body is
+        # indented by four, so prepending one to the other makes RST read the body as a block quote
+        # -- which turns `**kwargs` into an unterminated strong start-string and fails the -W docs
+        # build. cleandoc strips the common indent first, so the result is one flat block.
+        obj.__doc__ = note + inspect.cleandoc(obj.__doc__ or "")
         obj.__not_in_tcren2__ = reason
         return obj
     return decorate
