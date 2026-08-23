@@ -210,3 +210,24 @@ def test_every_declared_feature_is_returned():
     d = pose_consistency(_line([("D", 3.0, 1.0), ("K", 4.0, 1.0), ("W", 4.9, 1.0)]), potential=_Pot())
     missing = [f for f in POSE_FEATURES if f not in d]
     assert not missing, missing
+
+
+# --- the per-structure C* surrogate --------------------------------------------------------------
+
+def test_agreement_mean_reproduces_coupling_when_standardized_on_the_input():
+    from tcren.cohort import agreement, coupling
+    rng = np.random.default_rng(0)
+    q = rng.normal(size=400)
+    for rho in (-0.6, 0.0, 0.5):
+        e = rho * q + np.sqrt(1 - rho**2) * rng.normal(size=400)
+        # coupling IS the mean of the agreement term when both are standardized on the same rows
+        assert agreement(q, e).mean() == pytest.approx(coupling(q, e), abs=0.02)
+
+
+def test_agreement_is_defined_for_a_single_row_against_a_reference():
+    from tcren.cohort import agreement
+    ref_q, ref_e = np.random.default_rng(1).normal(size=200), np.random.default_rng(2).normal(size=200)
+    a = agreement([2.0], [2.0], ref_q, ref_e)          # both far above reference -> agree
+    b = agreement([2.0], [-2.0], ref_q, ref_e)         # geometry good, chemistry bad -> disagree
+    assert a.shape == (1,) and np.isfinite(a[0])
+    assert a[0] > 0 and b[0] < 0

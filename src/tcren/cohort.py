@@ -42,7 +42,7 @@ from functools import lru_cache
 
 import numpy as np
 
-__all__ = ["zscore", "q_score", "q_iptm", "f_score", "q_f", "q_f_iptm", "f_invert_by_iptm", "phi_bind",
+__all__ = ["zscore", "q_score", "agreement", "q_iptm", "f_score", "q_f", "q_f_iptm", "f_invert_by_iptm", "phi_bind",
            "q_coupled", "coupling", "strain_z", "native_reference", "Q_FEATURES", "Q_FEATURES_CORE",
            "Q_FEATURES_GEOM", "F_TERMS", "STRAIN_TERMS"]
 
@@ -349,6 +349,51 @@ def coupling(q, energy) -> float:
     if ok.sum() < 3 or np.std(q[ok]) < 1e-12 or np.std(energy[ok]) < 1e-12:
         return 0.0
     return float(np.corrcoef(q[ok], energy[ok])[0, 1])
+
+
+def agreement(q, energy, q_reference=None, energy_reference=None) -> np.ndarray:
+    r"""Per-structure geometry-energy agreement :math:`a_i=z(Q_i)\,z(\Delta\Phi_i)` --- the summand
+    of :func:`coupling`, and the single-structure stand-in for it.
+
+    :func:`coupling` returns :math:`C^{*}=\mathrm{corr}(Q,\Delta\Phi)` over a cohort, which is
+    exactly the cohort **mean** of this quantity when both channels are standardized. Standardize
+    against a fixed *reference manifold* instead of the cohort and each term survives on its own:
+
+    .. math::  a_i \;=\; z(Q_i)\,z(\Delta\Phi_i),
+       \qquad \overline{a} \;=\; C^{*}\,
+       \frac{\sigma^{\mathrm{coh}}_{Q}\sigma^{\mathrm{coh}}_{\Delta\Phi}}
+            {\sigma^{\mathrm{ref}}_{Q}\sigma^{\mathrm{ref}}_{\Delta\Phi}}
+       \;+\; \frac{\Delta\mu_{Q}\,\Delta\mu_{\Delta\Phi}}
+                  {\sigma^{\mathrm{ref}}_{Q}\sigma^{\mathrm{ref}}_{\Delta\Phi}},
+
+    i.e. affine in :math:`C^{*}` with positive slope. Sign is the readable part: :math:`a_i>0` means
+    geometry and chemistry deviate from the reference in the **same** direction, :math:`a_i<0` that
+    they disagree --- favourable contacts manufactured inside a poor interface, the forced-pose
+    signature, read from **one** structure.
+
+    Measured over the 22 cohorts of the balanced VDJdb benchmark: ``mean(a)`` tracks that cohort's
+    own :math:`C^{*}` at Pearson **+0.631** (Spearman +0.598). As a small-cohort estimator of
+    :math:`C^{*}` it roughly **halves the magnitude error below n ~ 8** and is defined at ``n = 2``,
+    where the sample correlation is :math:`\pm 1` by construction. It does **not** fix the sign ---
+    its sign error is worse than the raw correlation's at every ``n``, and the sign is what
+    :func:`q_coupled` gates on. Use it for magnitude at small ``n``, not as a drop-in for the gate.
+
+    **The references are the whole point.** Both nuisance terms vanish only when the reference means
+    and scales match the population being scored, so score AlphaFold models against an AlphaFold
+    manifold and crystals against crystals. Passing ``None`` standardizes against the input itself,
+    which reproduces :func:`coupling` in the mean and is *not* single-structure-capable.
+
+    Args:
+        q: interface-quality scores, e.g. :func:`q_score` output.
+        energy: binder-oriented referenced contact energy for the same rows (higher = more
+            favourable), e.g. :math:`\Delta_{\mathrm{TCR}}\Phi` for receptor ranking.
+        q_reference: values defining :math:`\mu,\sigma` for ``q``; ``None`` = the input itself.
+        energy_reference: the same for ``energy``.
+
+    Returns:
+        One value per row; ``mean()`` over a cohort is the :math:`C^{*}` surrogate.
+    """
+    return zscore(q, q_reference) * zscore(energy, energy_reference)
 
 
 def q_coupled(q, energy) -> np.ndarray:
