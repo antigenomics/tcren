@@ -30,7 +30,7 @@ from .structure.io import import_structure
 from .structure.model import PEPTIDE_TYPE, Structure
 
 # Interface → potential family (TCRen for the TCR↔peptide contact map; MJ elsewhere).
-_INTERFACE_POTENTIAL = {"tcr_peptide": "karnaukhov2022", "tcr_mhc": "mj", "peptide_mhc": "mj"}
+_INTERFACE_POTENTIAL = {"tcr_peptide": "tcren2", "tcr_mhc": "mj", "peptide_mhc": "mj"}
 
 # Bundled potential loaders, keyed by the name accepted in the ``potentials`` spec. This is the
 # ONE map -- the CLI imports it rather than keeping a second one, because when the two drifted

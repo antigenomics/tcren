@@ -83,9 +83,9 @@ from .pipeline import _BUNDLED_POTENTIALS  # the one map; see pipeline.py
 
 
 def _load_potential(spec: str | None) -> Potential:
-    """Resolve a potential from ``None`` (the 2022 matrix), a bundled name, or a CSV path."""
+    """Resolve a potential from ``None`` (TCRen2, the default), a bundled name, or a CSV path."""
     if spec is None:
-        return tcren()
+        return tcren2()
     if spec in _BUNDLED_POTENTIALS:
         return _BUNDLED_POTENTIALS[spec]()
     p = Path(spec)
@@ -137,7 +137,8 @@ def info() -> None:
     except ImportError:
         arda_status = "NOT available — run: pip install arda-mapper (or bash setup.sh)"
     typer.echo(f"arda: {arda_status}")
-    typer.echo(f"bundled TCRen potential: {tcren().matrix.height} pairs")
+    typer.echo(f"default potential TCRen2: {tcren2().matrix.height} pairs "
+               f"(karnaukhov2022: {tcren().matrix.height})")
 
 
 _REGION_CHAINS = {
@@ -310,6 +311,13 @@ def derive_potential(
              "re-solved complex counts once while a novel receptor on a common epitope "
              "still counts (requires --structure-dir)",
     ),
+    ab_only: bool = typer.Option(
+        False, "--ab-only",
+        help="derive only from fully annotated \u03b1\u03b2 TCR:pMHC complexes -- both CDR3s and a "
+             "peptide present. Without it a single-chain or \u03b3\u03b4 crystal is kept, and because "
+             "--balance skips a structure with a null on any axis such a structure silently enters "
+             "at weight 1.0, the maximum (requires --structure-dir)",
+    ),
     loo: bool = typer.Option(False, "--loo", help="NOT USED FOR TCRen2. emit leave-one-out potentials instead"),
 ) -> None:
     """Derive a TCRen potential from observed contacts.
@@ -340,6 +348,16 @@ def derive_potential(
             raise typer.BadParameter("--redundancy-t requires markup (use --structure-dir)")
         ab = alphabeta_ids(contacts)
         include = nonredundant_ids(markup.filter(pl.col("pdb.id").is_in(ab)), t=redundancy_t)
+
+    if ab_only:
+        if markup is None:
+            raise typer.BadParameter("--ab-only requires markup (use --structure-dir)")
+        markup = markup.filter(
+            pl.col("cdr3a").is_not_null() & pl.col("cdr3b").is_not_null()
+            & pl.col("peptide").is_not_null()
+        )
+        keep = markup["pdb.id"].to_list()
+        include = keep if include is None else [i for i in include if i in set(keep)]
 
     weights = None
     if balance is not None:
@@ -474,7 +492,7 @@ def _score_weights(structure, cm, interface, regions, drop_untyped, position_sch
 def score(
     structures: Path = typer.Option(..., "-s", "--structures", help="structure file, directory, or .tar.gz (.pdb/.cif/.pdb.gz/.cif.gz)"),
     candidates: Path = typer.Option(..., "-c", "--candidates", help="candidate epitopes file"),
-    potential: str | None = typer.Option(None, "-p", "--potential", help="potential CSV (default: bundled TCRen)"),
+    potential: str | None = typer.Option(None, "-p", "--potential", help="potential: bundled name (tcren2|karnaukhov2022|mj|keskin) or CSV path (default: tcren2)"),
     out: Path = typer.Option("candidate_epitopes_TCRen.csv", "-o", "--out"),
     interface: str = typer.Option("tcr_peptide", "--interface"),
     regions: str = typer.Option("all", "--regions", help="TCR regions on the TCR side: all|cdr|cdr+fr (default: all)"),
@@ -531,7 +549,7 @@ def ddg_cmd(
     native: str = typer.Option(..., "--native", help="native peptide sequence"),
     alanine_scan: bool = typer.Option(False, "--alanine-scan", help="ΔΔG of every position mutated to alanine"),
     mutant: list[str] = typer.Option(None, "--mutant", help="mutant peptide(s); repeat for several (neoantigen mode)"),
-    potential: str | None = typer.Option(None, "-p", "--potential", help="potential CSV (default: bundled TCRen)"),
+    potential: str | None = typer.Option(None, "-p", "--potential", help="potential: bundled name (tcren2|karnaukhov2022|mj|keskin) or CSV path (default: tcren2)"),
     out: Path = typer.Option("ddg.csv", "-o", "--out"),
     interface: str = typer.Option("tcr_peptide", "--interface", help="tcr_peptide|tcr_mhc|peptide_mhc"),
     regions: str = typer.Option("all", "--regions", help="TCR regions on the TCR side: all|cdr|cdr+fr (default: all)"),
@@ -573,7 +591,7 @@ def cpl_cmd(
     mutation: str = typer.Option(None, "--mutation", help="one-letter residue; with --position, report just that cell"),
     to_mixture: bool = typer.Option(False, "--to-mixture", help="report the cost of giving a position up to the equimolar 1/20 mixture"),
     reference: str = typer.Option("both", "--reference", help="equimolar|wild_type|both (default: both)"),
-    potential: str | None = typer.Option(None, "-p", "--potential", help="TCR:peptide potential CSV (default: bundled TCRen)"),
+    potential: str | None = typer.Option(None, "-p", "--potential", help="TCR:peptide potential: bundled name or CSV path (default: tcren2)"),
     mhc_potential: str | None = typer.Option(None, "--mhc-potential", help="peptide:MHC potential (default: Miyazawa-Jernigan)"),
     out: Path = typer.Option("cpl_matrix.csv", "-o", "--out"),
     regions: str = typer.Option("all", "--regions", help="TCR regions on the TCR side: all|cdr|cdr+fr (default: all)"),
@@ -643,7 +661,7 @@ def cpl_cmd(
 def rank(
     structures: Path = typer.Option(..., "-s", "--structures", help="structure file, directory, or .tar.gz (.pdb/.cif/.pdb.gz/.cif.gz)"),
     candidates: Path = typer.Option(None, "-c", "--candidates", help="peptides to rank; default: each structure's native peptide"),
-    potential: str | None = typer.Option(None, "-p", "--potential", help="potential CSV (default: bundled TCRen)"),
+    potential: str | None = typer.Option(None, "-p", "--potential", help="potential: bundled name (tcren2|karnaukhov2022|mj|keskin) or CSV path (default: tcren2)"),
     out: Path = typer.Option("rank.csv", "-o", "--out"),
     interface: str = typer.Option("tcr_peptide", "--interface", help="tcr_peptide|tcr_mhc|peptide_mhc"),
     regions: str = typer.Option("all", "--regions", help="TCR regions on the TCR side: all|cdr|cdr+fr (default: all)"),
@@ -913,7 +931,7 @@ def scoring(
     db: Path = typer.Option(None, "--db", help="canonical database dir (default: data/Canonical2026)"),
     organism: str = typer.Option("human", "--organism"),
     cutoff: float = typer.Option(5.0, "--cutoff", help="heavy-atom contact distance threshold (Å)"),
-    tcr_peptide_potential: str = typer.Option(None, "--tcr-peptide-potential", help="potential for the TCR↔peptide interface: bundled name (tcren2|karnaukhov2022|mj|keskin) or CSV path (default: karnaukhov2022)"),
+    tcr_peptide_potential: str = typer.Option(None, "--tcr-peptide-potential", help="potential for the TCR↔peptide interface: bundled name (tcren2|karnaukhov2022|mj|keskin) or CSV path (default: tcren2)"),
     tcr_mhc_potential: str = typer.Option(None, "--tcr-mhc-potential", help="potential for the TCR↔MHC interface: bundled name or CSV path (default: mj)"),
     peptide_mhc_potential: str = typer.Option(None, "--peptide-mhc-potential", help="potential for the peptide↔MHC interface: bundled name or CSV path (default: mj)"),
     regions: str = typer.Option("all", "--regions", help="TCR regions on the TCR side: all|cdr|cdr+fr (default: all)"),

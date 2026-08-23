@@ -34,7 +34,8 @@ Shipped matrices
    * - ``tcren2``
      - ``TCRen2_potential.csv``
      - 380
-     - **TCRen2.** Redundancy-balanced derivation over the 374 ``Native2026`` crystals,
+     - **TCRen2 — the default TCR:peptide potential since 2.11.0.** Redundancy-balanced
+       derivation over the **362 fully annotated αβ** ``Native2026`` crystals (``--ab-only``),
        weighting each structure on both the epitope and the receptor axis (``--balance
        both``). This is the matrix the TCRen2 manuscript reports.
    * - ``mj1996``
@@ -48,11 +49,12 @@ Shipped matrices
      - 400
      - Keskin *et al.* residue contact potentials, published table.
 
-``classic`` and ``tcren2`` differ substantially — Pearson :math:`r` = 0.875 over the 380
-shared cells, with a maximum absolute difference of 0.846 on a TCRen2 range of 2.88
-(-1.14 to +1.74).
+``classic`` and ``tcren2`` differ substantially — Pearson :math:`r` = 0.867 over the 380
+shared cells, with a maximum absolute difference of 0.943 on a TCRen2 range of
+2.95 (-1.25 to +1.70).
 They are not interchangeable, and a score computed under one cannot be compared with a
-score computed under the other.
+score computed under the other. ``tcren2`` also changed at 2.11.0 (374 → 362 structures),
+so scores are not comparable across that boundary either.
 
 Cysteine is dropped from the ``from`` axis as a data convention, which is why the TCRen
 matrices carry 380 cells (19 × 20) rather than 400.
@@ -77,7 +79,12 @@ Reproducing them
    $ tcren derive-potential \
        --structure-dir "$TCREN_DATA_DIR/Native2026" \
        --balance both \
+       --ab-only \
        -o TCRen2_potential.csv
+
+``--ab-only`` keeps the 362 complexes that carry both CDR3s and a peptide. Without it the 12
+single-chain, γδ and pMHC-only files are kept, and because ``--balance`` skips a structure with a
+null on any axis, each of those would enter at weight 1.0 — the maximum.
 
 The second command runs the whole pipeline — parse, annotate, contacts, derive — over all
 374 structures in roughly 20 seconds, so there is no reason to cache a derived matrix

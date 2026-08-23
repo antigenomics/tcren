@@ -3,6 +3,45 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
+## [2.11.0] — 2026-08-23
+
+**TCRen2 is now the default TCR:peptide potential, and it is re-derived on the fully annotated
+αβ subset of Native2026.** Both changes move numbers: any score produced by an earlier release
+without an explicit `--tcr-peptide-potential` used the 2022 matrix, and the shipped TCRen2 matrix
+itself is not the one 2.10.0 shipped. Re-run anything you are comparing across this boundary.
+
+### Changed
+- **Default TCR:peptide potential is `tcren2`, not `karnaukhov2022`.** `pipeline._INTERFACE_POTENTIAL`,
+  `tcren recognize` (`recognition.py`) and the CLI's `-p/--potential` fallback all resolved to the
+  2022 matrix, so the released default disagreed with the matrix the manuscript reports. Pass
+  `--tcr-peptide-potential karnaukhov2022` (or `-p karnaukhov2022`) for the old behaviour;
+  `tcren.potential.tcren()` is unchanged and still loads the 2022 matrix.
+- **`TCRen2_potential.csv` re-derived on the 362 fully annotated αβ TCR:pMHC complexes** of
+  Native2026, down from all 374. The 12 dropped are 3 pMHC-only files (3gjf, 3hae, 4wuu), 8 carrying
+  a single αβ chain (3nfj, 5xot, 5xov, 6bj3, 6bj8, 8yiv, 8yj2, 3tf7) and one γδ receptor (4qrr).
+  Every TCR chain present in those files *is* annotated with its CDR3 — the chains are absent from
+  the crystal, not from the annotation — but `balanced_weights` skips a structure with a null on any
+  axis and `derive_tcren` then defaults it to weight **1.0**, the maximum, so three near-duplicate
+  pairs (3nfj/5xov, 5xot/6bj3, 8yiv/8yj2) were each counted twice at full weight. Measured against
+  the 374-structure matrix: TCRvdb receptor ranking macro-r **+0.034 [+0.003, +0.070]**, with the
+  ergodic bridge, the Garcia EC50 series and CPL all inside noise. r = +0.966 against the old matrix,
+  max |d| 1.011 — scores are not comparable across the change.
+
+### Added
+- **`derive-potential --ab-only`** — restrict the derivation to complexes with both CDR3s and a
+  peptide. This is the flag that produces the shipped TCRen2; `data/potentials.json` records it and
+  `tests/regression/test_shipped_potentials.py` re-runs it.
+
+## [Unreleased]
+
+### Added
+- **`scripts/relax_openmm.py`** — full-complex OpenMM minimization (amber14 + GBn2 implicit solvent,
+  all atoms free), the physics relaxation `refine_peptide` deliberately is not, and 10-30x faster
+  than a Rosetta FastRelax. Relieves the interface strain of an AlphaFold forced pose without moving
+  the model off its pose, and puts a deposited structure into the state an all-atom MD run scores it
+  in rather than the state it was deposited in. Takes an input directory (`.pdb` or `.pdb.gz`),
+  resumes, and shards across cores. Needs `openmm` and `pdbfixer`, which are not tcren dependencies.
+
 ## [2.9.0] — 2026-08-18
 
 Everything below acts on an August 2026 review that raised seven points about what a contact

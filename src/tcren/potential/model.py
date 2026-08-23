@@ -329,7 +329,7 @@ def _bundled(filename: str) -> Path:
 
 
 @lru_cache(maxsize=None)
-@not_in_tcren2('The 2022 matrix, kept as the historical default of this loader. TCRen2 is tcren.potential.tcren2(); the two correlate at r = 0.875 with max |d| 0.846 and are not interchangeable.')
+@not_in_tcren2('The 2022 matrix, kept for reproducing published results. TCRen2 is tcren.potential.tcren2() and is the default since 2.11.0; the two correlate at r = 0.867 with max |d| 0.943 and are not interchangeable.')
 def tcren() -> Potential:
     """Load the bundled classic TCRen potential (cached; treat as read-only)."""
     return Potential.from_csv(_bundled("TCRen_potential.csv"), name="TCRen")
@@ -339,10 +339,11 @@ def tcren() -> Potential:
 def tcren2() -> Potential:
     """Load the bundled TCRen2 potential (cached; treat as read-only).
 
-    The redundancy-balanced derivation over the 374 ``Native2026`` crystals, and the matrix
-    the TCRen2 manuscript reports. It is **not** interchangeable with :func:`tcren`: the two
-    correlate at Pearson *r* = 0.875 with a maximum absolute difference of 0.846 over a range
-    of 2.88, so scores computed under one cannot be compared with scores under the other.
+    The redundancy-balanced derivation over the **362 fully annotated αβ** ``Native2026``
+    crystals, the default TCR:peptide potential since 2.11.0, and the matrix the TCRen2
+    manuscript reports. It is **not** interchangeable with :func:`tcren`: the two correlate at
+    Pearson *r* = 0.867 with a maximum absolute difference of 0.943 over a range of 2.95, so
+    scores computed under one cannot be compared with scores under the other.
     """
     return Potential.from_csv(_bundled("TCRen2_potential.csv"), name="TCRen2")
 

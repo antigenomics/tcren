@@ -736,7 +736,7 @@ def recognition_features(source, *, organism: str = "human", potential=None,
     from .orient.tcrdock_geometry import docking_geometry
     from .pipeline import _interface_energy
     from .potential import mj as _mj
-    from .potential import tcren as _tcren
+    from .potential import tcren2 as _tcren2
     from .structure import Structure, import_structure
 
     s = source if isinstance(source, Structure) else import_structure(source)
@@ -744,7 +744,7 @@ def recognition_features(source, *, organism: str = "human", potential=None,
         if all(c.chain_type is None for c in s.chains):
             classify_chains(s, organism=organism, autodetect_species=True)
         annotate_mhc(s)
-    tcren_pot = potential or _tcren()
+    tcren_pot = potential or _tcren2()
     mj_pot = _mj()
 
     cm = ContactMap.from_structure(s)

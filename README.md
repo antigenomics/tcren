@@ -667,8 +667,9 @@ Structures live in the Hugging Face dataset
 `tcren` reads `.pdb`/`.cif`/`.pdb.gz`/`.cif.gz` and `.tar.gz` batches; an installed library lazily
 fetches the canonical reference structures from the Hub when orienting a new complex. The root
 `data/` holds `Native2026` (+ `Canonical2026`, gitignored, fetched on demand), `PDB_date.tsv`,
-and **`TCRen_potential.csv`** — the current potential derived from the
-Native2026 set (use it with `tcren score -p data/TCRen_potential.csv`). `Canonical2026`'s
+and **`TCRen_potential.csv`** — the 2022 (`karnaukhov2022`) matrix, kept for reproducing
+published results; the current default is the bundled `tcren2` (use `-p karnaukhov2022`
+for the old one). `Canonical2026`'s
 `orient_metadata.json` ships inside the package (`src/tcren/data/`), because the fetch brings down
 structures only and an installed library has no repo `data/`.
 

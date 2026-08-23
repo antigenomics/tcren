@@ -1,4 +1,4 @@
-"""Configurable per-interface potentials (S1): defaults unchanged, overrides take effect."""
+"""Configurable per-interface potentials (S1): TCRen2 is the default, overrides take effect."""
 
 from __future__ import annotations
 
@@ -9,14 +9,17 @@ import pytest
 pytest.importorskip("arda")
 
 from tcren.pipeline import _resolve_potentials, run, score_row  # noqa: E402
-from tcren.potential import mj, tcren  # noqa: E402
+from tcren.potential import mj, tcren, tcren2  # noqa: E402
 
 _FIXTURE = Path(__file__).resolve().parents[1] / "assets" / "pdb" / "1ao7.pdb"
 
 
 def test_resolve_defaults_match_interface_potential():
+    # The TCR:peptide default is TCRen2 as of 2.11.0; it was karnaukhov2022 before, which is
+    # why every score computed by an earlier release moved.
     resolved = _resolve_potentials(None)
-    assert resolved["tcr_peptide"].name == tcren().name
+    assert resolved["tcr_peptide"].name == tcren2().name
+    assert resolved["tcr_peptide"].name != tcren().name
     assert resolved["tcr_mhc"].name == mj().name
     assert resolved["peptide_mhc"].name == mj().name
 
@@ -27,7 +30,7 @@ def test_default_equals_explicit_equal_mapping():
     res_explicit = run(
         _FIXTURE,
         superimpose=False,
-        potentials={"tcr_peptide": "karnaukhov2022", "tcr_mhc": "mj", "peptide_mhc": "mj"},
+        potentials={"tcr_peptide": "tcren2", "tcr_mhc": "mj", "peptide_mhc": "mj"},
     )
     assert res_default.scores == res_explicit.scores
 
