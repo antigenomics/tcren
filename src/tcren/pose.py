@@ -181,19 +181,17 @@ def _interface_layers(structure: Structure, cutoff: float, partner=(PEPTIDE_TYPE
         return stacked.select(*_KEY, "aa.tcr", "aa.pep").with_columns(
             pl.lit(None, dtype=pl.Float64).alias(c) for c in ("d1", "d2", "d3")
         )
-    # Residue identity is carried by the d1 layer alone; d2/d3 contribute only their distance, so
-    # the three frames share no column but the key and nothing collides on the join. A pair present
-    # in d2 but not d1 still appears (outer join) --- that is exactly the unengaged pair
-    # `frac_cb_close_engaged` counts, and it needs no residue identity.
-    wide = (stacked.filter(pl.col("layer") == "d1")
-            .select(*_KEY, "aa.tcr", "aa.pep", "key.tcr.chain", "key.tcr.res",
-                    pl.col("dist").alias("d1")))
+    # Identity is taken from the UNION of the three layers, not from d1 alone: a pair present in the
+    # Calpha shell but making no contact must still carry its residue types, or every shell
+    # descriptor that reads `aa` would collapse to the contact set without saying so.
+    ident = stacked.select(*_KEY, "aa.tcr", "aa.pep", "key.tcr.chain", "key.tcr.res").unique(subset=_KEY)
+    wide = stacked.filter(pl.col("layer") == "d1").select(*_KEY, pl.col("dist").alias("d1"))
     for layer in ("d2", "d3"):
         part = (stacked.filter(pl.col("layer") == layer)
                 .select(*_KEY, pl.col("dist").alias(layer)))
         # A residue pair appears at most once per layer (each keeps its closest atom pair).
         wide = wide.join(part, on=_KEY, how="full", coalesce=True)
-    return wide
+    return wide.join(ident, on=_KEY, how="left")
 
 
 def _degree_descriptors(contacts: pl.DataFrame, suffix: str) -> dict[str, float]:

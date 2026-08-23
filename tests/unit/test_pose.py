@@ -236,25 +236,36 @@ def test_agreement_is_defined_for_a_single_row_against_a_reference():
 # --- the designed pose metric P -------------------------------------------------------------
 
 def _full_complex():
-    """Peptide + receptor + MHC, big enough that every reduction (incl. the _tm block) is defined."""
+    """Peptide + both receptor chains (CDR1/2/3 marked up) + MHC.
+
+    Every family the generator emits must be exercised, including the per-loop Calpha profile, which
+    needs TRA and TRB each carrying all three CDRs.
+    """
     three = {"L": "LEU", "D": "ASP", "K": "LYS", "W": "TRP"}
     rng = np.random.default_rng(0)
 
-    def chain(cid, ctype, n, origin, aas):
+    def chain(cid, ctype, n, origin, aas, loops):
         res = []
         for i in range(n):
-            x, y_, z = origin + rng.normal(scale=1.6, size=3)
+            x, y_, z = origin + rng.normal(scale=1.8, size=3)
             aa = aas[i % len(aas)]
             res.append(Residue(i, i + 1, "", aa, three[aa], (
                 _atom("CA", "C", [x, y_, z]), _atom("CB", "C", [x + 0.7, y_, z]))))
         c = Chain(cid, res, chain_type=ctype)
-        c.regions = [RegionMarkup("CDR3", 0, n - 1, "".join(r.aa for r in res), res)]
+        if loops:
+            span = n // 3
+            c.regions = [
+                RegionMarkup(r, i * span, (i + 1) * span - 1,
+                             "".join(x.aa for x in res[i * span:(i + 1) * span]),
+                             res[i * span:(i + 1) * span])
+                for i, r in enumerate(("CDR1", "CDR2", "CDR3"))]
         return c
 
-    pep = chain("C", PEPTIDE_TYPE, 9, np.array([0.0, 0.0, 0.0]), "DKW")
-    tcr = chain("B", "TRB", 14, np.array([0.0, 0.0, 4.0]), "LDK")
-    mhc = chain("A", "MHCa", 18, np.array([0.0, 0.0, -4.0]), "LDW")
-    return Structure("synth_full", [pep, tcr, mhc])
+    pep = chain("C", PEPTIDE_TYPE, 9, np.array([0.0, 0.0, 0.0]), "DKW", False)
+    tra = chain("D", "TRA", 18, np.array([-2.0, 0.0, 4.0]), "LDK", True)
+    trb = chain("B", "TRB", 18, np.array([2.0, 0.0, 4.0]), "LDW", True)
+    mhc = chain("A", "MHCa", 24, np.array([0.0, 0.0, -4.0]), "LDW", False)
+    return Structure("synth_full", [pep, tra, trb, mhc])
 
 
 def test_p_score_terms_are_all_produced_by_the_generator():
@@ -277,3 +288,38 @@ def test_p_score_orients_higher_is_better_and_is_row_wise():
     bad = {n: [float(np.mean(ref[n]) - sign * 2.0 * np.std(ref[n]))] for n, sign in P_TERMS}
     assert p_score(good, ref)[0] > p_score(bad, ref)[0]
     assert p_score({n: ref[n] for n, _ in P_TERMS}).shape == (300,)
+
+
+# --- interpretable Calpha rules ----------------------------------------------------------------
+
+def test_loop_ca_rules_delta_sign_follows_geometry():
+    """delta = d_pep - d_mhc must be negative for a loop placed nearer the peptide."""
+    from tcren.pose_sweep import loop_ca_rules
+
+    s = _full_complex()
+    # peptide sits at z=0, MHC at z=-4, receptor at z=+4, so every loop is nearer the peptide
+    d = loop_ca_rules(s, cutoff=5.0)
+    # only the per-loop deltas; the cross-loop contrasts (cdr3_vs_germline_*, cdr3_ab_asym_*) are
+    # differences of two loops and carry no sign guarantee
+    loops = ("cdr1a", "cdr2a", "cdr3a", "cdr1b", "cdr2b", "cdr3b")
+    deltas = {k: v for k, v in d.items()
+              if k.endswith("_all_delta") and k.split("_all_")[0] in loops and np.isfinite(v)}
+    assert len(deltas) == 6, sorted(deltas)
+    assert all(x < 0 for x in deltas.values()), deltas
+
+
+def test_loop_ca_rules_reports_both_chains_and_all_three_loops():
+    from tcren.pose_sweep import loop_ca_rules
+
+    d = loop_ca_rules(_full_complex())
+    for loop in ("cdr1a", "cdr2a", "cdr3a", "cdr1b", "cdr2b", "cdr3b"):
+        assert f"{loop}_n_res" in d, loop
+        assert f"{loop}_all_d_pep" in d and f"{loop}_all_d_mhc" in d
+
+
+def test_sigma_split_is_the_difference_of_the_two_cdr3_nc_terms():
+    from tcren.pose_sweep import loop_ca_rules
+
+    d = loop_ca_rules(_full_complex())
+    if all(k in d for k in ("cdr3a_delta_NC", "cdr3b_delta_NC", "sigma_NC_split")):
+        assert d["sigma_NC_split"] == pytest.approx(d["cdr3a_delta_NC"] - d["cdr3b_delta_NC"])

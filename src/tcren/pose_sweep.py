@@ -30,7 +30,7 @@ from .contacts.table import residue_annotation
 from .pose import _CA_CLOSE, _CB_CLOSE, _double_centred, _pair_j, _spearman
 from .structure.model import MHC_TYPES, PEPTIDE_TYPE, RECEPTOR_TYPES, Structure
 
-__all__ = ["pose_descriptors_full", "P_TERMS", "p_score"]
+__all__ = ["pose_descriptors_full", "loop_ca_profile", "loop_ca_rules", "P_TERMS", "p_score"]
 
 #: The designed pose metric ``P``: ``(descriptor, sign)`` pairs, sign oriented so that **higher is
 #: more binder-like**. Selected by greedy forward selection on macro PR over the **22 well-powered
@@ -155,14 +155,18 @@ def _layers(structure: Structure, cutoff: float, partner) -> pl.DataFrame:
     )
     if stacked.is_empty():
         return stacked
-    wide = (stacked.filter(pl.col("layer") == "d1")
-            .select(*_KEY, "aa_t", "aa_p", "ct", "rt", "cp", "rp",
-                    pl.col("dist").alias("d1"),
-                    pl.col("n_atom_contacts").alias("nat") if "n_atom_contacts" in stacked.columns
-                    else pl.lit(1).alias("nat")))
+    # Identity (residue types, chain, indices) is built from the UNION of all three layers, not from
+    # d1 alone. Taking it from d1 would leave every non-contacting shell pair with null residue
+    # identity, so anything that reads aa/region over the shell would silently see contacts only.
+    ident = stacked.select(*_KEY, "aa_t", "aa_p", "ct", "rt", "cp", "rp").unique(subset=_KEY)
+    d1f = stacked.filter(pl.col("layer") == "d1")
+    wide = d1f.select(*_KEY, pl.col("dist").alias("d1"),
+                      pl.col("n_atom_contacts").alias("nat") if "n_atom_contacts" in stacked.columns
+                      else pl.lit(1).alias("nat"))
     for layer in ("d2", "d3"):
         wide = wide.join(stacked.filter(pl.col("layer") == layer)
                          .select(*_KEY, pl.col("dist").alias(layer)), on=_KEY, how="full", coalesce=True)
+    wide = wide.join(ident, on=_KEY, how="left")
     # receptor region label, for the CDR partition
     reg = ann.select(pl.col("chain.id").alias("ct"), pl.col("residue.index").alias("rt"),
                      pl.col("region.type").alias("region"))
@@ -279,6 +283,8 @@ def pose_descriptors_full(structure: Structure, potential=None, cutoff: float = 
         w = _layers(structure, cutoff, partner)
         if w.height:
             _block(w, jmat, jindex, cutoff, sfx, out)
+    out.update(loop_ca_profile(structure, cutoff=cutoff))
+    out.update(loop_ca_rules(structure, cutoff=cutoff))
     return out
 
 
@@ -317,3 +323,226 @@ def p_score(table, reference=None) -> np.ndarray:
         ref = None if reference is None else sign * col(reference, name)
         parts.append(zscore(sign * col(table, name), ref))
     return np.mean(parts, axis=0)
+
+
+# =====================================================================================================
+# Per-loop Calpha profile: contacting vs non-contacting, CDR1-3 of each chain, against peptide and MHC
+# =====================================================================================================
+
+_LOOPS = (("TRA", "CDR1", "cdr1a"), ("TRA", "CDR2", "cdr2a"), ("TRA", "CDR3", "cdr3a"),
+          ("TRB", "CDR1", "cdr1b"), ("TRB", "CDR2", "cdr2b"), ("TRB", "CDR3", "cdr3b"))
+
+
+def _auc_lt(a: np.ndarray, b: np.ndarray) -> float:
+    """P(a < b) for two samples --- the Mann-Whitney statistic, computed by ranking not by pairing.
+
+    Here: the probability that a randomly chosen *contacting* pair sits closer in Calpha than a
+    randomly chosen *non-contacting* one. 1.0 = Calpha distance orders contact perfectly within this
+    structure; 0.5 = it carries no information about which pairs actually touch.
+    """
+    if not len(a) or not len(b):
+        return float("nan")
+    from scipy.stats import rankdata
+
+    both = np.concatenate([a, b])
+    r = rankdata(both)[: len(a)]
+    u = r.sum() - len(a) * (len(a) + 1) / 2.0
+    return float(1.0 - u / (len(a) * len(b)))
+
+
+def loop_ca_profile(structure: Structure, cutoff: float = 5.0,
+                    ca_radius: float = 12.0) -> dict[str, float]:
+    """Calpha-distance profile of contacting vs non-contacting pairs, per CDR loop and partner.
+
+    For each of the six CDR loops (CDR1/2/3 of the alpha and beta chain) against each partner
+    (peptide, MHC), the pairs whose Calpha atoms lie within ``ca_radius`` are split into those that
+    make a ``cutoff`` A heavy-atom contact and those that do not, and each side's Calpha distance
+    distribution is described. The question it answers per loop: *at what Calpha separation does this
+    loop actually engage, and how cleanly does backbone proximity predict engagement at all?*
+
+    Keys are ``<loop>_<pep|mhc>_<stat>`` with stats:
+
+    ``n_shell``      pairs within ``ca_radius``
+    ``n_con``        of those, pairs that make a contact
+    ``frac_eng``     n_con / n_shell --- how much of the loop's Calpha neighbourhood is productive
+    ``d3con_mean``   mean Calpha distance of the CONTACTING pairs
+    ``d3con_min``    closest Calpha approach of the loop to the partner
+    ``d3con_sd``     spread of the contacting Calpha distances
+    ``d3non_mean``   mean Calpha distance of the NON-contacting pairs in the shell
+    ``d3sep``        ``d3non_mean - d3con_mean`` --- how far apart the two populations sit
+    ``auc_d3``       P(contacting pair is closer in Calpha than a non-contacting one), 0.5 = no
+                     information, 1.0 = Calpha distance orders engagement perfectly
+
+    Args:
+        structure: chain-typed, region-annotated complex.
+        cutoff: heavy-atom contact cutoff (A).
+        ca_radius: Calpha shell radius (A) defining "in the neighbourhood".
+
+    Returns:
+        Flat ``{name: value}``; a loop absent from the structure simply contributes no keys.
+    """
+    out: dict[str, float] = {}
+    for partner, sfx in ((( PEPTIDE_TYPE,), "pep"), (MHC_TYPES, "mhc")):
+        w = _layers(structure, cutoff, partner)
+        if not w.height or "region" not in w.columns:
+            continue
+        ann = residue_annotation(structure)
+        ctype = dict(zip(ann["chain.id"].to_list(), ann["chain.type"].to_list()))
+        chain_t = np.array([ctype.get(c) for c in w["ct"].to_list()], dtype=object)
+        region = np.array(w["region"].to_list(), dtype=object)
+        d3 = w["d3"].to_numpy()
+        has = w["d1"].is_not_null().to_numpy()
+        for ch, reg, name in _LOOPS:
+            m = (chain_t == ch) & (region == reg) & np.isfinite(d3) & (d3 <= ca_radius)
+            if not m.any():
+                continue
+            con, non = d3[m & has], d3[m & ~has]
+            k = f"{name}_{sfx}"
+            out[f"{k}_n_shell"] = float(m.sum())
+            out[f"{k}_n_con"] = float(len(con))
+            out[f"{k}_frac_eng"] = float(len(con) / m.sum())
+            if len(con):
+                out[f"{k}_d3con_mean"] = float(con.mean())
+                out[f"{k}_d3con_min"] = float(con.min())
+                out[f"{k}_d3con_sd"] = float(con.std())
+            if len(non):
+                out[f"{k}_d3non_mean"] = float(non.mean())
+            if len(con) and len(non):
+                out[f"{k}_d3sep"] = float(non.mean() - con.mean())
+                out[f"{k}_auc_d3"] = _auc_lt(con, non)
+    return out
+
+
+# =====================================================================================================
+# Interpretable Calpha rules: where each CDR loop sits relative to the peptide and to the MHC
+# =====================================================================================================
+
+def loop_ca_rules(structure: Structure, cutoff: float = 5.0) -> dict[str, float]:
+    """Per-loop Calpha geometry as plain distances, for reading rather than for scoring.
+
+    For every residue of each CDR loop, two numbers: its **nearest Calpha distance to the peptide**
+    and its **nearest Calpha distance to the MHC**. Their difference
+
+        ``delta = d_pep - d_mhc``
+
+    is negative when the loop residue sits closer to the peptide than to the MHC and positive when
+    it leans on the MHC instead. Averaging over a loop gives one statement per loop per structure,
+    e.g. "CDR3beta sits 1.2 A closer to the peptide than to the MHC".
+
+    Each loop is reported three ways: over all its residues, over the residues that actually make a
+    5 A heavy-atom contact **with the peptide**, and over those that do not. The contacting split is
+    the informative one --- it asks where a residue sits *given that it is engaged*, which separates
+    "this loop reaches the peptide" from "this loop happens to be near it".
+
+    Keys are ``<loop>_<all|con|non>_<d_pep|d_mhc|delta>`` plus ``<loop>_n_res`` and
+    ``<loop>_frac_con``.
+
+    Args:
+        structure: chain-typed, region-annotated complex.
+        cutoff: heavy-atom cutoff (A) defining "contacts the peptide".
+
+    Returns:
+        Flat ``{name: value}``; loops absent from the structure contribute no keys.
+    """
+    from .contacts.geometry import all_atom_contacts
+
+    ann = residue_annotation(structure)
+    ctype = dict(zip(ann["chain.id"].to_list(), ann["chain.type"].to_list()))
+
+    def ca_of(types):
+        return np.asarray([r.ca for c in structure.chains if c.chain_type in types
+                           for r in c.residues if r.ca is not None], float)
+
+    pep_ca, mhc_ca = ca_of((PEPTIDE_TYPE,)), ca_of(MHC_TYPES)
+    if not len(pep_ca) or not len(mhc_ca):
+        return {}
+    # MHC groove helices, for the docking-polarity contrasts
+    helix: dict[str, np.ndarray] = {}
+    for c in structure.chains:
+        if c.chain_type not in MHC_TYPES:
+            continue
+        for reg in (c.regions or []):
+            if reg.region_type.startswith("HELIX"):
+                pts = [r.ca for r in reg.residues if r.ca is not None]
+                if pts:
+                    helix.setdefault(reg.region_type, []).extend(pts)
+    helix = {k: np.asarray(v, float) for k, v in helix.items()}
+
+    # which receptor residues contact the peptide at all
+    con = all_atom_contacts(structure, cutoff=cutoff)
+    touch = set()
+    for a, b in (("from", "to"), ("to", "from")):
+        sub = con.filter(
+            pl.col(f"chain.id.{a}").replace_strict(ctype, default=None).is_in(list(RECEPTOR_TYPES))
+            & pl.col(f"chain.id.{b}").replace_strict(ctype, default=None).is_in([PEPTIDE_TYPE]))
+        touch |= set(zip(sub[f"chain.id.{a}"].to_list(), sub[f"residue.index.{a}"].to_list()))
+
+    out: dict[str, float] = {}
+    for ch, reg, name in _LOOPS:
+        chain = next((c for c in structure.chains if c.chain_type == ch), None)
+        if chain is None:
+            continue
+        region = next((r for r in (chain.regions or []) if r.region_type == reg), None)
+        if region is None:
+            continue
+        res = [r for r in region.residues if r.ca is not None]
+        if not res:
+            continue
+        ca = np.asarray([r.ca for r in res], float)
+        d_pep = np.linalg.norm(ca[:, None, :] - pep_ca[None], axis=2).min(axis=1)
+        d_mhc = np.linalg.norm(ca[:, None, :] - mhc_ca[None], axis=2).min(axis=1)
+        engaged = np.array([(chain.chain_id, r.seq_index) in touch for r in res], bool)
+        out[f"{name}_n_res"] = float(len(res))
+        out[f"{name}_frac_con"] = float(engaged.mean())
+        for tag, m in (("all", np.ones(len(res), bool)), ("con", engaged), ("non", ~engaged)):
+            if not m.any():
+                continue
+            out[f"{name}_{tag}_d_pep"] = float(d_pep[m].mean())
+            out[f"{name}_{tag}_d_mhc"] = float(d_mhc[m].mean())
+            out[f"{name}_{tag}_delta"] = float(d_pep[m].mean() - d_mhc[m].mean())
+
+        # how the loop engages along its own length: protrusion of its closest point below its mean,
+        # and how evenly its residues sit against the peptide
+        out[f"{name}_protrusion"] = float(d_pep.mean() - d_pep.min())
+        out[f"{name}_d_pep_sd"] = float(d_pep.std())
+        out[f"{name}_d_pep_min"] = float(d_pep.min())
+        out[f"{name}_d_mhc_min"] = float(d_mhc.min())
+
+        # sigma involution: does this loop read the N-terminal or the C-terminal half of the peptide?
+        if len(pep_ca) >= 4:
+            half = len(pep_ca) // 2
+            dN = np.linalg.norm(ca[:, None, :] - pep_ca[None, :half], axis=2).min(axis=1)
+            dC = np.linalg.norm(ca[:, None, :] - pep_ca[None, -half:], axis=2).min(axis=1)
+            out[f"{name}_d_pepN"] = float(dN.mean())
+            out[f"{name}_d_pepC"] = float(dC.mean())
+            out[f"{name}_delta_NC"] = float(dN.mean() - dC.mean())
+
+        # docking polarity: which MHC helix the loop leans on
+        for h1, h2, tag in (("HELIX_A1", "HELIX_A2", "helixA"), ("HELIX_A1", "HELIX_B1", "helixAB")):
+            a1, a2 = helix.get(h1), helix.get(h2)
+            if a1 is None or a2 is None or not len(a1) or not len(a2):
+                continue
+            da = np.linalg.norm(ca[:, None, :] - a1[None], axis=2).min(axis=1)
+            db = np.linalg.norm(ca[:, None, :] - a2[None], axis=2).min(axis=1)
+            out[f"{name}_d_{tag}1"] = float(da.mean())
+            out[f"{name}_d_{tag}2"] = float(db.mean())
+            out[f"{name}_delta_{tag}"] = float(da.mean() - db.mean())
+
+    # --- contrasts BETWEEN loops: the statements that need two loops to make -----------------------
+    def g(k):
+        return out.get(k, float("nan"))
+
+    for tag in ("all", "con"):
+        # CDR3 reach relative to the germline loops, per chain and pooled
+        for ch, three, one, two in (("a", "cdr3a", "cdr1a", "cdr2a"), ("b", "cdr3b", "cdr1b", "cdr2b")):
+            germ = np.nanmean([g(f"{one}_{tag}_d_pep"), g(f"{two}_{tag}_d_pep")])
+            out[f"cdr3_vs_germline_{ch}_{tag}_d_pep"] = float(g(f"{three}_{tag}_d_pep") - germ)
+            germm = np.nanmean([g(f"{one}_{tag}_d_mhc"), g(f"{two}_{tag}_d_mhc")])
+            out[f"cdr3_vs_germline_{ch}_{tag}_d_mhc"] = float(g(f"{three}_{tag}_d_mhc") - germm)
+        # alpha/beta asymmetry of the two CDR3 loops
+        out[f"cdr3_ab_asym_{tag}_d_pep"] = float(g(f"cdr3a_{tag}_d_pep") - g(f"cdr3b_{tag}_d_pep"))
+        out[f"cdr3_ab_asym_{tag}_d_mhc"] = float(g(f"cdr3a_{tag}_d_mhc") - g(f"cdr3b_{tag}_d_mhc"))
+        out[f"cdr3_ab_asym_{tag}_delta"] = float(g(f"cdr3a_{tag}_delta") - g(f"cdr3b_{tag}_delta"))
+    # the sigma involution as one number: alpha should read N, beta should read C
+    out["sigma_NC_split"] = float(g("cdr3a_delta_NC") - g("cdr3b_delta_NC"))
+    return out
