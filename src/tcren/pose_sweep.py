@@ -44,18 +44,21 @@ __all__ = ["pose_descriptors_full", "P_TERMS", "p_score"]
 #: distance, receptor- and partner-side partner counts, interface size, MHC-side composition, and
 #: the CDR footprint offset. No cohort, no label, no generator-reported quantity enters it.
 P_TERMS = (
-    ("d2_fav_tp_slope", +1.0),     # favourability rises as Cbeta closes
-    ("d1_tm_sd", -1.0),            # tight, uniform TCR:MHC contact shell
+    # d(favourability)/d(Cbeta distance) over TCR:peptide contacts. Positive = the chemically
+    # complementary pairs are the ones at LARGER Cbeta separation, i.e. specificity is carried by
+    # long-reach side chains, while the tightest Cbeta pairs are small and chemically neutral.
+    ("d2_fav_tp_slope", +1.0),
+    ("d1_tm_sd", -1.0),            # uniform TCR:MHC contact-distance shell
     ("degT_tp_mean", +1.0),        # receptor residues engaged, on average
     ("d1_tp_sd", -1.0),            # uniform TCR:peptide contact distances
-    ("d3_d2_tp_rho", -1.0),        # backbone and side-chain maps not merely redundant
+    ("d3_d2_tp_rho", -1.0),        # Calpha and Cbeta maps NOT merely restating each other
     ("n_contacts_tp", +1.0),       # interface size
-    ("degT_tm_frac_le3", -1.0),
-    ("d2_tp_skew", +1.0),
-    ("degP_tm_sd", -1.0),
+    ("degT_tm_frac_le3", -1.0),    # receptor spreads over the MHC rather than touching it lightly
+    ("d2_tp_skew", +1.0),          # Cbeta distances right-skewed: a compact core plus reachers
+    ("degP_tm_sd", -1.0),          # MHC-side partner counts even
     ("d1_tp_q90", -1.0),           # no long tail of marginal contacts
-    ("fracP_tiny_tm", +1.0),
-    ("d3_d2_tp_slope", -1.0),
+    ("fracP_tiny_tm", +1.0),       # Gly/Ala/Ser share of the contacted MHC face
+    ("d3_d2_tp_slope", -1.0),      # Cbeta separation grows slowly with Calpha separation
     ("offset", -1.0),              # CDR footprint centred on the peptide
 )
 
