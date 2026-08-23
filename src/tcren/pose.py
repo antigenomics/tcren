@@ -45,26 +45,61 @@ import polars as pl
 from functools import lru_cache
 
 from .contacts.definitions import ContactDefinition, multi_contacts
-from .structure.model import PEPTIDE_TYPE, RECEPTOR_TYPES, Structure
+from .structure.model import MHC_TYPES, PEPTIDE_TYPE, RECEPTOR_TYPES, Structure
 
 __all__ = ["pose_consistency", "c_score", "pose_native_reference", "pose_af_reference",
-           "POSE_FEATURES"]
+           "POSE_FEATURES", "POSE_FEATURES_CONTACT", "POSE_FEATURES_SHELL",
+           "POSE_FEATURES_DEGREE"]
 
 #: The cross-map descriptors :func:`pose_consistency` returns, each oriented positive-is-crystal-like.
 #: These are the ``k`` terms a pose score standardizes against a native-crystal reference.
 POSE_FEATURES = (
+    # --- read over the realized 5 A contacts (n ~ 20-30) ---
     "c_local",
     "e_tight_minus_loose",
     "frac_close_favourable",
     "frac_cb_close_engaged",
     "sidechain_toward",
     "margin_energy_slope",
+    # --- read over the Calpha approach shell, which is ~10x larger and includes the pairs that
+    #     are close but form nothing (suffix _tp = TCR:peptide, _tm = TCR:MHC) ---
+    "ca_energy_coupling_tp",
+    "ca_energy_slope_tp",
+    "frac_ca_close_engaged_tp",
+    "ca_cb_agreement_tp",
+    "ca_energy_coupling_tm",
+    "ca_energy_slope_tm",
+    "frac_ca_close_engaged_tm",
+    "ca_cb_agreement_tm",
+    # --- is the contact budget spread over residues, or hoarded by a few over-reaching ones? ---
+    "degree_evenness_tp",
+    "frac_well_coordinated_tp",
 )
+
+#: The six read over the **realized 5 A contacts**. Grouped by what they read, not by what they
+#: score. This is the subset to use for **provenance** (crystal against generated): on 374 crystals
+#: against 2,000 AlphaFold models it gives ROC 0.706 [0.675, 0.736] against 0.629 for the full set,
+#: because the shell and degree terms carry little provenance signal and dilute the whitened sum.
+POSE_FEATURES_CONTACT = POSE_FEATURES[:6]
+
+#: The eight read over the **Calpha approach shell** --- an order of magnitude more pairs than the
+#: contact set, and the only ones that see residues that are close but form nothing.
+POSE_FEATURES_SHELL = POSE_FEATURES[6:14]
+
+#: The two describing how the contact budget is **distributed over receptor residues**.
+POSE_FEATURES_DEGREE = POSE_FEATURES[14:]
 
 # The Cbeta layer threshold for "side chains are near enough that an interaction is expected".
 # Distinct from the layer build cutoff below, which is deliberately generous so that every d1
 # contact also has a Cbeta and a Calpha distance available to pair against.
 _CB_CLOSE = 8.0
+# "close" on the Calpha axis: the standard 8 A Calpha proxy for a residue-residue contact, so
+# `frac_ca_close_engaged` reads "backbones near enough to touch, but do they actually?".
+_CA_CLOSE = 8.0
+# A residue reaching more partners than this is over-coordinated: in crystals a side chain typically
+# contacts one to three residues across the interface, and a long one parked against five or six is
+# the shape a contact-density objective produces.
+_MAX_TYPICAL_DEGREE = 3
 # Long side chains (Arg, Lys, Trp) put two heavy atoms within 5 A while their Calpha atoms sit far
 # apart, so the representative-atom layers are built well past their nominal 8/12 A defaults; the
 # per-descriptor thresholds are applied afterwards by filtering.
@@ -114,8 +149,8 @@ def _spearman(x: np.ndarray, y: np.ndarray) -> float:
     return float(spearmanr(x[ok], y[ok]).statistic)
 
 
-def _interface_layers(structure: Structure, cutoff: float) -> pl.DataFrame:
-    """The d1/d2/d3 layers pivoted onto one row per TCR:peptide residue pair.
+def _interface_layers(structure: Structure, cutoff: float, partner=(PEPTIDE_TYPE,)) -> pl.DataFrame:
+    """The d1/d2/d3 layers pivoted onto one row per TCR:``partner`` residue pair.
 
     Returns a frame keyed by the residue pair with columns ``d1``/``d2``/``d3`` (Angstrom, null where
     that layer does not reach), ``aa.tcr``/``aa.pep`` and the d1 atom names. The TCR side is
@@ -130,12 +165,17 @@ def _interface_layers(structure: Structure, cutoff: float) -> pl.DataFrame:
         pl.col("chain.id.from").replace_strict(ctype, default=None).alias("type.from"),
         pl.col("chain.id.to").replace_strict(ctype, default=None).alias("type.to"),
     )
-    tcr, pep = list(RECEPTOR_TYPES), [PEPTIDE_TYPE]
+    tcr, pep = list(RECEPTOR_TYPES), list(partner)
     fwd = pl.col("type.from").is_in(tcr) & pl.col("type.to").is_in(pep)
     rev = pl.col("type.from").is_in(pep) & pl.col("type.to").is_in(tcr)
     stacked = stacked.filter(fwd | rev).with_columns(
         pl.when(fwd).then(pl.col("residue.aa.from")).otherwise(pl.col("residue.aa.to")).alias("aa.tcr"),
         pl.when(fwd).then(pl.col("residue.aa.to")).otherwise(pl.col("residue.aa.from")).alias("aa.pep"),
+        # Normalised receptor-side residue key: degree must be counted on the TCR side, because a
+        # peptide residue sits *inside* the groove ringed by receptor and has a high degree in every
+        # real complex. It is the receptor side-chain reaching too many partners that is the tell.
+        pl.when(fwd).then(pl.col("chain.id.from")).otherwise(pl.col("chain.id.to")).alias("key.tcr.chain"),
+        pl.when(fwd).then(pl.col("residue.index.from")).otherwise(pl.col("residue.index.to")).alias("key.tcr.res"),
     )
     if stacked.is_empty():
         return stacked.select(*_KEY, "aa.tcr", "aa.pep").with_columns(
@@ -146,7 +186,8 @@ def _interface_layers(structure: Structure, cutoff: float) -> pl.DataFrame:
     # in d2 but not d1 still appears (outer join) --- that is exactly the unengaged pair
     # `frac_cb_close_engaged` counts, and it needs no residue identity.
     wide = (stacked.filter(pl.col("layer") == "d1")
-            .select(*_KEY, "aa.tcr", "aa.pep", pl.col("dist").alias("d1")))
+            .select(*_KEY, "aa.tcr", "aa.pep", "key.tcr.chain", "key.tcr.res",
+                    pl.col("dist").alias("d1")))
     for layer in ("d2", "d3"):
         part = (stacked.filter(pl.col("layer") == layer)
                 .select(*_KEY, pl.col("dist").alias(layer)))
@@ -155,8 +196,79 @@ def _interface_layers(structure: Structure, cutoff: float) -> pl.DataFrame:
     return wide
 
 
+def _degree_descriptors(contacts: pl.DataFrame, suffix: str) -> dict[str, float]:
+    """Contact-degree structure: is the interface spread over residues, or hoarded by a few?
+
+    A real interface distributes its contacts --- a given receptor side chain typically reaches one
+    to three peptide residues. A pose optimised for contact count can instead park one long residue
+    (Arg, Lys, Trp) against five or six at once, which is cheap for a density objective and rare in
+    a crystal. Read as the participation ratio of the degree distribution (1 = perfectly even) plus
+    the fraction of receptor residues that are *not* over-coordinated.
+
+    Counted on the **receptor side only**. A peptide residue lies inside the groove ringed by CDR
+    loops and carries a high partner count in every real complex, so pooling both sides would
+    measure peptide burial rather than receptor over-reach.
+    """
+    out = {f"degree_evenness{suffix}": float("nan"),
+           f"frac_well_coordinated{suffix}": float("nan"),
+           f"max_degree{suffix}": float("nan")}
+    if contacts.is_empty():
+        return out
+    deg = (contacts.group_by(["key.tcr.chain", "key.tcr.res"]).len()["len"]
+           .to_numpy().astype(float))
+    if not len(deg):
+        return out
+    out[f"max_degree{suffix}"] = float(deg.max())
+    out[f"frac_well_coordinated{suffix}"] = float((deg <= _MAX_TYPICAL_DEGREE).mean())
+    # participation ratio, normalised to [0, 1]: 1 when every residue carries the same degree,
+    # ~1/n when a single residue hoards every contact
+    out[f"degree_evenness{suffix}"] = float(deg.sum() ** 2 / (len(deg) * (deg ** 2).sum()))
+    return out
+
+
+def _ca_map_descriptors(wide: pl.DataFrame, jmat, jindex, cutoff: float,
+                        ca_radius: float, suffix: str) -> dict[str, float]:
+    """Descriptors of the Calpha interface *neighbourhood*, not just the realized contacts.
+
+    The realized 5 A contacts of one TCR:peptide interface number ~20-30, which is thin for a
+    correlation. The Calpha neighbourhood within ``ca_radius`` is an order of magnitude larger and
+    contains the pairs that matter most here: those whose backbones are close but which form **no**
+    contact. A crystal packs complementary residues into its close-approach shell; a pose built to
+    satisfy a contact-density prior fills that shell without regard to which identities are there.
+    """
+    out = {f"ca_energy_coupling{suffix}": float("nan"),
+           f"ca_energy_slope{suffix}": float("nan"),
+           f"frac_ca_close_engaged{suffix}": float("nan"),
+           f"ca_cb_agreement{suffix}": float("nan"),
+           f"n_ca_near{suffix}": float("nan")}
+    near = wide.filter(pl.col("d3").is_not_null() & (pl.col("d3") <= ca_radius))
+    out[f"n_ca_near{suffix}"] = float(near.height)
+    if near.height < 3:
+        return out
+
+    d_ca = near["d3"].to_numpy()
+    j = _pair_j(near["aa.tcr"].to_list(), near["aa.pep"].to_list(), jmat, jindex)
+    fav = -j
+    # closer Calpha should mean more complementary chemistry, over the WHOLE approach shell
+    out[f"ca_energy_coupling{suffix}"] = _spearman(-d_ca, fav)
+    ok = np.isfinite(fav)
+    if ok.sum() >= 3 and np.std(d_ca[ok]) > 1e-12:
+        out[f"ca_energy_slope{suffix}"] = float(-np.polyfit(d_ca[ok], fav[ok], 1)[0])
+
+    # the user's "close Calpha that do not form good contacts", read directly
+    close = near.filter(pl.col("d3") <= _CA_CLOSE)
+    if close.height:
+        out[f"frac_ca_close_engaged{suffix}"] = float(close["d1"].is_not_null().mean())
+
+    both = near.filter(pl.col("d2").is_not_null())
+    if both.height >= 3:
+        # do the side chains track the backbone? they do in a real interface
+        out[f"ca_cb_agreement{suffix}"] = _spearman(both["d3"].to_numpy(), both["d2"].to_numpy())
+    return out
+
+
 def pose_consistency(
-    structure: Structure, potential=None, cutoff: float = 5.0
+    structure: Structure, potential=None, cutoff: float = 5.0, ca_radius: float = 12.0
 ) -> dict[str, float]:
     """Cross-map consistency descriptors of one TCR:peptide interface.
 
@@ -207,7 +319,19 @@ def pose_consistency(
             (both["d3"].to_numpy() - both["d2"].to_numpy()).mean()
         )
 
-    # Everything below is a correlation, a slope or a tercile split, and needs at least three pairs.
+    # The degree structure and the Calpha-shell descriptors carry their own guards and do NOT need
+    # three *contacts* -- the shell is an order of magnitude larger than the contact set -- so they
+    # are computed before the contact-correlation block bails out.
+    out.update(_degree_descriptors(contacts, "_tp"))
+    out.update(_ca_map_descriptors(wide, jmat, jindex, cutoff, ca_radius, "_tp"))
+    # The TCR:MHC interface is the same physics on a much larger shell, and it is the half a
+    # generator has the most freedom to invent: the peptide is short and anchored, the MHC is not.
+    out.update(_ca_map_descriptors(
+        _interface_layers(structure, cutoff, partner=MHC_TYPES),
+        jmat, jindex, cutoff, ca_radius, "_tm"))
+
+    # Everything below is a correlation, a slope or a tercile split over the realized contacts,
+    # and needs at least three of them.
     if n < 3:
         return out
 

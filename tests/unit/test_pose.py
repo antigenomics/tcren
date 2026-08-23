@@ -156,3 +156,57 @@ def test_c_score_is_defined_for_a_single_row_and_orders_correctly():
 
 def test_selfcheck_runs():
     _selfcheck()
+
+
+# --- contact-degree structure -----------------------------------------------------------------
+
+def _fan(n_partners, spacing=1.5):
+    """One TCR Leu reaching ``n_partners`` peptide Asp residues, all within the 5 Å cutoff."""
+    tcr = [("L", (0.0, 0.0, 0.0), -1.0)]
+    pep = [("D", (3.0, spacing * (i - (n_partners - 1) / 2), 0.0), 1.0) for i in range(n_partners)]
+    return _complex(pep, tcr)
+
+
+def test_over_reaching_receptor_residue_lowers_the_degree_descriptors():
+    lean = pose_consistency(_fan(2), potential=_Pot())
+    greedy = pose_consistency(_fan(6), potential=_Pot())
+    assert lean["max_degree_tp"] == 2 and greedy["max_degree_tp"] == 6
+    assert lean["frac_well_coordinated_tp"] == 1.0      # 2 partners is typical
+    assert greedy["frac_well_coordinated_tp"] == 0.0    # 6 is not
+    assert greedy["degree_evenness_tp"] <= lean["degree_evenness_tp"]
+
+
+def test_degree_is_counted_on_the_receptor_side_not_the_peptide_side():
+    # One peptide residue ringed by six TCR residues: normal (a peptide sits inside the groove).
+    # Every TCR residue has degree 1, so the interface must read as well-coordinated.
+    pep = [("D", (0.0, 0.0, 0.0), 1.0)]
+    tcr = [("L", (3.0 * np.cos(t), 3.0 * np.sin(t), 0.0), 0.3) for t in np.linspace(0, 5.0, 6)]
+    d = pose_consistency(_complex(pep, tcr), potential=_Pot())
+    assert d["max_degree_tp"] == 1
+    assert d["frac_well_coordinated_tp"] == 1.0
+    assert d["degree_evenness_tp"] == pytest.approx(1.0)
+
+
+# --- the Calpha approach shell ------------------------------------------------------------------
+
+def test_ca_shell_is_larger_than_the_contact_set_and_scores_separately():
+    # partners at 3 A (a contact) and at 9 A (in the Calpha shell, not a contact)
+    s = _line([("D", 3.0, 1.0), ("K", 4.0, 1.0), ("W", 4.9, 1.0),
+               ("W", 9.0, 1.0), ("W", 10.0, 1.0)])
+    d = pose_consistency(s, potential=_Pot())
+    assert d["n_contacts"] == 3
+    assert d["n_ca_near_tp"] == 5                       # the shell sees the far pairs too
+    assert np.isfinite(d["ca_energy_coupling_tp"])
+
+
+def test_frac_ca_close_engaged_flags_backbones_that_touch_nothing():
+    # all five peptide residues have Cα within 8 Å, but only the 3 Å one forms a 5 Å contact
+    s = _line([("D", 3.0, 1.0), ("W", 6.0, 1.0), ("W", 6.5, 1.0), ("W", 7.0, 1.0)])
+    d = pose_consistency(s, potential=_Pot())
+    assert d["frac_ca_close_engaged_tp"] == pytest.approx(0.25)
+
+
+def test_every_declared_feature_is_returned():
+    d = pose_consistency(_line([("D", 3.0, 1.0), ("K", 4.0, 1.0), ("W", 4.9, 1.0)]), potential=_Pot())
+    missing = [f for f in POSE_FEATURES if f not in d]
+    assert not missing, missing
