@@ -15,7 +15,7 @@ from tcren.pose import (
     pose_consistency,
     pose_native_reference,
 )
-from tcren.structure.model import PEPTIDE_TYPE, Atom, Chain, Residue, Structure
+from tcren.structure.model import PEPTIDE_TYPE, Atom, Chain, RegionMarkup, Residue, Structure
 
 
 def _atom(name, el, xyz):
@@ -231,3 +231,49 @@ def test_agreement_is_defined_for_a_single_row_against_a_reference():
     b = agreement([2.0], [-2.0], ref_q, ref_e)         # geometry good, chemistry bad -> disagree
     assert a.shape == (1,) and np.isfinite(a[0])
     assert a[0] > 0 and b[0] < 0
+
+
+# --- the designed pose metric P -------------------------------------------------------------
+
+def _full_complex():
+    """Peptide + receptor + MHC, big enough that every reduction (incl. the _tm block) is defined."""
+    three = {"L": "LEU", "D": "ASP", "K": "LYS", "W": "TRP"}
+    rng = np.random.default_rng(0)
+
+    def chain(cid, ctype, n, origin, aas):
+        res = []
+        for i in range(n):
+            x, y_, z = origin + rng.normal(scale=1.6, size=3)
+            aa = aas[i % len(aas)]
+            res.append(Residue(i, i + 1, "", aa, three[aa], (
+                _atom("CA", "C", [x, y_, z]), _atom("CB", "C", [x + 0.7, y_, z]))))
+        c = Chain(cid, res, chain_type=ctype)
+        c.regions = [RegionMarkup("CDR3", 0, n - 1, "".join(r.aa for r in res), res)]
+        return c
+
+    pep = chain("C", PEPTIDE_TYPE, 9, np.array([0.0, 0.0, 0.0]), "DKW")
+    tcr = chain("B", "TRB", 14, np.array([0.0, 0.0, 4.0]), "LDK")
+    mhc = chain("A", "MHCa", 18, np.array([0.0, 0.0, -4.0]), "LDW")
+    return Structure("synth_full", [pep, tcr, mhc])
+
+
+def test_p_score_terms_are_all_produced_by_the_generator():
+    """Every P term must be a descriptor the generator actually emits, or P silently drops it."""
+    from tcren.pose_sweep import P_TERMS, pose_descriptors_full
+
+    d = pose_descriptors_full(_full_complex(), potential=_Pot())
+    # `offset` comes from orient.tcr_placement, not the map generator; the rest must be present
+    produced = set(d) | {"offset"}
+    missing = [n for n, _ in P_TERMS if n not in produced]
+    assert not missing, missing
+
+
+def test_p_score_orients_higher_is_better_and_is_row_wise():
+    from tcren.pose_sweep import P_TERMS, p_score
+
+    rng = np.random.default_rng(0)
+    ref = {n: rng.normal(size=300) for n, _ in P_TERMS}
+    good = {n: [float(np.mean(ref[n]) + sign * 2.0 * np.std(ref[n]))] for n, sign in P_TERMS}
+    bad = {n: [float(np.mean(ref[n]) - sign * 2.0 * np.std(ref[n]))] for n, sign in P_TERMS}
+    assert p_score(good, ref)[0] > p_score(bad, ref)[0]
+    assert p_score({n: ref[n] for n, _ in P_TERMS}).shape == (300,)
