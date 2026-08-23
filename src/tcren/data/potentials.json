@@ -25,13 +25,12 @@
     },
     "tcren2": {
       "file": "TCRen2_potential.csv",
-      "description": "TCRen2: the default TCR:peptide potential. Redundancy-balanced derivation over the 362 fully annotated alpha-beta TCR:pMHC crystals of Native2026 (12 of the 374 are dropped: 3 pMHC-only, 8 single-chain, 1 gamma-delta), each structure weighted by the mean of 1/(structures sharing its epitope) and 1/(structures sharing its CDR3a/CDR3b pair).",
+      "description": "TCRen2: the default TCR:peptide potential. Redundancy-balanced derivation over the fully annotated alpha-beta TCR:pMHC crystals of Native2026 -- 362 of 374; derive-potential admits nothing else, by design -- each structure weighted by the mean of 1/(structures sharing its epitope) and 1/(structures sharing its CDR3a/CDR3b pair).",
       "source": "structure-dir",
       "structure_dir": "Native2026",
       "flags": [
         "--balance",
-        "both",
-        "--ab-only"
+        "both"
       ],
       "variant": "classic",
       "pseudocount": 1

@@ -2,8 +2,8 @@
 
 Everything here is marked `@not_in_tcren2` in the source: correct, tested, and taking no part in
 producing the shipped matrix. The recipe is
-`tcren derive-potential --structure-dir Native2026 --balance both --ab-only`, at the 5 Å
-heavy-atom contact cutoff `contact_table` uses (the subcommand has no `--cutoff`), and nothing else. **Delete this list, and the code behind it, at the next major version.** Keeping four
+`tcren derive-potential --structure-dir Native2026 --balance both`, at the 5 Å heavy-atom
+contact cutoff `contact_table` uses (the subcommand has no `--cutoff`), and nothing else. **Delete this list, and the code behind it, at the next major version.** Keeping four
 redundancy schemes and three reference states around is how three mutually inconsistent potentials
 came to be in circulation at once.
 

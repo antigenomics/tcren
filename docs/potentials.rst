@@ -35,9 +35,10 @@ Shipped matrices
      - ``TCRen2_potential.csv``
      - 380
      - **TCRen2 — the default TCR:peptide potential since 2.11.0.** Redundancy-balanced
-       derivation over the **362 fully annotated αβ** ``Native2026`` crystals (``--ab-only``),
-       weighting each structure on both the epitope and the receptor axis (``--balance
-       both``). This is the matrix the TCRen2 manuscript reports.
+       derivation over the **362 fully annotated αβ** ``Native2026`` crystals — the only
+       kind ``derive-potential`` accepts — weighting each structure on both the epitope and
+       the receptor axis (``--balance both``). This is the matrix the TCRen2 manuscript
+       reports.
    * - ``mj1996``
      - ``MJ1996_contact_energies.csv``
      - 400

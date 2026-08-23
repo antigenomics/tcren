@@ -22,7 +22,7 @@ from typing import TypeVar
 T = TypeVar("T", bound=Callable)
 
 #: The exact recipe behind ``TCRen2_potential.csv``, as recorded in ``data/potentials.json``.
-TCREN2_RECIPE = "tcren derive-potential --structure-dir Native2026 --balance both --ab-only"
+TCREN2_RECIPE = "tcren derive-potential --structure-dir Native2026 --balance both"
 
 
 def not_in_tcren2(reason: str) -> Callable[[T], T]:

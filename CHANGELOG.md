@@ -27,10 +27,11 @@ itself is not the one 2.10.0 shipped. Re-run anything you are comparing across t
   ergodic bridge, the Garcia EC50 series and CPL all inside noise. r = +0.966 against the old matrix,
   max |d| 1.011 — scores are not comparable across the change.
 
-### Added
-- **`derive-potential --ab-only`** — restrict the derivation to complexes with both CDR3s and a
-  peptide. This is the flag that produces the shipped TCRen2; `data/potentials.json` records it and
-  `tests/regression/test_shipped_potentials.py` re-runs it.
+- **`derive-potential` now derives from αβ TCR:pMHC only, unconditionally.** A structure missing
+  either CDR3 or the peptide is dropped, and there is no flag to turn that off: `tcren` is for
+  αβ TCR : peptide-MHC (class I or II, standard amino acids) and nothing else. This is what
+  produces the shipped TCRen2; the recipe in `data/potentials.json` is unchanged and
+  `tests/regression/test_shipped_potentials.py` still reproduces the file bit-for-bit.
 
 ## [Unreleased]
 

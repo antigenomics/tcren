@@ -13,11 +13,13 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from tcren.annotation import classify_chains
-from tcren.contactmap import ContactMap
-from tcren.ddg import alanine_scan, ddg, reference_delta
-from tcren.potential import tcren2
-from tcren.refine.substitute import substitute_peptide, virtual_cb
+pytest.importorskip("arda")
+
+from tcren.annotation import classify_chains  # noqa: E402
+from tcren.contactmap import ContactMap  # noqa: E402
+from tcren.ddg import alanine_scan, ddg, reference_delta  # noqa: E402
+from tcren.potential import tcren2  # noqa: E402
+from tcren.refine.substitute import substitute_peptide, virtual_cb  # noqa: E402
 from tcren.structure import parse_structure
 
 PDB = Path(__file__).resolve().parents[1] / "assets" / "pdb" / "1ao7.pdb"

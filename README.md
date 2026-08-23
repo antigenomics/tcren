@@ -33,6 +33,12 @@ mechanics and estimate ddG values.
 
 ## What it does
 
+> **Scope.** `tcren` is for **αβ TCR : peptide–MHC** complexes and nothing else: a TRA and a
+> TRB chain, a peptide of standard amino acids, and a class I or class II groove. γδ
+> receptors, single-chain constructs, pMHC with no TCR and non-peptidic ligands are out of
+> scope — `derive-potential` drops them rather than deriving from them, and there is no flag
+> to widen it.
+
 From one TCR–peptide–MHC structure (crystal or model), each task is one command or one call:
 
 | task | command | library |

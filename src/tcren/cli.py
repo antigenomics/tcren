@@ -45,8 +45,7 @@ import typer
 from . import __version__
 from .annotation import classify_chains
 from .contactmap import TCR_REGIONS, ContactMap
-from .potential import (Potential, derive_tcren, derive_tcren_loo, keskin, mj,
-                        tcren, tcren2)
+from .potential import Potential, derive_tcren, derive_tcren_loo, tcren, tcren2
 from .scoring import score_peptides
 from .structure import iter_structures, parse_structure
 
@@ -311,13 +310,6 @@ def derive_potential(
              "re-solved complex counts once while a novel receptor on a common epitope "
              "still counts (requires --structure-dir)",
     ),
-    ab_only: bool = typer.Option(
-        False, "--ab-only",
-        help="derive only from fully annotated \u03b1\u03b2 TCR:pMHC complexes -- both CDR3s and a "
-             "peptide present. Without it a single-chain or \u03b3\u03b4 crystal is kept, and because "
-             "--balance skips a structure with a null on any axis such a structure silently enters "
-             "at weight 1.0, the maximum (requires --structure-dir)",
-    ),
     loo: bool = typer.Option(False, "--loo", help="NOT USED FOR TCRen2. emit leave-one-out potentials instead"),
 ) -> None:
     """Derive a TCRen potential from observed contacts.
@@ -349,15 +341,22 @@ def derive_potential(
         ab = alphabeta_ids(contacts)
         include = nonredundant_ids(markup.filter(pl.col("pdb.id").is_in(ab)), t=redundancy_t)
 
-    if ab_only:
-        if markup is None:
-            raise typer.BadParameter("--ab-only requires markup (use --structure-dir)")
+    if markup is not None:
+        # HARD RULE: tcren is for alpha-beta TCR : peptide-MHC and nothing else. A structure
+        # missing either CDR3 or the peptide is not in scope, and it is not merely useless --
+        # `--balance` skips a structure with a null on any axis, and `derive_tcren` then defaults
+        # it to weight 1.0, the maximum. On Native2026 that admitted 12 files (3 pMHC-only, 8
+        # single-chain, one gamma-delta), three near-duplicate pairs among them at full weight
+        # each. There is no flag to turn this off.
+        before = markup.height
         markup = markup.filter(
             pl.col("cdr3a").is_not_null() & pl.col("cdr3b").is_not_null()
             & pl.col("peptide").is_not_null()
         )
-        keep = markup["pdb.id"].to_list()
-        include = keep if include is None else [i for i in include if i in set(keep)]
+        if markup.height < before:
+            typer.echo(f"alpha-beta TCR:pMHC only: {markup.height} of {before} structures kept")
+        keep = set(markup["pdb.id"])
+        include = sorted(keep) if include is None else [i for i in include if i in keep]
 
     weights = None
     if balance is not None:
