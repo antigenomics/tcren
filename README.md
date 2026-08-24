@@ -430,6 +430,39 @@ recovers side-chain RMSD 3.93 → 1.66 Å, 8/8 improved, median 6 ms.
 It rotates the side chains a model **has** — it cannot rebuild ones `substitute_peptide` stripped;
 that is side-chain *construction*, still open (`refine/CPP_REWRITE.md`).
 
+### Footprint shape: what the contacts say before they are scored
+
+Every other scorer here sums over contacts. `tcren.footprint` reads the same contact map as a
+**shape** — which of the six CDR loops touched what, and whether the resulting footprint is one
+connected patch. No potential, no reference structure, no fitted parameter, and **no canonical
+orientation**: every feature is invariant under rigid motion, so unaligned inputs are fine. Only
+chain typing and CDR markup are needed, which the CLI does in one batched annotation pass.
+
+Coverage is the composition over cells — the 6 CDR loops × {peptide, MHC}, optionally splitting the
+peptide into thirds — summarised by the normalised Shannon entropy and by the Hill numbers
+([Hill 1973](https://doi.org/10.2307/1934352), [Jost 2006](https://doi.org/10.1111/j.2006.0030-1299.14714.x)),
+where `D2` is the *effective number of engaged cells*. Topology joins the contacted pMHC residues at
+a Cα threshold and builds the flag complex: `fp_b0_*` counts footprint patches and `fp_b1_*` its
+holes. The two are only weakly related, so `fp_score` sums them.
+
+```bash
+tcren footprint -s structures/ -o footprint.tsv --score
+```
+
+```python
+from tcren.footprint import footprint_batch, footprint_features, footprint_score
+
+row = footprint_features(structure)          # one dict, ~33 features
+row["D2_pep24"], row["fp_b0_r7"], row["L_canon"]
+
+table = footprint_batch("structures/")       # polars frame, one row per structure
+table = footprint_score(table, group=None)   # cohort-standardised fp_score
+```
+
+Note the cyclomatic number of the bipartite contact graph (`E − V + C`) is deliberately not offered:
+with of order thirty contacts among of order thirty residues it is dominated by `E` and simply
+tracks interface size. The patch count is scale-free instead.
+
 ### Surface topology: what a TCR meets before it binds
 
 A contact potential scores an interface that already exists. `tcren.surface` describes the pMHC
@@ -655,6 +688,7 @@ Worked examples of every view, with images: **[Figure gallery](https://docs.isal
 | `tcren.orient` | canonical frame, `superimpose` onto the canonical DB, docking angles, reverse-dock detection |
 | `tcren.refine` | peptide substitution + refinement (DOPE MC; CCD/OpenMM/ProMod3/FlexPepDock engines); register QC |
 | `tcren.clashes` / `mechanics` | steric-clash report; interface spring-network stiffness + rupture model |
+| `tcren.footprint` | footprint **shape**: coverage entropy / Hill numbers over the CDR-loop × target partition, canonical germline-MHC vs CDR3-peptide preference, α/β contact imbalance, and the footprint's topology (patches, holes, H₀ persistence) — no potential, no reference, orientation-free |
 | `tcren.project2d` / `viz` | project the interface onto the groove plane; SVG complementarity maps + 3D pocket/CDR views |
 | `tcren.pipeline` / `oracle` | one-call structure scoring (`run_pipeline` → Φ, ΔΦ per interface; `summarize_structure`) |
 | `tcren.paper` | Nat Comput Sci 2022 reproduction (HF bootstrap, batch annotation, legacy comparison) |

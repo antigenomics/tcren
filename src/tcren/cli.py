@@ -1290,6 +1290,63 @@ def substitute_tcr_cmd(
     typer.echo(f"grafted {d.pdb_id} TCR onto {h.pdb_id} pMHC (by {by}) -> {out}")
 
 
+@app.command(rich_help_panel=_P_SCORE)
+def footprint(
+    structures: str = typer.Option(..., "-s", "--structures", help="TCR-pMHC structure file, directory, glob, or .tar.gz"),
+    out: Path = typer.Option("footprint.tsv", "-o", "--out", help="per-structure coverage + topology table (TSV)"),
+    organism: str = typer.Option("human", "--organism"),
+    cutoff: float = typer.Option(5.0, "--cutoff", help="heavy-atom contact threshold (A)"),
+    radii: str = typer.Option("7,8", "--radii", help="Calpha thresholds for the footprint flag complex; b0 is most informative at 7 A and b1 at 8 A"),
+    group: str = typer.Option(None, "--group", help="column to standardise fp_score within (e.g. epitope); needs --meta"),
+    meta: Path = typer.Option(None, "--meta", help="TSV/CSV with a 'pdb.id' column plus --group, joined before scoring"),
+    score: bool = typer.Option(False, "--score", help="append the cohort-standardised fp_score = z(D2_pep24) + z(-fp_b0_frac_r7)"),
+) -> None:
+    """Footprint shape: how a receptor's contacts are DISTRIBUTED, not what they score.
+
+    One TSV row per structure with the coverage measures -- normalised Shannon entropy
+    ``H_cell`` and the Hill numbers ``D1``/``D2`` over the 6 CDR loops x {peptide, MHC}, plus
+    ``D2_pep24`` on the finer partition that splits the peptide into thirds -- the canonical
+    docking preference (``L_canon``, ``p_germ_mhc``, ``p_cdr3_pep``), the alpha/beta contact
+    imbalance, and the footprint's topology (``fp_b0_*`` patches, ``fp_b1_*`` holes, the Euler
+    characteristic, and the H0 persistence entropy).
+
+    None of these is an energy and none needs a potential, a reference structure or a fitted
+    parameter. They are invariant under rigid motion, so the inputs do **not** have to be
+    oriented -- only chain-typed with CDR region markup, which this command does for you in one
+    batched annotation pass over the whole set.
+
+    ``--score`` adds the cohort-standardised ``fp_score``; it compares structures against each
+    other, so it needs a set and is undefined for a single input. Use ``--group`` with ``--meta``
+    to standardise within epitope rather than across the whole table.
+
+    Complementary scorer on the same inputs: ``tcren recognize`` (energies + P(real)).
+    """
+    from .footprint import footprint_batch, footprint_score
+
+    try:
+        rr = tuple(float(v) for v in radii.replace(" ", "").split(",") if v)
+    except ValueError as exc:
+        raise typer.BadParameter(f"--radii must be comma-separated numbers, got {radii!r}") from exc
+    if not rr:
+        raise typer.BadParameter("--radii needs at least one value")
+
+    table = footprint_batch(structures, cutoff=cutoff, radii=rr, organism=organism)
+    if table.height == 0:
+        raise typer.BadParameter(f"no structures scored from {structures!r}")
+    if meta is not None:
+        sep = "," if meta.suffix.lower() == ".csv" else "\t"
+        m = pl.read_csv(meta, separator=sep, infer_schema_length=None)
+        if "pdb.id" not in m.columns:
+            raise typer.BadParameter(f"--meta needs a 'pdb.id' column; got {list(m.columns)}")
+        table = table.join(m, on="pdb.id", how="left")
+    if score or group:
+        if group and group not in table.columns:
+            raise typer.BadParameter(f"--group {group!r} is not a column; pass it via --meta")
+        table = footprint_score(table, group=group)
+    table.write_csv(out, separator="\t")
+    typer.echo(f"footprint: {table.height} structures, {len(table.columns)} columns -> {out}")
+
+
 def main() -> None:
     """Console-script entry point.
 

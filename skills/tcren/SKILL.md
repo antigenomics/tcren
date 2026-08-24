@@ -335,6 +335,39 @@ QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses ar
   H-bearing depositions (5jhd: +7 of 28 contacts, −58.5% F_tcr_pep) and breaks legacy-oracle parity
   on 5jhd/7qpj, recorded as a subset relation in the regression test.
 
+## Footprint shape — `tcren.footprint` / `tcren footprint`
+
+- **Reach for it when the energy is at chance but the pose still looks wrong.** It reads the same
+  contact map as a *shape*, not a sum: how evenly the six CDR loops spread their contacts, whether
+  the germline/CDR3 division of labour holds, and whether the footprint is one connected patch.
+  No potential, no reference structure, no fitted parameter.
+  CLI: `tcren footprint -s <in> -o <out> [--score] [--group epitope --meta m.tsv] [--radii 7,8]`.
+- **No canonical orientation is needed** — every feature is invariant under rigid motion, which
+  `test_footprint.py::test_every_feature_is_invariant_under_rigid_motion` pins by rotating and
+  translating a complex and demanding an identical row. Only chain typing + CDR markup. MHC *region*
+  markup is **not** used, so the "MHC needs a second pass or it silently empties" trap does not apply.
+- **Annotation goes through `_iter_typed`/`iter_annotated_set`** — one mmseqs call per organism for
+  the whole set. Do not call `classify_chains` per structure here (that is what `tcren surface`
+  does, and it is an order of magnitude slower over a cohort).
+- `footprint_features(s) -> dict` (~33 features), `footprint_batch(paths_or_structures) -> pl.DataFrame`,
+  `footprint_score(table, group=...)` for the cohort-standardised `fp_score`.
+- **Coverage**: cells are the 6 CDR loops × {peptide, MHC} (12) or with the peptide split into
+  thirds (24). `H_cell` is the normalised Shannon entropy, `D1`/`D2` the Hill numbers — `D2`, the
+  *effective number of engaged cells*, separates better because it discounts the rare cells a decoy
+  populates weakly. Refining the **peptide** side helps; refining the MHC side into helices/floor
+  does not, which is why that partition is not offered.
+- **Topology**: `_flag_betti` builds the flag complex on the contacted pMHC Cα at a radius —
+  `fp_b0_*` patches, `fp_b1_*` holes (via a GF(2) rank of the triangle boundary), `fp_chi_*`.
+  `h0_pers_ent` is the H₀ persistence entropy, whose barcode **is** the MST edge lengths, so no
+  filtration library is needed. `b0` is most informative at 7 Å and `b1` at 8 Å; both ship.
+- **The bipartite contact graph's cyclomatic number `E − V + C` is deliberately not offered.** With
+  ~30 contacts among ~30 residues it is dominated by `E` and just tracks interface size; the patch
+  count is scale-free instead. If someone asks for "the Betti number of the interface", this is the
+  distinction to make.
+- `n_contacts` counts only what the partition sees — the six CDR loops. Framework contacts are
+  excluded by construction, so it is smaller than the full interface count. The topology features
+  are **not** restricted this way: they use every contacted pMHC residue.
+
 ## Surface topology — `tcren.surface` / `tcren surface`
 
 - **Reach for it when the question is about the pMHC alone**, with no TCR in the structure or before
