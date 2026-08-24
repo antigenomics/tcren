@@ -16,13 +16,12 @@ repeated for nothing.
    # scores from the table, without re-reading a single structure:
    tcren recognize --features feats.tsv -o scores.tsv
 
-``tcren recognize -s structures/`` still emits the legacy descriptor table plus ``p_real`` /
-``p_real_bn`` in one step (``--full`` for the CDR3-frame layer, ``--scores`` for the frozen
-``p_bind`` / ``p_forced``, ``--mechanics`` for the koff proxies).
+``tcren recognize -s structures/`` does both passes in one step (``--full`` for the CDR3-frame
+layer, ``--mechanics`` for the kinetics terms).
 
 Output is **TSV**. The first column ``complex.id`` is the structure-file stem (the SHA-256 ``TCR_hash``
 for the modelled sets), which is the join key to labels and AlphaFold confidences. ``--features-only``
-skips the models; ``--scores`` implies ``--full``. Degenerate or undefined terms are ``NaN``. Every
+skips the models. Degenerate or undefined terms are ``NaN``. Every
 feature is also available programmatically from :func:`tcren.recognition.recognition_features` (pass
 ``full=True``); the column-name tuples are :data:`tcren.recognition.RECOGNITION_FEATURES`,
 :data:`~tcren.recognition.CDR3_FRAME_FEATURES` and :data:`~tcren.recognition.FULL_FEATURES`.
@@ -89,9 +88,8 @@ channels the method reports:
     residues coupling the pre-formed scaffold to the interface (``tcren mechanics``, plus the
     contact-fragility terms ``recognize`` emits).
 
-A fourth group, ``score``, holds the fitted and cohort-relative composites (``p_real``,
-``p_real_bn``, ``p_forced``, ``p_bind``, ``q_bind``, ``s_strain``). These are **outputs** built from
-the descriptors above and must never be fed back in as inputs, so
+A further group, ``score``, holds the composites built *from* the descriptors above — ``p_real``,
+``q_bind``, ``s_strain``. These are **outputs** and must never be fed back in as inputs, so
 :func:`~tcren.recognition.descriptors` omits them unless ``with_scores=True``.
 
 ``involves_tcr`` is ``False`` for five columns — ``F_pep_mhc``, ``dF_pep_mhc``, ``mhc_class_bin``,
@@ -407,13 +405,11 @@ byte-identical):
 The term's potential defaults to MJ, not TCRen: TCRen is derived from TCR↔peptide contacts and says
 nothing about the contacts a chain makes with itself.
 
-Scores (``--scores``)
----------------------
+Scores
+------
 
-``p_real`` / ``p_real_bn`` come from ``recognize`` by default. ``--scores`` adds the **recommended
-fit-free** cohort scores ``q_bind`` / ``s_strain`` (see :mod:`tcren.cohort`) plus the fitted
-``p_bind`` / ``p_forced`` (retained for reproducibility). The frozen models are probabilities in
-[0, 1]; ``q_bind`` / ``s_strain`` are cohort z-scores (unbounded, centred on the input set).
+``tcren recognize`` emits ``p_real`` (is this a genuine recognition interface at all) by default,
+and ``--features`` turns a feature table into the scores the method proposes.
 
 .. list-table::
    :header-rows: 1
@@ -422,40 +418,30 @@ fit-free** cohort scores ``q_bind`` / ``s_strain`` (see :mod:`tcren.cohort`) plu
    * - Column
      - What it discriminates
      - Model
+   * - ``P_native``
+     - Binder vs non-binder, and a real interface vs a manufactured one. **The recommended score.**
+     - :func:`tcren.cohort.p_native`: a latent-class Bayes network per channel, fitted by EM, with
+       the channel log-odds added. No binding label enters.
+   * - ``G`` / ``T`` / ``E``
+     - The three channels on their own — geometry, footprint topology, energetics.
+     - ``p_native(table, channels=(...,))``. ``T`` is the size-free shape score; it is the one
+       channel that holds up when the generator had no template to copy.
+   * - ``Q``
+     - Interface quality for a **single** structure, against the shipped crystal reference.
+     - Fit-free :func:`tcren.cohort.q_score`: whitened distance from the native descriptor
+       manifold. Carries no fitted coefficient and needs no negative set.
+   * - ``s_strain``
+     - Crystal-natural vs generated-forced pose.
+     - Fit-free :func:`tcren.cohort.strain_z`: signed z of the strain terms, grading
+       crystal < generated-real < generated-decoy.
    * - ``p_real``
      - Genuine TCR–pMHC recognition interface vs a wrong-TCR shuffle.
-     - Distribution-aware Bayesian logistic (:class:`tcren.recognition.BayesianLogisticRecognizer`),
-       trained on Shuffled2026 decoys.
-   * - ``p_real_bn``
-     - Same, via a conditional-linear-Gaussian Bayes net.
-     - :class:`tcren.recognition.GaussianBNClassifier`.
-   * - ``q_bind``
-     - Binder vs non-binder (screen many TCRs against one epitope). **Recommended.**
-     - Fit-free :func:`tcren.cohort.q_score` (``Q``): equal-weight mean of 5 within-cohort z-scores.
-       TCRvdb **raw-label** macro AUC ~0.80 vs AlphaFold ipTM 0.794; generalises across cohorts where
-       ``p_bind`` does not (benchmark ledger C25).
-   * - ``s_strain``
-     - Crystal-natural vs AF-forced pose. **Recommended.**
-     - Fit-free :func:`tcren.cohort.strain_z` (``S_strain``): signed z of the strain terms, grading
-       crystal < AF-real < AF-decoy. Reproducible; no training set.
-   * - ``p_bind``
-     - Binder vs non-binder — the fitted counterpart of ``q_bind``.
-     - Frozen 5-feature logistic (:func:`tcren.binder.binder_score`); TCRvdb **raw-label** macro AUC
-       0.796 vs AlphaFold ipTM 0.794. Matches ``Q`` in-sample but does not transfer; prefer ``q_bind``.
-   * - ``p_forced``
-     - Crystal-natural vs AF-forced pose — the fitted counterpart of ``s_strain``.
-     - Frozen 6-feature strain logistic (:func:`tcren.recognition.forced_pose_score`,
-       :data:`~tcren.recognition.FORCED_POSE_MODEL`); crystal-vs-AF 5-fold AUC 0.762. Coefficients
-       not re-derivable (ledger C23); prefer ``s_strain``.
+     - Distribution-aware Bayesian logistic
+       (:class:`tcren.recognition.BayesianLogisticRecognizer`), trained on Shuffled2026 decoys.
 
 .. note::
 
-   **Cohort-relative combinations live in** :mod:`tcren.cohort`. Scores that z-standardize a
-   feature over the *set being scored* — the no-fit :func:`~tcren.cohort.phi_bind`, the
-   interface-quality :func:`~tcren.cohort.q_score`, and the crystal-calibrated
-   :func:`~tcren.cohort.strain_z` gradient — are not per-structure frozen models, but they are
-   computed by ``tcren``, not downstream. Pass the whole cohort you are ranking; pass the crystal
-   cohort as ``reference=`` to calibrate strain against natural geometry.
-
-   (Before v2.2.3 these were declared out of scope and lived in manuscript scratch, which left the
-   published headline numbers un-regenerable from this package. That is fixed.)
+   **Cohort-relative scores live in** :mod:`tcren.cohort` and are computed by ``tcren``, not
+   downstream: pass the whole cohort you are ranking. Evaluation is the other side of that line —
+   ROC/PR, bootstrap intervals, and anything that consumes a binding label stay outside the
+   library, because this package is built to score without one.

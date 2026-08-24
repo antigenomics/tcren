@@ -79,3 +79,20 @@ def test_altloc_atoms_all_retained():
                 has_duplicate_atom_name = True
                 break
     assert has_duplicate_atom_name
+
+
+# --- B-factors ---------------------------------------------------------------------------------
+# parse_structure drops them on purpose -- they are not part of the geometry the package reasons
+# about -- so mean_bfactor is the one way to read a generated model's own pLDDT back off disk
+# without writing a second PDB parser. The CPL benchmark used to carry exactly that parser.
+
+def test_mean_bfactor_reads_the_column_and_respects_the_chain():
+    import math
+
+    from tcren import mean_bfactor
+
+    p = PDB_DIR / "1ao7.pdb"
+    whole, chain_a = mean_bfactor(p), mean_bfactor(p, "A")
+    assert 1.0 < whole < 200.0                       # a plausible crystallographic B
+    assert chain_a != whole                          # one chain is not the whole file
+    assert math.isnan(mean_bfactor(p, "Z"))          # a chain that is not in the file

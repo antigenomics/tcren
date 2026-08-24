@@ -405,8 +405,9 @@ QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses ar
 - **Annotation goes through `_iter_typed`/`iter_annotated_set`** — one mmseqs call per organism for
   the whole set. Do not call `classify_chains` per structure here (that is what `tcren surface`
   does, and it is an order of magnitude slower over a cohort).
-- `footprint_features(s) -> dict` (~33 features), `footprint_batch(paths_or_structures) -> pl.DataFrame`,
-  `footprint_score(table, group=...)` for the cohort-standardised `fp_score`.
+- `footprint_features(s) -> dict` (~33 features), `footprint_batch(paths_or_structures) -> pl.DataFrame`.
+  For the cohort-standardised shape score use `cohort.p_native(table, channels=("topology",))` (`T`);
+  the old `footprint_score` z-sum was removed at 2.12.
 - **Coverage**: cells are the 6 CDR loops × {peptide, MHC} (12) or with the peptide split into
   thirds (24). `H_cell` is the normalised Shannon entropy, `D1`/`D2` the Hill numbers — `D2`, the
   *effective number of engaged cells*, separates better because it discounts the rare cells a decoy
@@ -555,31 +556,16 @@ QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses ar
   (`geometry`/`physics`/`kinetics`/`score`) and whether the receptor enters it. Only `F_pep_mhc`,
   `dF_pep_mhc` and `mhc_class_bin` do not; they carry cohort identity, so receptor questions must use
   `tcr_only=True`. Frozen recognizers verified **bit-identical** through `_FROZEN_ALIASES`.
-- **`--scores` good-results scores (2026-07-13):** `tcren recognize --scores` (implies `--full`) also emits
-  `p_bind` (`binder.binder_score`, TCRvdb denoised AUC 0.928) and `p_forced`
-  (`recognition.forced_pose_score` / `FORCED_POSE_MODEL`, a frozen 6-feature strain logistic: crystal-natural
-  vs AF-forced, 5-fold AUC 0.762 — the "too-good-to-be-true" hallucination flag). Cohort-relative z-combos
-  (Φ_bind, the crystal<af_real<af_decoy strain gradient) stay analysis-side, computed from these features.
-  Full column reference: `docs/features.rst`.
-- **`kit_score` — AF×tcren synergy (2026-07-13):** `recognition.kit_score(p_bind, iptm)` = cohort-relative
-  `z(p_bind)+z(iptm)`, the fixed no-fit combination of the tcren binder score with the AF ipTM. On TCRvdb raw
-  labels it beats **either alone** at precision (macro-PR 0.847 vs 0.782/0.804; P@10% 0.969; Δ vs ipTM +0.041
-  CI [+0.006,+0.074]) and corrects AF errors (strain flags AF false-positives 0.633; p_bind rescues AF
-  false-negatives 0.732>ipTM 0.697). The "kit for AI-generated structures" decision procedure is `docs/kit.rst`.
-  (No synergy on VDJdb real-vs-mock — there tcren's role is the forced-pose gradient, not discrimination.)
+- **`--scores` — LEGACY, v1 reproduction only.** Emits the frozen `p_bind` (`binder.binder_score`)
+  and `p_forced` (`recognition.forced_pose_score`). Both are fitted, neither is used anywhere in the
+  TCRen2 manuscript, and `p_forced`'s coefficients are not re-derivable. Use `P_native` for binder
+  ranking and `cohort.strain_z` for forced-pose grading; both are fit-free.
 - **`-t/--threads` on `tcren scoring` and `tcren recognize` (2026-07-26):** both accept a file, a
   directory, a `.tar.gz`, a quoted glob or a `.txt` manifest; `-t N` runs N concurrent workers (`-t 0`
   = all cores). Cohort-relative scores (`q_bind`, `s_strain`) are still computed over the **whole** set,
   never per batch. `scoring` gains ~7.6x on 8 threads; `recognize` less (its cost is Python
   featurisation, not mmseqs), so batch its annotation rather than expecting linear scaling.
 
-- **`cohort.q_iptm` — fit-free `z(ipTM)+z(Q)` (2026-07-24, v2.3.1):** `cohort.q_iptm(table, iptm, features=Q_FEATURES)`
-  ships the geometry synergy as one call (the fit-free analog of `kit_score`, which pairs ipTM with the *fitted*
-  `p_bind`). `cohort.Q_FEATURES_GEOM` is the 4 geometry-only terms (`Q_FEATURES` minus `pp_combo`) → `Q_geom`,
-  robust to the forced-pose energy inversion (C27). `z(ipTM)+z(Q_geom)` beats raw-AF ipTM on both ROC and PR on
-  well-modelled ("template-covered") epitopes and ties it fit-free on TCRvdb (benchmark C42). Single-line CLI:
-  `tcren recognize -s pdbs/ --iptm meta.tsv -o out.tsv` joins ipTM (key col matched to `complex.id`) and appends
-  `Q_geom` + `z(ipTM)+z(Q_geom)`.
 - **`cohort.q_coupled` / `cohort.coupling` — DEPRECATED at 2.12, superseded by `p_native` (2026-07-26):**
   `q_coupled(q, energy)` = `¼[1+erf(z(Q)/√2)]·[1+erf(r·z(ΔΦ)/√2)]` with `r = coupling(q, energy)`, the
   cohort correlation between the geometry and energy channels. Two Gaussian tail probabilities multiplied
@@ -593,22 +579,11 @@ QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses ar
   For receptor ranking pass the **TCR**-referenced ΔΦ (the peptide is fixed, so the peptide reference
   carries nothing); for peptide ranking pass `reference_delta`'s peptide-referenced ΔΦ.
 
-- **`cohort.f_score` / `cohort.q_f` — the contact-energy channel (2026-07-24, v2.3.2):** `f_score(table)` =
-  `z(-(F_tcr_pep+F_tcr_mhc))` (binder-oriented, `cohort.F_TERMS`); `q_f(table, sign=+1)` = `z(Q_geom)+sign·z(F)`,
-  the pure-tcren combiner with **no DL term**. F reads contact chemistry but is **pose-conditional**: it inverts
-  on forced poses (GLC↔ila1, C27). On template-covered poses `z(Q)+z(F)` beats raw-AF ipTM on both ROC/PR
-  (0.759/0.725 vs 0.692/0.693, C42); on forced poses read `z(Q)-z(F)` (`sign=-1`; GLCTLVAML 0.71 vs 0.52 for
-  `+F`). `tcren recognize --cohort` emits `Q_geom`, `F_score`, `z(Q)+z(F)`, `z(Q)-z(F)` (and `z(ipTM)+z(Q)+z(F)`
-  with `--iptm`) — the full fit-free panel in one line. `z(ipTM)+z(Q_geom)` stays the channel robust to the
-  inversion; grade forced-ness with `s_strain` before trusting `+F`. Reproduced by
-  `models/qf_panel.py` in the benchmark repo.
-- **AlphaFold-synergy auto-inversion (v2.3.2):** `cohort.q_f_iptm(table, iptm, threshold=0.5)` uses AF's own
-  ipTM to pick F's sign per structure — `+z(F)` on confident poses, `-z(F)` on forced (low-ipTM) ones —
-  and `cohort.f_invert_by_iptm(iptm, thr)` is the boolean flag. With `--iptm`, `tcren recognize --cohort`
-  emits `F_invert` + `z(Q)+z(F|iptm)` (threshold `--invert-f-thresh`) and **prints how many poses are
-  forced** so the user is told F inversion is in play; without `--iptm` it warns that F is trusted
-  unconditionally. The versatile AF-post-analysis path: geometry (`Q`), chemistry (`F`), and AF confidence
-  (ipTM) combined, with F used only where AF's pose is trustworthy.
+- **`cohort.f_score` — the contact-energy channel (2026-07-24):** `f_score(table)` =
+  `z(-(F_tcr_pep+F_tcr_mhc))`, binder-oriented (`cohort.F_TERMS`). F reads contact chemistry but is
+  **pose-conditional**: it inverts on forced poses, which is the whole reason the shape channel
+  exists. It enters `P_native` as the `energetics` channel, whose sign EM fits per cohort rather
+  than being told. Do not hand-combine it with Q — that is what `p_native` is for.
 
 ## MHC mapping speed — `mhc.reference.reference_db()`
 

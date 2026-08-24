@@ -20,11 +20,10 @@ What tcren does
   percentile rank against a random background, and the three-interface breakdown + total.
 * **Mutation ΔΔG** — ``ddg``: alanine scans and neoantigen substitutions on the native contact map
   (virtual-matrix, no re-docking).
-* **Binder classification** — ``binder``: binder vs non-binder for AlphaFold/TCRmodel2 models from
-  AF-orthogonal interface geometry.
-* **Interface feature table** — ``recognize``: one flat per-structure table — 35 core interface
-  descriptors + ``p_real`` / ``p_real_bn`` by default (``--full`` expands to 65 features;
-  ``--scores`` adds the frozen ``p_bind`` / ``p_forced``; see :doc:`features`).
+* **Interface descriptors** — ``features``: one flat per-structure table, in the four invariance
+  families (see :doc:`features`).
+* **Recognition scores** — ``recognize``: ``Q``, the three channel posteriors and ``P_native``,
+  from a feature table or straight from structures.
 * **Annotation & contacts** — ``annotate`` / ``contacts``: TCR CDR/FR, MHC groove helices/floor and
   peptide markup; multi-layer (5/8/12 Å) contact tables.
 * **Canonical orientation** — ``orient`` / ``superimpose``: one common MHC frame, docking angles,

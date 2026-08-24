@@ -162,10 +162,11 @@ Case studies
   ``--alanine-scan`` for a per-position sensitivity profile, or ``--mutant`` (repeatable) for
   specific neoantigen substitutions. Positive ΔΔG = stabilising (the mutant scores lower).
 
-* **Rank candidate TCRs against a fixed pMHC.** ``tcren binder`` scores AlphaFold/TCRmodel2 models
-  from interface geometry (size, dual-chain balance, H-bonds, buried ΔSASA) plus a CDR1/2-vs-CDR3α
-  TCRen term — AlphaFold-orthogonal signal that ranks binders above non-binders using no external
-  tool. See :func:`tcren.binder.binder_score`.
+* **Rank candidate TCRs against a fixed pMHC.** ``tcren features`` then ``tcren recognize
+  --features`` gives ``P_native``: a latent class over interface geometry, footprint topology and
+  contact energetics, fitted by expectation-maximization on the cohort you pass, with no binding
+  label anywhere in the fit. It is cohort-relative, so score the whole candidate set together. See
+  :func:`tcren.cohort.p_native` and :doc:`kit`.
 
 * **Substitute + refine a pose.** ``tcren refine --substitute`` threads a new equal-length peptide
   onto the backbone and runs a knowledge-based Monte-Carlo refinement scored by the DOPE atom-level

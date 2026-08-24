@@ -1,85 +1,99 @@
 A kit for AI-generated TCR–pMHC structures
 ==========================================
 
-AlphaFold / TCRmodel2 will seat *any* TCR–peptide–MHC candidate in a plausible low-energy pose — a static
-"forced" pose that is not a Gibbs sample. The generator's own confidence (ipTM) reads largely as pose
-canonicality / template coverage. TCRen adds an **intrinsic, generator-orthogonal** read of the same
-structure: is the interface *natural*, and does it *engage* like a binder? The two are complementary, and
-combining them is synergistic. This page is the decision procedure.
+AlphaFold and TCRmodel2 will seat *any* TCR–peptide–MHC candidate in a plausible low-energy pose,
+binding or not. The generator's own confidence reports whether a plausible interface could be
+built; it does not report whether the chemistry and shape across that interface are those of a real
+complex. TCRen2 reads the second question from the coordinates alone, with no binding label and
+nothing the generator emits. This page is the decision procedure.
 
-One command produces every score:
+Two commands
+------------
+
+The expensive pass — parse, annotate, contact map, descriptors — runs once:
 
 .. code-block:: console
 
-   tcren recognize --full --scores -s models/ -o kit.tsv
+   tcren features   -s models/ -i placement,interface,topology,energetics -o feats.tsv
+   tcren recognize  --features feats.tsv -o scores.tsv
 
-giving, per structure: the 65 interface descriptors (:doc:`features`), the binder score ``p_bind``, the
-forced-pose flag ``p_forced``, and the wrong-TCR flag ``p_real`` / ``p_real_bn``. Join your AlphaFold ``iptm``
-(it is not a structural quantity, so tcren does not compute it) to the table on the structure-file stem.
+``scores.tsv`` carries ``Q`` (interface geometry), the three channel posteriors ``G``, ``T``, ``E``,
+and ``P_native``. Join your generator's ``iptm`` / ``plddt`` on the structure-file stem if you want
+to compose with them; they are not structural quantities, so tcren does not compute them.
 
 The three questions the kit answers
 -----------------------------------
 
-**1. Is this AF model trustworthy, or "too good to be true"?**
-   ``p_forced`` (:func:`tcren.recognition.forced_pose_score`) is a frozen strain classifier trained only on
-   provenance (crystal-natural vs AF-forced, 5-fold AUC 0.762). High ``p_forced`` = the interface is
-   stretched / thin / one-sided — residues placed to *mimic* a good contact energy rather than to bind.
-   Among AF-*confident* poses (high ipTM), the high-strain ones are enriched for non-binders — the QC signal
-   ipTM cannot give you.
+**1. Does this receptor bind this epitope?**
+   ``P_native`` (:func:`tcren.cohort.p_native`) is the posterior of a latent class over three
+   channels — geometry, footprint topology, and contact energetics — fitted by expectation
+   maximization on the cohort you pass. **No binding label enters the fit.** On a two-epitope
+   TCRvdb screen it reaches macro ROC-AUC 0.832 and PR-AUC 0.849; on a 22-cohort balanced
+   real-versus-mock VDJdb benchmark, 0.718 and 0.685.
 
-**2. Does this TCR bind this epitope?**
-   ``p_bind`` (:func:`tcren.binder.binder_score`) is the AF-orthogonal binder score (TCRvdb
-   **raw-label** macro AUC 0.796, pooled 0.810; AF ipTM 0.794 / 0.793). Use it to screen many TCRs
-   against one epitope. Label denoising is a separate algorithm and is not benchmarked here.
-
-**3. Combined call — the synergy.**
-   :func:`tcren.recognition.kit_score` = ``z(p_bind) + z(iptm)`` over the cohort — a fixed, no-fit
-   combination. On TCRvdb raw labels it beats **either score alone** at precision:
+**2. Did the generator have a template, and does that matter?**
+   It matters enormously, and this is the result the method exists for. Split the VDJdb benchmark
+   by whether *some* receptor has already been co-crystallized with that peptide, and every score
+   that reads the interface collapses when the template goes:
 
    .. list-table::
       :header-rows: 1
-      :widths: 34 22 22 22
+      :widths: 40 20 20 20
 
-      * - score
-        - macro-PR
-        - P@10% recall
-        - P@20% recall
-      * - AF ipTM
-        - 0.782
-        - 0.861
-        - 0.816
-      * - tcren ``p_bind``
-        - 0.804
-        - 0.912
-        - 0.873
-      * - ``kit_score`` (``p_bind`` + ipTM)
-        - **0.847**
-        - **0.969**
-        - **0.939**
+      * - macro ROC-AUC
+        - template-covered
+        - template-free
+        - lost
+      * - generator ipTM
+        - 0.692
+        - 0.555
+        - 0.136
+      * - interface geometry ``Q``
+        - 0.729
+        - 0.497
+        - 0.232
+      * - shape channel ``T``
+        - 0.756
+        - 0.608
+        - 0.148
+      * - ``P_native``
+        - 0.721
+        - **0.716**
+        - **0.005**
 
-   Δ macro-PR vs ipTM = **+0.065** (95% CI [+0.022, +0.100], P(Δ>0)=1.00) for the no-fit
-   z-sum shown above. A CV-honest leave-epitope-out logistic on the same two inputs confirms it
-   more conservatively at +0.041 ([+0.005, +0.076], P=0.99) — that is a *different estimator*,
-   not this row.
+   The shape of a footprint — how evenly six loops spread their contacts, whether the touched
+   surface is one patch or several — is invariant under the rigid-body placement a co-folding model
+   is optimizing, which is why it still says something once that model has produced a confident
+   pose. Note also that the generator's confidence does *not* fall to warn you: a pose built
+   without a template is scored confidently and wrongly.
 
-   .. note::
-      ipTM is the **weakest** of AlphaFold's three confidences on this task. Against global pLDDT
-      (macro-PR 0.808) the margin is ``+0.039``, not ``+0.065``. Quote the baseline you measured
-      against.
+**3. Is the recognition signal intrinsic, or an artefact of the generator?**
+   Intrinsic. On experimental crystals, scoring the native epitope against wrong-epitope decoys of
+   the same length on the *fixed* crystal contact map — no AlphaFold, no re-docking — ranks the
+   native above the decoys.
 
-   The combination also **corrects AF's errors**:
-   strain flags AF false-positives among confident poses (AUROC 0.633), and ``p_bind`` rescues AF
-   false-negatives among under-confident poses (0.732 vs ipTM 0.697).
+Composing with the generator's confidence
+-----------------------------------------
 
-``kit_score`` is cohort-relative (``z`` standardizes over the set you pass) — score a whole batch of AF
-models together, not one at a time.
+Worth measuring, and worth measuring honestly. A plain logistic on ``P_native``, ipTM and pLDDT,
+fitted and read in sample as a demonstration of complementarity rather than a ranking claim, adds:
+
+- on TCRvdb, **nothing resolvable** — ΔROC +0.008 [−0.009, +0.027], ΔPR +0.012 [−0.012, +0.036];
+- on VDJdb, a small PR gain only — ΔPR +0.034 [+0.005, +0.054], ΔROC's interval containing zero.
+
+The generator's confidences rank well on their own; on these cohorts they carry little the
+structure does not already say.
 
 What the kit does *not* claim
 -----------------------------
 
-- **Not "beat AF" everywhere.** On the harder VDJdb-AF real-vs-mock task, combining does not beat ipTM
-  (macro 0.639 vs 0.656); there TCRen's contribution is the interpretable forced-pose *gradient*
-  (crystal < AF-real < AF-decoy), not a discrimination win.
-- **Not affinity.** TCRen ranks specificity, not Kd/ΔG/koff (see the note on the landing page).
-- ``kit_score`` needs the generator ipTM as input; the purely structural scores (``p_bind``, ``p_forced``,
-  ``p_real``) do not, and also work on crystals with no generator at all.
+- **Not affinity.** TCRen2 ranks specificity. What a static interface reads of *dynamics* is
+  specific and not uniform: the rupture work tracks the dissociation rate, ride height and coverage
+  entropy track the equilibrium free energy where the rupture work does not, and alanine ΔΔG stays
+  with molecular dynamics. See :doc:`features` and ``tcren mechanics``.
+- **Not a substitute for reporting template coverage.** Nothing computable from the model announces
+  which regime a cohort is in — the generator's confidence least of all — so template availability
+  is a covariate to report, not one to infer. It needs only a PDB lookup on the peptide.
+- ``P_native`` is **cohort-relative**: it standardizes and fits over the set you pass. Score a whole
+  batch of candidates together, not one at a time. For a single structure, use ``Q`` against the
+  shipped crystal reference (:func:`tcren.cohort.native_reference`).

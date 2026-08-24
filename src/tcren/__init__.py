@@ -46,6 +46,7 @@ from .scoring import (RecognitionMatrix, intra_peptide_energy, recognition_matri
                       score_structures)
 from .scoring_rank import background_peptides, percentile_rank
 from .structure import Structure, import_structure, parse_structure
+from .structure.io import mean_bfactor
 
 # One source of truth: pyproject.toml. Hard-coding it here as well meant a release could ship with
 # `tcren info` reporting the previous version, which is what happened at 2.3.2. The fallback covers
@@ -66,6 +67,7 @@ __all__ = [
     "derive_tcren_loo",
     "parse_structure",
     "import_structure",
+    "mean_bfactor",
     "Structure",
     "all_atom_contacts",
     "peptide_internal_contacts",

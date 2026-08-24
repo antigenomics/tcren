@@ -811,9 +811,6 @@ def recognize(
     full: bool = typer.Option(False, "--full", help="add the 18 CDR3-local frame descriptors (the FramePose strain layer) and the intra-peptide term F_pep_int/n_pep_int"),
     scores: bool = typer.Option(False, "--scores", help="also append the fit-free q_bind + s_strain (recommended) and the fitted p_bind + p_forced; implies --full"),
     mechanics: bool = typer.Option(False, "--mechanics", help="also append the koff proxies from `tcren mechanics` (stiffness tensor, steered rupture, coupling residues) — same table, no second annotation pass"),
-    cohort: bool = typer.Option(False, "--cohort", help="rank candidates by the fit-free Q_geom + F contact-energy channels: emits Q_geom, F_score, z(Q)+z(F) and z(Q)-z(F) (add --iptm for the z(ipTM)+z(Q_geom) synergy)"),
-    iptm: Path | None = typer.Option(None, "--iptm", help="metadata TSV/CSV with a key column (matched to complex.id) + an 'iptm' column; appends z(ipTM)+z(Q_geom). Missing ipTM falls back to Q_geom"),
-    invert_f_thresh: float = typer.Option(0.5, "--invert-f-thresh", help="ipTM below which a pose is treated as forced and the contact energy F is inverted (needs --iptm); sets the F_invert flag + z(Q)+z(F|iptm) column"),
     threads: int = typer.Option(1, "-t", "--threads", help="concurrent annotation batches for a multi-structure run (0 = all cores); cohort scores stay computed over the whole set"),
     autodetect_species: bool = typer.Option(True, "--autodetect-species/--no-autodetect-species", help="also search mouse to catch a mis-declared organism; --no- halves the annotation cost"),
 ) -> None:
@@ -844,19 +841,10 @@ def recognize(
 
     Examples::
 
-        tcren recognize -s models/ -o out.tsv                        # descriptors + P(real)
-        tcren recognize -s models/ --scores -o out.tsv               # + fit-free q_bind/s_strain + fitted p_bind
-        tcren recognize -s models/ --cohort -o out.tsv               # Q_geom + F_score + z(Q)±z(F) (no ipTM needed)
-        tcren recognize -s models.tar.gz --iptm meta.tsv -o out.tsv  # + AF synergy: z(ipTM)+z(Q_geom), z(ipTM)+z(Q)+z(F)
-        tcren recognize -s models/ --scores --mechanics -t 0 -o out.tsv   # every descriptor this tool reports, one table
-
-    Synergy with AlphaFold, made automatic. The contact energy ``F`` reads real binding chemistry but
-    *inverts on forced poses* (benchmark ledger C27/C42), and ipTM is AlphaFold's own pose-confidence
-    signal — so with ``--iptm`` the command flags each low-ipTM (forced) pose in ``F_invert`` and emits
-    ``z(Q)+z(F|iptm)``, which applies ``+z(F)`` to confident poses and ``-z(F)`` to forced ones (threshold
-    ``--invert-f-thresh``, default 0.5). It also prints how many poses are forced. Without ``--iptm`` it
-    tells you F is being trusted unconditionally and how to gate it (``--iptm`` or ``s_strain``).
-    ``z(ipTM)+z(Q_geom)`` is the geometry-only channel that is robust to the inversion without needing F.
+        tcren features  -s models/ -o feats.tsv                      # the descriptor pass, once
+        tcren recognize --features feats.tsv -o scores.tsv           # Q, P_native and its channels
+        tcren recognize -s models/ -o out.tsv                        # both in one go
+        tcren recognize -s models/ --mechanics -t 0 -o out.tsv       # + the spring-network terms
     """
     from .recognition import recognition_table
     from .structure.io import import_structure
@@ -875,56 +863,6 @@ def recognize(
                              mechanics=mechanics,
                              threads=threads if threads > 0 else (_os.cpu_count() or 1))
     table = pl.DataFrame(rows)
-    if cohort or iptm is not None:                                   # fit-free cohort ranking
-        from .cohort import (Q_FEATURES_GEOM, f_invert_by_iptm, f_score, q_f_iptm, q_iptm, q_score,
-                             zscore)
-        table = table.with_columns(pl.Series("Q_geom", q_score(table, features=Q_FEATURES_GEOM)))
-        # F = the pose-conditional contact-energy channel; emit both signs so the forced-pose inversion
-        # (z(Q)-z(F) on forced poses, z(Q)+z(F) on clean ones; benchmark ledger C27/C42) is visible
-        zq = zscore(q_score(table, features=Q_FEATURES_GEOM))
-        zf = f_score(table)
-        table = table.with_columns(pl.Series("F_score", zf),
-                                   pl.Series("z(Q)+z(F)", zq + zf),
-                                   pl.Series("z(Q)-z(F)", zq - zf))
-        if iptm is None:                                             # no AF confidence to gate F by
-            typer.echo("  F is pose-conditional: z(Q)+z(F) assumes clean poses. Supply --iptm to "
-                       "auto-invert F on forced (low-ipTM) poses (the AlphaFold-synergy path), or grade "
-                       "forced-ness with s_strain (--scores) before trusting +z(F).")
-        if iptm is not None:                                         # + z(ipTM)+z(Q_geom); missing ipTM -> Q_geom
-            sep = "\t" if iptm.suffix.lower() in (".tsv", ".txt") else ","
-            meta = pl.read_csv(iptm, separator=sep, infer_schema_length=0)
-            keycol = next((c for c in ("complex.id", "TCR_hash", "key", "id", "tcr_pmhc_hash")
-                           if c in meta.columns), meta.columns[0])
-            ipcol = next((c for c in ("iptm", "tcr-pmhc_iptm", "tcr_pmhc_iptm") if c in meta.columns), None)
-            if ipcol is None:
-                raise typer.BadParameter("--iptm file needs an 'iptm' (or 'tcr-pmhc_iptm') column")
-            imap: dict[str, float] = {}
-            for k, v in zip(meta[keycol].to_list(), meta[ipcol].to_list()):
-                try:
-                    imap[str(k)] = float(v)
-                except (TypeError, ValueError):
-                    pass
-            ids = table["complex.id"].to_list()
-            ivec = [imap.get(i, imap.get(str(i).split("_")[0], float("nan"))) for i in ids]
-            n_hit = sum(1 for x in ivec if x == x)                   # x==x is False for NaN
-            ziq = q_iptm(table, ivec, features=Q_FEATURES_GEOM)
-            finv = f_invert_by_iptm(ivec, invert_f_thresh)          # forced poses where F inverts
-            table = table.with_columns(
-                pl.Series("z(ipTM)+z(Q_geom)", ziq),
-                pl.Series("z(ipTM)+z(Q)+z(F)", ziq + zf),
-                pl.Series("F_invert", finv),
-                pl.Series("z(Q)+z(F|iptm)", q_f_iptm(table, ivec, threshold=invert_f_thresh)))
-            typer.echo(f"  ipTM matched {n_hit}/{len(ivec)} structures"
-                       + ("" if n_hit == len(ivec) else "; the rest rank by Q_geom"))
-            n_forced = int(finv.sum())
-            if n_forced:                                            # inform: F inversion is in play
-                typer.echo(f"  ⚠ {n_forced}/{n_hit} poses have ipTM < {invert_f_thresh} (forced) — the "
-                           f"contact energy F inverts there. F_invert flags them; z(Q)+z(F|iptm) applies "
-                           f"-z(F) to them and +z(F) to the rest. z(ipTM)+z(Q_geom) is the "
-                           f"inversion-robust ranking if you prefer to avoid F entirely.")
-            else:
-                typer.echo(f"  all matched poses have ipTM >= {invert_f_thresh}: F is trusted (+z(F)); "
-                           f"z(Q)+z(F) and z(Q)+z(F|iptm) coincide.")
     table.write_csv(str(out), separator="\t")
     typer.echo(f"wrote {out} ({len(rows)} rows)")
 

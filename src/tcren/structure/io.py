@@ -189,6 +189,46 @@ def parse_structure(
     return Structure(pdb_id=pdb_id, chains=chains)
 
 
+def mean_bfactor(path: str | Path, chain: str | None = None) -> float:
+    """Mean B-factor over a structure file, or over one chain of it.
+
+    **In a model written by AlphaFold or TCRmodel2 the B-factor column IS the per-residue pLDDT**,
+    so this is how a generated structure's own confidence is read back off disk. In a crystal it is
+    the crystallographic B-factor and means something entirely different; the caller has to know
+    which kind of file it is holding.
+
+    This is *supplied* data — the generator's read-out, not a quantity tcren computes — which is why
+    it is a file reader here rather than a descriptor in
+    :data:`tcren.recognition.DESCRIPTORS`. :func:`parse_structure` deliberately drops B-factors,
+    since they are not part of the geometry the rest of the package reasons about; this exists so
+    that reading them does not require a second PDB parser.
+
+    Args:
+        path: a ``.pdb`` / ``.pdb.gz`` file. mmCIF is not supported.
+        chain: restrict to one author chain id, or ``None`` for every atom in the file.
+
+    Returns:
+        The mean, or ``nan`` if the file holds no atom line matching ``chain``.
+    """
+    import gzip
+
+    path = Path(path)
+    opener = gzip.open if path.suffix == ".gz" else open
+    total, n = 0.0, 0
+    with opener(path, "rt") as fh:
+        for line in fh:
+            if not line.startswith(("ATOM  ", "HETATM")):
+                continue
+            if chain is not None and line[21] != chain:
+                continue
+            try:
+                total += float(line[60:66])
+                n += 1
+            except ValueError:            # a malformed or absent B-factor column
+                continue
+    return total / n if n else float("nan")
+
+
 def _trim_constant_regions(structure: Structure, min_score: float) -> None:
     """Drop each chain's C-terminal TCR constant domain in place (V-domain preserved).
 
