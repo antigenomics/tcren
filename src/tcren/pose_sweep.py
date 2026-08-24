@@ -30,7 +30,8 @@ from .contacts.table import residue_annotation
 from .pose import _CA_CLOSE, _CB_CLOSE, _double_centred, _pair_j, _spearman
 from .structure.model import MHC_TYPES, PEPTIDE_TYPE, RECEPTOR_TYPES, Structure
 
-__all__ = ["pose_descriptors_full", "loop_ca_profile", "loop_ca_rules", "P_TERMS", "p_score"]
+__all__ = ["pose_descriptors_full", "loop_ca_profile", "loop_ca_rules", "peptide_ca_rules",
+           "P_TERMS", "p_score"]
 
 #: The designed pose metric ``P``: ``(descriptor, sign)`` pairs, sign oriented so that **higher is
 #: more binder-like**. Selected by greedy forward selection on macro PR over the **22 well-powered
@@ -285,6 +286,7 @@ def pose_descriptors_full(structure: Structure, potential=None, cutoff: float = 
             _block(w, jmat, jindex, cutoff, sfx, out)
     out.update(loop_ca_profile(structure, cutoff=cutoff))
     out.update(loop_ca_rules(structure, cutoff=cutoff))
+    out.update(peptide_ca_rules(structure, cutoff=cutoff))
     return out
 
 
@@ -429,13 +431,22 @@ def loop_ca_rules(structure: Structure, cutoff: float = 5.0) -> dict[str, float]
     it leans on the MHC instead. Averaging over a loop gives one statement per loop per structure,
     e.g. "CDR3beta sits 1.2 A closer to the peptide than to the MHC".
 
-    Each loop is reported three ways: over all its residues, over the residues that actually make a
-    5 A heavy-atom contact **with the peptide**, and over those that do not. The contacting split is
-    the informative one --- it asks where a residue sits *given that it is engaged*, which separates
-    "this loop reaches the peptide" from "this loop happens to be near it".
+    Each loop is reported over several residue subsets. The contacting split is the informative one
+    --- it asks where a residue sits *given that it is engaged*, which separates "this loop reaches
+    the peptide" from "this loop happens to be near it" --- and the engagement is defined **per
+    partner region**, so the conditional can be matched to the distance it conditions:
 
-    Keys are ``<loop>_<all|con|non>_<d_pep|d_mhc|delta>`` plus ``<loop>_n_res`` and
-    ``<loop>_frac_con``.
+    ``all``
+        every residue of the loop.
+    ``con`` / ``non``
+        residues that do / do not make a 5 A heavy-atom contact **with the peptide**.
+    ``conM`` / ``nonM``
+        residues that do / do not contact the **MHC**.
+    ``conA`` / ``nonA``
+        residues that do / do not contact **anything** (peptide or MHC).
+
+    Keys are ``<loop>_<all|con|non|conM|nonM|conA|nonA>_<d_pep|d_mhc|delta>`` plus ``<loop>_n_res``
+    and ``<loop>_frac_con{,M,A}``.
 
     Args:
         structure: chain-typed, region-annotated complex.
@@ -468,14 +479,19 @@ def loop_ca_rules(structure: Structure, cutoff: float = 5.0) -> dict[str, float]
                     helix.setdefault(reg.region_type, []).extend(pts)
     helix = {k: np.asarray(v, float) for k, v in helix.items()}
 
-    # which receptor residues contact the peptide at all
+    # Which receptor residues are engaged, taken **per partner region**: the peptide (``P``), the
+    # MHC (``M``), and either (``A``). Partner-specific masks are what make the conditional readable
+    # --- ``d_mhc`` averaged over MHC-contacting residues asks about the pair that is actually in
+    # contact, whereas averaging it over peptide-contacting residues asks the cross question.
     con = all_atom_contacts(structure, cutoff=cutoff)
-    touch = set()
+    touch: dict[str, set] = {"P": set(), "M": set()}
     for a, b in (("from", "to"), ("to", "from")):
-        sub = con.filter(
-            pl.col(f"chain.id.{a}").replace_strict(ctype, default=None).is_in(list(RECEPTOR_TYPES))
-            & pl.col(f"chain.id.{b}").replace_strict(ctype, default=None).is_in([PEPTIDE_TYPE]))
-        touch |= set(zip(sub[f"chain.id.{a}"].to_list(), sub[f"residue.index.{a}"].to_list()))
+        rec = pl.col(f"chain.id.{a}").replace_strict(ctype, default=None).is_in(list(RECEPTOR_TYPES))
+        partner = pl.col(f"chain.id.{b}").replace_strict(ctype, default=None)
+        for tag, types in (("P", [PEPTIDE_TYPE]), ("M", list(MHC_TYPES))):
+            sub = con.filter(rec & partner.is_in(types))
+            touch[tag] |= set(zip(sub[f"chain.id.{a}"].to_list(), sub[f"residue.index.{a}"].to_list()))
+    touch["A"] = touch["P"] | touch["M"]
 
     out: dict[str, float] = {}
     for ch, reg, name in _LOOPS:
@@ -491,10 +507,15 @@ def loop_ca_rules(structure: Structure, cutoff: float = 5.0) -> dict[str, float]
         ca = np.asarray([r.ca for r in res], float)
         d_pep = np.linalg.norm(ca[:, None, :] - pep_ca[None], axis=2).min(axis=1)
         d_mhc = np.linalg.norm(ca[:, None, :] - mhc_ca[None], axis=2).min(axis=1)
-        engaged = np.array([(chain.chain_id, r.seq_index) in touch for r in res], bool)
+        eng = {t: np.array([(chain.chain_id, r.seq_index) in touch[t] for r in res], bool)
+               for t in ("P", "M", "A")}
         out[f"{name}_n_res"] = float(len(res))
-        out[f"{name}_frac_con"] = float(engaged.mean())
-        for tag, m in (("all", np.ones(len(res), bool)), ("con", engaged), ("non", ~engaged)):
+        for t, suffix in (("P", ""), ("M", "M"), ("A", "A")):
+            out[f"{name}_frac_con{suffix}"] = float(eng[t].mean())
+        for tag, m in (("all", np.ones(len(res), bool)),
+                       ("con", eng["P"]), ("non", ~eng["P"]),
+                       ("conM", eng["M"]), ("nonM", ~eng["M"]),
+                       ("conA", eng["A"]), ("nonA", ~eng["A"])):
             if not m.any():
                 continue
             out[f"{name}_{tag}_d_pep"] = float(d_pep[m].mean())
@@ -532,7 +553,7 @@ def loop_ca_rules(structure: Structure, cutoff: float = 5.0) -> dict[str, float]
     def g(k):
         return out.get(k, float("nan"))
 
-    for tag in ("all", "con"):
+    for tag in ("all", "con", "conM", "conA"):
         # CDR3 reach relative to the germline loops, per chain and pooled
         for ch, three, one, two in (("a", "cdr3a", "cdr1a", "cdr2a"), ("b", "cdr3b", "cdr1b", "cdr2b")):
             germ = np.nanmean([g(f"{one}_{tag}_d_pep"), g(f"{two}_{tag}_d_pep")])
@@ -545,4 +566,109 @@ def loop_ca_rules(structure: Structure, cutoff: float = 5.0) -> dict[str, float]
         out[f"cdr3_ab_asym_{tag}_delta"] = float(g(f"cdr3a_{tag}_delta") - g(f"cdr3b_{tag}_delta"))
     # the sigma involution as one number: alpha should read N, beta should read C
     out["sigma_NC_split"] = float(g("cdr3a_delta_NC") - g("cdr3b_delta_NC"))
+    return out
+
+
+# =====================================================================================================
+# The same rules read from the peptide side: where each epitope residue sits, given what it contacts
+# =====================================================================================================
+
+def peptide_ca_rules(structure: Structure, cutoff: float = 5.0) -> dict[str, float]:
+    """Per-peptide-residue Calpha geometry, conditioned on what that residue actually contacts.
+
+    The mirror of :func:`loop_ca_rules`. For every peptide residue, its nearest Calpha distance to
+    the receptor as a whole, to the MHC, and to each of the six CDR loops separately. Averages are
+    taken over three residue subsets --- all residues, the ones that make a ``cutoff`` heavy-atom
+    contact with the receptor (``conTcr``), and the ones that do not (``nonTcr``) --- plus, for each
+    loop, the **matched region-pair conditional**: the distance to that loop averaged over exactly
+    the peptide residues that contact *that* loop.
+
+    ``delta_TM = d_tcr - d_mhc`` is negative when the residue points up out of the groove at the
+    receptor and positive when it stays buried against the MHC.
+
+    Keys are ``pep_<all|conTcr|nonTcr>_<d_tcr|d_mhc|delta_TM|d_cdr1a...d_cdr3b>``,
+    ``pep_<con|non>_<loop>_<d_loop|d_mhc>``, ``pep_frac_con_<loop>``, ``pep_frac_conTcr`` and
+    ``pep_n_res``.
+
+    Args:
+        structure: chain-typed, region-annotated complex.
+        cutoff: heavy-atom cutoff (A) defining "contacts".
+
+    Returns:
+        Flat ``{name: value}``; an unannotated or peptide-free complex contributes no keys.
+    """
+    from .contacts.geometry import all_atom_contacts
+
+    ann = residue_annotation(structure)
+    ctype = dict(zip(ann["chain.id"].to_list(), ann["chain.type"].to_list()))
+
+    pep = [(c.chain_id, r) for c in structure.chains if c.chain_type == PEPTIDE_TYPE
+           for r in c.residues if r.ca is not None]
+    if not pep:
+        return {}
+    pep_ca = np.asarray([r.ca for _, r in pep], float)
+    pep_key = [(cid, r.seq_index) for cid, r in pep]
+
+    def ca_of(types):
+        return np.asarray([r.ca for c in structure.chains if c.chain_type in types
+                           for r in c.residues if r.ca is not None], float)
+
+    tcr_ca, mhc_ca = ca_of(RECEPTOR_TYPES), ca_of(MHC_TYPES)
+    if not len(tcr_ca) or not len(mhc_ca):
+        return {}
+
+    # per-loop coordinates and residue keys, so a contact can be attributed to one loop
+    loop_ca: dict[str, np.ndarray] = {}
+    loop_res: dict[str, set] = {}
+    for ch, reg, name in _LOOPS:
+        chain = next((c for c in structure.chains if c.chain_type == ch), None)
+        if chain is None:
+            continue
+        region = next((r for r in (chain.regions or []) if r.region_type == reg), None)
+        if region is None:
+            continue
+        pts = [r for r in region.residues if r.ca is not None]
+        if not pts:
+            continue
+        loop_ca[name] = np.asarray([r.ca for r in pts], float)
+        loop_res[name] = {(chain.chain_id, r.seq_index) for r in pts}
+
+    # peptide residues touching the receptor as a whole, and touching each loop
+    con = all_atom_contacts(structure, cutoff=cutoff)
+    touch_tcr: set = set()
+    touch_loop: dict[str, set] = {k: set() for k in loop_ca}
+    for a, b in (("from", "to"), ("to", "from")):
+        is_pep = pl.col(f"chain.id.{a}").replace_strict(ctype, default=None).is_in([PEPTIDE_TYPE])
+        is_rec = pl.col(f"chain.id.{b}").replace_strict(ctype, default=None).is_in(list(RECEPTOR_TYPES))
+        sub = con.filter(is_pep & is_rec)
+        pk = list(zip(sub[f"chain.id.{a}"].to_list(), sub[f"residue.index.{a}"].to_list()))
+        rk = list(zip(sub[f"chain.id.{b}"].to_list(), sub[f"residue.index.{b}"].to_list()))
+        touch_tcr |= set(pk)
+        for name, keys in loop_res.items():
+            touch_loop[name] |= {q for q, r in zip(pk, rk) if r in keys}
+
+    def nearest(target):
+        return np.linalg.norm(pep_ca[:, None, :] - target[None], axis=2).min(axis=1)
+
+    d = {"d_tcr": nearest(tcr_ca), "d_mhc": nearest(mhc_ca)}
+    d["delta_TM"] = d["d_tcr"] - d["d_mhc"]
+    for name, pts in loop_ca.items():
+        d[f"d_{name}"] = nearest(pts)
+
+    engaged = np.array([k in touch_tcr for k in pep_key], bool)
+    out: dict[str, float] = {"pep_n_res": float(len(pep)), "pep_frac_conTcr": float(engaged.mean())}
+    for tag, m in (("all", np.ones(len(pep), bool)), ("conTcr", engaged), ("nonTcr", ~engaged)):
+        if not m.any():
+            continue
+        for key, v in d.items():
+            out[f"pep_{tag}_{key}"] = float(v[m].mean())
+
+    # matched region-pair conditional: distance to a loop over the residues that contact that loop
+    for name in loop_ca:
+        m = np.array([k in touch_loop[name] for k in pep_key], bool)
+        out[f"pep_frac_con_{name}"] = float(m.mean())
+        for tag, mask in (("con", m), ("non", ~m)):
+            if mask.any():
+                out[f"pep_{tag}_{name}_d_{name}"] = float(d[f"d_{name}"][mask].mean())
+                out[f"pep_{tag}_{name}_d_mhc"] = float(d["d_mhc"][mask].mean())
     return out

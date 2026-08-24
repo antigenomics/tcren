@@ -323,3 +323,38 @@ def test_sigma_split_is_the_difference_of_the_two_cdr3_nc_terms():
     d = loop_ca_rules(_full_complex())
     if all(k in d for k in ("cdr3a_delta_NC", "cdr3b_delta_NC", "sigma_NC_split")):
         assert d["sigma_NC_split"] == pytest.approx(d["cdr3a_delta_NC"] - d["cdr3b_delta_NC"])
+
+
+def test_loop_ca_rules_partner_masks_are_a_union():
+    """conA is exactly the peptide-contacting union MHC-contacting set, per loop."""
+    from tcren.pose_sweep import loop_ca_rules
+
+    d = loop_ca_rules(_full_complex(), cutoff=5.0)
+    loops = [k[: -len("_frac_conA")] for k in d if k.endswith("_frac_conA")]
+    assert loops, sorted(d)
+    for name in loops:
+        p, m, a = (d[f"{name}_frac_con"], d[f"{name}_frac_conM"], d[f"{name}_frac_conA"])
+        assert a >= max(p, m) - 1e-9, (name, p, m, a)
+        assert a <= min(1.0, p + m) + 1e-9, (name, p, m, a)
+
+
+def test_peptide_ca_rules_engaged_residues_sit_closer_to_the_receptor():
+    """A peptide residue that contacts the TCR cannot be farther from it than one that does not."""
+    from tcren.pose_sweep import peptide_ca_rules
+
+    d = peptide_ca_rules(_full_complex(), cutoff=5.0)
+    assert 0.0 < d["pep_frac_conTcr"] < 1.0, d["pep_frac_conTcr"]
+    assert d["pep_conTcr_d_tcr"] < d["pep_nonTcr_d_tcr"]
+    assert d["pep_conTcr_d_tcr"] <= d["pep_all_d_tcr"]
+
+
+def test_peptide_matched_conditional_is_per_loop():
+    """pep_con_<loop>_d_<loop> conditions on contacts with that loop alone, so it is the closer set."""
+    from tcren.pose_sweep import peptide_ca_rules
+
+    d = peptide_ca_rules(_full_complex(), cutoff=5.0)
+    loops = ("cdr1a", "cdr2a", "cdr3a", "cdr1b", "cdr2b", "cdr3b")
+    matched = [(f"pep_con_{n}_d_{n}", f"pep_all_d_{n}") for n in loops if f"pep_con_{n}_d_{n}" in d]
+    assert matched, sorted(k for k in d if k.startswith("pep_con_"))
+    for k, ref in matched:
+        assert d[k] <= d[ref] + 1e-9, (k, d[k], d[ref])
