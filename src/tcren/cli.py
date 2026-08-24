@@ -803,7 +803,8 @@ def surface(
 
 @app.command(rich_help_panel=_P_SCORE)
 def recognize(
-    structures: str = typer.Option(..., "-s", "--structures", help="TCR-pMHC structure file, directory, .tar.gz, or glob"),
+    structures: str = typer.Option(None, "-s", "--structures", help="TCR-pMHC structure file, directory, .tar.gz, or glob"),
+    features_table: Path = typer.Option(None, "--features", help="score a table already written by `tcren features` instead of re-reading the structures; emits Q, P_native and fp_score"),
     out: Path = typer.Option("recognize.tsv", "-o", "--out", help="per-structure descriptors + P(real) table (TSV)"),
     organism: str = typer.Option("human", "--organism"),
     features_only: bool = typer.Option(False, "--features-only", help="emit the descriptors, skip P(real)"),
@@ -859,6 +860,12 @@ def recognize(
     """
     from .recognition import recognition_table
     from .structure.io import import_structure
+
+    if (structures is None) == (features_table is None):
+        raise typer.BadParameter("pass exactly one of -s/--structures or --features")
+    if features_table is not None:
+        _score_feature_table(features_table, out)
+        return
 
     full = full or scores                                             # p_forced needs the CDR3-frame feats
     items = list(iter_structures(structures, importer=import_structure))
@@ -1290,7 +1297,116 @@ def substitute_tcr_cmd(
     typer.echo(f"grafted {d.pdb_id} TCR onto {h.pdb_id} pMHC (by {by}) -> {out}")
 
 
+def _score_feature_table(path: Path, out: Path) -> None:
+    """`tcren recognize --features`: turn a `tcren features` table into cohort scores.
+
+    The whole point of splitting the two commands is that the expensive pass runs once. Everything
+    here is arithmetic over an existing table -- no structure is parsed and nothing is annotated.
+    """
+    from .cohort import P_NATIVE_CHANNELS, Q_FEATURES_GEOM, p_native, q_score
+    from .footprint import footprint_score
+
+    sep = "," if path.suffix.lower() == ".csv" else "\t"
+    t = pl.read_csv(path, separator=sep, infer_schema_length=None)
+    if "complex.id" not in t.columns:
+        raise typer.BadParameter(f"--features needs a 'complex.id' column; got {list(t.columns)[:6]}")
+    scores = t.select("complex.id")
+
+    try:
+        scores = scores.with_columns(pl.Series("Q", q_score(t, features=Q_FEATURES_GEOM)))
+    except KeyError as exc:
+        typer.echo(f"  Q skipped: {exc.args[0].split(';')[0]}")
+    if "D2_pep24" in t.columns and "fp_b0_frac_r7" in t.columns:
+        scores = scores.with_columns(footprint_score(t)["fp_score"])
+    try:
+        v, model = p_native(t, return_model=True)
+        scores = scores.with_columns(pl.Series("P_native", v))
+        used = model.feature_names
+        typer.echo(f"  P_native: EM over {len(used)} features, {len(model.loglik_)} rounds, "
+                   + ("converged" if model.converged_ else "hit the round cap"))
+        typer.echo("  learned class weight per feature (sign and size EM chose, no labels used):")
+        for j, nm in enumerate(used):
+            typer.echo(f"      {nm:18s} {model.nodes_[j]['beta'][-2]:+.3f}")
+    except ValueError as exc:
+        typer.echo(f"  P_native skipped: {exc}")
+
+    scores.write_csv(str(out), separator="\t")
+    typer.echo(f"wrote {out} ({scores.height} rows, {len(scores.columns) - 1} scores)")
+
+
 @app.command(rich_help_panel=_P_SCORE)
+def features(
+    structures: str = typer.Option(..., "-s", "--structures", help="TCR-pMHC structure file, directory, glob, or .tar.gz"),
+    out: Path = typer.Option("features.tsv", "-o", "--out", help="per-structure descriptor table (TSV)"),
+    include: str = typer.Option("placement,interface,topology,energetics", "-i", "--include", help="comma-separated feature families: placement, interface, topology, energetics, kinetics"),
+    all_families: bool = typer.Option(False, "--all", help="every family, kinetics included"),
+    organism: str = typer.Option("human", "--organism"),
+    radii: str = typer.Option("7,8", "--radii", help="Calpha thresholds for the footprint flag complex (topology family)"),
+    threads: int = typer.Option(1, "-t", "--threads", help="worker processes for featurisation (0 = all cores); annotation is always one batched call"),
+    autodetect_species: bool = typer.Option(True, "--autodetect-species/--no-autodetect-species", help="also search mouse to catch a mis-declared organism; --no- halves the annotation cost"),
+) -> None:
+    """Raw per-structure descriptors, one row per structure, in the four (+1) feature families.
+
+    This command emits **features only** — no model, no probability, no cohort score. Its companion
+    is ``tcren recognize``, which turns a feature table into scores and can read this file back with
+    ``--features`` instead of re-reading the structures.
+
+    The families are split by what each quantity is invariant under, which is also the axis along
+    which they carry independent evidence:
+
+    \b
+      placement   where the receptor sits in the groove frame -- docking angles, the TCRdock
+                  rigid-body parameters, ride height / shift / offset, and the CDR3 loop frames.
+                  Frame-DEPENDENT.
+      interface   how much contact there is and of what chemical kind -- buried area, contact
+                  counts and types, hydrogen bonds, clashes, chain and loop balance.
+      topology    the SHAPE of the contact set, free of its size -- coverage entropy and Hill
+                  numbers, the footprint's Betti numbers and persistence entropy, the canonical
+                  germline/CDR3 preference.
+      energetics  statistical-potential interface energies F and their poly-alanine references dF.
+      kinetics    the interface as a spring network -- stiffness, rupture, coupling residues.
+                  Off by default (it is the most expensive family); add it with --all or -i.
+
+    Only what you ask for is computed: ``-i topology`` never builds the energies and ``-i placement``
+    never runs the spring network. Whatever the selection, the whole set is annotated in **one**
+    arda call per organism and **one** mmseqs MHC search, never one per structure.
+
+    Every emitted column is catalogued in ``tcren.recognition.DESCRIPTORS``, so the families are a
+    partition of the table rather than a label on it.
+
+    Examples::
+
+        tcren features -s models/ -o feats.tsv                       # the four default families
+        tcren features -s models/ -i topology -o shape.tsv           # footprint shape alone
+        tcren features -s models/ --all -t 0 -o feats.tsv            # everything, all cores
+        tcren recognize --features feats.tsv -o scores.tsv           # score without re-reading structures
+    """
+    import os as _os
+
+    from .recognition import FAMILIES, recognition_table
+    from .structure.io import import_structure
+
+    fams = list(FAMILIES) if all_families else [f.strip() for f in include.split(",") if f.strip()]
+    unknown = [f for f in fams if f not in FAMILIES]
+    if unknown:
+        raise typer.BadParameter(f"unknown feature families {unknown}; expected {list(FAMILIES)}")
+    try:
+        rr = tuple(float(v) for v in radii.replace(" ", "").split(",") if v)
+    except ValueError as exc:
+        raise typer.BadParameter(f"--radii must be comma-separated numbers, got {radii!r}") from exc
+
+    items = list(iter_structures(structures, importer=import_structure))
+    rows = recognition_table(items, organism=organism, include=fams, radii=rr,
+                             autodetect_species=autodetect_species,
+                             threads=threads if threads > 0 else (_os.cpu_count() or 1))
+    table = pl.DataFrame(rows)
+    table.write_csv(str(out), separator="\t")
+    n_err = int(table["error"].is_not_null().sum()) if "error" in table.columns else 0
+    typer.echo(f"features [{','.join(fams)}]: {table.height} structures, {len(table.columns) - 1} "
+               f"descriptors -> {out}" + (f"  ({n_err} failed)" if n_err else ""))
+
+
+@app.command(rich_help_panel=_P_SCORE, hidden=True)
 def footprint(
     structures: str = typer.Option(..., "-s", "--structures", help="TCR-pMHC structure file, directory, glob, or .tar.gz"),
     out: Path = typer.Option("footprint.tsv", "-o", "--out", help="per-structure coverage + topology table (TSV)"),
@@ -1302,6 +1418,9 @@ def footprint(
     score: bool = typer.Option(False, "--score", help="append the cohort-standardised fp_score = z(D2_pep24) + z(-fp_b0_frac_r7)"),
 ) -> None:
     """Footprint shape: how a receptor's contacts are DISTRIBUTED, not what they score.
+
+    Superseded by ``tcren features -i topology``, which emits the same columns from the shared
+    feature pass; kept working, and hidden from the command list.
 
     One TSV row per structure with the coverage measures -- normalised Shannon entropy
     ``H_cell`` and the Hill numbers ``D1``/``D2`` over the 6 CDR loops x {peptide, MHC}, plus

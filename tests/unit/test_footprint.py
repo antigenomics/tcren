@@ -97,6 +97,28 @@ def test_contact_totals_add_up():
     assert r["n_contacts"] == r["n_pep_contacts"] + r["n_mhc_contacts"]
 
 
+def test_unannotated_mhc_is_flagged_not_silently_empty():
+    """The MHC pass must run after chain typing, or six of the twelve cells are unreachable.
+
+    `classify_chains` types an MHC chain generically as "MHC"; `interface("tcr_mhc")` matches the
+    supertype `annotate_mhc` assigns. Skipping it emptied the MHC half of the partition with no
+    error -- p_germ_mhc fell from ~0.78 to ~0.06 and H_cell was normalised by ln 12 over a
+    partition half of which could never be occupied.
+    """
+    s = _full_complex()
+    for c in s.chains:
+        if c.chain_type == "MHCa":
+            c.chain_type = "MHC"                       # what classify_chains leaves behind
+    with pytest.warns(RuntimeWarning, match="MHC chains are not annotated"):
+        t = cell_counts(s)
+    assert "mhc" not in set(t["target"].to_list())     # and this is exactly why it warns
+
+
+def test_annotated_mhc_reaches_the_mhc_cells():
+    t = cell_counts(_full_complex())
+    assert t.filter(pl.col("target") == "mhc")["n"].sum() > 0
+
+
 # --- the diversity measures ----------------------------------------------------------------
 
 def test_uniform_composition_is_exactly_one_and_maximal():
@@ -212,6 +234,19 @@ def test_footprint_score_is_the_sum_of_two_standardised_channels():
     # both channels point the same way: more effective cells and fewer patches score higher
     assert out["fp_score"].to_list() == sorted(out["fp_score"].to_list())
     assert out["z_coverage"].mean() == pytest.approx(0.0, abs=1e-12)
+
+
+def test_one_missing_structure_does_not_flatten_a_whole_channel():
+    """polars propagates NaN through mean/std, so a single contact-free row used to null the column,
+    `fill_nan(0.0)` flattened it to zero, and the score silently became its other channel alone."""
+    t = pl.DataFrame({"pdb.id": list("abcde"),
+                      "D2_pep24": [4.0, 8.0, 12.0, 16.0, float("nan")],
+                      "fp_b0_frac_r7": [0.4, 0.3, 0.2, 0.1, 0.5]})
+    out = footprint_score(t)
+    good = out["z_coverage"].to_numpy()[:4]
+    assert not np.allclose(good, 0.0), good          # the four measured rows still carry the channel
+    assert out["z_coverage"].to_numpy()[4] == 0.0    # ...and the missing one contributes nothing
+    assert np.all(np.diff(good) > 0)
 
 
 def test_footprint_score_standardises_within_group():

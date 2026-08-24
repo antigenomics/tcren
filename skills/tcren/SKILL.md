@@ -335,13 +335,54 @@ QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses ar
   H-bearing depositions (5jhd: +7 of 28 contacts, −58.5% F_tcr_pep) and breaks legacy-oracle parity
   on 5jhd/7qpj, recorded as a subset relation in the regression test.
 
+## Feature channels — `tcren features` (descriptors) vs `tcren recognize` (scores)
+
+- **Two commands, two jobs.** `tcren features` reads structures and writes descriptors;
+  `tcren recognize` turns a descriptor table into scores. The feature pass is the expensive half,
+  so run it once and re-score for free:
+  `tcren features -s <in> -i <channels> -o feats.tsv` then
+  `tcren recognize --features feats.tsv -o scores.tsv`.
+- **Five channels, split by invariance** (`tcren.recognition.DESCRIPTORS`, `FAMILIES`):
+  `placement` (groove-frame pose — angles, TCRdock params, ride height/shift/offset, CDR3 frames;
+  frame-**dependent**), `interface` (contact size + chemistry), `topology` (the *shape* of the
+  contact set, size-free), `energetics` (Φ and ΔΦ), `kinetics` (spring network; off by default).
+- `placement` + `interface` were one `geometry` family and `energetics` was `physics` until
+  2026-08-24. Both retired names still resolve in `descriptors()`; the split is what lets the
+  independence claim be stated — measured on VDJdb, topology ⟂ interface at |ρ| = 0.023 while
+  topology–placement is 0.177 (0.448 on TCRvdb), because uniform coverage *is* ride height.
+- **Only the requested channels are computed.** `-i topology` never builds the energies.
+- **Contact counts are `interface`, not `topology`** (`FOOTPRINT_SIZE_FEATURES`). A shape channel
+  carrying the interface's size would correlate with the interface channel by construction.
+- `P_native` (`tcren.cohort.p_native`) combines the channels with a latent-class Bayes network
+  fitted by EM (`GaussianBNClassifier.fit_em`). **No binder label enters.** EM learns each channel's
+  sign, which is what makes the measured coupling `C*` unnecessary — on a cohort whose contact
+  energy runs backwards the energetics coefficient simply comes out negative.
+  - EM is monotone **only with the DAG fixed**, which is the default; `relearn_structure=True`
+    changes the model family between rounds and the likelihood can fall.
+  - A mixture is identified only up to permutation — `orient_by` (default `burial`) is what stops
+    the two components swapping between runs.
+  - **Anchors are extra rows, never scored rows.** Anchoring a row you then score reads the label
+    back out: an early draft did that and reported 0.83 where the honest number is 0.69.
+  - Keep the feature count small: the BIC hill climb is quadratic (0.01 s at 18 features on 618
+    rows, 1.7 s at 40, **45 s at 89**). `P_NATIVE_FEATURES` is the compact default.
+
 ## Footprint shape — `tcren.footprint` / `tcren footprint`
 
 - **Reach for it when the energy is at chance but the pose still looks wrong.** It reads the same
   contact map as a *shape*, not a sum: how evenly the six CDR loops spread their contacts, whether
   the germline/CDR3 division of labour holds, and whether the footprint is one connected patch.
   No potential, no reference structure, no fitted parameter.
-  CLI: `tcren footprint -s <in> -o <out> [--score] [--group epitope --meta m.tsv] [--radii 7,8]`.
+  CLI: `tcren features -s <in> -i topology -o <out>`. (`tcren footprint` still works and is the
+  same code path, now hidden; `--score` lives on it, and `fp_score` also comes out of
+  `tcren recognize --features`.)
+- **The MHC pass must run AFTER chain typing, and it is not optional.** `classify_chains` leaves an
+  MHC chain typed generically `"MHC"`; `interface("tcr_mhc")` matches the supertype `annotate_mhc`
+  assigns. Skip it and six of the twelve cells are structurally unreachable with no error —
+  `p_germ_mhc` reads 0.06 instead of 0.78 and `H_cell` is normalised by ln 12 over a partition half
+  of which can never be occupied. `cell_counts` now warns; that bug shipped once.
+- **NaN must become null before any polars aggregation.** polars propagates NaN through
+  `mean`/`std`, so one contact-free structure turned a whole z-scored channel to NaN, `fill_nan(0)`
+  flattened it, and `fp_score` silently became its other channel alone (0.815 → 0.691 on TCRvdb).
 - **No canonical orientation is needed** — every feature is invariant under rigid motion, which
   `test_footprint.py::test_every_feature_is_invariant_under_rigid_motion` pins by rotating and
   translating a complex and demanding an identical row. Only chain typing + CDR markup. MHC *region*

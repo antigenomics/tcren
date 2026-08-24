@@ -38,6 +38,7 @@ is not needed either, so the two-pass MHC annotation trap does not apply.
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Iterable, Sequence
 from pathlib import Path
 
@@ -50,6 +51,8 @@ from .structure.model import Structure
 __all__ = [
     "CELL_LOOPS",
     "FOOTPRINT_FEATURES",
+    "FOOTPRINT_SIZE_FEATURES",
+    "footprint_topology_features",
     "cell_counts",
     "footprint_batch",
     "footprint_features",
@@ -67,14 +70,33 @@ _BANDS = (3, 6)
 #: log-odds needs it to stay finite; the diversity measures use the raw counts.
 _PSEUDO = 0.5
 
+#: The three raw contact counts this module emits alongside the shape measures. They are interface
+#: **size**, not shape, and are catalogued under ``interface`` in :data:`tcren.recognition.DESCRIPTORS`
+#: for exactly that reason: a shape channel that carried the contact count would correlate with the
+#: interface channel by construction, and the whole point of the coverage and topology measures is
+#: that they are size-free.
+FOOTPRINT_SIZE_FEATURES: tuple[str, ...] = ("n_contacts", "n_pep_contacts", "n_mhc_contacts")
+
+#: Every column :func:`footprint_features` guarantees, size columns included. The radius-tagged
+#: Betti columns (``fp_b0_r7`` and friends) are named from the ``radii`` argument and so are not
+#: listed here; :func:`footprint_topology_features` gives the shape-only subset.
 FOOTPRINT_FEATURES: tuple[str, ...] = (
-    "n_contacts", "n_pep_contacts", "n_mhc_contacts",
+    *FOOTPRINT_SIZE_FEATURES,
     "H_cell", "D1_cell", "D2_cell", "S_cell", "J_cell",
     "H_loop", "D2_loop", "D2_pep24",
     "ab_imb", "ab_imb_pep", "ab_imb_mhc",
     "L_canon", "p_germ_mhc", "p_cdr3_pep",
     "h0_pers_ent",
 )
+
+
+def footprint_topology_features(radii: Sequence[float] = (7.0, 8.0)) -> tuple[str, ...]:
+    """The shape-only feature names: :data:`FOOTPRINT_FEATURES` without the size counts, plus the
+    radius-tagged Betti columns that ``radii`` produces.
+    """
+    tags = [f"r{r:g}" for r in radii]
+    return tuple([f for f in FOOTPRINT_FEATURES if f not in FOOTPRINT_SIZE_FEATURES]
+                 + [f"fp_{k}_{t}" for t in tags for k in ("b0", "b1", "chi", "b0_frac")])
 
 
 # --- the cell partition ------------------------------------------------------------------------
@@ -95,6 +117,14 @@ def cell_counts(structure: Structure, cutoff: float = 5.0) -> pl.DataFrame:
         A frame with columns ``loop``, ``target``, ``band``, ``n``. Empty if the structure makes no
         CDR-loop contact with the pMHC.
     """
+    # `classify_chains` leaves an MHC chain typed generically as "MHC"; `interface("tcr_mhc")`
+    # matches only the supertype `annotate_mhc` assigns. Without that pass the MHC half of the
+    # partition is unreachable and every measure here is computed on peptide contacts alone -- a
+    # silent, plausible-looking wrong answer, so say it out loud.
+    if any(getattr(c, "chain_type", None) == "MHC" for c in structure.chains):
+        warnings.warn(f"{structure.pdb_id}: MHC chains are not annotated (chain_type == 'MHC'); "
+                      f"run tcren.mhc.annotate_mhc first or the 6 MHC cells stay empty",
+                      RuntimeWarning, stacklevel=2)
     cm = ContactMap.from_structure(structure, cutoff=cutoff)
     frames = []
     for target, iface in (("pep", "tcr_peptide"), ("mhc", "tcr_mhc")):
@@ -118,8 +148,9 @@ def cell_counts(structure: Structure, cutoff: float = 5.0) -> pl.DataFrame:
                                     "band": pl.String, "n": pl.Int64})
     return (pl.concat(frames, how="vertical")
             .filter(pl.col("loop").is_in(list(CELL_LOOPS)))
-            .group_by("loop", "target", "band")
-            .agg(pl.len().cast(pl.Int64).alias("n")))
+            .group_by("loop", "target", "band", maintain_order=True)
+            .agg(pl.len().cast(pl.Int64).alias("n"))
+            .sort("loop", "target", "band"))
 
 
 def _diversity(n: np.ndarray, k: int) -> dict[str, float]:
@@ -249,7 +280,9 @@ def footprint_features(structure: Structure, *, cutoff: float = 5.0,
     if t.is_empty():
         row.update(dict.fromkeys(FOOTPRINT_FEATURES, float("nan")))
     else:
-        by = lambda *k: (t.group_by(list(k)).agg(pl.col("n").sum()))  # noqa: E731
+        # sorted, not just grouped: an unordered group_by makes `-sum p log p` add its terms in a
+        # different order each run, which moved every entropy column by ~1e-15 between runs
+        by = lambda *k: t.group_by(list(k)).agg(pl.col("n").sum()).sort(list(k))  # noqa: E731
         cell12 = by("loop", "target")
         cell24 = by("loop", "band")
         loop6 = by("loop")
@@ -266,6 +299,9 @@ def footprint_features(structure: Structure, *, cutoff: float = 5.0,
             c: float(t.filter(expr & (chain == c))["n"].sum()) for c in ("TRA", "TRB")}
         allc, pepc, mhcc = (side(pl.lit(True)), side(pl.col("target") == "pep"),
                             side(pl.col("target") == "mhc"))
+        # CDR-loop contacts ONLY, like every other measure here -- the cell partition is the
+        # definition. A tally over *all* TCR residues gives a different number (framework contacts
+        # are ~11% of the interface on the VDJdb benchmark), and the two must not be compared.
         row["ab_imb"] = _imbalance(allc["TRA"], allc["TRB"])
         row["ab_imb_pep"] = _imbalance(pepc["TRA"], pepc["TRB"])
         row["ab_imb_mhc"] = _imbalance(mhcc["TRA"], mhcc["TRB"])
@@ -300,8 +336,14 @@ def footprint_batch(structures: str | Path | Iterable[Structure], *, cutoff: flo
 
     A path is resolved through :func:`tcren.paper.helpers.iter_annotated_set`, which sends every
     chain of every structure to arda in **one mmseqs call per organism**. Nothing here annotates
-    per structure and nothing here uses a process pool: mmseqs is the parallel layer. MHC *region*
-    markup is not required by any feature, so no second annotation pass is needed.
+    per structure and nothing here uses a process pool: mmseqs is the parallel layer.
+
+    The MHC pass then runs **after** chain typing, in one batched call. It is not optional and its
+    order is not free: ``classify_chains`` leaves an MHC chain typed generically as ``"MHC"``, and
+    ``ContactMap.interface("tcr_mhc")`` matches on the supertype that :func:`tcren.mhc.annotate_mhc`
+    assigns. Skip it and every TCR:MHC contact vanishes without an error -- six of the twelve cells
+    empty, ``p_germ_mhc`` collapses from ~0.78 to ~0.06, and ``H_cell`` is computed over a partition
+    half of which is structurally unreachable.
 
     Args:
         structures: a directory, glob, ``.tar.gz`` or manifest of structures, or an iterable of
@@ -314,8 +356,14 @@ def footprint_batch(structures: str | Path | Iterable[Structure], *, cutoff: flo
         A frame with ``pdb.id`` plus every feature of :func:`footprint_features`.
     """
     if isinstance(structures, (str, Path)):
+        import os
+
         from .cli import _iter_typed
-        it = _iter_typed(Path(structures), organism=organism)
+        from .mhc import annotate_mhc_batch
+
+        structs = list(_iter_typed(Path(structures), organism=organism))
+        annotate_mhc_batch(structs, threads=os.cpu_count() or 1)     # must follow chain typing
+        it: Iterable[Structure] = structs
     else:
         it = structures
     rows = [{"pdb.id": s.pdb_id, **footprint_features(s, cutoff=cutoff, radii=radii)} for s in it]
@@ -338,9 +386,14 @@ def footprint_score(table: pl.DataFrame, *, group: str | None = None) -> pl.Data
         ``table`` with ``z_coverage``, ``z_patch`` and ``fp_score`` appended.
     """
     def z(col: str, sign: float) -> pl.Expr:
+        # NaN must become null BEFORE the aggregation. polars propagates NaN through mean/std, so a
+        # single contact-free structure turned the whole column NaN, `fill_nan(0.0)` then flattened
+        # it to zero, and the score silently degenerated to whichever channel happened to be clean
+        # (measured on TCRvdb: 0.814 -> 0.691, from 11 rows in 618).
         v = sign * pl.col(col)
+        v = pl.when(v.is_nan()).then(None).otherwise(v)
         e = (v - v.mean()) / v.std()
-        return (e.over(group) if group else e).fill_nan(0.0).fill_null(0.0)
+        return (e.over(group) if group else e).fill_null(0.0)
 
     return table.with_columns(z("D2_pep24", 1.0).alias("z_coverage"),
                               z("fp_b0_frac_r7", -1.0).alias("z_patch")) \

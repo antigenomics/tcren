@@ -185,8 +185,10 @@ def test_descriptors_selector():
     # scores are outputs, excluded unless asked for
     assert "q_bind" not in descriptors()
     assert "q_bind" in descriptors("score", with_scores=True)
+    # "energetics" and "physics" are the same family under its current and retired name
+    assert descriptors("physics") == descriptors("energetics")
     with pytest.raises(ValueError, match="unknown family"):
-        descriptors("energetics")
+        descriptors("thermodynamics")
 
 
 def test_forced_pose_model_shape_and_formula():

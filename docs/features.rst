@@ -1,18 +1,24 @@
 Interface feature reference
 ===========================
 
-``tcren recognize`` turns a set of TCR–pMHC structures into one flat table — **one row per
-structure**, one interface descriptor per column — for downstream classification and ranking. It is
-the single source of truth for every feature used in the TCRen2 benchmarks.
+``tcren features`` turns a set of TCR–pMHC structures into one flat table — **one row per
+structure**, one interface descriptor per column — and ``tcren recognize`` turns that table into
+scores. Features and scores are two commands because they are two jobs: the feature pass reads
+structures and is the expensive half, the scoring pass is arithmetic over a table and can be
+repeated for nothing.
 
 .. code-block:: console
 
-   # 34 core descriptors + P(real):
-   tcren recognize -s structures/ -o table.tsv
-   # + the 18 CDR3-frame descriptors (52 features):
-   tcren recognize -s structures/ -o table.tsv --full
-   # + the frozen "good-results" scores p_bind and p_forced:
-   tcren recognize -s structures/ -o table.tsv --scores
+   # every descriptor, in the four channels (add kinetics with --all):
+   tcren features -s structures/ -i placement,interface,topology,energetics -o feats.tsv
+   # one channel only -- and only that channel is computed:
+   tcren features -s structures/ -i topology -o shape.tsv
+   # scores from the table, without re-reading a single structure:
+   tcren recognize --features feats.tsv -o scores.tsv
+
+``tcren recognize -s structures/`` still emits the legacy descriptor table plus ``p_real`` /
+``p_real_bn`` in one step (``--full`` for the CDR3-frame layer, ``--scores`` for the frozen
+``p_bind`` / ``p_forced``, ``--mechanics`` for the koff proxies).
 
 Output is **TSV**. The first column ``complex.id`` is the structure-file stem (the SHA-256 ``TCR_hash``
 for the modelled sets), which is the join key to labels and AlphaFold confidences. ``--features-only``
@@ -36,8 +42,40 @@ Families, and which descriptors involve the receptor
 ----------------------------------------------------
 
 Every emitted column is catalogued in :data:`tcren.recognition.DESCRIPTORS` as
-``name -> (family, involves_tcr)``, and selected with :func:`tcren.recognition.descriptors`.
-The three families are the three physical channels the method reports:
+``name -> (family, involves_tcr)``, and selected with :func:`tcren.recognition.descriptors` or with
+``tcren features -i``. The families split by **what each quantity is invariant under**, which is
+also the axis along which they carry independent evidence:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 14 46 40
+
+   * - family
+     - what it is
+     - examples
+   * - ``placement``
+     - where the receptor sits in the groove frame. **Frame-dependent.**
+     - ``crossing_signed``, ``pitch``, ``dock_d``, ``dock_torsion``, ``height``, ``shift_u/w``,
+       ``offset``, the 18 CDR3 frame terms
+   * - ``interface``
+     - how much contact there is and of what chemical kind. SE(3)-invariant.
+     - ``burial``, ``extent``, ``n_contacts_tp/tm``, ``n_hbond``, ``ct_*``, ``n_clashes``
+   * - ``topology``
+     - the *shape* of the contact set, free of its size. SE(3)-invariant, so these need no
+       canonical orientation.
+     - ``H_cell``, ``D2_cell``, ``D2_pep24``, ``fp_b0_*``, ``fp_b1_*``, ``h0_pers_ent``,
+       ``L_canon``, ``ab_imb``
+   * - ``energetics``
+     - statistical-potential interface energies and their poly-alanine references.
+     - ``F_tcr_pep``, ``F_tcr_mhc``, ``F_cdr12/3a/3b``, ``dF_tcr_pep``
+   * - ``kinetics``
+     - the interface as a network of breakable springs. Off unless asked for.
+     - ``K_tens``, ``aniso``, ``rupture_force``, ``rupture_work``, ``couple_*``
+
+``placement`` and ``interface`` were a single ``geometry`` family until 2026-08-24; ``energetics``
+was ``physics``. Both retired names still resolve in
+:func:`~tcren.recognition.descriptors`. The three original families are still the three physical
+channels the method reports:
 
 ``geometry``
     Coordinates, docking angles, and the contact topology and chemistry read off them — the kind of

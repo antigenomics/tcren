@@ -21,10 +21,13 @@ import gzip
 import json
 import math
 import warnings
+from collections.abc import Sequence
 from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
+
+from .footprint import (FOOTPRINT_SIZE_FEATURES, footprint_topology_features)
 
 _EPS = 1e-9
 
@@ -148,6 +151,128 @@ class GaussianBNClassifier:
             self.nodes_[j] = {"parents": pa, "beta": beta.tolist(),
                               "sigma": float(np.sqrt(np.mean(resid ** 2)) + _EPS)}
         self.prior_ = float(np.mean(y))
+        return self
+
+    # -- fit with the class UNOBSERVED -------------------------------------------------------------------
+    def _m_step(self, Z: np.ndarray, g: np.ndarray, m: np.ndarray) -> None:
+        """Weighted refit of every node conditional against the responsibilities ``g``.
+
+        Each node is ``z_j = b0 + b.parents + gamma_j y + d_j m + eps``, so the expected complete-data
+        log-likelihood needs only the first two moments of the latent ``y``. Under a Bernoulli latent,
+        ``E[y] = E[y^2] = gamma`` — the second moment is **not** ``gamma^2``. Substituting ``gamma``
+        into the design matrix gets the cross terms right and the ``(y, y)`` entry wrong, so that one
+        entry is corrected explicitly; with it the M-step is exact rather than an approximation.
+        """
+        n = Z.shape[0]
+        self.nodes_ = {}
+        for j in range(len(self.feature_names)):
+            pa = self.structure_[j]
+            C = np.column_stack([np.ones(n)] + ([Z[:, pa]] if pa else []) + [g, m])
+            k = C.shape[1] - 2                                        # the latent-class column
+            A = C.T @ C
+            A[k, k] = float(g.sum())                                  # E[y^2] = E[y], not E[y]^2
+            beta = np.linalg.solve(A + _EPS * np.eye(A.shape[0]), C.T @ Z[:, j])
+            resid = Z[:, j] - C @ beta
+            # ...and the same correction in the residual variance: y contributes its own variance
+            var = float(np.mean(resid ** 2) + beta[k] ** 2 * np.mean(g - g ** 2))
+            self.nodes_[j] = {"parents": pa, "beta": beta.tolist(),
+                              "sigma": float(np.sqrt(var) + _EPS)}
+
+    def _mixture_loglik(self, Z: np.ndarray, m: np.ndarray) -> tuple[float, np.ndarray]:
+        """Observed-data log-likelihood ``sum_i log sum_y P(y) P(x_i|y)`` and the responsibilities."""
+        l1 = self._loglik(Z, m, 1) + math.log(self.prior_ + _EPS)
+        l0 = self._loglik(Z, m, 0) + math.log(1 - self.prior_ + _EPS)
+        hi = np.maximum(l0, l1)
+        tot = hi + np.log(np.exp(l0 - hi) + np.exp(l1 - hi))
+        return float(tot.sum()), np.exp(l1 - tot)
+
+    def fit_em(self, X, *, anchors=None, orient_by: str = "burial", rounds: int = 50,
+               tol: float = 1e-4, relearn_structure: bool = False,
+               mhc_class=None) -> "GaussianBNClassifier":
+        r"""Fit with the class **unobserved**, by expectation-maximization.
+
+        This is the fit that needs no binder labels. The class node is latent; each round takes an
+        **E-step** (responsibility :math:`\gamma_i = P(\mathrm{native}\mid x_i)` under the current
+        parameters) and an **M-step** (weighted refit of every node conditional, and of the DAG
+        itself on responsibility-centred data). Convergence is on the observed-data log-likelihood,
+        which this construction increases monotonically.
+
+        What it buys: the sign and the weight of every channel are *learned from the cohort being
+        scored*, which is the job the measured coupling :func:`tcren.cohort.coupling` was doing by
+        hand for the single energy channel. A cohort whose contact energy runs backwards is fitted
+        with a negative coefficient on that channel and nothing else has to change.
+
+        Args:
+            X: the design matrix, rows = structures, columns = :attr:`feature_names`.
+            anchors: optional ``{row_index: 0|1}`` of known labels, pinned at every E-step
+                (**semi-supervised**). Anything not listed stays latent. Use held-out known binders
+                to orient the component and pull the score toward a reference channel.
+            orient_by: feature name used to decide which mixture component is "native" when there
+                are no anchors — the component with the **higher** mean on it becomes class 1.
+                Without this the labels can switch between runs, since a mixture is only identified
+                up to permutation.
+            rounds: maximum EM iterations.
+            tol: stop when the log-likelihood gains less than this.
+            relearn_structure: re-run the BIC hill climb each round on responsibility-centred data.
+                **Off by default, and the default is the principled one.** With the DAG held fixed
+                this is a textbook EM and the observed-data log-likelihood is monotone
+                non-decreasing; re-learning the graph changes the model family between rounds, so
+                the likelihood can and does fall (measured: three drops in 25 rounds on a synthetic
+                cohort, the largest 5.6 nats). Turn it on only if the structure is the object of
+                interest, and read :attr:`loglik_` rather than assuming convergence.
+            mhc_class: optional MHC-class covariate, as in :meth:`fit`.
+
+        Returns:
+            ``self``, with :attr:`responsibilities_` (final E-step), :attr:`loglik_` (the trace) and
+            :attr:`converged_` (whether ``tol`` was reached before ``rounds`` ran out).
+        """
+        X = np.asarray(X, float)
+        n = len(X)
+        m = np.zeros(n) if mhc_class is None else np.asarray(mhc_class, float)
+        self.mu_ = np.nanmean(np.where(np.isfinite(X), X, np.nan), axis=0)
+        self.sd_ = np.nanstd(np.where(np.isfinite(X), X, np.nan), axis=0) + _EPS
+        Z = self._standardize(X)
+
+        pin = {int(k): float(v) for k, v in (anchors or {}).items()}
+        # Initialise from the orientation feature rather than at random: a deterministic start makes
+        # the fit reproducible, and starting near the answer keeps EM off the symmetric saddle at
+        # gamma = 1/2, where every responsibility is equal and the M-step has nothing to separate.
+        col = self.feature_names.index(orient_by) if orient_by in self.feature_names else 0
+        g = _sigmoid(np.nan_to_num(Z[:, col]))
+        for i, v in pin.items():
+            g[i] = v
+        self.structure_ = _hill_climb(Z - Z.mean(axis=0), self.max_parents)
+        self.prior_ = float(g.mean())
+
+        self.loglik_: list[float] = []
+        for _ in range(rounds):
+            self._m_step(Z, g, m)
+            ll, g_new = self._mixture_loglik(Z, m)
+            for i, v in pin.items():
+                g_new[i] = v
+            self.loglik_.append(ll)
+            done = len(self.loglik_) > 1 and abs(ll - self.loglik_[-2]) < tol
+            g = g_new
+            self.prior_ = float(np.clip(g.mean(), 1e-3, 1 - 1e-3))
+            if relearn_structure:                   # each row minus its own soft class mean
+                mu1 = (g[:, None] * Z).sum(0) / max(g.sum(), _EPS)
+                mu0 = ((1 - g)[:, None] * Z).sum(0) / max((1 - g).sum(), _EPS)
+                self.structure_ = _hill_climb(Z - (np.outer(g, mu1) + np.outer(1 - g, mu0)),
+                                              self.max_parents)
+            if done:
+                self.converged_ = True
+                break
+        else:
+            self.converged_ = False
+
+        # A mixture is identified only up to permutation of its components. Orient it, so two runs
+        # of the same data cannot disagree about which side is native.
+        flip = bool(pin) is False and np.nan_to_num(Z[:, col]) @ (g - g.mean()) < 0
+        if flip:
+            g = 1.0 - g
+            self.prior_ = float(np.clip(g.mean(), 1e-3, 1 - 1e-3))
+            self._m_step(Z, g, m)
+        self.responsibilities_ = g
         return self
 
     # -- predict -----------------------------------------------------------------------------------------
@@ -398,6 +523,14 @@ _TCR_TYPES = ("TRA", "TRB", "TRG", "TRD")
 #: = ``|α−β|`` whole-CDR normalised (absolute). See :func:`_interface_symmetry`.
 INTERFACE_SYMMETRY_FEATURES = ("cdr3_dominance", "cdr3_ab_imbalance", "chain_cdr_imbalance")
 
+#: Where the receptor body sits over the groove (:func:`tcren.orient.tcr_placement`), emitted as extra
+#: output columns — **not** part of :data:`RECOGNITION_FEATURES` (the frozen models' vector is fixed).
+#: ``height`` = elevation of the CDR centroid above the groove plane, ``shift_u``/``shift_w`` its
+#: in-plane displacement from the peptide centroid along the groove long/short axes, ``offset`` the
+#: in-plane distance. These are the translational degrees of freedom no docking *angle* can see, and
+#: the mechanism behind the coverage entropy (uniform coverage = riding low).
+TCR_PLACEMENT_FEATURES = ("height", "shift_u", "shift_w", "offset")
+
 #: The intra-peptide term, emitted as extra ``recognize --full`` output columns — **not** part of
 #: :data:`RECOGNITION_FEATURES` (the frozen models' 35-vector is fixed). ``F_pep_int`` = the peptide's
 #: MJ contact energy with **itself** (:func:`tcren.intra_peptide_energy`), the term every interface
@@ -427,14 +560,29 @@ FULL_FEATURES = RECOGNITION_FEATURES + CDR3_FRAME_FEATURES
 # ===================================================================================================
 #: Family of each descriptor, and whether the TCR enters its definition.
 #:
-#: Three families, matching the three physical channels the method reports:
+#: Five families, split by **what each quantity is invariant under** — which is also the axis along
+#: which they carry independent evidence:
 #:
-#: * ``geometry`` — coordinates, docking angles, and the contact topology and chemistry read off
-#:   them. This is the kind of quantity Eq. Q is built from.
-#: * ``physics`` — statistical-potential interface energies ``F`` and their poly-alanine references
-#:   ``dF``. Lower is more favourable.
+#: * ``placement`` — where the receptor sits, expressed in the pMHC groove frame: docking angles,
+#:   the TCRdock rigid-body parameters, the ride height/shift/offset of the receptor body, and the
+#:   per-loop CDR3 frame descriptors. **Frame-dependent**: these change if the groove frame does.
+#: * ``interface`` — how much contact there is and of what chemical kind: buried area, contact
+#:   counts and types, hydrogen bonds, clashes, chain and loop balance. SE(3)-invariant. This is the
+#:   channel Eq. Q is built from.
+#: * ``topology`` — the *shape* of the contact set, independent of both its size and its chemistry:
+#:   coverage entropy and Hill numbers over the CDR-loop x target cells, the footprint's Betti
+#:   numbers and persistence entropy, the canonical germline/CDR3 preference. SE(3)-invariant, which
+#:   is why these need no canonical orientation (:mod:`tcren.footprint`).
+#: * ``energetics`` — statistical-potential interface energies ``F`` and their poly-alanine
+#:   references ``dF``. Lower is more favourable. SE(3)-invariant.
 #: * ``kinetics`` — the interface as a network of breakable springs: stiffness, anisotropy, strain,
 #:   rupture, and the residues that couple the pre-formed scaffold to the interface.
+#:
+#: ``placement`` and ``interface`` were one ``geometry`` family until 2026-08-24. Splitting them is
+#: what lets the three-channel claim be stated at all: the coverage entropy is coupled to the ride
+#: height (Spearman -0.559 / -0.525) and so is *not* independent of ``placement``, while it is a
+#: different question whether it is independent of ``interface``. :func:`descriptors` keeps
+#: ``"geometry"`` and ``"physics"`` working as aliases.
 #:
 #: ``involves_tcr`` is ``False`` for a quantity computed from the peptide and the MHC alone. Such a
 #: column is a property of the *cohort*, not of the receptor: two structures of the same epitope on
@@ -446,54 +594,64 @@ FULL_FEATURES = RECOGNITION_FEATURES + CDR3_FRAME_FEATURES
 #: ``q_bind``, ``s_strain``) are listed under ``score``. They are outputs built from the descriptors
 #: above and must never be fed back in as inputs; :func:`descriptors` excludes them by default.
 DESCRIPTORS: dict[str, tuple[str, bool]] = {
-    # -- geometry: docking pose ---------------------------------------------------------------
-    "pitch": ("geometry", True),            # incident/tilt angle out of the groove plane
-    "crossing": ("geometry", True),         # crossing (scanning) angle against the groove long axis
-    "crossing_signed": ("geometry", True),  # the same, signed: carries the docking polarity
-    "dock_d": ("geometry", True),
-    "dock_torsion": ("geometry", True),
-    "dock_tcr_uy": ("geometry", True),
-    "dock_tcr_uz": ("geometry", True),
-    "dock_mhc_uy": ("geometry", True),
-    "dock_mhc_uz": ("geometry", True),
-    # -- geometry: interface size, topology and chemistry --------------------------------------
-    "burial": ("geometry", True),
-    "extent": ("geometry", True),
-    "chain_balance": ("geometry", True),
-    "n_contacts_tp": ("geometry", True),
-    "n_contacts_tm": ("geometry", True),
-    "n_pep_contacted": ("geometry", True),
-    "n_hbond": ("geometry", True),
-    "ct_tp_salt_bridge": ("geometry", True),
-    "ct_tp_aromatic": ("geometry", True),
-    "ct_tp_hydrophobic": ("geometry", True),
-    "ct_tp_other": ("geometry", True),
-    "ct_tm_salt_bridge": ("geometry", True),
-    "ct_tm_hydrogen_bond": ("geometry", True),
-    "ct_tm_aromatic": ("geometry", True),
-    "ct_tm_hydrophobic": ("geometry", True),
-    "ct_tm_other": ("geometry", True),
-    "cdr3_dominance": ("geometry", True),
-    "cdr3_ab_imbalance": ("geometry", True),
-    "chain_cdr_imbalance": ("geometry", True),
-    "n_clashes": ("geometry", True),
-    "clash_score": ("geometry", True),
-    **{f: ("geometry", True) for f in CDR3_FRAME_FEATURES},
+    # -- placement: rigid-body pose in the groove frame ----------------------------------------
+    "pitch": ("placement", True),            # incident/tilt angle out of the groove plane
+    "crossing": ("placement", True),         # crossing (scanning) angle against the groove long axis
+    "crossing_signed": ("placement", True),  # the same, signed: carries the docking polarity
+    "dock_d": ("placement", True),
+    "dock_torsion": ("placement", True),
+    "dock_tcr_uy": ("placement", True),
+    "dock_tcr_uz": ("placement", True),
+    "dock_mhc_uy": ("placement", True),
+    "dock_mhc_uz": ("placement", True),
+    # where the receptor body sits over the groove (`tcren.orient.tcr_placement`)
+    "height": ("placement", True),
+    "shift_u": ("placement", True),
+    "shift_w": ("placement", True),
+    "offset": ("placement", True),
+    # the CDR3 loops' own placement in the same frame (the FramePose layer)
+    **{f: ("placement", True) for f in CDR3_FRAME_FEATURES},
+    # -- interface: contact size and chemistry --------------------------------------------------
+    "burial": ("interface", True),
+    "extent": ("interface", True),
+    "chain_balance": ("interface", True),
+    "n_contacts_tp": ("interface", True),
+    "n_contacts_tm": ("interface", True),
+    "n_pep_contacted": ("interface", True),
+    "n_hbond": ("interface", True),
+    "ct_tp_salt_bridge": ("interface", True),
+    "ct_tp_aromatic": ("interface", True),
+    "ct_tp_hydrophobic": ("interface", True),
+    "ct_tp_other": ("interface", True),
+    "ct_tm_salt_bridge": ("interface", True),
+    "ct_tm_hydrogen_bond": ("interface", True),
+    "ct_tm_aromatic": ("interface", True),
+    "ct_tm_hydrophobic": ("interface", True),
+    "ct_tm_other": ("interface", True),
+    "cdr3_dominance": ("interface", True),
+    "cdr3_ab_imbalance": ("interface", True),
+    "chain_cdr_imbalance": ("interface", True),
+    "n_clashes": ("interface", True),
+    "clash_score": ("interface", True),
     # the MHC class indicator is a property of the presenting molecule alone
-    "mhc_class_bin": ("geometry", False),
-    # -- physics: interface energies -----------------------------------------------------------
-    "F_tcr_pep": ("physics", True),
-    "F_tcr_mhc": ("physics", True),
-    "F_cdr12": ("physics", True),
-    "F_cdr3a": ("physics", True),
-    "F_cdr3b": ("physics", True),
-    "dF_tcr_pep": ("physics", True),
+    "mhc_class_bin": ("interface", False),
+    # the raw footprint contact counts are interface SIZE, not shape -- see FOOTPRINT_SIZE_FEATURES
+    **{f: ("interface", True) for f in FOOTPRINT_SIZE_FEATURES},
+    # -- topology: the shape of the contact set (`tcren.footprint`) ------------------------------
+    **{f: ("topology", True) for f in footprint_topology_features()},
+    # -- energetics: interface energies ----------------------------------------------------------
+    "F_tcr_pep": ("energetics", True),
+    "F_tcr_mhc": ("energetics", True),
+    "F_cdr12": ("energetics", True),
+    "F_cdr3a": ("energetics", True),
+    "F_cdr3b": ("energetics", True),
+    "dF_tcr_pep": ("energetics", True),
     # peptide:MHC energy and its poly-alanine reference: presentation, no receptor
-    "F_pep_mhc": ("physics", False),
-    "dF_pep_mhc": ("physics", False),
+    "F_pep_mhc": ("energetics", False),
+    "dF_pep_mhc": ("energetics", False),
     # the peptide's contacts with itself: a property of the epitope's bound conformation alone
-    "F_pep_int": ("physics", False),
-    "n_pep_int": ("geometry", False),
+    "F_pep_int": ("energetics", False),
+    "n_pep_int": ("interface", False),
     # -- kinetics: contact fragility (``recognize``) -------------------------------------------
     "exp_lost": ("kinetics", True),
     "mean_margin": ("kinetics", True),
@@ -520,9 +678,13 @@ DESCRIPTORS: dict[str, tuple[str, bool]] = {
     "p_bind": ("score", True),
     "q_bind": ("score", True),
     "s_strain": ("score", True),
+    "P_native": ("score", True),
 }
 
-FAMILIES = ("geometry", "physics", "kinetics")
+FAMILIES = ("placement", "interface", "topology", "energetics", "kinetics")
+
+#: Retired family names kept working for callers written before the 2026-08-24 split.
+_FAMILY_ALIASES = {"geometry": ("placement", "interface"), "physics": ("energetics",)}
 
 
 def descriptors(family: str | None = None, *, tcr_only: bool = False,
@@ -530,8 +692,10 @@ def descriptors(family: str | None = None, *, tcr_only: bool = False,
     """Descriptor names from :data:`DESCRIPTORS`, filtered by family and receptor involvement.
 
     Args:
-        family: keep one of :data:`FAMILIES` (``"geometry"``, ``"physics"``, ``"kinetics"``), or all
-            of them if ``None``.
+        family: keep one of :data:`FAMILIES` (``"placement"``, ``"interface"``, ``"topology"``,
+            ``"energetics"``, ``"kinetics"``), or all of them if ``None``. The retired names
+            ``"geometry"`` (= ``placement`` + ``interface``) and ``"physics"`` (= ``energetics``)
+            still work.
         tcr_only: keep only descriptors the receptor enters. Set this whenever the question being
             asked is about receptors — a peptide- or MHC-only column carries cohort identity.
         with_scores: also return the fitted/cohort-relative composites of the ``score`` family.
@@ -541,13 +705,22 @@ def descriptors(family: str | None = None, *, tcr_only: bool = False,
         The matching names, in catalogue order.
 
     Example:
-        >>> descriptors("physics", tcr_only=True)
+        >>> descriptors("energetics", tcr_only=True)
         ('F_tcr_pep', 'F_tcr_mhc', 'F_cdr12', 'F_cdr3a', 'F_cdr3b', 'dF_tcr_pep')
+        >>> descriptors("physics") == descriptors("energetics")   # retired alias
+        True
     """
-    if family is not None and family not in FAMILIES and family != "score":
-        raise ValueError(f"unknown family {family!r}; expected one of {FAMILIES}")
+    if family is None:
+        keep = set(FAMILIES) | {"score"}
+    elif family in _FAMILY_ALIASES:
+        keep = set(_FAMILY_ALIASES[family])
+    elif family in FAMILIES or family == "score":
+        keep = {family}
+    else:
+        raise ValueError(f"unknown family {family!r}; expected one of {FAMILIES} "
+                         f"or an alias {tuple(_FAMILY_ALIASES)}")
     return tuple(n for n, (fam, tcr) in DESCRIPTORS.items()
-                 if (family is None or fam == family)
+                 if fam in keep
                  and (with_scores or fam != "score")
                  and (tcr or not tcr_only))
 
@@ -853,6 +1026,29 @@ def _symmetry_columns(s) -> dict[str, float]:
         return {k: math.nan for k in INTERFACE_SYMMETRY_FEATURES}
 
 
+def _placement_columns(s) -> dict[str, float]:
+    """Receptor-placement extra output columns (:data:`TCR_PLACEMENT_FEATURES`) — the ride height,
+    in-plane shift and offset of the CDR centroid over the groove. NaN where the frame is undefined."""
+    from .orient.docking import tcr_placement
+    try:
+        tp = tcr_placement(s)
+        return {k: float(getattr(tp, k)) for k in TCR_PLACEMENT_FEATURES}
+    except Exception:  # noqa: BLE001 - no groove frame / no receptor chain
+        return dict.fromkeys(TCR_PLACEMENT_FEATURES, math.nan)
+
+
+def _footprint_columns(s, radii=(7.0, 8.0)) -> dict[str, float]:
+    """Footprint shape extra output columns — the ``topology`` family (:mod:`tcren.footprint`).
+
+    Rigid-motion invariant, so the structure does not need orienting; it needs only chain typing and
+    CDR markup, which the batch annotation has already done by the time this runs."""
+    from .footprint import footprint_features
+    try:
+        return footprint_features(s, radii=radii)
+    except Exception:  # noqa: BLE001 - no peptide/receptor chain etc.
+        return dict.fromkeys(footprint_topology_features(radii) + FOOTPRINT_SIZE_FEATURES, math.nan)
+
+
 def _peptide_internal_columns(s) -> dict[str, float]:
     """Intra-peptide extra output columns (:data:`PEPTIDE_INTERNAL_FEATURES`) for the recognize table.
 
@@ -872,6 +1068,7 @@ def _peptide_internal_columns(s) -> dict[str, float]:
 def recognition_table(items, *, organism: str = "human", full: bool = False, scores: bool = False,
                       with_p_real: bool = True, threads: int = 1, chunk: int = 64,
                       autodetect_species: bool = True, mechanics: bool = False,
+                      include: Sequence[str] | None = None, radii: Sequence[float] = (7.0, 8.0),
                       _mmseqs_threads: int = 0, _cohort_scores: bool = True) -> list[dict]:
     """Batched feature (+score) extraction for a whole set of TCR–pMHC structures.
 
@@ -943,7 +1140,8 @@ def recognition_table(items, *, organism: str = "human", full: bool = False, sco
 
     # stage 2: featurisation, the part that actually costs (94 % of wall time on a 100-pose probe:
     # 96 s against 2.4 s of arda and 0.9 s of MHC search). It is pure Python/numpy, so processes.
-    work = [(id_, s, organism, full, with_p_real, scores, mechanics) for id_, s in zip(ids, structs)]
+    work = [(id_, s, organism, full, with_p_real, scores, mechanics, include, tuple(radii))
+            for id_, s in zip(ids, structs)]
     if threads > 1 and len(work) > 1:
         from concurrent.futures import ProcessPoolExecutor
         with ProcessPoolExecutor(max_workers=min(threads, len(work))) as ex:
@@ -962,7 +1160,9 @@ def _featurise_one(args) -> dict:
     The structure arrives already annotated: chain typing and the MHC call are batch operations and
     belong to the single search in :func:`recognition_table`, not to a per-structure worker.
     """
-    id_, s, organism, full, with_p_real, scores, mechanics = args
+    id_, s, organism, full, with_p_real, scores, mechanics, include, radii = args
+    if include is not None:
+        return _featurise_families(id_, s, organism, include, radii)
     try:
         feats = recognition_features(s, organism=organism, full=full, annotate=False)
         row = {"complex.id": id_, **feats, **_stability_clash_columns(s), **_symmetry_columns(s)}
@@ -984,6 +1184,39 @@ def _featurise_one(args) -> dict:
         return row
     except Exception as exc:  # noqa: BLE001
         return {"complex.id": id_, "error": f"{type(exc).__name__}: {str(exc)[:80]}"}
+
+
+def _featurise_families(id_, s, organism: str, include, radii) -> dict:
+    """One structure -> one row holding exactly the catalogued descriptors of the requested families.
+
+    Only what is asked for is computed: ``tcren features -i topology`` never builds the energies, and
+    ``-i placement`` never runs the spring network. The returned row is filtered against
+    :data:`DESCRIPTORS`, so a column exists in the output if and only if the catalogue names it —
+    which is what makes the families a partition of the feature table rather than a label on it.
+    """
+    want = set(include)
+    unknown = want - set(FAMILIES)
+    if unknown:
+        raise ValueError(f"unknown feature families {sorted(unknown)}; expected {FAMILIES}")
+    row: dict[str, float] = {}
+    try:
+        if want & {"placement", "interface", "energetics"}:
+            row.update(recognition_features(s, organism=organism, full=True, annotate=False))
+            row.update(_symmetry_columns(s), **_peptide_internal_columns(s))
+        if want & {"interface", "kinetics"}:                 # clash + contact fragility share a pass
+            row.update(_stability_clash_columns(s))
+        if "placement" in want:
+            row.update(_placement_columns(s))
+        if "topology" in want:
+            row.update(_footprint_columns(s, radii))
+        if "kinetics" in want:
+            from .mechanics import interface_mechanics
+            row.update(interface_mechanics(s))
+    except Exception as exc:  # noqa: BLE001 - keep the batch alive, one bad structure is one bad row
+        return {"complex.id": id_, "error": f"{type(exc).__name__}: {str(exc)[:80]}"}
+    keep = {n for n, (fam, _) in DESCRIPTORS.items() if fam in want}
+    keep |= {f"fp_{k}_r{r:g}" for r in radii for k in ("b0", "b1", "chi", "b0_frac")} if "topology" in want else set()
+    return {"complex.id": id_, **{k: v for k, v in row.items() if k in keep}}
 
 
 def _add_cohort_scores(rows: list[dict]) -> None:
