@@ -353,18 +353,33 @@ QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses ar
 - **Only the requested channels are computed.** `-i topology` never builds the energies.
 - **Contact counts are `interface`, not `topology`** (`FOOTPRINT_SIZE_FEATURES`). A shape channel
   carrying the interface's size would correlate with the interface channel by construction.
-- `P_native` (`tcren.cohort.p_native`) combines the channels with a latent-class Bayes network
-  fitted by EM (`GaussianBNClassifier.fit_em`). **No binder label enters.** EM learns each channel's
-  sign, which is what makes the measured coupling `C*` unnecessary — on a cohort whose contact
-  energy runs backwards the energetics coefficient simply comes out negative.
+- `P_native` (`tcren.cohort.p_native`) combines **three** channels — `geometry`, `topology`,
+  `energetics` — each fitted as its own latent-class Bayes network by EM
+  (`GaussianBNClassifier.fit_em`), their log-odds added. **No binder label enters.** EM learns each
+  channel's sign, which is what makes the measured coupling `C*` unnecessary: on a cohort whose
+  contact energy runs backwards the energetics coefficient simply comes out negative.
+  - **`geometry` pools the `placement` and `interface` FAMILIES into one network** (`P_NATIVE_POOL`).
+    Adding log-odds is the exact posterior only across channels that are conditionally independent
+    given the class, and those two are the most dependent pair measured (|ρ| = 0.244). Pooling them
+    is what the assumption requires; summing them as two terms counts the dependence twice, and
+    measurably: the four-channel sum reads 0.817/0.668 (TCRvdb/VDJdb ROC) against the pooled
+    three-channel 0.832/0.718.
+  - `rule="flat"` instead pools every channel's features into one network. It holds the top of a
+    ranking better where cohorts are small (VDJdb P@10 0.872 vs 0.812) and ranks worse overall
+    (0.689 vs 0.718). Both are reported in the paper; neither dominates.
+  - **`T` is just `p_native(channels=("topology",))`** — the shape channel read on its own. It is
+    what replaced the hand-written `fp_score` z-sum.
   - EM is monotone **only with the DAG fixed**, which is the default; `relearn_structure=True`
     changes the model family between rounds and the likelihood can fall.
-  - A mixture is identified only up to permutation — `orient_by` (default `burial`) is what stops
-    the two components swapping between runs.
+  - A mixture is identified only up to permutation — `orient_by` is what stops the two components
+    swapping between runs, and `P_NATIVE_ORIENT` gives the per-channel default. **A leading `-`
+    means lower-is-native**, which the energetics channel needs: Φ is a contact-preference sum in
+    which lower is favourable, so orienting on the raw column labels the wrong component native.
   - **Anchors are extra rows, never scored rows.** Anchoring a row you then score reads the label
     back out: an early draft did that and reported 0.83 where the honest number is 0.69.
   - Keep the feature count small: the BIC hill climb is quadratic (0.01 s at 18 features on 618
-    rows, 1.7 s at 40, **45 s at 89**). `P_NATIVE_FEATURES` is the compact default.
+    rows, 1.7 s at 40, **45 s at 89**). `P_NATIVE_FEATURES` is the compact default, keyed by
+    FAMILY; `_channel_columns(channel)` resolves a channel through the pool.
 
 ## Footprint shape — `tcren.footprint` / `tcren footprint`
 

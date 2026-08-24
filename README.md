@@ -254,7 +254,7 @@ runs once and the scoring pass can be repeated for nothing.
 ```bash
 tcren features  -s my_pdbs/ -o feats.tsv                   # every descriptor, four channels
 tcren features  -s my_pdbs/ -o shape.tsv -i topology       # one channel -- and only it is computed
-tcren recognize --features feats.tsv -o scores.tsv         # Q, fp_score, P_native. No structure re-read
+tcren recognize --features feats.tsv -o scores.tsv         # Q, T, P_native. No structure re-read
 ```
 
 Descriptors are catalogued in four **channels**, split by what each is invariant under — which is

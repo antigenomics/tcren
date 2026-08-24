@@ -11,7 +11,8 @@ import numpy as np
 import polars as pl
 import pytest
 
-from tcren.cohort import P_NATIVE_CHANNELS, P_NATIVE_FEATURES, p_native
+from tcren.cohort import (P_NATIVE_CHANNELS, P_NATIVE_FEATURES, P_NATIVE_ORIENT, P_NATIVE_POOL,
+                          _channel_columns, p_native)
 from tcren.recognition import GaussianBNClassifier
 
 NAMES = ["burial", "n_hbond", "height", "F_tcr_pep", "noise"]
@@ -113,15 +114,16 @@ def test_p_native_scores_a_polars_table_and_tracks_the_latent_class():
 
 def test_p_native_uses_only_the_requested_channels():
     t, _ = _table()
-    _, m = p_native(t, channels=("topology",), return_model=True)
+    _, m = p_native(t, channels=("topology",), rule="flat", return_model=True)
     assert set(m.feature_names) <= set(P_NATIVE_FEATURES["topology"])
 
 
 def test_p_native_skips_columns_the_caller_did_not_compute():
     t, _ = _table()
-    _, m = p_native(t.drop("height", "dock_d"), return_model=True)
-    assert "height" not in m.feature_names and "dock_d" not in m.feature_names
-    assert "burial" in m.feature_names
+    _, models = p_native(t.drop("height", "dock_d"), return_model=True)
+    names = [n for m in models.values() for n in m.feature_names]
+    assert "height" not in names and "dock_d" not in names
+    assert "burial" in names
 
 
 def test_p_native_refuses_a_cohort_smaller_than_its_feature_set():
@@ -136,5 +138,53 @@ def test_p_native_refuses_when_no_channel_is_present():
 
 
 def test_default_feature_set_covers_every_channel():
-    assert set(P_NATIVE_FEATURES) == set(P_NATIVE_CHANNELS)
-    assert all(P_NATIVE_FEATURES[c] for c in P_NATIVE_CHANNELS)
+    assert set(P_NATIVE_POOL) == set(P_NATIVE_CHANNELS)
+    assert all(_channel_columns(c) for c in P_NATIVE_CHANNELS)
+
+
+def test_the_pool_partitions_the_feature_families_exactly_once():
+    """No descriptor may reach two channels: the log-odds sum would count it twice."""
+    fams = [f for c in P_NATIVE_CHANNELS for f in P_NATIVE_POOL[c]]
+    assert len(fams) == len(set(fams))
+    assert set(fams) == set(P_NATIVE_FEATURES)
+    cols = [n for c in P_NATIVE_CHANNELS for n in _channel_columns(c)]
+    assert len(cols) == len(set(cols))
+
+
+def test_geometry_pools_placement_and_interface():
+    assert P_NATIVE_POOL["geometry"] == ("placement", "interface")
+    assert set(_channel_columns("geometry")) == (set(P_NATIVE_FEATURES["placement"])
+                                                 | set(P_NATIVE_FEATURES["interface"]))
+
+
+def test_the_sum_rule_is_the_sum_of_its_channels():
+    """`rule="sum"` must equal the hand-computed log-odds sum, or the equation in the paper is not
+    the thing the code computes."""
+    t, _ = _table()
+    total = p_native(t, rule="sum")
+    parts, priors = [], []
+    for ch in P_NATIVE_CHANNELS:
+        pc, m = p_native(t, channels=(ch,), rule="flat", return_model=True)
+        parts.append(np.log(np.clip(pc, 1e-9, 1 - 1e-9) / (1 - np.clip(pc, 1e-9, 1 - 1e-9))))
+        priors.append(m.prior_)
+    pri = float(np.mean(priors))
+    lg = sum(parts) - 2 * np.log(pri / (1 - pri))
+    assert np.allclose(total, 1.0 / (1.0 + np.exp(-lg)), atol=1e-9)
+
+
+def test_T_is_p_native_over_the_topology_channel_alone():
+    t, _ = _table()
+    assert np.allclose(p_native(t, channels=("topology",)),
+                       p_native(t, channels=("topology",), rule="flat"))
+
+
+def test_energetics_is_oriented_on_the_favourable_direction():
+    """Phi is a contact-preference sum in which LOWER is more favourable, so the energetics channel
+    is oriented on its negation. Orienting on the raw column labels the wrong component native."""
+    assert P_NATIVE_ORIENT["energetics"].startswith("-")
+
+
+def test_unknown_rule_is_rejected():
+    t, _ = _table()
+    with pytest.raises(ValueError, match="rule must be"):
+        p_native(t, rule="average")

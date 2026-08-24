@@ -42,7 +42,7 @@ from functools import lru_cache
 
 import numpy as np
 
-__all__ = ["zscore", "q_score", "p_native", "P_NATIVE_FEATURES", "P_NATIVE_CHANNELS", "agreement", "q_iptm", "f_score", "q_f", "q_f_iptm", "f_invert_by_iptm", "phi_bind",
+__all__ = ["zscore", "q_score", "p_native", "P_NATIVE_FEATURES", "P_NATIVE_CHANNELS", "P_NATIVE_POOL", "P_NATIVE_ORIENT", "agreement", "q_iptm", "f_score", "q_f", "q_f_iptm", "f_invert_by_iptm", "phi_bind",
            "q_coupled", "coupling", "strain_z", "native_reference", "Q_FEATURES", "Q_FEATURES_CORE",
            "Q_FEATURES_GEOM", "F_TERMS", "STRAIN_TERMS"]
 
@@ -466,10 +466,33 @@ def q_coupled(q, energy, r=None) -> np.ndarray:
     return g(zq) * g(w * ze)
 
 
-#: The four channels :func:`p_native` combines, in catalogue order. They are the families of
-#: :data:`tcren.recognition.DESCRIPTORS` minus ``kinetics``, which measures unbinding rather than
-#: nativeness.
-P_NATIVE_CHANNELS = ("placement", "interface", "topology", "energetics")
+#: The three channels :func:`p_native` combines, in catalogue order.
+P_NATIVE_CHANNELS = ("geometry", "topology", "energetics")
+
+#: How each combination channel maps onto the descriptor families of
+#: :data:`tcren.recognition.DESCRIPTORS` (``kinetics`` is excluded throughout: it measures unbinding
+#: rather than nativeness).
+#:
+#: ``placement`` and ``interface`` are pooled into a single ``geometry`` network rather than summed
+#: as two. The sum-of-log-odds rule in :func:`p_native` is the exact posterior only across channels
+#: that are conditionally independent given the class, and those two are the most dependent pair
+#: measured — |rho| = 0.244 between their principal components on the VDJdb benchmark, against 0.023
+#: for topology against interface. Pooling them is what the independence assumption requires; their
+#: mutual dependence is then modelled inside the one network instead of double-counted across two.
+P_NATIVE_POOL: dict[str, tuple[str, ...]] = {
+    "geometry": ("placement", "interface"),
+    "topology": ("topology",),
+    "energetics": ("energetics",),
+}
+
+#: The feature each channel is oriented by when a fit carries no anchors. A mixture is identified
+#: only up to permutation, so without this the two components can swap between runs. A leading
+#: ``"-"`` means *lower* is native-like.
+P_NATIVE_ORIENT: dict[str, str] = {
+    "geometry": "burial",        # a native interface buries more surface
+    "topology": "D2_pep24",      # a native footprint spreads over more cells
+    "energetics": "-F_tcr_pep",  # Phi is a contact-preference sum: LOWER is more favourable
+}
 
 #: The compact per-channel feature set :func:`p_native` uses by default — the terms each channel has
 #: a standing result for, four to five per channel. It is deliberately small: the BIC hill climb is
@@ -484,8 +507,25 @@ P_NATIVE_FEATURES: dict[str, tuple[str, ...]] = {
 }
 
 
-def p_native(table, *, channels=P_NATIVE_CHANNELS, features=None, anchors=None,
-             orient_by: str = "burial", rounds: int = 50, return_model: bool = False):
+def _channel_columns(channel: str, features=None) -> list[str]:
+    """The descriptor names one combination channel draws on, resolved through :data:`P_NATIVE_POOL`.
+
+    Accepts a mapping keyed either by descriptor family (``placement``, ``interface``, ...) or by
+    combination channel (``geometry``, ...), so a caller can widen either level.
+    """
+    src = P_NATIVE_FEATURES if features is None else features
+    out = [n for fam in P_NATIVE_POOL.get(channel, (channel,)) for n in src.get(fam, ())]
+    return out or list(src.get(channel, ()))
+
+
+def _logit(p) -> np.ndarray:
+    q = np.clip(np.asarray(p, float), 1e-9, 1 - 1e-9)
+    return np.log(q / (1.0 - q))
+
+
+def p_native(table, *, channels=P_NATIVE_CHANNELS, features=None, rule: str = "sum",
+             anchors=None, orient_by: str | None = None, rounds: int = 50,
+             return_model: bool = False):
     r"""``P(native)`` — the cohort's own Bayes network over the feature channels, fitted by EM.
 
     The **label-free** replacement for a hand-written combination rule. Rather than choosing a
@@ -499,6 +539,21 @@ def p_native(table, *, channels=P_NATIVE_CHANNELS, features=None, anchors=None,
     (:meth:`tcren.recognition.GaussianBNClassifier.fit_em`). No binder label enters, so there is
     nothing to leak and nothing to hold out.
 
+    **How the channels combine.** Under ``rule="sum"`` (the default) each channel of
+    :data:`P_NATIVE_CHANNELS` is fitted as its *own* network and their log-odds are added,
+
+    .. math::
+
+        \mathrm{logit}\,P_{\mathrm{native}}(x)
+          \;=\; \sum_{c} \mathrm{logit}\,P_c\big(y=1 \mid x_c\big)
+          \;-\; (C-1)\,\mathrm{logit}\,\pi ,
+
+    which is the exact posterior when the channels are conditionally independent given the class —
+    the condition the channel split is built to satisfy (:data:`P_NATIVE_POOL`). The prior term is a
+    constant within a cohort and reorders nothing; it is there so the return value is a calibrated
+    probability rather than an unnormalised score. ``rule="flat"`` instead pools every channel's
+    features into one network, which lets edges cross channels at the cost of the factorisation.
+
     **What this replaces.** The contact energy inverts on forced poses, which is why
     :func:`q_coupled` needs the measured coupling :func:`coupling` to decide the energy's sign.
     Here that sign is a fitted coefficient like any other: on a cohort whose energy runs backwards,
@@ -509,35 +564,52 @@ def p_native(table, *, channels=P_NATIVE_CHANNELS, features=None, anchors=None,
     Args:
         table: a ``tcren features`` / :func:`tcren.recognition.recognition_table` output — a
             mapping, ``polars`` frame or ``pandas`` frame with the descriptor columns.
-        channels: which of :data:`P_NATIVE_CHANNELS` to include.
-        features: explicit ``{channel: (name, ...)}`` overriding :data:`P_NATIVE_FEATURES`, or a flat
-            sequence of column names to use as-is.
+        channels: which of :data:`P_NATIVE_CHANNELS` to include. Pass a single channel to read
+            that channel on its own — ``channels=("topology",)`` is the shape score ``T``.
+        features: explicit ``{family: (name, ...)}`` overriding :data:`P_NATIVE_FEATURES` (channel
+            keys are accepted too), or a flat sequence of column names to use as-is.
+        rule: ``"sum"`` to add per-channel log-odds, ``"flat"`` to fit one network over the union.
         anchors: optional ``{row_index: 0|1}`` of known labels for a **semi-supervised** fit; they
             are pinned at every E-step and orient the components. ``None`` is fully unsupervised.
         orient_by: the feature whose higher-mean component is called native when there are no
-            anchors. A mixture is identified only up to permutation, so this is what stops the two
-            components swapping between runs.
+            anchors, ``"-name"`` to orient on the lower mean. A mixture is identified only up to
+            permutation, so this is what stops the two components swapping between runs. ``None``
+            takes each channel's entry in :data:`P_NATIVE_ORIENT`.
         rounds: maximum EM iterations.
         return_model: also return the fitted
             :class:`~tcren.recognition.GaussianBNClassifier`, whose ``nodes_[j]["beta"][-2]`` is the
             class coefficient EM assigned to feature ``j`` — the learned per-channel weight and sign.
+            Under ``rule="sum"`` this is a ``{channel: model}`` mapping.
 
     Returns:
         ``P(native)`` per row in :math:`(0,1)`, higher = more native-like; or
         ``(scores, model)`` when ``return_model``. Cohort-relative: rank within the set you scored.
 
     Raises:
-        ValueError: if fewer than two usable feature columns survive, or the cohort has fewer rows
-            than features (the graph would not be identified).
+        ValueError: if ``rule`` is unknown, if fewer than two usable feature columns survive, or if
+            the cohort has fewer rows than features (the graph would not be identified).
     """
     from .recognition import GaussianBNClassifier
 
-    if features is None:
-        names = [n for ch in channels for n in P_NATIVE_FEATURES.get(ch, ())]
-    elif isinstance(features, dict):
-        names = [n for ch in channels for n in features.get(ch, ())]
-    else:
+    if rule not in ("sum", "flat"):
+        raise ValueError(f"rule must be 'sum' or 'flat', got {rule!r}")
+
+    flat_features = features is not None and not isinstance(features, dict)
+    if rule == "sum" and len(channels) > 1 and not flat_features:
+        parts, models = {}, {}
+        for ch in channels:
+            parts[ch], models[ch] = p_native(
+                table, channels=(ch,), features=features, rule="flat", anchors=anchors,
+                orient_by=orient_by, rounds=rounds, return_model=True)
+        pri = float(np.mean([m.prior_ for m in models.values()]))
+        total = sum(_logit(v) for v in parts.values()) - (len(parts) - 1) * _logit(pri)
+        scores = 1.0 / (1.0 + np.exp(-total))
+        return (scores, models) if return_model else scores
+
+    if flat_features:
         names = list(features)
+    else:
+        names = [n for ch in channels for n in _channel_columns(ch, features)]
 
     cols, keep = [], []
     for n in names:
@@ -556,7 +628,10 @@ def p_native(table, *, channels=P_NATIVE_CHANNELS, features=None, anchors=None,
         raise ValueError(f"p_native needs more structures than features: {len(X)} rows, "
                          f"{len(keep)} columns. Narrow `features=` or score a larger cohort.")
 
-    orient = orient_by if orient_by in keep else keep[0]
+    orient = orient_by or P_NATIVE_ORIENT.get(channels[0] if len(channels) == 1 else "geometry",
+                                              "burial")
+    if orient.lstrip("-") not in keep:
+        orient = keep[0]
     model = GaussianBNClassifier(keep).fit_em(X, anchors=anchors, orient_by=orient, rounds=rounds)
     scores = model.predict_proba(X)[:, 1]
     return (scores, model) if return_model else scores

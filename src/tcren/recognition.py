@@ -208,9 +208,9 @@ class GaussianBNClassifier:
                 (**semi-supervised**). Anything not listed stays latent. Use held-out known binders
                 to orient the component and pull the score toward a reference channel.
             orient_by: feature name used to decide which mixture component is "native" when there
-                are no anchors — the component with the **higher** mean on it becomes class 1.
-                Without this the labels can switch between runs, since a mixture is only identified
-                up to permutation.
+                are no anchors — the component with the **higher** mean on it becomes class 1, or
+                the **lower** mean if the name is prefixed ``"-"``. Without this the labels can
+                switch between runs, since a mixture is only identified up to permutation.
             rounds: maximum EM iterations.
             tol: stop when the log-likelihood gains less than this.
             relearn_structure: re-run the BIC hill climb each round on responsibility-centred data.
@@ -237,8 +237,12 @@ class GaussianBNClassifier:
         # Initialise from the orientation feature rather than at random: a deterministic start makes
         # the fit reproducible, and starting near the answer keeps EM off the symmetric saddle at
         # gamma = 1/2, where every responsibility is equal and the M-step has nothing to separate.
-        col = self.feature_names.index(orient_by) if orient_by in self.feature_names else 0
-        g = _sigmoid(np.nan_to_num(Z[:, col]))
+        # `orient_by` may carry a leading "-" meaning LOWER is native-like, which the energetics
+        # channel needs: Phi is a contact-preference sum in which lower is more favourable, so
+        # orienting it on the raw column would label the unfavourable component native.
+        sgn, key = (-1.0, orient_by[1:]) if orient_by.startswith("-") else (1.0, orient_by)
+        col = self.feature_names.index(key) if key in self.feature_names else 0
+        g = _sigmoid(sgn * np.nan_to_num(Z[:, col]))
         for i, v in pin.items():
             g[i] = v
         self.structure_ = _hill_climb(Z - Z.mean(axis=0), self.max_parents)
@@ -267,7 +271,7 @@ class GaussianBNClassifier:
 
         # A mixture is identified only up to permutation of its components. Orient it, so two runs
         # of the same data cannot disagree about which side is native.
-        flip = bool(pin) is False and np.nan_to_num(Z[:, col]) @ (g - g.mean()) < 0
+        flip = bool(pin) is False and sgn * np.nan_to_num(Z[:, col]) @ (g - g.mean()) < 0
         if flip:
             g = 1.0 - g
             self.prior_ = float(np.clip(g.mean(), 1e-3, 1 - 1e-3))

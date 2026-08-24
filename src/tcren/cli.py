@@ -1304,7 +1304,6 @@ def _score_feature_table(path: Path, out: Path) -> None:
     here is arithmetic over an existing table -- no structure is parsed and nothing is annotated.
     """
     from .cohort import P_NATIVE_CHANNELS, Q_FEATURES_GEOM, p_native, q_score
-    from .footprint import footprint_score
 
     sep = "," if path.suffix.lower() == ".csv" else "\t"
     t = pl.read_csv(path, separator=sep, infer_schema_length=None)
@@ -1316,17 +1315,24 @@ def _score_feature_table(path: Path, out: Path) -> None:
         scores = scores.with_columns(pl.Series("Q", q_score(t, features=Q_FEATURES_GEOM)))
     except KeyError as exc:
         typer.echo(f"  Q skipped: {exc.args[0].split(';')[0]}")
-    if "D2_pep24" in t.columns and "fp_b0_frac_r7" in t.columns:
-        scores = scores.with_columns(footprint_score(t)["fp_score"])
     try:
-        v, model = p_native(t, return_model=True)
+        v, models = p_native(t, return_model=True)
         scores = scores.with_columns(pl.Series("P_native", v))
-        used = model.feature_names
-        typer.echo(f"  P_native: EM over {len(used)} features, {len(model.loglik_)} rounds, "
-                   + ("converged" if model.converged_ else "hit the round cap"))
-        typer.echo("  learned class weight per feature (sign and size EM chose, no labels used):")
-        for j, nm in enumerate(used):
-            typer.echo(f"      {nm:18s} {model.nodes_[j]['beta'][-2]:+.3f}")
+        # each channel on its own as well: `T` is the shape score the paper reports, and a caller
+        # who wants to know WHY a structure scored as it did needs the parts, not just the sum
+        for ch, model in models.items():
+            scores = scores.with_columns(
+                pl.Series({"geometry": "G", "topology": "T", "energetics": "E"}.get(ch, ch),
+                          p_native(t, channels=(ch,), rule="flat")))
+        typer.echo("  P_native: sum of per-channel log-odds over "
+                   f"{', '.join(models)} ({len(P_NATIVE_CHANNELS)} channels)")
+        for ch, model in models.items():
+            typer.echo(f"    {ch}: EM over {len(model.feature_names)} features, "
+                       f"{len(model.loglik_)} rounds, "
+                       + ("converged" if model.converged_ else "hit the round cap"))
+            typer.echo("      class weight per feature (sign and size EM chose, no labels used):")
+            for j, nm in enumerate(model.feature_names):
+                typer.echo(f"        {nm:18s} {model.nodes_[j]['beta'][-2]:+.3f}")
     except ValueError as exc:
         typer.echo(f"  P_native skipped: {exc}")
 
