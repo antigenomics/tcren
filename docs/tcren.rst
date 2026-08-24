@@ -173,6 +173,14 @@ tcren.rotamers module
    :undoc-members:
    :show-inheritance:
 
+tcren.footprint module
+~~~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: tcren.footprint
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 tcren.surface module
 ~~~~~~~~~~~~~~~~~~~~~~~
 

@@ -10,9 +10,16 @@ from . import potential
 from .binder import BINDER_MODEL, binder_score, is_real_interface
 from .paper.helpers import annotate_batch
 from .refine.anchors import native_peptide
-from .cohort import (F_TERMS, Q_FEATURES_GEOM, coupling, f_invert_by_iptm, f_score, phi_bind, q_f,
-                     q_f_iptm, q_coupled, q_iptm, q_score, strain_z, zscore)
+from .cohort import (F_TERMS, Q_FEATURES_GEOM, coupling, f_score, p_native, q_coupled, q_score,
+                     strain_z, zscore)
 from .clashes import ClashReport, has_clashes, interface_clashes
+from .pose import (
+    POSE_FEATURES,
+    POSE_FEATURES_CONTACT,
+    POSE_FEATURES_DEGREE,
+    POSE_FEATURES_SHELL,
+    pose_consistency,
+)
 from .stability import StabilityReport, contact_stability
 from . import geometry, torsions
 from .contactmap import ContactMap, ModeCentroid, binding_mode, registered_map
@@ -51,9 +58,8 @@ except PackageNotFoundError:  # pragma: no cover - only an uninstalled source tr
 
 __all__ = [
     "annotate_batch", "native_peptide",
-    "q_score", "q_iptm", "f_score", "q_f", "q_coupled", "coupling", "Q_FEATURES_GEOM", "F_TERMS",
-    "q_f_iptm", "f_invert_by_iptm",
-    "phi_bind", "strain_z", "zscore",
+    "q_score", "f_score", "q_coupled", "coupling", "p_native", "Q_FEATURES_GEOM", "F_TERMS",
+    "strain_z", "zscore",
     "potential",
     "Potential",
     "derive_tcren",
@@ -92,6 +98,11 @@ __all__ = [
     "has_clashes",
     "ClashReport",
     "contact_stability",
+    "pose_consistency",
+    "POSE_FEATURES",
+    "POSE_FEATURES_CONTACT",
+    "POSE_FEATURES_SHELL",
+    "POSE_FEATURES_DEGREE",
     "cdr3_torsions", "chain_torsions", "residue_torsions",
     "StabilityReport",
     "summarize_structure",

@@ -335,6 +335,95 @@ QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses ar
   H-bearing depositions (5jhd: +7 of 28 contacts, −58.5% F_tcr_pep) and breaks legacy-oracle parity
   on 5jhd/7qpj, recorded as a subset relation in the regression test.
 
+## Feature channels — `tcren features` (descriptors) vs `tcren recognize` (scores)
+
+- **Two commands, two jobs.** `tcren features` reads structures and writes descriptors;
+  `tcren recognize` turns a descriptor table into scores. The feature pass is the expensive half,
+  so run it once and re-score for free:
+  `tcren features -s <in> -i <channels> -o feats.tsv` then
+  `tcren recognize --features feats.tsv -o scores.tsv`.
+- **Five channels, split by invariance** (`tcren.recognition.DESCRIPTORS`, `FAMILIES`):
+  `placement` (groove-frame pose — angles, TCRdock params, ride height/shift/offset, CDR3 frames;
+  frame-**dependent**), `interface` (contact size + chemistry), `topology` (the *shape* of the
+  contact set, size-free), `energetics` (Φ and ΔΦ), `kinetics` (spring network; off by default).
+- `placement` + `interface` were one `geometry` family and `energetics` was `physics` until
+  2026-08-24. Both retired names still resolve in `descriptors()`; the split is what lets the
+  independence claim be stated — measured on VDJdb, topology ⟂ interface at |ρ| = 0.023 while
+  topology–placement is 0.177 (0.448 on TCRvdb), because uniform coverage *is* ride height.
+- **Only the requested channels are computed.** `-i topology` never builds the energies.
+- **Contact counts are `interface`, not `topology`** (`FOOTPRINT_SIZE_FEATURES`). A shape channel
+  carrying the interface's size would correlate with the interface channel by construction.
+- `P_native` (`tcren.cohort.p_native`) combines **three** channels — `geometry`, `topology`,
+  `energetics` — each fitted as its own latent-class Bayes network by EM
+  (`GaussianBNClassifier.fit_em`), their log-odds added. **No binder label enters.** EM learns each
+  channel's sign, which is what makes the measured coupling `C*` unnecessary: on a cohort whose
+  contact energy runs backwards the energetics coefficient simply comes out negative.
+  - **`geometry` pools the `placement` and `interface` FAMILIES into one network** (`P_NATIVE_POOL`).
+    Adding log-odds is the exact posterior only across channels that are conditionally independent
+    given the class, and those two are the most dependent pair measured (|ρ| = 0.244). Pooling them
+    is what the assumption requires; summing them as two terms counts the dependence twice, and
+    measurably: the four-channel sum reads 0.817/0.668 (TCRvdb/VDJdb ROC) against the pooled
+    three-channel 0.832/0.718.
+  - `rule="flat"` instead pools every channel's features into one network. It holds the top of a
+    ranking better where cohorts are small (VDJdb P@10 0.872 vs 0.812) and ranks worse overall
+    (0.689 vs 0.718). Both are reported in the paper; neither dominates.
+  - **`T` is just `p_native(channels=("topology",))`** — the shape channel read on its own. It is
+    what replaced the hand-written `fp_score` z-sum.
+  - EM is monotone **only with the DAG fixed**, which is the default; `relearn_structure=True`
+    changes the model family between rounds and the likelihood can fall.
+  - A mixture is identified only up to permutation — `orient_by` is what stops the two components
+    swapping between runs, and `P_NATIVE_ORIENT` gives the per-channel default. **A leading `-`
+    means lower-is-native**, which the energetics channel needs: Φ is a contact-preference sum in
+    which lower is favourable, so orienting on the raw column labels the wrong component native.
+  - **Anchors are extra rows, never scored rows.** Anchoring a row you then score reads the label
+    back out: an early draft did that and reported 0.83 where the honest number is 0.69.
+  - Keep the feature count small: the BIC hill climb is quadratic (0.01 s at 18 features on 618
+    rows, 1.7 s at 40, **45 s at 89**). `P_NATIVE_FEATURES` is the compact default, keyed by
+    FAMILY; `_channel_columns(channel)` resolves a channel through the pool.
+
+## Footprint shape — `tcren.footprint` / `tcren footprint`
+
+- **Reach for it when the energy is at chance but the pose still looks wrong.** It reads the same
+  contact map as a *shape*, not a sum: how evenly the six CDR loops spread their contacts, whether
+  the germline/CDR3 division of labour holds, and whether the footprint is one connected patch.
+  No potential, no reference structure, no fitted parameter.
+  CLI: `tcren features -s <in> -i topology -o <out>`. (`tcren footprint` still works and is the
+  same code path, now hidden; `--score` lives on it, and `fp_score` also comes out of
+  `tcren recognize --features`.)
+- **The MHC pass must run AFTER chain typing, and it is not optional.** `classify_chains` leaves an
+  MHC chain typed generically `"MHC"`; `interface("tcr_mhc")` matches the supertype `annotate_mhc`
+  assigns. Skip it and six of the twelve cells are structurally unreachable with no error —
+  `p_germ_mhc` reads 0.06 instead of 0.78 and `H_cell` is normalised by ln 12 over a partition half
+  of which can never be occupied. `cell_counts` now warns; that bug shipped once.
+- **NaN must become null before any polars aggregation.** polars propagates NaN through
+  `mean`/`std`, so one contact-free structure turned a whole z-scored channel to NaN, `fill_nan(0)`
+  flattened it, and `fp_score` silently became its other channel alone (0.815 → 0.691 on TCRvdb).
+- **No canonical orientation is needed** — every feature is invariant under rigid motion, which
+  `test_footprint.py::test_every_feature_is_invariant_under_rigid_motion` pins by rotating and
+  translating a complex and demanding an identical row. Only chain typing + CDR markup. MHC *region*
+  markup is **not** used, so the "MHC needs a second pass or it silently empties" trap does not apply.
+- **Annotation goes through `_iter_typed`/`iter_annotated_set`** — one mmseqs call per organism for
+  the whole set. Do not call `classify_chains` per structure here (that is what `tcren surface`
+  does, and it is an order of magnitude slower over a cohort).
+- `footprint_features(s) -> dict` (~33 features), `footprint_batch(paths_or_structures) -> pl.DataFrame`,
+  `footprint_score(table, group=...)` for the cohort-standardised `fp_score`.
+- **Coverage**: cells are the 6 CDR loops × {peptide, MHC} (12) or with the peptide split into
+  thirds (24). `H_cell` is the normalised Shannon entropy, `D1`/`D2` the Hill numbers — `D2`, the
+  *effective number of engaged cells*, separates better because it discounts the rare cells a decoy
+  populates weakly. Refining the **peptide** side helps; refining the MHC side into helices/floor
+  does not, which is why that partition is not offered.
+- **Topology**: `_flag_betti` builds the flag complex on the contacted pMHC Cα at a radius —
+  `fp_b0_*` patches, `fp_b1_*` holes (via a GF(2) rank of the triangle boundary), `fp_chi_*`.
+  `h0_pers_ent` is the H₀ persistence entropy, whose barcode **is** the MST edge lengths, so no
+  filtration library is needed. `b0` is most informative at 7 Å and `b1` at 8 Å; both ship.
+- **The bipartite contact graph's cyclomatic number `E − V + C` is deliberately not offered.** With
+  ~30 contacts among ~30 residues it is dominated by `E` and just tracks interface size; the patch
+  count is scale-free instead. If someone asks for "the Betti number of the interface", this is the
+  distinction to make.
+- `n_contacts` counts only what the partition sees — the six CDR loops. Framework contacts are
+  excluded by construction, so it is smaller than the full interface count. The topology features
+  are **not** restricted this way: they use every contacted pMHC residue.
+
 ## Surface topology — `tcren.surface` / `tcren surface`
 
 - **Reach for it when the question is about the pMHC alone**, with no TCR in the structure or before
@@ -491,7 +580,7 @@ QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses ar
   well-modelled ("template-covered") epitopes and ties it fit-free on TCRvdb (benchmark C42). Single-line CLI:
   `tcren recognize -s pdbs/ --iptm meta.tsv -o out.tsv` joins ipTM (key col matched to `complex.id`) and appends
   `Q_geom` + `z(ipTM)+z(Q_geom)`.
-- **`cohort.q_coupled` / `cohort.coupling` — the parameter-free binder score (2026-07-26):**
+- **`cohort.q_coupled` / `cohort.coupling` — DEPRECATED at 2.12, superseded by `p_native` (2026-07-26):**
   `q_coupled(q, energy)` = `¼[1+erf(z(Q)/√2)]·[1+erf(r·z(ΔΦ)/√2)]` with `r = coupling(q, energy)`, the
   cohort correlation between the geometry and energy channels. Two Gaussian tail probabilities multiplied
   — binding needs both an interface and favourable residues in it — with the energy admitted in

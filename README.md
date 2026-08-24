@@ -48,7 +48,9 @@ From one TCR–peptide–MHC structure (crystal or model), each task is one comm
 | ΔΔG of mutations (alanine scan / neoantigen) | `tcren ddg` | `alanine_scan`, `neoantigen_ddg` |
 | **Predict a CPL response matrix from a template** | `tcren cpl` | `response_matrix`, `mutation_effect`, `position_scan`, `equimolar_effect` |
 | Binder vs non-binder for a TCR model | `tcren binder` | `cohort.q_score` (recommended), `binder_score` |
+| **Every interface descriptor, in four families** | `tcren features` | `recognition_table(include=...)`, `descriptors` |
 | **All interface descriptors + joint P(real)** | `tcren recognize` | `recognition_features`, `real_probability` |
+| **P(native)** — the channels combined by a latent-class Bayes network | `tcren recognize --features` | `cohort.p_native` |
 | Three-interface energy Φ, poly-Ala ΔΦ, interface geometry | `tcren scoring` | `run_pipeline` |
 | Annotate chains + region markup | `tcren annotate` | `classify_chains`, `annotate_mhc` |
 | Interface contact table (5/8/12 Å) | `tcren contacts` | `ContactMap`, `multi_contacts` |
@@ -245,14 +247,32 @@ tcren --install-completion        # shell tab-completion (bash/zsh)
 
 ## One table per structure: descriptors, energies & the joint recognizer
 
-Give `tcren recognize` a list of complexes (a file, directory, `.tar.gz`, or glob) and it writes **one
-TSV row per structure** with the full interface descriptor set **and** the joint recognition
-probability `P(real)`:
+Two commands, two jobs. **`tcren features` reads structures and writes descriptors**;
+**`tcren recognize` turns descriptors into scores.** The feature pass is the expensive half, so it
+runs once and the scoring pass can be repeated for nothing.
+
+```bash
+tcren features  -s my_pdbs/ -o feats.tsv                   # every descriptor, four families
+tcren features  -s my_pdbs/ -o shape.tsv -i topology       # one channel -- and only it is computed
+tcren recognize --features feats.tsv -o scores.tsv         # Q, T, P_native. No structure re-read
+```
+
+Descriptors are catalogued in four **channels**, split by what each is invariant under — which is
+also the axis along which they carry independent evidence:
+
+| channel | what it is | invariance |
+|---|---|---|
+| `placement` | where the receptor sits in the groove frame — angles, TCRdock parameters, ride height, shift, offset, the CDR3 loop frames | frame-**dependent** |
+| `interface` | how much contact and of what chemical kind — buried area, contact counts and types, hydrogen bonds, clashes | SE(3)-invariant |
+| `topology` | the **shape** of the contact set, free of its size — coverage entropy, Hill numbers, Betti numbers, persistence entropy, canonical preference | SE(3)-invariant |
+| `energetics` | statistical-potential interface energies `F` and their poly-alanine references `dF` | SE(3)-invariant |
+| `kinetics` | the interface as a spring network — stiffness, rupture, coupling residues (off unless asked) | — |
+
+`tcren recognize -s my_pdbs/` still does descriptors-and-models in one step:
 
 ```bash
 tcren recognize -s my_pdbs/ -o recognize.tsv               # 35 descriptors + p_real + p_real_bn
 tcren recognize -s my_pdbs/ -o scored.tsv --scores         # + q_bind, s_strain (recommended) + p_bind, p_forced
-tcren recognize -s my_pdbs/ -o feats.tsv --features-only   # descriptors only, skip the models
 ```
 
 | what you want | columns in `recognize.tsv` |
@@ -429,6 +449,41 @@ recovers side-chain RMSD 3.93 → 1.66 Å, 8/8 improved, median 6 ms.
 
 It rotates the side chains a model **has** — it cannot rebuild ones `substitute_peptide` stripped;
 that is side-chain *construction*, still open (`refine/CPP_REWRITE.md`).
+
+### Footprint shape: what the contacts say before they are scored
+
+Every other scorer here sums over contacts. `tcren.footprint` reads the same contact map as a
+**shape** — which of the six CDR loops touched what, and whether the resulting footprint is one
+connected patch. No potential, no reference structure, no fitted parameter, and **no canonical
+orientation**: every feature is invariant under rigid motion, so unaligned inputs are fine. Only
+chain typing and CDR markup are needed, which the CLI does in one batched annotation pass.
+
+Coverage is the composition over cells — the 6 CDR loops × {peptide, MHC}, optionally splitting the
+peptide into thirds — summarised by the normalised Shannon entropy and by the Hill numbers
+([Hill 1973](https://doi.org/10.2307/1934352), [Jost 2006](https://doi.org/10.1111/j.2006.0030-1299.14714.x)),
+where `D2` is the *effective number of engaged cells*. Topology joins the contacted pMHC residues at
+a Cα threshold and builds the flag complex: `fp_b0_*` counts footprint patches and `fp_b1_*` its
+holes. Coverage and topology are only weakly related, which is why they belong in one channel and
+why that channel is read as `T` — the shape posterior of `p_native`, not a hand-written z-sum.
+
+```bash
+tcren features -s structures/ -i topology -o shape.tsv
+```
+
+```python
+from tcren.cohort import p_native
+from tcren.footprint import footprint_batch, footprint_features
+
+row = footprint_features(structure)          # one dict, ~33 features
+row["D2_pep24"], row["fp_b0_r7"], row["L_canon"]
+
+table = footprint_batch("structures/")       # polars frame, one row per structure
+T = p_native(table, channels=("topology",))  # the shape score, cohort-relative
+```
+
+Note the cyclomatic number of the bipartite contact graph (`E − V + C`) is deliberately not offered:
+with of order thirty contacts among of order thirty residues it is dominated by `E` and simply
+tracks interface size. The patch count is scale-free instead.
 
 ### Surface topology: what a TCR meets before it binds
 
@@ -655,6 +710,7 @@ Worked examples of every view, with images: **[Figure gallery](https://docs.isal
 | `tcren.orient` | canonical frame, `superimpose` onto the canonical DB, docking angles, reverse-dock detection |
 | `tcren.refine` | peptide substitution + refinement (DOPE MC; CCD/OpenMM/ProMod3/FlexPepDock engines); register QC |
 | `tcren.clashes` / `mechanics` | steric-clash report; interface spring-network stiffness + rupture model |
+| `tcren.footprint` | footprint **shape**: coverage entropy / Hill numbers over the CDR-loop × target partition, canonical germline-MHC vs CDR3-peptide preference, α/β contact imbalance, and the footprint's topology (patches, holes, H₀ persistence) — no potential, no reference, orientation-free |
 | `tcren.project2d` / `viz` | project the interface onto the groove plane; SVG complementarity maps + 3D pocket/CDR views |
 | `tcren.pipeline` / `oracle` | one-call structure scoring (`run_pipeline` → Φ, ΔΦ per interface; `summarize_structure`) |
 | `tcren.paper` | Nat Comput Sci 2022 reproduction (HF bootstrap, batch annotation, legacy comparison) |

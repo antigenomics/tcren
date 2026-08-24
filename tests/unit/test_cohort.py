@@ -2,9 +2,7 @@
 import numpy as np
 import pytest
 
-from tcren.cohort import (F_TERMS, Q_FEATURES, Q_FEATURES_CORE, Q_FEATURES_GEOM, STRAIN_TERMS,
-                          f_invert_by_iptm, f_score, native_reference, phi_bind, q_f, q_f_iptm, q_iptm,
-                          q_score, strain_z, zscore)
+from tcren.cohort import (F_TERMS, Q_FEATURES, Q_FEATURES_CORE, Q_FEATURES_GEOM, STRAIN_TERMS, f_score, native_reference, q_score, strain_z, zscore)
 
 
 def _table(n=120, seed=0, **shift):
@@ -16,13 +14,6 @@ def _table(n=120, seed=0, **shift):
     for k, v in shift.items():
         t[k] = t[k] + v
     return t
-
-
-def test_scores_are_one_value_per_row():
-    t = _table()
-    assert q_score(t).shape == strain_z(t).shape == (120,)
-    with pytest.warns(DeprecationWarning):
-        assert phi_bind(t).shape == (120,)
 
 
 def test_zscore_is_standardised():
@@ -121,11 +112,6 @@ def test_strain_signs_match_the_documented_physics():
     assert dict(STRAIN_TERMS)["cdr3b_reach"] == +1.0     # reaching away = more forced
 
 
-def test_phi_bind_is_deprecated():
-    with pytest.warns(DeprecationWarning, match="q_score"):
-        phi_bind(_table())
-
-
 def test_q_core_drops_n_pep_contacted_and_still_scores():
     t = _table()
     assert "n_pep_contacted" not in Q_FEATURES_CORE and len(Q_FEATURES_CORE) == 4
@@ -154,25 +140,6 @@ def test_q_features_geom_is_the_four_geometry_terms():
     assert "pp_combo" not in Q_FEATURES_GEOM and set(Q_FEATURES_GEOM) < set(Q_FEATURES)
 
 
-def test_q_iptm_is_zsum_of_iptm_and_q():
-    t = _table()
-    iptm = np.random.default_rng(3).uniform(0.4, 0.95, size=120)
-    combo = q_iptm(t, iptm, features=Q_FEATURES_GEOM)
-    assert combo.shape == (120,)
-    # exact definition: z(ipTM) + z(Q_geom)
-    expected = zscore(iptm) + zscore(q_score(t, features=Q_FEATURES_GEOM))
-    assert np.allclose(combo, expected)
-    # a missing ipTM falls back to z(Q) for that row, so the whole vector stays finite and rankable
-    iptm2 = iptm.copy(); iptm2[0] = np.nan
-    out = q_iptm(t, iptm2, features=Q_FEATURES_GEOM)
-    assert np.isfinite(out).all()
-    assert np.isclose(out[0], zscore(q_score(t, features=Q_FEATURES_GEOM))[0])
-    # all ipTM missing -> rank by the model geometry alone (== z(Q))
-    allnan = np.full(120, np.nan)
-    assert np.allclose(q_iptm(t, allnan, features=Q_FEATURES_GEOM),
-                       zscore(q_score(t, features=Q_FEATURES_GEOM)))
-
-
 def _table_f(n=120, seed=4):
     """Table with the two F contact-energy terms f_score needs."""
     t = _table(n, seed)
@@ -192,33 +159,23 @@ def test_f_score_is_binder_oriented_zscore_of_negated_energy():
     assert f_score(t)[np.argmin(np.asarray(t["F_tcr_pep"]) + np.asarray(t["F_tcr_mhc"]))] == f_score(t).max()
 
 
-def test_q_f_is_zq_plus_signed_zf():
-    t = _table_f()
-    zq = zscore(q_score(t, features=Q_FEATURES_GEOM))
-    assert np.allclose(q_f(t), zq + f_score(t))                 # sign=+1 default -> z(Q)+z(F)
-    assert np.allclose(q_f(t, sign=-1.0), zq - f_score(t))      # forced-pose form z(Q)-z(F)
-    # the two signs differ exactly by 2 z(F)
-    assert np.allclose(q_f(t) - q_f(t, sign=-1.0), 2 * f_score(t))
+def test_q_coupled_r_override_defaults_to_the_measured_coupling():
+    """`r=None` must reproduce the published path byte-for-byte; a supplied r replaces it."""
+    from scipy.special import erf
 
+    from tcren.cohort import coupling, q_coupled
 
-def test_f_invert_by_iptm_flags_forced_and_ignores_nan():
-    iptm = np.array([0.9, 0.3, 0.5, np.nan, 0.49])
-    inv = f_invert_by_iptm(iptm, threshold=0.5)
-    # < threshold -> invert; == threshold -> keep; NaN -> not inverted
-    assert inv.tolist() == [False, True, False, False, True]
-
-
-def test_q_f_iptm_flips_F_sign_per_structure_by_iptm():
-    t = _table_f()
-    n = 120
-    iptm = np.linspace(0.2, 0.9, n)                       # some below 0.5, some above
-    zq = zscore(q_score(t, features=Q_FEATURES_GEOM))
-    zf = f_score(t)
-    sign = np.where(iptm < 0.5, -1.0, 1.0)
-    assert np.allclose(q_f_iptm(t, iptm, threshold=0.5), zq + sign * zf)
-    # a confident pose keeps +z(F), a forced one subtracts it
-    hi, lo = iptm >= 0.5, iptm < 0.5
-    assert np.allclose(q_f_iptm(t, iptm)[hi], (zq + zf)[hi])
-    assert np.allclose(q_f_iptm(t, iptm)[lo], (zq - zf)[lo])
-    # all-NaN ipTM -> no inversion -> identical to plain z(Q)+z(F)
-    assert np.allclose(q_f_iptm(t, np.full(n, np.nan)), zq + zf)
+    rng = np.random.default_rng(7)
+    q = rng.normal(size=60)
+    e = 0.6 * q + 0.8 * rng.normal(size=60)
+    assert np.array_equal(q_coupled(q, e), q_coupled(q, e, r=None))
+    # supplying the value the cohort would have measured is a no-op
+    assert np.allclose(q_coupled(q, e), q_coupled(q, e, r=coupling(zscore(q), zscore(e))))
+    # r = 0 collapses the energy factor to the constant 1/2, leaving geometry alone
+    geom = 0.5 * (1.0 + erf(zscore(q) / np.sqrt(2.0)))
+    assert np.allclose(q_coupled(q, e, r=0.0), 0.5 * geom)
+    # a per-row r is accepted and acts row-wise
+    rvec = np.linspace(-0.5, 0.5, 60)
+    out = q_coupled(q, e, r=rvec)
+    assert out.shape == (60,)
+    assert np.isclose(out[10], q_coupled(q, e, r=float(rvec[10]))[10])

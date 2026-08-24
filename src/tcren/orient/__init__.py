@@ -1,7 +1,13 @@
 """Canonical TCR-pMHC orientation: MHC-frame superposition + chain renaming."""
 
 from .chains import CHAIN_RENAME, rename_chains, select_primary_complex
-from .docking import DockingAngles, crossing_incident_from_vector, docking_angles
+from .docking import (
+    DockingAngles,
+    TcrPlacement,
+    crossing_incident_from_vector,
+    docking_angles,
+    tcr_placement,
+)
 from .exceptions import detect_reverse_dock
 from .frame import CanonResult, build_canonical_frame, canonical_frame
 from .graft import substitute_tcr
@@ -20,7 +26,9 @@ __all__ = [
     "detect_reverse_dock", "CHAIN_RENAME", "select_primary_complex", "rename_chains",
     "canonicalize_structure", "align_to_canonical", "check_oriented_complex", "run_folder",
     "superimpose", "run_superimpose",
-    "DockingAngles", "docking_angles", "crossing_incident_from_vector",
+    "DockingAngles",
+    "TcrPlacement",
+    "tcr_placement", "docking_angles", "crossing_incident_from_vector",
     "DockingGeometry", "docking_geometry",
     "substitute_tcr",
 ]

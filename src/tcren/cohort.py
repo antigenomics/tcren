@@ -23,8 +23,16 @@ transfers across inputs. The descriptors are counts and bounded ratios (mildly n
 agrees with the default ``z`` to ρ≈0.98. The division of labour is scores in ``tcren``, evaluation
 (ROC/PR/CI) downstream.
 
-All functions take the table ``tcren recognize --full`` emits (a mapping of column name to
-sequence, a ``polars``/``pandas`` frame, or a dict of arrays) and return one value per row.
+All functions take the table ``tcren features`` emits (a mapping of column name to sequence, a
+``polars``/``pandas`` frame, or a dict of arrays) and return one value per row.
+
+**Where the line is drawn.** Every *score* the TCRen2 manuscript reports is computed here or in
+:mod:`tcren.footprint`, :mod:`tcren.mechanics`, :mod:`tcren.ddg` and :mod:`tcren.potential` --- a
+benchmark script that recomputes one of them by hand is a bug, not a shortcut. What stays outside
+the library is *evaluation*: ROC/PR/AUC, bootstrap intervals, macro-averaging over cohorts, and any
+protocol that consumes a binder label (leave-one-epitope-out anchoring, an in-sample GLM against a
+generator's confidence). Those need the labels this library is built to do without, so they live in
+the benchmark repo next to the data that carries them.
 
 Sign convention: every term is oriented so that **higher = more binder-like** for
 :func:`q_score`, and **higher = more forced/strained** for :func:`strain_z`.
@@ -37,12 +45,11 @@ Sign convention: every term is oriented so that **higher = more binder-like** fo
 
 from __future__ import annotations
 
-import warnings
 from functools import lru_cache
 
 import numpy as np
 
-__all__ = ["zscore", "q_score", "q_iptm", "f_score", "q_f", "q_f_iptm", "f_invert_by_iptm", "phi_bind",
+__all__ = ["zscore", "q_score", "p_native", "P_NATIVE_FEATURES", "P_NATIVE_CHANNELS", "P_NATIVE_POOL", "P_NATIVE_ORIENT", "f_score",
            "q_coupled", "coupling", "strain_z", "native_reference", "Q_FEATURES", "Q_FEATURES_CORE",
            "Q_FEATURES_GEOM", "F_TERMS", "STRAIN_TERMS"]
 
@@ -208,31 +215,6 @@ def q_score(table, reference=None, features=Q_FEATURES_GEOM, method="z", decorre
     return np.nansum(w[:, None] * Z, axis=0)
 
 
-def q_iptm(table, iptm, reference=None, features=Q_FEATURES_GEOM, decorrelate=True) -> np.ndarray:
-    """Fit-free synergy score ``z(ipTM) + z(Q)`` — the interface-quality score composed with the
-    generator's own confidence.
-
-    ``Q`` (interface geometry) and the AlphaFold/TCRmodel2 ipTM are near-orthogonal (they fail in
-    different pose regimes, benchmark ledger C26/C35), so their standardized sum out-ranks either alone:
-    macro ROC 0.83 / PR 0.83 on TCRvdb vs ipTM 0.79, and on well-modelled epitopes it beats raw-AF ipTM
-    on both metrics (ledger C42). Both terms are standardized over the same candidate set, so pass an
-    ``iptm`` vector aligned row-for-row with ``table``. Use ``features=Q_FEATURES_GEOM`` for the
-    geometry-only ``Q_geom`` variant that is robust to the forced-pose energy inversion.
-
-    Args:
-        table: the ``tcren recognize --full`` table (dict / pandas / polars).
-        iptm: per-structure ipTM, aligned to ``table`` rows. Structures whose ipTM is missing (``NaN``)
-            fall back to ``z(Q)`` alone, so the score always ranks; an all-missing ``iptm`` returns
-            plain ``z(Q)`` — i.e. rank by the model geometry when no generator confidence is available.
-        reference: optional cohort to standardize against (see :func:`zscore`).
-        features: descriptors for ``Q``; defaults to the five :data:`Q_FEATURES`.
-    """
-    zq = zscore(q_score(table, reference, features, decorrelate=decorrelate))
-    out = zscore(np.asarray(iptm, float)) + zq
-    missing = ~np.isfinite(out)                       # ipTM absent for a structure -> rank by Q alone
-    out[missing] = zq[missing]
-    return out
-
 
 def f_score(table, reference=None, terms=F_TERMS) -> np.ndarray:
     """Binder-oriented TCRen contact energy ``F = z(-(F_tcr_pep + F_tcr_mhc))`` — the chemistry channel.
@@ -251,82 +233,18 @@ def f_score(table, reference=None, terms=F_TERMS) -> np.ndarray:
     return zscore(-e, None if ref is None else -ref)
 
 
-def q_f(table, reference=None, sign=1.0, features=Q_FEATURES_GEOM, terms=F_TERMS,
-        decorrelate=True) -> np.ndarray:
-    """Pure-tcren combiner ``z(Q_geom) + sign * z(F)`` — geometry plus contact energy, no deep learning.
-
-    With ``sign=+1`` this is ``z(Q)+z(F)``; with ``sign=-1`` it is ``z(Q)-z(F)``. On **clean
-    (template-covered) poses** ``z(Q)+z(F)`` beats raw-AF ipTM on both ROC and PR with no DL term
-    (benchmark ledger C42: macro 0.759 ROC / 0.725 PR vs ipTM 0.692 / 0.693). On **forced poses** the
-    energy inverts, so ``z(Q)-z(F)`` is the one that ranks (C27: on the forced GLCTLVAML pose
-    ``z(Q)-z(F)``=0.71 vs ``z(Q)+z(F)``=0.52). Pick the sign from pose quality — grade it with
-    :func:`strain_z` — or prefer :func:`q_iptm` (``z(ipTM)+z(Q)``), the geometry channel that is robust
-    to the inversion without needing the energy at all.
-
-    Args:
-        table: the ``tcren recognize --full --scores`` table (dict / pandas / polars).
-        reference: optional cohort to standardize against (see :func:`zscore`).
-        sign: ``+1`` for ``z(Q)+z(F)`` (clean poses), ``-1`` for ``z(Q)-z(F)`` (forced poses).
-        features: ``Q`` descriptors; defaults to the geometry-only :data:`Q_FEATURES_GEOM`.
-        terms: energy terms for ``F``; defaults to :data:`F_TERMS`.
-        decorrelate: passed to :func:`q_score`. ``False`` recovers the legacy equal-weight ``Q``.
-    """
-    return (zscore(q_score(table, reference, features, decorrelate=decorrelate))
-            + sign * f_score(table, reference, terms))
-
-
-def q_f_iptm(table, iptm, threshold=0.5, reference=None, features=Q_FEATURES_GEOM,
-             terms=F_TERMS) -> np.ndarray:
-    """Pose-adaptive ``z(Q) + s·z(F)`` where the F sign ``s`` is chosen per structure from ipTM.
-
-    Automates the forced-pose inversion: a **confident** pose (``ipTM >= threshold``) keeps ``+z(F)``
-    because the contact energy is trustworthy there; a **forced** pose (``ipTM < threshold``) flips to
-    ``-z(F)`` because the energy inverts on forced poses (benchmark ledger C27/C42). A structure with no
-    ipTM (``NaN``) keeps ``+z(F)`` — nothing marks it as forced. See :func:`f_invert_by_iptm` for the
-    boolean flag alone.
-
-    ipTM is a *pose-confidence* proxy, not a calibrated forced-pose detector — grading forced-ness with
-    :func:`strain_z` is the principled alternative (C27), and :func:`q_iptm` (``z(ipTM)+z(Q)``) sidesteps
-    the energy entirely. Provided because it is the single-call pose-adaptive combiner.
-
-    Args:
-        table: the ``tcren recognize --full --scores`` table (dict / pandas / polars).
-        iptm: per-structure ipTM aligned to ``table`` rows.
-        threshold: ipTM below which a pose is treated as forced and ``F`` is inverted (default 0.5).
-        reference / features / terms: as in :func:`q_f`.
-    """
-    sign = np.where(f_invert_by_iptm(iptm, threshold), -1.0, 1.0)
-    return q_f(table, reference, sign=sign, features=features, terms=terms)
-
-
-def f_invert_by_iptm(iptm, threshold=0.5) -> np.ndarray:
-    """Boolean per-structure flag: invert ``F`` where ``ipTM < threshold`` (a forced pose). ``NaN`` ipTM
-    is not inverted. This is the ``F_invert`` column :func:`q_f_iptm` acts on."""
-    iptm = np.asarray(iptm, float)
-    return np.isfinite(iptm) & (iptm < threshold)
-
-
-def phi_bind(table, reference=None) -> np.ndarray:
-    """Deprecated screening score ``Phi_bind = Q + 0.5 * [z(-pitch) + z(-F_tcr_mhc)]``.
-
-    .. deprecated::
-       Use :func:`q_score`. Both terms this adds to ``Q`` *lower* ranking accuracy — on TCRvdb
-       macro ROC falls from Q's 0.795 to 0.653, and ``z(-pitch)`` alone is below chance (0.43)
-       (benchmark ledger C19b). The ``pitch`` axis also carries AlphaFold-confidence leakage
-       (ledger C19). It is retained only to reproduce older figures; do not use it for new work.
-    """
-    warnings.warn("phi_bind is deprecated and degrades ranking vs q_score (benchmark ledger C19b); "
-                  "use q_score", DeprecationWarning, stacklevel=2)
-    ref_pitch = None if reference is None else -_col(reference, "pitch")
-    ref_tm = None if reference is None else -_col(reference, "F_tcr_mhc")
-    return (q_score(table, reference)
-            + 0.5 * (zscore(-_col(table, "pitch"), ref_pitch)
-                     + zscore(-_col(table, "F_tcr_mhc"), ref_tm)))
-
 
 def coupling(q, energy) -> float:
     r"""Interface–energy coupling :math:`r=\mathrm{corr}(Q,\,\Delta\Phi)` over a cohort — the
     label-free forced-pose diagnostic.
+
+    .. deprecated:: 2.12
+       No longer a component of any recommended score; keep it as a **diagnostic** you report, not
+       a weight you apply. What it measures is real and worth knowing — on the heavily crystallised
+       GLCTLVAML cohort it reads −0.2617 and the referenced energy ranks binders at AUROC 0.338
+       [0.250, 0.433], entirely below chance, while on the sparsely templated YLQPRTFLL it reads
+       +0.4784 and the same energy reads 0.776 [0.728, 0.820]. Prefer :func:`p_native`, which fits
+       that sign rather than measuring it.
 
     In a genuine complex the two channels are physically tied: a larger, better-packed interface
     holds more contacts, so favourable contact energy and good interface geometry rise together and
@@ -351,8 +269,16 @@ def coupling(q, energy) -> float:
     return float(np.corrcoef(q[ok], energy[ok])[0, 1])
 
 
-def q_coupled(q, energy) -> np.ndarray:
+
+def q_coupled(q, energy, r=None) -> np.ndarray:
     r"""Parameter-free binder score: interface geometry **and** coupling-weighted contact energy.
+
+    .. deprecated:: 2.12
+       Superseded by :func:`p_native`, which learns each channel's sign and weight from the cohort
+       instead of measuring one correlation for one channel. Nothing here changes: this function
+       returns exactly what it always has, and the numbers it produces stand (TCRvdb macro ROC
+       0.802 / PR 0.817). What changed is that the footprint-shape channel makes the gate
+       unnecessary — the energy is one input among four rather than a term that has to be disarmed.
 
     .. math::
        S(x) \;=\; \tfrac14\Big[1+\operatorname{erf}\tfrac{z(Q(x))}{\sqrt2}\Big]
@@ -388,6 +314,11 @@ def q_coupled(q, energy) -> np.ndarray:
             use the **TCR**-referenced :math:`\Delta_{\mathrm{TCR}}\Phi` (the peptide is fixed there,
             so the peptide reference carries no signal); for peptide ranking use
             :math:`\Delta_{\mathrm{pep}}\Phi` (:func:`tcren.reference_delta`).
+        r: coupling weight. ``None`` (default) measures it from the cohort with :func:`coupling`,
+            which is what every published number uses. Pass a scalar or a per-row array to supply
+            it from outside — a **predicted** :math:`\hat C` from a single structure is defined at
+            ``n = 1``, where the cohort estimator is not (at ``n = 2`` it returns
+            :math:`|\hat r| = 1` by construction, with the wrong sign in 43.4 % of GLCTLVAML draws).
 
     Returns:
         Scores in :math:`(0,1)`; higher is more binder-like. Cohort-relative — rank within the set
@@ -397,7 +328,179 @@ def q_coupled(q, energy) -> np.ndarray:
 
     zq, ze = zscore(q), zscore(energy)
     g = lambda v: 0.5 * (1.0 + erf(v / np.sqrt(2.0)))          # noqa: E731 - Gaussian tail prob
-    return g(zq) * g(coupling(zq, ze) * ze)
+    w = coupling(zq, ze) if r is None else np.asarray(r, float)
+    return g(zq) * g(w * ze)
+
+
+#: The three channels :func:`p_native` combines, in catalogue order.
+P_NATIVE_CHANNELS = ("geometry", "topology", "energetics")
+
+#: How each combination channel maps onto the descriptor families of
+#: :data:`tcren.recognition.DESCRIPTORS` (``kinetics`` is excluded throughout: it measures unbinding
+#: rather than nativeness).
+#:
+#: ``placement`` and ``interface`` are pooled into a single ``geometry`` network rather than summed
+#: as two. The sum-of-log-odds rule in :func:`p_native` is the exact posterior only across channels
+#: that are conditionally independent given the class, and those two are the most dependent pair
+#: measured — ``|rho| = 0.244`` between their principal components on the VDJdb benchmark, against 0.023
+#: for topology against interface. Pooling them is what the independence assumption requires; their
+#: mutual dependence is then modelled inside the one network instead of double-counted across two.
+P_NATIVE_POOL: dict[str, tuple[str, ...]] = {
+    "geometry": ("placement", "interface"),
+    "topology": ("topology",),
+    "energetics": ("energetics",),
+}
+
+#: The feature each channel is oriented by when a fit carries no anchors. A mixture is identified
+#: only up to permutation, so without this the two components can swap between runs. A leading
+#: ``"-"`` means *lower* is native-like.
+P_NATIVE_ORIENT: dict[str, str] = {
+    "geometry": "burial",        # a native interface buries more surface
+    "topology": "D2_pep24",      # a native footprint spreads over more cells
+    "energetics": "-F_tcr_pep",  # Phi is a contact-preference sum: LOWER is more favourable
+}
+
+#: The compact per-channel feature set :func:`p_native` uses by default — the terms each channel has
+#: a standing result for, four to five per channel. It is deliberately small: the BIC hill climb is
+#: quadratic in the feature count (measured on 618 rows: 0.01 s at 18 features, 1.7 s at 40, 45 s at
+#: 89), and a cohort of a few hundred structures cannot identify a dense graph over ninety nodes.
+#: Pass ``features=`` to widen it.
+P_NATIVE_FEATURES: dict[str, tuple[str, ...]] = {
+    "placement": ("height", "dock_d", "crossing_signed", "pitch", "dock_tcr_uz"),
+    "interface": ("burial", "n_hbond", "chain_balance", "n_pep_contacted", "n_clashes"),
+    "topology": ("D2_pep24", "fp_b0_frac_r7", "H_cell", "L_canon", "ab_imb"),
+    "energetics": ("F_tcr_pep", "F_tcr_mhc", "dF_tcr_pep"),
+}
+
+
+def _channel_columns(channel: str, features=None) -> list[str]:
+    """The descriptor names one combination channel draws on, resolved through :data:`P_NATIVE_POOL`.
+
+    Accepts a mapping keyed either by descriptor family (``placement``, ``interface``, ...) or by
+    combination channel (``geometry``, ...), so a caller can widen either level.
+    """
+    src = P_NATIVE_FEATURES if features is None else features
+    out = [n for fam in P_NATIVE_POOL.get(channel, (channel,)) for n in src.get(fam, ())]
+    return out or list(src.get(channel, ()))
+
+
+def _logit(p) -> np.ndarray:
+    q = np.clip(np.asarray(p, float), 1e-9, 1 - 1e-9)
+    return np.log(q / (1.0 - q))
+
+
+def p_native(table, *, channels=P_NATIVE_CHANNELS, features=None, rule: str = "sum",
+             anchors=None, orient_by: str | None = None, rounds: int = 50,
+             return_model: bool = False):
+    r"""``P(native)`` — the cohort's own Bayes network over the feature channels, fitted by EM.
+
+    The **label-free** replacement for a hand-written combination rule. Rather than choosing a
+    functional form (``z(x)+z(y)``, ``min(rank%(x), rank%(y))``, or an ``erf`` product weighted by a
+    measured correlation), this fits a conditional-linear-Gaussian Bayes network whose class node is
+    **latent** and reads off the posterior
+
+    .. math:: P_{\mathrm{native}}(x) \;=\; P\big(y=1 \mid x;\ \hat\theta\big),
+
+    with :math:`\hat\theta` estimated by expectation-maximization on the cohort being scored
+    (:meth:`tcren.recognition.GaussianBNClassifier.fit_em`). No binder label enters, so there is
+    nothing to leak and nothing to hold out.
+
+    **How the channels combine.** Under ``rule="sum"`` (the default) each channel of
+    :data:`P_NATIVE_CHANNELS` is fitted as its *own* network and their log-odds are added,
+
+    .. math::
+
+        \mathrm{logit}\,P_{\mathrm{native}}(x)
+          \;=\; \sum_{c} \mathrm{logit}\,P_c\big(y=1 \mid x_c\big)
+          \;-\; (C-1)\,\mathrm{logit}\,\pi ,
+
+    which is the exact posterior when the channels are conditionally independent given the class —
+    the condition the channel split is built to satisfy (:data:`P_NATIVE_POOL`). The prior term is a
+    constant within a cohort and reorders nothing; it is there so the return value is a calibrated
+    probability rather than an unnormalised score. ``rule="flat"`` instead pools every channel's
+    features into one network, which lets edges cross channels at the cost of the factorisation.
+
+    **What this replaces.** The contact energy inverts on forced poses, which is why
+    :func:`q_coupled` needs the measured coupling :func:`coupling` to decide the energy's sign.
+    Here that sign is a fitted coefficient like any other: on a cohort whose energy runs backwards,
+    EM gives the energetics channel a negative class coefficient and the other channels are
+    untouched. Nothing has to be measured on the side and nothing is undefined at ``n = 1`` for a
+    reason other than the obvious one (a cohort of one has no cohort to fit).
+
+    Args:
+        table: a ``tcren features`` / :func:`tcren.recognition.recognition_table` output — a
+            mapping, ``polars`` frame or ``pandas`` frame with the descriptor columns.
+        channels: which of :data:`P_NATIVE_CHANNELS` to include. Pass a single channel to read
+            that channel on its own — ``channels=("topology",)`` is the shape score ``T``.
+        features: explicit ``{family: (name, ...)}`` overriding :data:`P_NATIVE_FEATURES` (channel
+            keys are accepted too), or a flat sequence of column names to use as-is.
+        rule: ``"sum"`` to add per-channel log-odds, ``"flat"`` to fit one network over the union.
+        anchors: optional ``{row_index: 0|1}`` of known labels for a **semi-supervised** fit; they
+            are pinned at every E-step and orient the components. ``None`` is fully unsupervised.
+        orient_by: the feature whose higher-mean component is called native when there are no
+            anchors, ``"-name"`` to orient on the lower mean. A mixture is identified only up to
+            permutation, so this is what stops the two components swapping between runs. ``None``
+            takes each channel's entry in :data:`P_NATIVE_ORIENT`.
+        rounds: maximum EM iterations.
+        return_model: also return the fitted
+            :class:`~tcren.recognition.GaussianBNClassifier`, whose ``nodes_[j]["beta"][-2]`` is the
+            class coefficient EM assigned to feature ``j`` — the learned per-channel weight and sign.
+            Under ``rule="sum"`` this is a ``{channel: model}`` mapping.
+
+    Returns:
+        ``P(native)`` per row in :math:`(0,1)`, higher = more native-like; or
+        ``(scores, model)`` when ``return_model``. Cohort-relative: rank within the set you scored.
+
+    Raises:
+        ValueError: if ``rule`` is unknown, if fewer than two usable feature columns survive, or if
+            the cohort has fewer rows than features (the graph would not be identified).
+    """
+    from .recognition import GaussianBNClassifier
+
+    if rule not in ("sum", "flat"):
+        raise ValueError(f"rule must be 'sum' or 'flat', got {rule!r}")
+
+    flat_features = features is not None and not isinstance(features, dict)
+    if rule == "sum" and len(channels) > 1 and not flat_features:
+        parts, models = {}, {}
+        for ch in channels:
+            parts[ch], models[ch] = p_native(
+                table, channels=(ch,), features=features, rule="flat", anchors=anchors,
+                orient_by=orient_by, rounds=rounds, return_model=True)
+        pri = float(np.mean([m.prior_ for m in models.values()]))
+        total = sum(_logit(v) for v in parts.values()) - (len(parts) - 1) * _logit(pri)
+        scores = 1.0 / (1.0 + np.exp(-total))
+        return (scores, models) if return_model else scores
+
+    if flat_features:
+        names = list(features)
+    else:
+        names = [n for ch in channels for n in _channel_columns(ch, features)]
+
+    cols, keep = [], []
+    for n in names:
+        try:
+            v = _col(table, n)
+        except KeyError:
+            continue                                     # a channel the caller did not compute
+        if np.isfinite(v).sum() >= 3 and np.nanstd(v[np.isfinite(v)]) > 1e-12:
+            cols.append(v)
+            keep.append(n)
+    if len(keep) < 2:
+        raise ValueError(f"p_native needs at least two usable columns, got {keep}; "
+                         f"run `tcren features` with the channels {list(channels)}")
+    X = np.column_stack(cols)
+    if len(X) <= len(keep):
+        raise ValueError(f"p_native needs more structures than features: {len(X)} rows, "
+                         f"{len(keep)} columns. Narrow `features=` or score a larger cohort.")
+
+    orient = orient_by or P_NATIVE_ORIENT.get(channels[0] if len(channels) == 1 else "geometry",
+                                              "burial")
+    if orient.lstrip("-") not in keep:
+        orient = keep[0]
+    model = GaussianBNClassifier(keep).fit_em(X, anchors=anchors, orient_by=orient, rounds=rounds)
+    scores = model.predict_proba(X)[:, 1]
+    return (scores, model) if return_model else scores
 
 
 def strain_z(table, reference=None) -> np.ndarray:

@@ -140,3 +140,78 @@ def docking_angles(structure: Structure) -> DockingAngles:
     v = np.array([np.dot(d, w), np.dot(d, u), np.dot(d, n)])
     crossing, crossing_signed, incident = crossing_incident_from_vector(v)
     return DockingAngles(crossing, crossing_signed, incident, cell_type, n_va, n_vb)
+
+
+@dataclass(slots=True)
+class TcrPlacement:
+    """Where the CDR footprint sits over the groove, in Angstrom, in the groove frame ``(u, w, n)``.
+
+    :class:`DockingAngles` says how the receptor is *rotated*; this says where it is *placed*. The
+    two are independent: a TCR can carry a canonical crossing angle while its loops sit too high
+    above the groove or shifted off the peptide, which is a failure mode no angle can see.
+
+    The reference point is the **CDR-loop Calpha centroid**, not the whole variable-domain centroid.
+    That is not a refinement, it is required: :func:`_groove_frame` fixes ``n`` along the
+    peptide-centroid-to-TCR-centroid direction and sets ``w = n x u``, so the whole-TCR centroid has
+    a lateral component of exactly zero by construction. The loop footprint is also the part that
+    actually touches the pMHC.
+
+    Attributes:
+        height: ``(CDR centroid - peptide centroid) . n`` --- how far the loops ride above the groove
+            plane. The literal "how far is the TCR from the pMHC plane" scalar. Note it is a
+            *distance*: ``DockingGeometry.tcr_unit_z`` is a dimensionless unit-vector component and
+            is a different quantity.
+        shift_u: displacement along the groove long axis (peptide N->C); positive = toward the
+            peptide C-terminus.
+        shift_w: displacement across the groove width axis; positive = toward the ``n x u`` side.
+        offset: ``hypot(shift_u, shift_w)`` --- total in-plane displacement of the footprint centre
+            from the peptide centre, sign-free.
+        n_cdr: CDR-loop Calpha atoms used.
+    """
+
+    height: float
+    shift_u: float
+    shift_w: float
+    offset: float
+    n_cdr: int
+
+
+def _cdr_centroid(structure: Structure) -> np.ndarray | None:
+    """Centroid of every CDR-loop Calpha of the receptor chains, or ``None`` without region markup."""
+    pts = [r.ca
+           for c in structure.chains if c.chain_type in _TCR_TYPES
+           for reg in (c.regions or []) if reg.region_type.startswith("CDR")
+           for r in reg.residues if r.ca is not None]
+    return np.asarray(pts, float).mean(axis=0) if pts else None
+
+
+def tcr_placement(structure: Structure) -> TcrPlacement:
+    """Translational placement of the CDR footprint over the pMHC groove (Angstrom).
+
+    Complements :func:`docking_angles` (rotation) with the translations the crossing and incident
+    angles do not carry. Built on the same peptide-PCA groove frame, so it needs no native database
+    and no mmseqs --- but it *does* need CDR region markup (``classify_chains``), because the
+    footprint centroid is the only reference point with a defined lateral component.
+
+    Args:
+        structure: a chain-typed, region-annotated TCR-pMHC structure.
+
+    Returns:
+        A :class:`TcrPlacement`.
+
+    Raises:
+        ValueError: if the groove frame is degenerate, or no CDR-loop Calpha is present.
+    """
+    u, w, n = _groove_frame(structure)
+    pep = _chain_ca(structure, ("PEPTIDE",))
+    cdr = _cdr_centroid(structure)
+    if cdr is None:
+        raise ValueError("no CDR-loop Cα atoms; tcr_placement needs region markup "
+                         "(run classify_chains first)")
+    n_cdr = sum(1 for c in structure.chains if c.chain_type in _TCR_TYPES
+                for reg in (c.regions or []) if reg.region_type.startswith("CDR")
+                for r in reg.residues if r.ca is not None)
+    d = cdr - pep.mean(axis=0)
+    su, sw = float(np.dot(d, u)), float(np.dot(d, w))
+    return TcrPlacement(height=float(np.dot(d, n)), shift_u=su, shift_w=sw,
+                        offset=float(np.hypot(su, sw)), n_cdr=n_cdr)
