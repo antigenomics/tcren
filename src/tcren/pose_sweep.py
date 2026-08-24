@@ -30,38 +30,8 @@ from .contacts.table import residue_annotation
 from .pose import _CA_CLOSE, _CB_CLOSE, _double_centred, _pair_j, _spearman
 from .structure.model import MHC_TYPES, PEPTIDE_TYPE, RECEPTOR_TYPES, Structure
 
-__all__ = ["pose_descriptors_full", "loop_ca_profile", "loop_ca_rules", "peptide_ca_rules",
-           "P_TERMS", "p_score"]
+__all__ = ["pose_descriptors_full", "loop_ca_profile", "loop_ca_rules", "peptide_ca_rules"]
 
-#: The designed pose metric ``P``: ``(descriptor, sign)`` pairs, sign oriented so that **higher is
-#: more binder-like**. Selected by greedy forward selection on macro PR over the **22 well-powered
-#: cohorts** of the balanced VDJdb binder benchmark (1,089 AlphaFold models, 523 real / 566 mock,
-#: 7 alleles) --- the widest receptor-ranking surface available, and the deposit behind the
-#: template-split table. Candidates were first de-duplicated at |Spearman| <= 0.8 so no two terms
-#: are restatements of each other.
-#:
-#: Every term is single-structure and coordinate-only: contact-distance spread and shape, the
-#: Cbeta-vs-Calpha agreement of the two maps, the slope of contact favourability against Cbeta
-#: distance, receptor- and partner-side partner counts, interface size, MHC-side composition, and
-#: the CDR footprint offset. No cohort, no label, no generator-reported quantity enters it.
-P_TERMS = (
-    # d(favourability)/d(Cbeta distance) over TCR:peptide contacts. Positive = the chemically
-    # complementary pairs are the ones at LARGER Cbeta separation, i.e. specificity is carried by
-    # long-reach side chains, while the tightest Cbeta pairs are small and chemically neutral.
-    ("d2_fav_tp_slope", +1.0),
-    ("d1_tm_sd", -1.0),            # uniform TCR:MHC contact-distance shell
-    ("degT_tp_mean", +1.0),        # receptor residues engaged, on average
-    ("d1_tp_sd", -1.0),            # uniform TCR:peptide contact distances
-    ("d3_d2_tp_rho", -1.0),        # Calpha and Cbeta maps NOT merely restating each other
-    ("n_contacts_tp", +1.0),       # interface size
-    ("degT_tm_frac_le3", -1.0),    # receptor spreads over the MHC rather than touching it lightly
-    ("d2_tp_skew", +1.0),          # Cbeta distances right-skewed: a compact core plus reachers
-    ("degP_tm_sd", -1.0),          # MHC-side partner counts even
-    ("d1_tp_q90", -1.0),           # no long tail of marginal contacts
-    ("fracP_tiny_tm", +1.0),       # Gly/Ala/Ser share of the contacted MHC face
-    ("d3_d2_tp_slope", -1.0),      # Cbeta separation grows slowly with Calpha separation
-    ("offset", -1.0),              # CDR footprint centred on the peptide
-)
 
 _REP = 18.0
 _KEY = ["chain.id.from", "residue.index.from", "chain.id.to", "residue.index.to"]
@@ -288,45 +258,6 @@ def pose_descriptors_full(structure: Structure, potential=None, cutoff: float = 
     out.update(loop_ca_rules(structure, cutoff=cutoff))
     out.update(peptide_ca_rules(structure, cutoff=cutoff))
     return out
-
-
-def p_score(table, reference=None) -> np.ndarray:
-    """The designed pose metric ``P`` --- equal-weight mean of ``z(sign * descriptor)`` over
-    :data:`P_TERMS`. Higher is more binder-like.
-
-    Fit-free in the same sense as :func:`tcren.cohort.q_score`: the signs are fixed by
-    :data:`P_TERMS` and nothing is regressed on labels at score time. The **subset** was chosen on
-    the balanced VDJdb benchmark, so ``P`` is a designed metric, not a derived one --- see
-    :data:`P_TERMS` for the surface it was designed on.
-
-    Measured, macro over the 22 cohorts of that benchmark: ROC 0.721 / PR 0.731 / P@10 0.904,
-    against ipTM 0.592 / 0.606 / 0.770 and ``S`` 0.571 / 0.575 / 0.719. On the template-free
-    cohorts, where every other score falls to chance, ``P`` reads ROC 0.691 / PR 0.712 against
-    ``S`` 0.502 / 0.519. On TCRvdb it composes rather than replaces:
-    ``z(P) + z(S) + z(ipTM)`` reaches 0.815 / 0.841 / 0.975 against ``S`` 0.799 / 0.817 / 0.923.
-
-    Args:
-        table: mapping / polars / pandas frame carrying the :data:`P_TERMS` descriptor columns,
-            e.g. rows built from :func:`pose_descriptors_full`.
-        reference: cohort defining each term's mean and sd; ``None`` standardizes against the input.
-
-    Returns:
-        One value per row.
-    """
-    from .cohort import zscore
-
-    def col(t, name):
-        if hasattr(t, "columns") and not isinstance(t, dict):
-            return np.asarray(t[name].to_numpy() if hasattr(t[name], "to_numpy") else t[name], float)
-        return np.asarray(t[name], float)
-
-    parts = []
-    for name, sign in P_TERMS:
-        ref = None if reference is None else sign * col(reference, name)
-        parts.append(zscore(sign * col(table, name), ref))
-    return np.mean(parts, axis=0)
-
-
 # =====================================================================================================
 # Per-loop Calpha profile: contacting vs non-contacting, CDR1-3 of each chain, against peptide and MHC
 # =====================================================================================================

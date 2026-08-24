@@ -268,30 +268,6 @@ def _full_complex():
     return Structure("synth_full", [pep, tra, trb, mhc])
 
 
-def test_p_score_terms_are_all_produced_by_the_generator():
-    """Every P term must be a descriptor the generator actually emits, or P silently drops it."""
-    from tcren.pose_sweep import P_TERMS, pose_descriptors_full
-
-    d = pose_descriptors_full(_full_complex(), potential=_Pot())
-    # `offset` comes from orient.tcr_placement, not the map generator; the rest must be present
-    produced = set(d) | {"offset"}
-    missing = [n for n, _ in P_TERMS if n not in produced]
-    assert not missing, missing
-
-
-def test_p_score_orients_higher_is_better_and_is_row_wise():
-    from tcren.pose_sweep import P_TERMS, p_score
-
-    rng = np.random.default_rng(0)
-    ref = {n: rng.normal(size=300) for n, _ in P_TERMS}
-    good = {n: [float(np.mean(ref[n]) + sign * 2.0 * np.std(ref[n]))] for n, sign in P_TERMS}
-    bad = {n: [float(np.mean(ref[n]) - sign * 2.0 * np.std(ref[n]))] for n, sign in P_TERMS}
-    assert p_score(good, ref)[0] > p_score(bad, ref)[0]
-    assert p_score({n: ref[n] for n, _ in P_TERMS}).shape == (300,)
-
-
-# --- interpretable Calpha rules ----------------------------------------------------------------
-
 def test_loop_ca_rules_delta_sign_follows_geometry():
     """delta = d_pep - d_mhc must be negative for a loop placed nearer the peptide."""
     from tcren.pose_sweep import loop_ca_rules
