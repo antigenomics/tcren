@@ -396,7 +396,7 @@ def agreement(q, energy, q_reference=None, energy_reference=None) -> np.ndarray:
     return zscore(q, q_reference) * zscore(energy, energy_reference)
 
 
-def q_coupled(q, energy) -> np.ndarray:
+def q_coupled(q, energy, r=None) -> np.ndarray:
     r"""Parameter-free binder score: interface geometry **and** coupling-weighted contact energy.
 
     .. math::
@@ -433,6 +433,11 @@ def q_coupled(q, energy) -> np.ndarray:
             use the **TCR**-referenced :math:`\Delta_{\mathrm{TCR}}\Phi` (the peptide is fixed there,
             so the peptide reference carries no signal); for peptide ranking use
             :math:`\Delta_{\mathrm{pep}}\Phi` (:func:`tcren.reference_delta`).
+        r: coupling weight. ``None`` (default) measures it from the cohort with :func:`coupling`,
+            which is what every published number uses. Pass a scalar or a per-row array to supply
+            it from outside — a **predicted** :math:`\hat C` from a single structure is defined at
+            ``n = 1``, where the cohort estimator is not (at ``n = 2`` it returns
+            :math:`|\hat r| = 1` by construction, with the wrong sign in 43.4 % of GLCTLVAML draws).
 
     Returns:
         Scores in :math:`(0,1)`; higher is more binder-like. Cohort-relative — rank within the set
@@ -442,7 +447,8 @@ def q_coupled(q, energy) -> np.ndarray:
 
     zq, ze = zscore(q), zscore(energy)
     g = lambda v: 0.5 * (1.0 + erf(v / np.sqrt(2.0)))          # noqa: E731 - Gaussian tail prob
-    return g(zq) * g(coupling(zq, ze) * ze)
+    w = coupling(zq, ze) if r is None else np.asarray(r, float)
+    return g(zq) * g(w * ze)
 
 
 def strain_z(table, reference=None) -> np.ndarray:

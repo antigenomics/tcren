@@ -222,3 +222,25 @@ def test_q_f_iptm_flips_F_sign_per_structure_by_iptm():
     assert np.allclose(q_f_iptm(t, iptm)[lo], (zq - zf)[lo])
     # all-NaN ipTM -> no inversion -> identical to plain z(Q)+z(F)
     assert np.allclose(q_f_iptm(t, np.full(n, np.nan)), zq + zf)
+
+
+def test_q_coupled_r_override_defaults_to_the_measured_coupling():
+    """`r=None` must reproduce the published path byte-for-byte; a supplied r replaces it."""
+    from scipy.special import erf
+
+    from tcren.cohort import coupling, q_coupled
+
+    rng = np.random.default_rng(7)
+    q = rng.normal(size=60)
+    e = 0.6 * q + 0.8 * rng.normal(size=60)
+    assert np.array_equal(q_coupled(q, e), q_coupled(q, e, r=None))
+    # supplying the value the cohort would have measured is a no-op
+    assert np.allclose(q_coupled(q, e), q_coupled(q, e, r=coupling(zscore(q), zscore(e))))
+    # r = 0 collapses the energy factor to the constant 1/2, leaving geometry alone
+    geom = 0.5 * (1.0 + erf(zscore(q) / np.sqrt(2.0)))
+    assert np.allclose(q_coupled(q, e, r=0.0), 0.5 * geom)
+    # a per-row r is accepted and acts row-wise
+    rvec = np.linspace(-0.5, 0.5, 60)
+    out = q_coupled(q, e, r=rvec)
+    assert out.shape == (60,)
+    assert np.isclose(out[10], q_coupled(q, e, r=float(rvec[10]))[10])
