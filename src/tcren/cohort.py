@@ -23,8 +23,16 @@ transfers across inputs. The descriptors are counts and bounded ratios (mildly n
 agrees with the default ``z`` to ρ≈0.98. The division of labour is scores in ``tcren``, evaluation
 (ROC/PR/CI) downstream.
 
-All functions take the table ``tcren recognize --full`` emits (a mapping of column name to
-sequence, a ``polars``/``pandas`` frame, or a dict of arrays) and return one value per row.
+All functions take the table ``tcren features`` emits (a mapping of column name to sequence, a
+``polars``/``pandas`` frame, or a dict of arrays) and return one value per row.
+
+**Where the line is drawn.** Every *score* the TCRen2 manuscript reports is computed here or in
+:mod:`tcren.footprint`, :mod:`tcren.mechanics`, :mod:`tcren.ddg` and :mod:`tcren.potential` --- a
+benchmark script that recomputes one of them by hand is a bug, not a shortcut. What stays outside
+the library is *evaluation*: ROC/PR/AUC, bootstrap intervals, macro-averaging over cohorts, and any
+protocol that consumes a binder label (leave-one-epitope-out anchoring, an in-sample GLM against a
+generator's confidence). Those need the labels this library is built to do without, so they live in
+the benchmark repo next to the data that carries them.
 
 Sign convention: every term is oriented so that **higher = more binder-like** for
 :func:`q_score`, and **higher = more forced/strained** for :func:`strain_z`.
@@ -37,12 +45,11 @@ Sign convention: every term is oriented so that **higher = more binder-like** fo
 
 from __future__ import annotations
 
-import warnings
 from functools import lru_cache
 
 import numpy as np
 
-__all__ = ["zscore", "q_score", "p_native", "P_NATIVE_FEATURES", "P_NATIVE_CHANNELS", "P_NATIVE_POOL", "P_NATIVE_ORIENT", "agreement", "q_iptm", "f_score", "q_f", "q_f_iptm", "f_invert_by_iptm", "phi_bind",
+__all__ = ["zscore", "q_score", "p_native", "P_NATIVE_FEATURES", "P_NATIVE_CHANNELS", "P_NATIVE_POOL", "P_NATIVE_ORIENT", "f_score",
            "q_coupled", "coupling", "strain_z", "native_reference", "Q_FEATURES", "Q_FEATURES_CORE",
            "Q_FEATURES_GEOM", "F_TERMS", "STRAIN_TERMS"]
 
@@ -208,31 +215,6 @@ def q_score(table, reference=None, features=Q_FEATURES_GEOM, method="z", decorre
     return np.nansum(w[:, None] * Z, axis=0)
 
 
-def q_iptm(table, iptm, reference=None, features=Q_FEATURES_GEOM, decorrelate=True) -> np.ndarray:
-    """Fit-free synergy score ``z(ipTM) + z(Q)`` — the interface-quality score composed with the
-    generator's own confidence.
-
-    ``Q`` (interface geometry) and the AlphaFold/TCRmodel2 ipTM are near-orthogonal (they fail in
-    different pose regimes, benchmark ledger C26/C35), so their standardized sum out-ranks either alone:
-    macro ROC 0.83 / PR 0.83 on TCRvdb vs ipTM 0.79, and on well-modelled epitopes it beats raw-AF ipTM
-    on both metrics (ledger C42). Both terms are standardized over the same candidate set, so pass an
-    ``iptm`` vector aligned row-for-row with ``table``. Use ``features=Q_FEATURES_GEOM`` for the
-    geometry-only ``Q_geom`` variant that is robust to the forced-pose energy inversion.
-
-    Args:
-        table: the ``tcren recognize --full`` table (dict / pandas / polars).
-        iptm: per-structure ipTM, aligned to ``table`` rows. Structures whose ipTM is missing (``NaN``)
-            fall back to ``z(Q)`` alone, so the score always ranks; an all-missing ``iptm`` returns
-            plain ``z(Q)`` — i.e. rank by the model geometry when no generator confidence is available.
-        reference: optional cohort to standardize against (see :func:`zscore`).
-        features: descriptors for ``Q``; defaults to the five :data:`Q_FEATURES`.
-    """
-    zq = zscore(q_score(table, reference, features, decorrelate=decorrelate))
-    out = zscore(np.asarray(iptm, float)) + zq
-    missing = ~np.isfinite(out)                       # ipTM absent for a structure -> rank by Q alone
-    out[missing] = zq[missing]
-    return out
-
 
 def f_score(table, reference=None, terms=F_TERMS) -> np.ndarray:
     """Binder-oriented TCRen contact energy ``F = z(-(F_tcr_pep + F_tcr_mhc))`` — the chemistry channel.
@@ -250,78 +232,6 @@ def f_score(table, reference=None, terms=F_TERMS) -> np.ndarray:
     ref = None if reference is None else sum(_col(reference, t) for t in terms)
     return zscore(-e, None if ref is None else -ref)
 
-
-def q_f(table, reference=None, sign=1.0, features=Q_FEATURES_GEOM, terms=F_TERMS,
-        decorrelate=True) -> np.ndarray:
-    """Pure-tcren combiner ``z(Q_geom) + sign * z(F)`` — geometry plus contact energy, no deep learning.
-
-    With ``sign=+1`` this is ``z(Q)+z(F)``; with ``sign=-1`` it is ``z(Q)-z(F)``. On **clean
-    (template-covered) poses** ``z(Q)+z(F)`` beats raw-AF ipTM on both ROC and PR with no DL term
-    (benchmark ledger C42: macro 0.759 ROC / 0.725 PR vs ipTM 0.692 / 0.693). On **forced poses** the
-    energy inverts, so ``z(Q)-z(F)`` is the one that ranks (C27: on the forced GLCTLVAML pose
-    ``z(Q)-z(F)``=0.71 vs ``z(Q)+z(F)``=0.52). Pick the sign from pose quality — grade it with
-    :func:`strain_z` — or prefer :func:`q_iptm` (``z(ipTM)+z(Q)``), the geometry channel that is robust
-    to the inversion without needing the energy at all.
-
-    Args:
-        table: the ``tcren recognize --full --scores`` table (dict / pandas / polars).
-        reference: optional cohort to standardize against (see :func:`zscore`).
-        sign: ``+1`` for ``z(Q)+z(F)`` (clean poses), ``-1`` for ``z(Q)-z(F)`` (forced poses).
-        features: ``Q`` descriptors; defaults to the geometry-only :data:`Q_FEATURES_GEOM`.
-        terms: energy terms for ``F``; defaults to :data:`F_TERMS`.
-        decorrelate: passed to :func:`q_score`. ``False`` recovers the legacy equal-weight ``Q``.
-    """
-    return (zscore(q_score(table, reference, features, decorrelate=decorrelate))
-            + sign * f_score(table, reference, terms))
-
-
-def q_f_iptm(table, iptm, threshold=0.5, reference=None, features=Q_FEATURES_GEOM,
-             terms=F_TERMS) -> np.ndarray:
-    """Pose-adaptive ``z(Q) + s·z(F)`` where the F sign ``s`` is chosen per structure from ipTM.
-
-    Automates the forced-pose inversion: a **confident** pose (``ipTM >= threshold``) keeps ``+z(F)``
-    because the contact energy is trustworthy there; a **forced** pose (``ipTM < threshold``) flips to
-    ``-z(F)`` because the energy inverts on forced poses (benchmark ledger C27/C42). A structure with no
-    ipTM (``NaN``) keeps ``+z(F)`` — nothing marks it as forced. See :func:`f_invert_by_iptm` for the
-    boolean flag alone.
-
-    ipTM is a *pose-confidence* proxy, not a calibrated forced-pose detector — grading forced-ness with
-    :func:`strain_z` is the principled alternative (C27), and :func:`q_iptm` (``z(ipTM)+z(Q)``) sidesteps
-    the energy entirely. Provided because it is the single-call pose-adaptive combiner.
-
-    Args:
-        table: the ``tcren recognize --full --scores`` table (dict / pandas / polars).
-        iptm: per-structure ipTM aligned to ``table`` rows.
-        threshold: ipTM below which a pose is treated as forced and ``F`` is inverted (default 0.5).
-        reference / features / terms: as in :func:`q_f`.
-    """
-    sign = np.where(f_invert_by_iptm(iptm, threshold), -1.0, 1.0)
-    return q_f(table, reference, sign=sign, features=features, terms=terms)
-
-
-def f_invert_by_iptm(iptm, threshold=0.5) -> np.ndarray:
-    """Boolean per-structure flag: invert ``F`` where ``ipTM < threshold`` (a forced pose). ``NaN`` ipTM
-    is not inverted. This is the ``F_invert`` column :func:`q_f_iptm` acts on."""
-    iptm = np.asarray(iptm, float)
-    return np.isfinite(iptm) & (iptm < threshold)
-
-
-def phi_bind(table, reference=None) -> np.ndarray:
-    """Deprecated screening score ``Phi_bind = Q + 0.5 * [z(-pitch) + z(-F_tcr_mhc)]``.
-
-    .. deprecated::
-       Use :func:`q_score`. Both terms this adds to ``Q`` *lower* ranking accuracy — on TCRvdb
-       macro ROC falls from Q's 0.795 to 0.653, and ``z(-pitch)`` alone is below chance (0.43)
-       (benchmark ledger C19b). The ``pitch`` axis also carries AlphaFold-confidence leakage
-       (ledger C19). It is retained only to reproduce older figures; do not use it for new work.
-    """
-    warnings.warn("phi_bind is deprecated and degrades ranking vs q_score (benchmark ledger C19b); "
-                  "use q_score", DeprecationWarning, stacklevel=2)
-    ref_pitch = None if reference is None else -_col(reference, "pitch")
-    ref_tm = None if reference is None else -_col(reference, "F_tcr_mhc")
-    return (q_score(table, reference)
-            + 0.5 * (zscore(-_col(table, "pitch"), ref_pitch)
-                     + zscore(-_col(table, "F_tcr_mhc"), ref_tm)))
 
 
 def coupling(q, energy) -> float:
@@ -358,50 +268,6 @@ def coupling(q, energy) -> float:
         return 0.0
     return float(np.corrcoef(q[ok], energy[ok])[0, 1])
 
-
-def agreement(q, energy, q_reference=None, energy_reference=None) -> np.ndarray:
-    r"""Per-structure geometry-energy agreement :math:`a_i=z(Q_i)\,z(\Delta\Phi_i)` --- the summand
-    of :func:`coupling`, and the single-structure stand-in for it.
-
-    :func:`coupling` returns :math:`C^{*}=\mathrm{corr}(Q,\Delta\Phi)` over a cohort, which is
-    exactly the cohort **mean** of this quantity when both channels are standardized. Standardize
-    against a fixed *reference manifold* instead of the cohort and each term survives on its own:
-
-    .. math::  a_i \;=\; z(Q_i)\,z(\Delta\Phi_i),
-       \qquad \overline{a} \;=\; C^{*}\,
-       \frac{\sigma^{\mathrm{coh}}_{Q}\sigma^{\mathrm{coh}}_{\Delta\Phi}}
-            {\sigma^{\mathrm{ref}}_{Q}\sigma^{\mathrm{ref}}_{\Delta\Phi}}
-       \;+\; \frac{\Delta\mu_{Q}\,\Delta\mu_{\Delta\Phi}}
-                  {\sigma^{\mathrm{ref}}_{Q}\sigma^{\mathrm{ref}}_{\Delta\Phi}},
-
-    i.e. affine in :math:`C^{*}` with positive slope. Sign is the readable part: :math:`a_i>0` means
-    geometry and chemistry deviate from the reference in the **same** direction, :math:`a_i<0` that
-    they disagree --- favourable contacts manufactured inside a poor interface, the forced-pose
-    signature, read from **one** structure.
-
-    Measured over the 22 cohorts of the balanced VDJdb benchmark: ``mean(a)`` tracks that cohort's
-    own :math:`C^{*}` at Pearson **+0.631** (Spearman +0.598). As a small-cohort estimator of
-    :math:`C^{*}` it roughly **halves the magnitude error below n ~ 8** and is defined at ``n = 2``,
-    where the sample correlation is :math:`\pm 1` by construction. It does **not** fix the sign ---
-    its sign error is worse than the raw correlation's at every ``n``, and the sign is what
-    :func:`q_coupled` gates on. Use it for magnitude at small ``n``, not as a drop-in for the gate.
-
-    **The references are the whole point.** Both nuisance terms vanish only when the reference means
-    and scales match the population being scored, so score AlphaFold models against an AlphaFold
-    manifold and crystals against crystals. Passing ``None`` standardizes against the input itself,
-    which reproduces :func:`coupling` in the mean and is *not* single-structure-capable.
-
-    Args:
-        q: interface-quality scores, e.g. :func:`q_score` output.
-        energy: binder-oriented referenced contact energy for the same rows (higher = more
-            favourable), e.g. :math:`\Delta_{\mathrm{TCR}}\Phi` for receptor ranking.
-        q_reference: values defining :math:`\mu,\sigma` for ``q``; ``None`` = the input itself.
-        energy_reference: the same for ``energy``.
-
-    Returns:
-        One value per row; ``mean()`` over a cohort is the :math:`C^{*}` surrogate.
-    """
-    return zscore(q, q_reference) * zscore(energy, energy_reference)
 
 
 def q_coupled(q, energy, r=None) -> np.ndarray:
@@ -476,7 +342,7 @@ P_NATIVE_CHANNELS = ("geometry", "topology", "energetics")
 #: ``placement`` and ``interface`` are pooled into a single ``geometry`` network rather than summed
 #: as two. The sum-of-log-odds rule in :func:`p_native` is the exact posterior only across channels
 #: that are conditionally independent given the class, and those two are the most dependent pair
-#: measured — |rho| = 0.244 between their principal components on the VDJdb benchmark, against 0.023
+#: measured — ``|rho| = 0.244`` between their principal components on the VDJdb benchmark, against 0.023
 #: for topology against interface. Pooling them is what the independence assumption requires; their
 #: mutual dependence is then modelled inside the one network instead of double-counted across two.
 P_NATIVE_POOL: dict[str, tuple[str, ...]] = {

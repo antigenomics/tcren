@@ -9,7 +9,7 @@ repeated for nothing.
 
 .. code-block:: console
 
-   # every descriptor, in the four channels (add kinetics with --all):
+   # every descriptor, in the four families (add kinetics with --all):
    tcren features -s structures/ -i placement,interface,topology,energetics -o feats.tsv
    # one channel only -- and only that channel is computed:
    tcren features -s structures/ -i topology -o shape.tsv

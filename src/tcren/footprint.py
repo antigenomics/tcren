@@ -14,8 +14,9 @@ spread. With ``p_i`` the fraction of contacts in cell ``i`` over ``k`` cells,
     H = -\\frac{1}{\\ln k}\\sum_i p_i \\ln p_i, \\qquad D_q = \\Big(\\sum_i p_i^q\\Big)^{1/(1-q)}
 
 ``H`` is the normalised Shannon entropy (1.0 = perfectly even) and ``D_q`` the Hill number of order
-``q`` — the *effective number of engaged cells* (Hill 1973, :doi:`10.2307/1934352`; Jost 2006,
-:doi:`10.1111/j.2006.0030-1299.14714.x`). ``D_1 = exp H_raw`` is a monotone transform of ``H`` and
+``q`` — the *effective number of engaged cells* (Hill 1973, `doi:10.2307/1934352
+<https://doi.org/10.2307/1934352>`_; Jost 2006, `doi:10.1111/j.2006.0030-1299.14714.x
+<https://doi.org/10.1111/j.2006.0030-1299.14714.x>`_). ``D_1 = exp H_raw`` is a monotone transform of ``H`` and
 ranks identically; ``D_2 = 1/\\sum_i p_i^2`` discounts weakly populated cells and separates better.
 Two partitions ship: the **12 cells** of the 6 CDR loops × {peptide, MHC}, and the **24 cells** that
 additionally split the peptide into N-terminal, central and C-terminal bands. Refining the peptide
@@ -56,7 +57,6 @@ __all__ = [
     "cell_counts",
     "footprint_batch",
     "footprint_features",
-    "footprint_score",
 ]
 
 #: The six CDR loops, in the order the cell partition indexes them.
@@ -369,35 +369,6 @@ def footprint_batch(structures: str | Path | Iterable[Structure], *, cutoff: flo
     rows = [{"pdb.id": s.pdb_id, **footprint_features(s, cutoff=cutoff, radii=radii)} for s in it]
     return pl.DataFrame(rows) if rows else pl.DataFrame(schema={"pdb.id": pl.String})
 
-
-def footprint_score(table: pl.DataFrame, *, group: str | None = None) -> pl.DataFrame:
-    """Append the cohort-standardised coverage+topology score.
-
-    ``fp_score = z(D2_pep24) + z(-fp_b0_frac_r7)`` — the effective number of engaged cells plus the
-    footprint's connectedness. The two are only weakly related, so the sum is worth more than
-    either. Standardisation is **within cohort**, so this needs a set of comparable structures and
-    is undefined for one.
-
-    Args:
-        table: output of :func:`footprint_batch`.
-        group: column to standardise within (e.g. ``"epitope"``). ``None`` uses the whole table.
-
-    Returns:
-        ``table`` with ``z_coverage``, ``z_patch`` and ``fp_score`` appended.
-    """
-    def z(col: str, sign: float) -> pl.Expr:
-        # NaN must become null BEFORE the aggregation. polars propagates NaN through mean/std, so a
-        # single contact-free structure turned the whole column NaN, `fill_nan(0.0)` then flattened
-        # it to zero, and the score silently degenerated to whichever channel happened to be clean
-        # (measured on TCRvdb: 0.814 -> 0.691, from 11 rows in 618).
-        v = sign * pl.col(col)
-        v = pl.when(v.is_nan()).then(None).otherwise(v)
-        e = (v - v.mean()) / v.std()
-        return (e.over(group) if group else e).fill_null(0.0)
-
-    return table.with_columns(z("D2_pep24", 1.0).alias("z_coverage"),
-                              z("fp_b0_frac_r7", -1.0).alias("z_patch")) \
-                .with_columns((pl.col("z_coverage") + pl.col("z_patch")).alias("fp_score"))
 
 
 def _selfcheck() -> None:  # pragma: no cover - exercised by tests/unit/test_footprint.py

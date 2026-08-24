@@ -42,14 +42,12 @@ from __future__ import annotations
 import numpy as np
 import polars as pl
 
-from functools import lru_cache
 
 from .contacts.definitions import ContactDefinition, multi_contacts
 from .structure.model import MHC_TYPES, PEPTIDE_TYPE, RECEPTOR_TYPES, Structure
 
-__all__ = ["pose_consistency", "c_score", "pose_native_reference", "pose_af_reference",
-           "POSE_FEATURES", "POSE_FEATURES_CONTACT", "POSE_FEATURES_SHELL",
-           "POSE_FEATURES_DEGREE"]
+__all__ = ["pose_consistency", "POSE_FEATURES", "POSE_FEATURES_CONTACT",
+           "POSE_FEATURES_SHELL", "POSE_FEATURES_DEGREE"]
 
 #: The cross-map descriptors :func:`pose_consistency` returns, each oriented positive-is-crystal-like.
 #: These are the ``k`` terms a pose score standardizes against a native-crystal reference.
@@ -395,90 +393,3 @@ def _selfcheck() -> None:
 
 if __name__ == "__main__":
     _selfcheck()
-
-
-def _load_reference(name: str) -> dict:
-    """Load a bundled reference CSV as a dict of column arrays."""
-    import csv
-    from importlib import resources
-
-    path = resources.files("tcren.data") / name
-    with path.open() as fh:
-        rows = list(csv.DictReader(fh))
-    cols = [c for c in rows[0] if c != "pdb.id"]
-    return {c: np.array([float(r[c]) for r in rows]) for c in cols}
-
-
-@lru_cache(maxsize=1)
-def pose_af_reference() -> dict:
-    """The pose descriptors over 1,018 **AlphaFold** TCR:pMHC models --- the reference to use when
-    the structure being scored is itself generated.
-
-    Every generated pose carries a constant offset from the crystal manifold (median ``c_local``
-    0.031 here against 0.085 on crystals, ``frac_close_favourable`` 0.651 against 0.764). Scored
-    against :func:`pose_native_reference`, that shared offset dominates and ``C`` reads *provenance*
-    --- how model-like the structure is --- which is the right question for spotting a fabricated
-    complex and the wrong one for ranking models against each other. Standardizing against the
-    generated manifold instead removes the offset, so ``C`` reads which model is an outlier *among
-    its own kind*.
-
-    Fitted **label-blind** on the whole ``vdjdb_binder_benchmark`` deposit (523 real + 566 mock
-    pairings): it defines what an AlphaFold TCR:pMHC model looks like, not what a binder looks like,
-    so no binder label enters it. Disjoint from the TCRvdb cohort (0 of 618 ids shared).
-
-    Provenance: ``scripts/fit_pose_reference.py --struct-dir <vdjdb_binder_benchmark>``.
-    """
-    return _load_reference("pose_af_reference.csv")
-
-
-@lru_cache(maxsize=1)
-def pose_native_reference() -> dict:
-    """The pose descriptors over the Native2026 alpha-beta crystals, bundled so a **single** user
-    structure can be standardized against the natural interface manifold rather than against itself.
-
-    Returns a dict of column arrays usable as the ``reference`` argument of :func:`c_score` (and of
-    :func:`tcren.cohort.zscore`). Provenance: ``scripts/fit_pose_reference.py`` over
-    ``data/Native2026``, restricted by the derivation's hard rule --- both CDR3 loops resolved and a
-    20-letter peptide --- and to rows finite on every descriptor.
-
-    This is a **second** reference file. :func:`tcren.cohort.native_reference` is untouched, so no
-    published ``Q`` moves.
-    """
-    return _load_reference("pose_native_reference.csv")
-
-
-def c_score(table, reference=None, features=POSE_FEATURES, method="z", decorrelate=True):
-    r"""Pose-consistency score ``C`` --- fit-free, single-structure-capable; higher = more crystal-like.
-
-    The same construction as :func:`tcren.cohort.q_score`, on the cross-map descriptors instead of
-    the interface-quality ones:
-
-    .. math::  C(x) = z(x)^{\top} \hat{C}^{-1} \mathbf{1},
-       \qquad z(x)_k = \frac{d_k(x) - \mu_k}{\sigma_k}
-
-    with :math:`\mu, \sigma` and the descriptor covariance estimated on the **native crystal
-    reference** (:func:`pose_native_reference`), and :math:`\mathbf 1` the fixed
-    every-descriptor-higher-is-more-crystal-like direction. No fitted coefficient, no negative set,
-    defined for a single row.
-
-    ``C`` answers "do this model's geometry and chemistry agree?", which is *not* "does this receptor
-    bind". It is the pose channel: compose it with a binder score, do not substitute it for one.
-
-    Args:
-        table: a mapping / polars / pandas frame carrying :data:`POSE_FEATURES` --- e.g. rows built
-            from :func:`pose_consistency`.
-        reference: cohort defining :math:`\mu, \sigma` and the covariance; defaults to
-            :func:`pose_native_reference`.
-        features: the descriptors to combine; defaults to all of :data:`POSE_FEATURES`.
-        method: per-descriptor standardization, ``"z"`` (default) or ``"rank"``.
-        decorrelate: whiten by the native covariance (default); ``False`` gives the equal-weight mean.
-    """
-    from .cohort import q_score
-
-    if reference is None or isinstance(reference, str):
-        key = reference or "native"
-        try:
-            reference = {"native": pose_native_reference, "af": pose_af_reference}[key]()
-        except KeyError:
-            raise ValueError(f"reference must be 'native', 'af' or a mapping; got {key!r}") from None
-    return q_score(table, reference, features=features, method=method, decorrelate=decorrelate)

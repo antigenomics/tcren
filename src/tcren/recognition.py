@@ -120,6 +120,12 @@ class GaussianBNClassifier:
         self.max_parents = max_parents
 
     # -- fit ---------------------------------------------------------------------------------------------
+    def _fit_standardize(self, X: np.ndarray) -> np.ndarray:
+        """Set the NaN-safe column mean/sd from ``X``, then standardize it. Both fits need this."""
+        self.mu_ = np.nanmean(np.where(np.isfinite(X), X, np.nan), axis=0)
+        self.sd_ = np.nanstd(np.where(np.isfinite(X), X, np.nan), axis=0) + _EPS
+        return self._standardize(X)
+
     def _standardize(self, X: np.ndarray) -> np.ndarray:
         X = np.asarray(X, float)
         X = np.where(np.isfinite(X), X, np.take(self.mu_, np.arange(X.shape[1]))[None, :])
@@ -129,9 +135,7 @@ class GaussianBNClassifier:
         X = np.asarray(X, float)
         y = np.asarray(y, int)
         m = np.zeros(len(y)) if mhc_class is None else np.asarray(mhc_class, float)
-        self.mu_ = np.nanmean(np.where(np.isfinite(X), X, np.nan), axis=0)
-        self.sd_ = np.nanstd(np.where(np.isfinite(X), X, np.nan), axis=0) + _EPS
-        Z = self._standardize(X)
+        Z = self._fit_standardize(X)
         # structure on within-(y,m)-class-centred data: remove the class/covariate shift first
         Zc = Z.copy()
         for yv in (0, 1):
@@ -229,9 +233,7 @@ class GaussianBNClassifier:
         X = np.asarray(X, float)
         n = len(X)
         m = np.zeros(n) if mhc_class is None else np.asarray(mhc_class, float)
-        self.mu_ = np.nanmean(np.where(np.isfinite(X), X, np.nan), axis=0)
-        self.sd_ = np.nanstd(np.where(np.isfinite(X), X, np.nan), axis=0) + _EPS
-        Z = self._standardize(X)
+        Z = self._fit_standardize(X)
 
         pin = {int(k): float(v) for k, v in (anchors or {}).items()}
         # Initialise from the orientation feature rather than at random: a deterministic start makes
@@ -1303,31 +1305,3 @@ def forced_pose_score(feats: dict[str, float]) -> float:
     return 1.0 / (1.0 + math.exp(-max(-700.0, min(700.0, z))))
 
 
-def kit_score(p_bind, iptm) -> np.ndarray:
-    """Synergistic AF × tcren binder score: ``z(p_bind) + z(iptm)`` over the scored cohort.
-
-    Combines the intrinsic tcren binder score (:func:`tcren.binder.binder_score`, from
-    ``recognize --scores``) with the AlphaFold/TCRmodel2 **ipTM** that ships free with every model. On the
-    TCRvdb raw-label benchmark this fixed no-fit combination beats **either alone** at precision
-    (macro-PR 0.847 vs ipTM 0.782 / p_bind 0.804; precision 0.969 at 10% recall vs ipTM 0.861; Δ macro-PR
-    vs ipTM +0.065, 95% CI [+0.022, +0.100], P(Δ>0)=1.00). A leave-epitope-out logistic on the same two
-    inputs gives the more conservative +0.041 [+0.005, +0.076] — a different estimator, not this score.
-    Higher = more binder-like.
-
-    Cohort-relative: ``z`` standardizes over the input arrays, so pass the **whole set** of AF models you
-    are ranking (not one structure). NaNs are ignored by the mean/sd and propagate to their own entries.
-
-    Args:
-        p_bind: tcren binder scores for the cohort (``recognize --scores`` ``p_bind`` column).
-        iptm: the matching AlphaFold ipTM values.
-
-    Returns:
-        The combined ranking score, one per structure.
-    """
-    p_bind = np.asarray(p_bind, float)
-    iptm = np.asarray(iptm, float)
-
-    def _z(a):
-        return (a - np.nanmean(a)) / (np.nanstd(a) + 1e-9)
-
-    return _z(p_bind) + _z(iptm)

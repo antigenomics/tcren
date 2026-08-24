@@ -8,7 +8,6 @@ dedicated topology command returns.
 """
 from __future__ import annotations
 
-import numpy as np
 import pytest
 
 from tcren.footprint import FOOTPRINT_SIZE_FEATURES, footprint_topology_features

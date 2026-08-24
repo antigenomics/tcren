@@ -1315,17 +1315,29 @@ def _score_feature_table(path: Path, out: Path) -> None:
         scores = scores.with_columns(pl.Series("Q", q_score(t, features=Q_FEATURES_GEOM)))
     except KeyError as exc:
         typer.echo(f"  Q skipped: {exc.args[0].split(';')[0]}")
+    # Score only the channels this table actually carries. `tcren features -i topology` is a
+    # legitimate call and must still yield `T`; asking for all three would raise on the absent
+    # geometry columns and drop the whole score.
+    from .cohort import _channel_columns
+    have = tuple(c for c in P_NATIVE_CHANNELS
+                 if sum(n in t.columns for n in _channel_columns(c)) >= 2)
+    if not have:
+        typer.echo("  P_native skipped: no channel has two usable columns in this table")
     try:
-        v, models = p_native(t, return_model=True)
+        if not have:
+            raise ValueError("no usable channel")
+        v, models = p_native(t, channels=have, return_model=True)
+        if len(have) == 1:
+            models = {have[0]: models}
         scores = scores.with_columns(pl.Series("P_native", v))
         # each channel on its own as well: `T` is the shape score the paper reports, and a caller
         # who wants to know WHY a structure scored as it did needs the parts, not just the sum
-        for ch, model in models.items():
+        for ch in models:
             scores = scores.with_columns(
                 pl.Series({"geometry": "G", "topology": "T", "energetics": "E"}.get(ch, ch),
                           p_native(t, channels=(ch,), rule="flat")))
-        typer.echo("  P_native: sum of per-channel log-odds over "
-                   f"{', '.join(models)} ({len(P_NATIVE_CHANNELS)} channels)")
+        typer.echo(f"  P_native: {'sum of per-channel log-odds over ' if len(have) > 1 else ''}"
+                   f"{', '.join(models)} ({len(have)} of {len(P_NATIVE_CHANNELS)} channels present)")
         for ch, model in models.items():
             typer.echo(f"    {ch}: EM over {len(model.feature_names)} features, "
                        f"{len(model.loglik_)} rounds, "
@@ -1361,17 +1373,19 @@ def features(
     which they carry independent evidence:
 
     \b
-      placement   where the receptor sits in the groove frame -- docking angles, the TCRdock
-                  rigid-body parameters, ride height / shift / offset, and the CDR3 loop frames.
-                  Frame-DEPENDENT.
-      interface   how much contact there is and of what chemical kind -- buried area, contact
-                  counts and types, hydrogen bonds, clashes, chain and loop balance.
-      topology    the SHAPE of the contact set, free of its size -- coverage entropy and Hill
-                  numbers, the footprint's Betti numbers and persistence entropy, the canonical
-                  germline/CDR3 preference.
-      energetics  statistical-potential interface energies F and their poly-alanine references dF.
-      kinetics    the interface as a spring network -- stiffness, rupture, coupling residues.
-                  Off by default (it is the most expensive family); add it with --all or -i.
+
+    * ``placement`` -- where the receptor sits in the groove frame: docking angles, the TCRdock
+      rigid-body parameters, ride height / shift / offset, and the CDR3 loop frames.
+      Frame-DEPENDENT.
+    * ``interface`` -- how much contact there is and of what chemical kind: buried area, contact
+      counts and types, hydrogen bonds, clashes, chain and loop balance.
+    * ``topology`` -- the SHAPE of the contact set, free of its size: coverage entropy and Hill
+      numbers, the footprint's Betti numbers and persistence entropy, the canonical germline/CDR3
+      preference.
+    * ``energetics`` -- statistical-potential interface energies F and their poly-alanine
+      references dF.
+    * ``kinetics`` -- the interface as a spring network: stiffness, rupture, coupling residues.
+      Off by default (it is the most expensive family); add it with --all or -i.
 
     Only what you ask for is computed: ``-i topology`` never builds the energies and ``-i placement``
     never runs the spring network. Whatever the selection, the whole set is annotated in **one**

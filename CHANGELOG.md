@@ -3,6 +3,58 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
+## [2.12.0] — 2026-08-24
+
+**`P_native` is the recommended score, and the combiner zoo around it is gone.** Three channels —
+geometry, topology, energetics — each fitted as its own latent-class Bayes network by EM, their
+log-odds added. Adding log-odds is the exact posterior only across channels that are conditionally
+independent given the class, so `geometry` pools the `placement` and `interface` descriptor
+*families* into one network: they are the most dependent pair measured (|ρ| = 0.244 between
+principal components on the VDJdb benchmark, against 0.023 for topology vs interface). Summing them
+as two terms counts that dependence twice, worth 0.817 → 0.832 macro ROC on TCRvdb and 0.668 →
+0.718 on VDJdb real-vs-mock.
+
+### Added
+- **`cohort.p_native(rule=...)`** — `"sum"` (default) adds per-channel log-odds, `"flat"` pools
+  every channel's features into one network. `return_model=True` returns a `{channel: model}`
+  mapping under `"sum"`.
+- **`cohort.P_NATIVE_POOL`** maps each combination channel to the descriptor families it draws on,
+  and **`cohort.P_NATIVE_ORIENT`** gives each channel's default orientation feature.
+- **`GaussianBNClassifier.fit_em(orient_by=...)` accepts a leading `"-"`** meaning *lower is
+  native-like*. The energetics channel needs it: Φ is a contact-preference sum in which lower is
+  favourable, so orienting on the raw `F_tcr_pep` labelled the unfavourable component native.
+- `tcren recognize --features` emits `P_native` and its three channel posteriors (`G`, `T`, `E`).
+
+### Changed
+- **`cohort.P_NATIVE_CHANNELS` is now `("geometry", "topology", "energetics")`**, three names where
+  2.11 had four. `P_NATIVE_FEATURES` stays keyed by descriptor *family* (four keys); resolve a
+  channel through `P_NATIVE_POOL`, or call `cohort._channel_columns(channel)`.
+- **`p_native(..., return_model=True)` returns a dict, not a model.** Callers unpacking a single
+  model must either index the channel they want or pass `rule="flat"`.
+
+### Removed
+Every one of these had zero callers in the library and zero in the benchmark repo's reproduction
+path. They are the superseded combiners `P_native` replaces and the pose-consistency experiment it
+made unnecessary.
+
+- **`pose_sweep` module** (605 lines) and **`pose.c_score`** with its two bundled reference
+  manifolds, `pose_af_reference.csv` and `pose_native_reference.csv` — **492 KB off the wheel.**
+  The AF reference's own docstring recorded the reason: scored against the crystal manifold the
+  score reads *provenance*, not model quality. `pose.pose_consistency` and the `POSE_FEATURES*`
+  tuples are unchanged.
+- **`footprint.footprint_score`** (the `fp_score` z-sum) — use `p_native(t, channels=("topology",))`.
+- **`cohort.q_iptm`, `q_f`, `q_f_iptm`, `f_invert_by_iptm`, `phi_bind`, `agreement`** — hand-picked
+  combination rules superseded by a fitted one. `agreement` was the per-structure summand of `C*`,
+  which the manuscript no longer uses.
+- **`recognition.kit_score`** — a z-sum of `p_bind` and ipTM that every caller already wrote inline.
+- `scripts/fit_pose_reference.py`, `scripts/fit_joint_reference.py`, which regenerated the two
+  deleted CSVs.
+
+### Deprecated
+- `cohort.coupling` and `cohort.q_coupled` remain importable, tested, and byte-identical in
+  behaviour, so every published `S` reproduces. They are superseded by `p_native`, which fits each
+  channel's sign instead of measuring it.
+
 ## [2.11.0] — 2026-08-23
 
 **TCRen2 is now the default TCR:peptide potential, and it is re-derived on the fully annotated

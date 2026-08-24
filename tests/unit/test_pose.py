@@ -5,16 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from tcren.pose import (
-    POSE_FEATURES,
-    _double_centred,
-    _pair_j,
-    _selfcheck,
-    _spearman,
-    c_score,
-    pose_consistency,
-    pose_native_reference,
-)
+from tcren.pose import (POSE_FEATURES, _double_centred, _pair_j, _selfcheck, _spearman, pose_consistency)
 from tcren.structure.model import PEPTIDE_TYPE, Atom, Chain, RegionMarkup, Residue, Structure
 
 
@@ -139,21 +130,6 @@ def test_too_few_contacts_gives_nan_rather_than_a_made_up_correlation():
     assert d["n_contacts"] == 2 and np.isnan(d["c_local"])
 
 
-def test_bundled_reference_is_loadable_and_covers_every_feature():
-    ref = pose_native_reference()
-    for f in POSE_FEATURES:
-        assert f in ref and len(ref[f]) > 100
-        assert np.isfinite(ref[f]).all()
-
-
-def test_c_score_is_defined_for_a_single_row_and_orders_correctly():
-    ref = pose_native_reference()
-    median = {k: [float(np.median(ref[k]))] for k in POSE_FEATURES}
-    poor = {k: [float(np.median(ref[k]) - 2 * np.std(ref[k]))] for k in POSE_FEATURES}
-    assert np.isfinite(c_score(median)[0])                 # one structure, no cohort
-    assert c_score(median)[0] > c_score(poor)[0]           # higher = more crystal-like
-
-
 def test_selfcheck_runs():
     _selfcheck()
 
@@ -214,27 +190,6 @@ def test_every_declared_feature_is_returned():
 
 # --- the per-structure C* surrogate --------------------------------------------------------------
 
-def test_agreement_mean_reproduces_coupling_when_standardized_on_the_input():
-    from tcren.cohort import agreement, coupling
-    rng = np.random.default_rng(0)
-    q = rng.normal(size=400)
-    for rho in (-0.6, 0.0, 0.5):
-        e = rho * q + np.sqrt(1 - rho**2) * rng.normal(size=400)
-        # coupling IS the mean of the agreement term when both are standardized on the same rows
-        assert agreement(q, e).mean() == pytest.approx(coupling(q, e), abs=0.02)
-
-
-def test_agreement_is_defined_for_a_single_row_against_a_reference():
-    from tcren.cohort import agreement
-    ref_q, ref_e = np.random.default_rng(1).normal(size=200), np.random.default_rng(2).normal(size=200)
-    a = agreement([2.0], [2.0], ref_q, ref_e)          # both far above reference -> agree
-    b = agreement([2.0], [-2.0], ref_q, ref_e)         # geometry good, chemistry bad -> disagree
-    assert a.shape == (1,) and np.isfinite(a[0])
-    assert a[0] > 0 and b[0] < 0
-
-
-# --- the designed pose metric P -------------------------------------------------------------
-
 def _full_complex():
     """Peptide + both receptor chains (CDR1/2/3 marked up) + MHC.
 
@@ -267,70 +222,3 @@ def _full_complex():
     mhc = chain("A", "MHCa", 24, np.array([0.0, 0.0, -4.0]), "LDW", False)
     return Structure("synth_full", [pep, tra, trb, mhc])
 
-
-def test_loop_ca_rules_delta_sign_follows_geometry():
-    """delta = d_pep - d_mhc must be negative for a loop placed nearer the peptide."""
-    from tcren.pose_sweep import loop_ca_rules
-
-    s = _full_complex()
-    # peptide sits at z=0, MHC at z=-4, receptor at z=+4, so every loop is nearer the peptide
-    d = loop_ca_rules(s, cutoff=5.0)
-    # only the per-loop deltas; the cross-loop contrasts (cdr3_vs_germline_*, cdr3_ab_asym_*) are
-    # differences of two loops and carry no sign guarantee
-    loops = ("cdr1a", "cdr2a", "cdr3a", "cdr1b", "cdr2b", "cdr3b")
-    deltas = {k: v for k, v in d.items()
-              if k.endswith("_all_delta") and k.split("_all_")[0] in loops and np.isfinite(v)}
-    assert len(deltas) == 6, sorted(deltas)
-    assert all(x < 0 for x in deltas.values()), deltas
-
-
-def test_loop_ca_rules_reports_both_chains_and_all_three_loops():
-    from tcren.pose_sweep import loop_ca_rules
-
-    d = loop_ca_rules(_full_complex())
-    for loop in ("cdr1a", "cdr2a", "cdr3a", "cdr1b", "cdr2b", "cdr3b"):
-        assert f"{loop}_n_res" in d, loop
-        assert f"{loop}_all_d_pep" in d and f"{loop}_all_d_mhc" in d
-
-
-def test_sigma_split_is_the_difference_of_the_two_cdr3_nc_terms():
-    from tcren.pose_sweep import loop_ca_rules
-
-    d = loop_ca_rules(_full_complex())
-    if all(k in d for k in ("cdr3a_delta_NC", "cdr3b_delta_NC", "sigma_NC_split")):
-        assert d["sigma_NC_split"] == pytest.approx(d["cdr3a_delta_NC"] - d["cdr3b_delta_NC"])
-
-
-def test_loop_ca_rules_partner_masks_are_a_union():
-    """conA is exactly the peptide-contacting union MHC-contacting set, per loop."""
-    from tcren.pose_sweep import loop_ca_rules
-
-    d = loop_ca_rules(_full_complex(), cutoff=5.0)
-    loops = [k[: -len("_frac_conA")] for k in d if k.endswith("_frac_conA")]
-    assert loops, sorted(d)
-    for name in loops:
-        p, m, a = (d[f"{name}_frac_con"], d[f"{name}_frac_conM"], d[f"{name}_frac_conA"])
-        assert a >= max(p, m) - 1e-9, (name, p, m, a)
-        assert a <= min(1.0, p + m) + 1e-9, (name, p, m, a)
-
-
-def test_peptide_ca_rules_engaged_residues_sit_closer_to_the_receptor():
-    """A peptide residue that contacts the TCR cannot be farther from it than one that does not."""
-    from tcren.pose_sweep import peptide_ca_rules
-
-    d = peptide_ca_rules(_full_complex(), cutoff=5.0)
-    assert 0.0 < d["pep_frac_conTcr"] < 1.0, d["pep_frac_conTcr"]
-    assert d["pep_conTcr_d_tcr"] < d["pep_nonTcr_d_tcr"]
-    assert d["pep_conTcr_d_tcr"] <= d["pep_all_d_tcr"]
-
-
-def test_peptide_matched_conditional_is_per_loop():
-    """pep_con_<loop>_d_<loop> conditions on contacts with that loop alone, so it is the closer set."""
-    from tcren.pose_sweep import peptide_ca_rules
-
-    d = peptide_ca_rules(_full_complex(), cutoff=5.0)
-    loops = ("cdr1a", "cdr2a", "cdr3a", "cdr1b", "cdr2b", "cdr3b")
-    matched = [(f"pep_con_{n}_d_{n}", f"pep_all_d_{n}") for n in loops if f"pep_con_{n}_d_{n}" in d]
-    assert matched, sorted(k for k in d if k.startswith("pep_con_"))
-    for k, ref in matched:
-        assert d[k] <= d[ref] + 1e-9, (k, d[k], d[ref])

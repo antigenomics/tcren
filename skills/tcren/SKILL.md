@@ -580,7 +580,7 @@ QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses ar
   well-modelled ("template-covered") epitopes and ties it fit-free on TCRvdb (benchmark C42). Single-line CLI:
   `tcren recognize -s pdbs/ --iptm meta.tsv -o out.tsv` joins ipTM (key col matched to `complex.id`) and appends
   `Q_geom` + `z(ipTM)+z(Q_geom)`.
-- **`cohort.q_coupled` / `cohort.coupling` — the parameter-free binder score (2026-07-26):**
+- **`cohort.q_coupled` / `cohort.coupling` — DEPRECATED at 2.12, superseded by `p_native` (2026-07-26):**
   `q_coupled(q, energy)` = `¼[1+erf(z(Q)/√2)]·[1+erf(r·z(ΔΦ)/√2)]` with `r = coupling(q, energy)`, the
   cohort correlation between the geometry and energy channels. Two Gaussian tail probabilities multiplied
   — binding needs both an interface and favourable residues in it — with the energy admitted in

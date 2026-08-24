@@ -12,19 +12,7 @@ import numpy as np
 import polars as pl
 import pytest
 
-from tcren.footprint import (
-    CELL_LOOPS,
-    FOOTPRINT_FEATURES,
-    _diversity,
-    _flag_betti,
-    _gf2_rank,
-    _h0_persistence_entropy,
-    _selfcheck,
-    cell_counts,
-    footprint_batch,
-    footprint_features,
-    footprint_score,
-)
+from tcren.footprint import (CELL_LOOPS, FOOTPRINT_FEATURES, _diversity, _flag_betti, _gf2_rank, _h0_persistence_entropy, _selfcheck, cell_counts, footprint_batch, footprint_features)
 
 from tcren.structure.model import PEPTIDE_TYPE, Atom, Chain, RegionMarkup, Residue, Structure
 
@@ -223,36 +211,3 @@ def test_batch_over_structures_yields_one_row_each():
 def test_batch_of_nothing_is_an_empty_frame_not_an_error():
     assert footprint_batch([]).height == 0
 
-
-def test_footprint_score_is_the_sum_of_two_standardised_channels():
-    t = pl.DataFrame({"pdb.id": list("abcd"),
-                      "D2_pep24": [4.0, 8.0, 12.0, 16.0],
-                      "fp_b0_frac_r7": [0.4, 0.3, 0.2, 0.1]})
-    out = footprint_score(t)
-    assert out["fp_score"].to_list() == pytest.approx(
-        (out["z_coverage"] + out["z_patch"]).to_list())
-    # both channels point the same way: more effective cells and fewer patches score higher
-    assert out["fp_score"].to_list() == sorted(out["fp_score"].to_list())
-    assert out["z_coverage"].mean() == pytest.approx(0.0, abs=1e-12)
-
-
-def test_one_missing_structure_does_not_flatten_a_whole_channel():
-    """polars propagates NaN through mean/std, so a single contact-free row used to null the column,
-    `fill_nan(0.0)` flattened it to zero, and the score silently became its other channel alone."""
-    t = pl.DataFrame({"pdb.id": list("abcde"),
-                      "D2_pep24": [4.0, 8.0, 12.0, 16.0, float("nan")],
-                      "fp_b0_frac_r7": [0.4, 0.3, 0.2, 0.1, 0.5]})
-    out = footprint_score(t)
-    good = out["z_coverage"].to_numpy()[:4]
-    assert not np.allclose(good, 0.0), good          # the four measured rows still carry the channel
-    assert out["z_coverage"].to_numpy()[4] == 0.0    # ...and the missing one contributes nothing
-    assert np.all(np.diff(good) > 0)
-
-
-def test_footprint_score_standardises_within_group():
-    t = pl.DataFrame({"pdb.id": list("abcd"), "epitope": ["X", "X", "Y", "Y"],
-                      "D2_pep24": [4.0, 8.0, 104.0, 108.0],
-                      "fp_b0_frac_r7": [0.4, 0.3, 0.4, 0.3]})
-    out = footprint_score(t, group="epitope")
-    # the two cohorts sit at wildly different D2 scales; within-cohort z removes the offset
-    assert out["z_coverage"].to_list()[:2] == pytest.approx(out["z_coverage"].to_list()[2:])

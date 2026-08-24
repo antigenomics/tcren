@@ -48,7 +48,7 @@ From one TCR–peptide–MHC structure (crystal or model), each task is one comm
 | ΔΔG of mutations (alanine scan / neoantigen) | `tcren ddg` | `alanine_scan`, `neoantigen_ddg` |
 | **Predict a CPL response matrix from a template** | `tcren cpl` | `response_matrix`, `mutation_effect`, `position_scan`, `equimolar_effect` |
 | Binder vs non-binder for a TCR model | `tcren binder` | `cohort.q_score` (recommended), `binder_score` |
-| **Every interface descriptor, in four channels** | `tcren features` | `recognition_table(include=...)`, `descriptors` |
+| **Every interface descriptor, in four families** | `tcren features` | `recognition_table(include=...)`, `descriptors` |
 | **All interface descriptors + joint P(real)** | `tcren recognize` | `recognition_features`, `real_probability` |
 | **P(native)** — the channels combined by a latent-class Bayes network | `tcren recognize --features` | `cohort.p_native` |
 | Three-interface energy Φ, poly-Ala ΔΦ, interface geometry | `tcren scoring` | `run_pipeline` |
@@ -252,7 +252,7 @@ Two commands, two jobs. **`tcren features` reads structures and writes descripto
 runs once and the scoring pass can be repeated for nothing.
 
 ```bash
-tcren features  -s my_pdbs/ -o feats.tsv                   # every descriptor, four channels
+tcren features  -s my_pdbs/ -o feats.tsv                   # every descriptor, four families
 tcren features  -s my_pdbs/ -o shape.tsv -i topology       # one channel -- and only it is computed
 tcren recognize --features feats.tsv -o scores.tsv         # Q, T, P_native. No structure re-read
 ```
@@ -463,20 +463,22 @@ peptide into thirds — summarised by the normalised Shannon entropy and by the 
 ([Hill 1973](https://doi.org/10.2307/1934352), [Jost 2006](https://doi.org/10.1111/j.2006.0030-1299.14714.x)),
 where `D2` is the *effective number of engaged cells*. Topology joins the contacted pMHC residues at
 a Cα threshold and builds the flag complex: `fp_b0_*` counts footprint patches and `fp_b1_*` its
-holes. The two are only weakly related, so `fp_score` sums them.
+holes. Coverage and topology are only weakly related, which is why they belong in one channel and
+why that channel is read as `T` — the shape posterior of `p_native`, not a hand-written z-sum.
 
 ```bash
-tcren footprint -s structures/ -o footprint.tsv --score
+tcren features -s structures/ -i topology -o shape.tsv
 ```
 
 ```python
-from tcren.footprint import footprint_batch, footprint_features, footprint_score
+from tcren.cohort import p_native
+from tcren.footprint import footprint_batch, footprint_features
 
 row = footprint_features(structure)          # one dict, ~33 features
 row["D2_pep24"], row["fp_b0_r7"], row["L_canon"]
 
 table = footprint_batch("structures/")       # polars frame, one row per structure
-table = footprint_score(table, group=None)   # cohort-standardised fp_score
+T = p_native(table, channels=("topology",))  # the shape score, cohort-relative
 ```
 
 Note the cyclomatic number of the bipartite contact graph (`E − V + C`) is deliberately not offered:
