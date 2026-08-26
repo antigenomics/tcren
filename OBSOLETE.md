@@ -28,3 +28,22 @@ The DFIRE reference states and the substitution-matrix pseudocounts that were on
 gone: all five estimation improvements tried against TCRen2 were measured and none improved every
 endpoint, so they were deleted rather than left to rot. See
 `src/tcren/data/TCRen2_potential.NOTES.md` before re-attempting any of them.
+
+## Already removed in 2.12.0 — the combiner zoo `P_native` replaced
+
+Not scheduled: gone. Every one had zero callers in the library and zero in the benchmark repo's
+reproduction path. Recorded here so a name that no longer imports can be traced to what took over.
+
+| removed | what it was | what to use instead |
+|---|---|---|
+| `pose_sweep` module (605 lines) | pose-consistency experiment | nothing — `P_native` made it unnecessary |
+| `pose.c_score` + `pose_af_reference.csv` + `pose_native_reference.csv` | manifold-referenced pose score; **492 KB off the wheel** | nothing. Its own docstring recorded why: scored against the crystal manifold it reads *provenance*, not model quality. `pose.pose_consistency` and the `POSE_FEATURES*` tuples are unchanged |
+| `footprint.footprint_score` | the `fp_score` z-sum | `cohort.p_native(t, channels=("topology",))` |
+| `cohort.q_iptm`, `q_f`, `q_f_iptm`, `f_invert_by_iptm`, `phi_bind`, `agreement` | hand-picked combination rules; `agreement` was the per-structure summand of `C*` | `cohort.p_native`, which fits each channel's sign instead of asserting it |
+| `recognition.kit_score` | a z-sum of `p_bind` and ipTM | `cohort.p_native`; join the generator's confidence yourself if you want it |
+| `scripts/fit_pose_reference.py`, `scripts/fit_joint_reference.py` | regenerated the two deleted reference CSVs | nothing |
+
+**Deprecated, not removed:** `cohort.coupling` and `cohort.q_coupled` remain importable, tested and
+byte-identical in behaviour, so every published `S` reproduces. They are superseded by `p_native`,
+which fits each channel's sign instead of measuring it. `tcren.binder`'s fitted `p_bind` and
+`recognize --scores` are likewise kept for v1 reproduction only.

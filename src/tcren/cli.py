@@ -804,12 +804,12 @@ def surface(
 @app.command(rich_help_panel=_P_SCORE)
 def recognize(
     structures: str = typer.Option(None, "-s", "--structures", help="TCR-pMHC structure file, directory, .tar.gz, or glob"),
-    features_table: Path = typer.Option(None, "--features", help="score a table already written by `tcren features` instead of re-reading the structures; emits Q, P_native and fp_score"),
+    features_table: Path = typer.Option(None, "--features", help="score a table already written by `tcren features` instead of re-reading the structures; emits Q, P_native and the channel posteriors G/T/E"),
     out: Path = typer.Option("recognize.tsv", "-o", "--out", help="per-structure descriptors + P(real) table (TSV)"),
     organism: str = typer.Option("human", "--organism"),
     features_only: bool = typer.Option(False, "--features-only", help="emit the descriptors, skip P(real)"),
     full: bool = typer.Option(False, "--full", help="add the 18 CDR3-local frame descriptors (the FramePose strain layer) and the intra-peptide term F_pep_int/n_pep_int"),
-    scores: bool = typer.Option(False, "--scores", help="also append the fit-free q_bind + s_strain (recommended) and the fitted p_bind + p_forced; implies --full"),
+    scores: bool = typer.Option(False, "--scores", help="LEGACY (v1 reproduction): the fit-free q_bind + s_strain and the fitted p_bind + p_forced; implies --full. Prefer --features for Q/P_native"),
     mechanics: bool = typer.Option(False, "--mechanics", help="also append the koff proxies from `tcren mechanics` (stiffness tensor, steered rupture, coupling residues) — same table, no second annotation pass"),
     threads: int = typer.Option(1, "-t", "--threads", help="concurrent annotation batches for a multi-structure run (0 = all cores); cohort scores stay computed over the whole set"),
     autodetect_species: bool = typer.Option(True, "--autodetect-species/--no-autodetect-species", help="also search mouse to catch a mis-declared organism; --no- halves the annotation cost"),
@@ -824,11 +824,12 @@ def recognize(
     Gaussian BN): the joint probability the complex is a genuine recognition interface rather than a
     wrong-TCR shuffle. ``--full`` also emits the 18 CDR3-local frame descriptors (the FramePose strain
     layer) and the intra-peptide term ``F_pep_int``/``n_pep_int`` — the peptide's contact energy with
-    **itself**, which the three interface energies omit. ``--scores`` adds the recommended fit-free
-    ``q_bind`` (binder-ID; the directional-decorrelated interface-quality score, calibrated on the
-    native crystal reference so it is defined per structure and transfers) and ``s_strain``
-    (forced-pose), alongside the fitted ``p_bind`` / ``p_forced``. ``--features-only`` skips the models.
-    Output is TSV.
+    **itself**, which the three interface energies omit. ``--scores`` is kept for v1 reproduction:
+    it adds the fit-free ``q_bind`` (binder-ID; the directional-decorrelated interface-quality
+    score, calibrated on the native crystal reference so it is defined per structure and
+    transfers) and ``s_strain`` (forced-pose), alongside the fitted ``p_bind`` / ``p_forced``. The
+    recommended scores are ``Q`` and ``P_native``, which come from ``--features``.
+    ``--features-only`` skips the models. Output is TSV.
 
     ``--mechanics`` appends the koff proxies ``tcren mechanics`` reports — stiffness tensor, steered
     rupture, coupling residues — to these same rows. Prefer it to running the two commands: they
@@ -843,7 +844,7 @@ def recognize(
 
         tcren features  -s models/ -o feats.tsv                      # the descriptor pass, once
         tcren recognize --features feats.tsv -o scores.tsv           # Q, P_native and its channels
-        tcren recognize -s models/ -o out.tsv                        # both in one go
+        tcren recognize -s models/ -o out.tsv                        # descriptors + p_real, no feature file
         tcren recognize -s models/ --mechanics -t 0 -o out.tsv       # + the spring-network terms
     """
     from .recognition import recognition_table
@@ -1004,6 +1005,11 @@ def scoring(
     if failed:  # an error buried in a column is an error nobody reads
         # --skip-errors drops the failed rows, so the message cannot come from the table.
         typer.secho(f"first failure: {first_error}", fg="red", err=True)
+    if failed == len(structs):
+        # Every structure failing is an environment fault, not a data one -- a missing reference,
+        # a broken install. Exiting 0 with a table that has no score columns makes the caller die
+        # later on a missing column, several stages downstream of the real cause.
+        raise typer.Exit(1)
 
 
 @app.command(rich_help_panel=_P_SCORE, hidden=True)
@@ -1371,9 +1377,9 @@ def footprint(
     organism: str = typer.Option("human", "--organism"),
     cutoff: float = typer.Option(5.0, "--cutoff", help="heavy-atom contact threshold (A)"),
     radii: str = typer.Option("7,8", "--radii", help="Calpha thresholds for the footprint flag complex; b0 is most informative at 7 A and b1 at 8 A"),
-    group: str = typer.Option(None, "--group", help="column to standardise fp_score within (e.g. epitope); needs --meta"),
+    group: str = typer.Option(None, "--group", help="column to fit T within (e.g. epitope); needs --meta"),
     meta: Path = typer.Option(None, "--meta", help="TSV/CSV with a 'pdb.id' column plus --group, joined before scoring"),
-    score: bool = typer.Option(False, "--score", help="append the cohort-standardised fp_score = z(D2_pep24) + z(-fp_b0_frac_r7)"),
+    score: bool = typer.Option(False, "--score", help="append T, the cohort-fitted shape-channel posterior (p_native over the topology family)"),
 ) -> None:
     """Footprint shape: how a receptor's contacts are DISTRIBUTED, not what they score.
 
@@ -1392,13 +1398,14 @@ def footprint(
     oriented -- only chain-typed with CDR region markup, which this command does for you in one
     batched annotation pass over the whole set.
 
-    ``--score`` adds the cohort-standardised ``fp_score``; it compares structures against each
-    other, so it needs a set and is undefined for a single input. Use ``--group`` with ``--meta``
-    to standardise within epitope rather than across the whole table.
+    ``--score`` adds ``T``, the shape channel's posterior: the same latent-class Bayes network
+    ``tcren recognize`` fits, restricted to these descriptors. It is fitted on the cohort being
+    scored, so it needs a set and is undefined for a single input. Use ``--group`` with ``--meta``
+    to fit within epitope rather than across the whole table.
 
     Complementary scorer on the same inputs: ``tcren recognize`` (energies + P(real)).
     """
-    from .footprint import footprint_batch, footprint_score
+    from .footprint import footprint_batch
 
     try:
         rr = tuple(float(v) for v in radii.replace(" ", "").split(",") if v)
@@ -1417,9 +1424,20 @@ def footprint(
             raise typer.BadParameter(f"--meta needs a 'pdb.id' column; got {list(m.columns)}")
         table = table.join(m, on="pdb.id", how="left")
     if score or group:
+        # 2.12.0 removed the fp_score z-sum in favour of the fitted channel posterior; this is the
+        # replacement its changelog names. Fitted per group where one is given, because the EM is a
+        # cohort operation and pooling epitopes fits a mixture across them.
+        from .cohort import p_native  # noqa: PLC0415
+
         if group and group not in table.columns:
             raise typer.BadParameter(f"--group {group!r} is not a column; pass it via --meta")
-        table = footprint_score(table, group=group)
+        if group:
+            table = pl.concat([
+                part.with_columns(pl.Series("T", p_native(part, channels=("topology",))))
+                for (_key,), part in table.group_by([group], maintain_order=True)
+            ])
+        else:
+            table = table.with_columns(pl.Series("T", p_native(table, channels=("topology",))))
     table.write_csv(out, separator="\t")
     typer.echo(f"footprint: {table.height} structures, {len(table.columns)} columns -> {out}")
 

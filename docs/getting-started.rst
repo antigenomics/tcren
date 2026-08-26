@@ -9,6 +9,7 @@ From PyPI (binary wheels ship the C++ extensions and pull in the TCR-annotation 
 .. code-block:: console
 
    $ pip install tcren
+   $ tcren build-mhc-ref   # once: the MHC allele reference is built on demand, not bundled
 
 For development — a repo-local ``.venv`` via `uv <https://docs.astral.sh/uv/>`_, an editable
 install, and the reference data fetched into ``data/`` (no conda; needs only ``uv`` and a C++
@@ -27,6 +28,38 @@ builds five small pybind11/C++ kernels on install:
 ``tcren._align`` (MHC-pseudosequence alignment), ``tcren._refine`` (DOPE Monte-Carlo refinement),
 ``tcren._relax`` (DOPE interface energy), ``tcren._fold`` (CCD loop closure) and ``tcren._geom``
 (binder interface geometry).
+
+.. _mhc-reference:
+
+The MHC allele reference — build it once
+----------------------------------------
+
+MHC chains are mapped against a curated allele reference that is **built from IMGT on demand, not
+bundled in the wheel**. Run it once after installing; every command that annotates a structure
+needs it:
+
+.. code-block:: console
+
+   $ tcren build-mhc-ref
+
+.. _data-locations:
+
+Where the data lives
+--------------------
+
+:func:`tcren.paths.tcren_home` is the root of tcren's on-disk reference data, and everything else
+hangs off it: the allele reference in ``database/mhc/``, its mmseqs index in ``data/mhc_cache/``,
+and the structure sets ``fetch-data`` populates in ``data/`` (``Native2026``, ``Canonical2026``,
+``PDB_date.tsv``). It resolves in three steps:
+
+#. ``$TCREN_HOME``, when set — the way to put the data on a shared volume;
+#. otherwise the source checkout, recognised by its ``pyproject.toml``, so a development install
+   reads and writes the repo's own ``data/``;
+#. otherwise ``$XDG_CACHE_HOME/tcren`` (in practice ``~/.cache/tcren``), which an installed wheel
+   can write and which survives an upgrade.
+
+``$TCREN_DATA_DIR`` overrides the ``data/`` subdirectory on its own
+(:func:`tcren.paths.data_dir`).
 
 Command line
 ------------
@@ -73,11 +106,12 @@ Two options change what is reported:
    adds the interface descriptors (``burial``, ``n_pep_contacted``, ``chain_balance``, ``n_hbond``,
    ``pitch``, ``crossing``) and ``Q``, the directional decorrelated interface-quality score
    (:func:`tcren.q_score`), standardised against the native-crystal reference so it is defined for a
-   single structure. For the complete 35-descriptor catalogue plus ``P(real)``, use
+   single structure. For the complete descriptor catalogue plus ``P(real)``, use
    ``tcren recognize``.
 
-Columns are named as in ``tcren recognize`` (``F_tcr_pep``, ``dF_pep_mhc``, …), so the two tables
-join on ``pdb.id``.
+Columns are named as in ``tcren recognize`` (``F_tcr_pep``, ``dF_pep_mhc``, …), but the key is
+not: ``tcren scoring`` emits ``pdb.id`` and ``tcren recognize`` emits ``complex.id``, so rename
+one of them before joining the two tables.
 
 Inputs accept ``.pdb``/``.cif``/``.pdb.gz``/``.cif.gz``, a directory, or a ``.tar.gz`` batch;
 identifiers are resolved from the file names:
@@ -137,7 +171,7 @@ question                                           command
 Which candidate epitopes does this TCR recognise?  ``tcren score -s c.pdb -c candidates.txt -o ranked.csv``
 Is this peptide a strong binder for this TCR?       ``tcren rank -s c.pdb -o rank.csv``
 How does a mutation change recognition (ΔΔG)?       ``tcren ddg -s c.pdb --native EPI --alanine-scan``
-Is this modelled TCR a binder or a non-binder?      ``tcren binder -s model.pdb -o binder.csv``
+Which of these modelled TCRs bind?                  ``tcren features -s models/ -o f.tsv``, then ``tcren recognize --features f.tsv -o s.tsv``
 Three-interface energy Φ (and ΔΦ, and Q)?           ``tcren scoring -s c.pdb --delta --geometry``
 Substitute a peptide and relax its pose?            ``tcren refine -s c.pdb --substitute KQWLVWLFL -o out/``
 What does a TCR meet on this pMHC surface?         ``tcren surface -s c.pdb -o surf.csv --compare``

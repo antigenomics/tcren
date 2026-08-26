@@ -11,13 +11,14 @@ repeated for nothing.
 
    # every descriptor, in the four families (add kinetics with --all):
    tcren features -s structures/ -i placement,interface,topology,energetics -o feats.tsv
-   # one channel only -- and only that channel is computed:
+   # one family only -- and only that family is computed:
    tcren features -s structures/ -i topology -o shape.tsv
    # scores from the table, without re-reading a single structure:
    tcren recognize --features feats.tsv -o scores.tsv
 
-``tcren recognize -s structures/`` does both passes in one step (``--full`` for the CDR3-frame
-layer, ``--mechanics`` for the kinetics terms).
+``tcren recognize -s structures/`` reads the structures itself and writes the descriptor table with
+``p_real`` (``--full`` for the CDR3-frame layer, ``--mechanics`` for the kinetics terms). ``Q`` and
+``P_native`` come from ``--features``, which is the two-command route above.
 
 Output is **TSV**. The first column ``complex.id`` is the structure-file stem (the SHA-256 ``TCR_hash``
 for the modelled sets), which is the join key to labels and AlphaFold confidences. ``--features-only``
@@ -34,6 +35,82 @@ column is named ``F``, because the potential is fixed by the interface rather th
 TCR↔peptide uses the **TCRen** potential, TCR↔MHC and peptide↔MHC the **Miyazawa–Jernigan (MJ)**
 potential. Energies are in dimensionless statistical-potential units (more negative = more
 favourable); they are log-odds ratios of contact frequencies and are *not* in kT.
+
+.. note::
+
+   Both commands annotate the MHC chains, which needs the MHC allele reference. It is built from
+   IMGT on demand rather than bundled in the wheel, so run ``tcren build-mhc-ref`` once after a
+   ``pip install`` (see :ref:`mhc-reference`).
+
+Options
+-------
+
+``tcren features``:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 22 48
+
+   * - option
+     - default
+     - what it does
+   * - ``-s``, ``--structures``
+     - *required*
+     - structure file, directory, ``.tar.gz``, quoted glob, ``.txt`` manifest, comma-separated
+       list, or a repeated flag
+   * - ``-o``, ``--out``
+     - ``features.tsv``
+     - the per-structure descriptor table
+   * - ``-i``, ``--include``
+     - ``placement,interface,topology,energetics``
+     - comma-separated families; only what you ask for is computed
+   * - ``--all``
+     - off
+     - every family, ``kinetics`` included
+   * - ``--radii``
+     - ``7,8``
+     - Cα thresholds (Å) for the footprint flag complex, so the ``topology`` family emits
+       ``fp_*_r7`` and ``fp_*_r8``
+   * - ``--organism``
+     - ``human``
+     - organism passed to the TCR annotator
+   * - ``-t``, ``--threads``
+     - ``1``
+     - worker processes for featurisation (``0`` = all cores); annotation stays one batched call
+   * - ``--autodetect-species`` / ``--no-autodetect-species``
+     - on
+     - also search mouse, to catch a mis-declared organism; ``--no-`` halves the annotation cost
+
+``tcren recognize`` takes ``-s``, ``-o`` (default ``recognize.tsv``), ``--organism``, ``-t`` and
+``--autodetect-species`` with the same meanings, plus:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 22 48
+
+   * - option
+     - default
+     - what it does
+   * - ``--features``
+     - unset
+     - score a table already written by ``tcren features``, instead of re-reading the structures
+   * - ``--features-only``
+     - off
+     - emit the descriptors and skip the models
+   * - ``--full``
+     - off
+     - add the 18 CDR3-frame descriptors and the intra-peptide terms ``F_pep_int``/``n_pep_int``
+   * - ``--mechanics``
+     - off
+     - append the ``kinetics`` terms in the same pass, with no second annotation
+   * - ``--scores``
+     - off
+     - legacy: the fitted ``p_bind`` / ``p_forced`` and their fit-free companions ``q_bind`` /
+       ``s_strain``, kept for v1 reproduction; implies ``--full``
+
+``--features`` and ``-s`` are the two ways in. With ``--features`` the output is the score table
+alone — ``complex.id``, ``Q``, ``G``, ``T``, ``E`` and ``P_native``; with ``-s`` it is the
+descriptor table plus ``p_real``.
 
 .. _descriptor-families:
 
@@ -71,22 +148,18 @@ also the axis along which they carry independent evidence:
      - the interface as a network of breakable springs. Off unless asked for.
      - ``K_tens``, ``aniso``, ``rupture_force``, ``rupture_work``, ``couple_*``
 
-``placement`` and ``interface`` were a single ``geometry`` family until 2026-08-24; ``energetics``
-was ``physics``. Both retired names still resolve in
-:func:`~tcren.recognition.descriptors`. The three original families are still the three physical
-channels the method reports:
+``placement`` and ``interface`` were a single ``geometry`` family until 2026-08-24, and
+``energetics`` was ``physics``. Both retired names still resolve in
+:func:`~tcren.recognition.descriptors`, so ``descriptors("geometry")`` returns the pooled
+``placement`` + ``interface`` set.
 
-``geometry``
-    Coordinates, docking angles, and the contact topology and chemistry read off them — the kind of
-    quantity Eq. Q is built from.
-
-``physics``
-    Statistical-potential interface energies ``F`` and their poly-alanine references ``dF``.
-
-``kinetics``
-    The interface as a network of breakable springs: stiffness, anisotropy, strain, rupture, and the
-    residues coupling the pre-formed scaffold to the interface (``tcren mechanics``, plus the
-    contact-fragility terms ``recognize`` emits).
+The three **channels** ``P_native`` combines are ``geometry``, ``topology`` and ``energetics``
+(:data:`tcren.cohort.P_NATIVE_CHANNELS`). A channel is not a family:
+:data:`~tcren.cohort.P_NATIVE_POOL` maps each channel onto the families it draws on, and
+``geometry`` is the pooled pair above, fitted as one network because ``placement`` and
+``interface`` are the most dependent pair measured. ``kinetics`` is a descriptor family only — it
+measures unbinding rather than nativeness, so it enters no channel and is not computed unless
+asked for.
 
 A further group, ``score``, holds the composites built *from* the descriptors above — ``p_real``,
 ``q_bind``, ``s_strain``. These are **outputs** and must never be fed back in as inputs, so
@@ -101,7 +174,7 @@ select ``tcr_only=True``::
 
     from tcren.recognition import descriptors
 
-    descriptors("physics", tcr_only=True)
+    descriptors("energetics", tcr_only=True)
     # ('F_tcr_pep', 'F_tcr_mhc', 'F_cdr12', 'F_cdr3a', 'F_cdr3b', 'dF_tcr_pep')
 
 Core recognition descriptors (34)
@@ -277,7 +350,7 @@ MHC class
 Interface quality — clashes & contact stability
 -----------------------------------------------
 
-Coordinate-only reads of forced-pose quality, always emitted by ``recognize`` (not part of the 35
+Coordinate-only reads of forced-pose quality, always emitted by ``recognize`` (not part of the 34
 model features): a steric-clash burden (:mod:`tcren.clashes`) and TCR:peptide contact fragility
 (:mod:`tcren.stability`). Both are computed natively (``_geom``).
 

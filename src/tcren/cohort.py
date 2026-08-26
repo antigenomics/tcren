@@ -38,9 +38,9 @@ Sign convention: every term is oriented so that **higher = more binder-like** fo
 :func:`q_score`, and **higher = more forced/strained** for :func:`strain_z`.
 
 .. note::
-   :func:`phi_bind` is **deprecated** — every term it adds to ``Q`` lowers ranking accuracy
-   (benchmark ledger C19b), and its ``z(-pitch)`` term is both below chance on its own and derived
-   from an AlphaFold-contaminated angle. Use :func:`q_score`.
+   The hand-written combination rules this module once exposed were removed in 2.12.0. Use
+   :func:`p_native`, which fits each channel's contribution instead of being told it, or
+   :func:`q_score` for the single-structure interface-quality score it is built on.
 """
 
 from __future__ import annotations
@@ -70,7 +70,8 @@ Q_FEATURES_CORE = ("burial", "chain_balance", "n_hbond", "pp_combo")
 #: This is ``Q_geom``, the AF-orthogonal channel that survives the forced-pose regime where the contact
 #: energy inverts (benchmark ledger C27/C42): ``z(ipTM) + z(q_score(..., features=Q_FEATURES_GEOM))``
 #: beats raw-AF ipTM on well-modelled ("template-covered") epitopes on both ROC and PR, while the energy
-#: term is used only conditioned on pose quality. Pass to :func:`q_score` / :func:`q_iptm`.
+#: term is used only conditioned on pose quality. Pass to :func:`q_score`, or let
+#: :func:`p_native` fit the geometry channel over them.
 Q_FEATURES_GEOM = ("burial", "n_pep_contacted", "chain_balance", "n_hbond")
 
 #: The TCRen contact-energy terms summed into the binder-oriented :func:`f_score`. ``F_tcr_pep`` is the
@@ -223,7 +224,8 @@ def f_score(table, reference=None, terms=F_TERMS) -> np.ndarray:
     binder-like** and it is on the same z-scale as :func:`q_score`. Unlike ``Q`` (interface geometry),
     ``F`` reads the actual contact chemistry — and unlike ``Q`` it is **pose-conditional**: it works on
     well-modelled poses and *inverts* on forced ones (benchmark ledger C27/C42). Do not use it
-    unconditioned on pose quality; see :data:`F_TERMS` and :func:`q_f`.
+    unconditioned on pose quality; see :data:`F_TERMS` and :func:`p_native`, whose ``energetics``
+    channel fits that sign per cohort rather than assuming it.
 
     Cohort-relative (standardized over the ranked set); pass ``reference`` to standardize against another
     cohort (see :func:`zscore`).

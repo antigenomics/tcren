@@ -4,7 +4,22 @@ Where the project is going, and what each direction is waiting on. The single pl
 plans: [STATUS.md](STATUS.md) is where the project *is*, [CHANGELOG.md](CHANGELOG.md) is what has
 landed, and this file is what has not.
 
-Last reviewed 2026-08-18, against `master`.
+Last reviewed 2026-08-27, against `master` at v2.12.1.
+
+## Landed since the last review
+
+- **v2.11.0** — TCRen2 became the **default** TCR:peptide potential, and the shipped matrix was
+  re-derived on the 362 fully annotated αβ complexes of Native2026 (down from all 374).
+  `derive-potential` now derives from αβ TCR:pMHC only, unconditionally.
+- **v2.12.0** — **`P_native` shipped and is the recommended score**: three channels (geometry,
+  footprint topology, contact energetics), each a conditional-linear-Gaussian Bayes network fitted
+  by expectation maximization with no binding label, combined by adding log-odds; `tcren features`
+  and `tcren recognize --features` are the two commands that reach it. The combiner zoo it replaces
+  was deleted in the same release — see [OBSOLETE.md](OBSOLETE.md) for the list.
+- **v2.12.1** — `paths.tcren_home()`. An installed wheel could not find its reference data at all
+  before it, so tcren was usable only from a git checkout.
+
+## Open
 
 Ranked by what each unblocks. Every row names what is missing, not what would be nice.
 
@@ -50,9 +65,9 @@ three pieces. Side-chain construction (3) is the third. See `refine/CPP_REWRITE.
 
 The scalars exist and separate literature-named featureless from bulged epitopes completely, but
 `tcren surface` is a dead end — none of `relief` / `peak_to_valley` / `frac_above_ridge` /
-`phobic_centre` reaches the 34-feature `recognize` table or `cohort`'s fit-free scores, so nothing
-downstream can use them. They are fit-free and z-scoreable against `native_reference()`, which is
-exactly `cohort`'s premise.
+`phobic_centre` is in `recognition.DESCRIPTORS`, so none reaches the `tcren features` table, `Q`, or
+any of `P_native`'s three channels, and nothing downstream can use them. They are fit-free and
+z-scoreable against `native_reference()`, which is exactly `cohort`'s premise.
 
 Two open questions behind it: whether the **charge and hydropathy** channels carry immunogenicity
 signal (Chowell et al. 2015 says TCR-contact hydrophobicity should), and whether the map distance

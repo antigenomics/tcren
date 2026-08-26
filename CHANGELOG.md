@@ -3,6 +3,35 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
+## [2.12.1] — 2026-08-27
+
+**An installed wheel could not find its reference data.** Every on-disk root was derived from the
+source-checkout layout (``Path(__file__).parents[2]`` / ``[3]``), which resolves to
+``site-packages``' parent once the package is installed. A wheel therefore looked for the MHC allele
+reference at ``<venv>/lib/python3.x/database/mhc/alleles.aa.fasta``, so ``tcren annotate`` and every
+command built on it failed on every structure — reproducible only from a git checkout.
+
+### Added
+- **`paths.tcren_home()`** — the root for tcren's on-disk reference data. ``$TCREN_HOME`` when set;
+  otherwise the source checkout, recognised by its ``pyproject.toml``; otherwise
+  ``$XDG_CACHE_HOME/tcren`` (``~/.cache/tcren``), which is writable and stable across upgrades.
+
+- **`notebooks/pnative_channels.py`** — a marimo app that runs the released scoring path end to end:
+  featurise a directory, fit each channel, combine into `P_native`, and read the geometry-versus-
+  energetics correlation whose sign marks a templated pose.
+
+### Fixed
+- **`tcren footprint --score` was broken on every call.** It imported `footprint_score`, deleted in
+  2.12.0. `--score`/`--group` now emit `T`, the shape channel's posterior, fitted per group where one
+  is given. This is the replacement 2.12.0's own changelog named.
+- **`tcren scoring` exited 0 when every structure failed.** The caller then died several stages later
+  on a missing energy column, nowhere near the cause. A run in which every row carries an error now
+  exits non-zero.
+- `mhc.reference.DATABASE_DIR` / `CACHE_DIR` and `paper.bootstrap._REPO` resolve through
+  `tcren_home()`, so `tcren build-mhc-ref` writes where an installed `tcren annotate` reads.
+- `mhc.reference`'s docstring said the allele reference was *committed*. It is gitignored and built
+  on demand from IMGT; the docstring now says so.
+
 ## [2.12.0] — 2026-08-24
 
 **`P_native` is the recommended score, and the combiner zoo around it is gone.** Three channels —

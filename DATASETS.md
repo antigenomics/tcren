@@ -1,8 +1,14 @@
 # tcren — datasets & sources
 
 All structure sets live on HF **[isalgo/tcren_structures](https://huggingface.co/datasets/isalgo/tcren_structures)**
-(rule: only `.gz`/`.tar.gz` LFS structures + `.txt`/`.md` descriptions). The manuscript repo
-(`2026-tcren2`) mirrors this map in `scripts/bootstrap_data.py` + `DATASETS.md`.
+(rule: only `.gz`/`.tar.gz` LFS structures + `.txt`/`.md` descriptions). `tcren fetch-data` pulls
+the reference sets into `paths.tcren_home()/data/`; `$TCREN_DATA_DIR` overrides that directory.
+
+The **benchmark repo is `~/vcs/projects/2026-tcren2-code`** and it is the catalogue of record:
+`bench/scripts/bootstrap_data.py` fetches the benchmark cohorts, `SOURCES.md` carries the
+per-dataset provenance, and `data/datasets.csv` is the machine-readable table (one row per dataset:
+task, structure and instance counts, positives/negatives, epitopes, alleles, MHC class, species,
+provenance, aldan3 path, HF path).
 
 ## Structure sets on HF
 
@@ -13,6 +19,8 @@ All structure sets live on HF **[isalgo/tcren_structures](https://huggingface.co
 | `tcrvdb` | 618 TCRmodel2 structures — TCR-ranking / specificity benchmark |
 | `cpl` | peptide-swap best/worst — peptide-ranking benchmark |
 | `as_case` | native B\*27:05 cognate complexes — held-out ergodicity validation |
+| `vdjdb_positives`, `vdjdb_negatives` | TCRmodel2 real-versus-mock models; the 1,089-structure receptor-ranking panel (523 real / 566 mock, 22 epitopes) is assembled from these, and `data/datasets.csv` records the consolidated tarball as `vdjdb_binder_benchmark/` |
+| `garcia_b27` | HLA-B\*27:05 crystals with a measured EC50 substitution series |
 | `Bobisse`, `Bigot` | neoantigen cohorts (see below) |
 
 ## Legacy 2022 benchmarks (reproduced with the tcren pipeline)
@@ -29,8 +37,18 @@ recomputed results in `results_new/`:
 | `05_benchmark_shuffle_structures` | shuffle control | `benchmark_shuffle_auc.csv` | TCRen 0.73 (MJ 0.52) |
 | `06_benchmark_models` | generated vs crystal | `benchmark_models_ranks.csv` | — |
 
-## New benchmarks (manuscript repo)
+## New benchmarks (benchmark repo)
 
-CPL / TCRvdb / native B\*27:05 held-out validation + the unified three-task table live in the manuscript
-(`2026-tcren2/scripts/{benchmark_suite.md,tcren_binder_score.py,tcrvdb_physics.py}`). ATLAS ΔΔG is
-pending upstream; MD trajectories (`md100ns_*.xtc`, ~57 GiB) pending upload.
+Everything current lives in `~/vcs/projects/2026-tcren2-code`, not here:
+
+| what | where |
+|---|---|
+| dataset catalogue, provenance | `SOURCES.md`, `data/datasets.csv` |
+| every reported number, with its n | `results/ledger.md` |
+| fetch the benchmark cohorts | `bench/scripts/bootstrap_data.py` |
+| receptor ranking — `P_native`, its channels, the template split, the AF composition | `bench/scripts/native_bn.py` → `bench/eda/out/native_bn_*.csv` |
+| VDJdb real-versus-mock panel assembly | `bench/scripts/binder_benchmark.py`, `bench/scripts/tcren_binder_score.py` |
+
+Sets `bootstrap_data.py` fetches from HF: `cpl`, `tcrvdb`, `vdjdb_positives`, `vdjdb_negatives`,
+`as_case`, `garcia_b27`. Pending upload, aldan3-only for now: `md`, `atlas`, `neoantigen`,
+`immrep23`, `immrep25`.

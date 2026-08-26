@@ -11,19 +11,20 @@ structures.
 
 Where the original TCRen scored only TCR↔peptide contacts, this version scores all three interfaces
 (TCR↔peptide with TCRen, TCR↔MHC and peptide↔MHC with Miyazawa–Jernigan) for the full binding
-picture, and adds mutation ΔΔG, binder classification, pose refinement, and interface mechanics.
+picture, and adds mutation ΔΔG, binder ranking for AI-generated models, pose refinement, and
+interface mechanics.
 
 What tcren does
 ---------------
 
-* **Score & rank epitopes** — ``score`` / ``rank`` / ``pipeline``: TCRen energy per candidate, a
+* **Score & rank epitopes** — ``score`` / ``rank`` / ``scoring``: TCRen energy per candidate, a
   percentile rank against a random background, and the three-interface breakdown + total.
 * **Mutation ΔΔG** — ``ddg``: alanine scans and neoantigen substitutions on the native contact map
   (virtual-matrix, no re-docking).
-* **Interface descriptors** — ``features``: one flat per-structure table, in the four invariance
-  families (see :doc:`features`).
-* **Recognition scores** — ``recognize``: ``Q``, the three channel posteriors and ``P_native``,
-  from a feature table or straight from structures.
+* **Interface descriptors** — ``features``: one flat per-structure table, in five invariance
+  families, four of them computed by default (see :doc:`features`).
+* **Recognition scores** — ``recognize``: ``Q``, the three channel posteriors ``G`` / ``T`` / ``E``
+  and ``P_native``, from a feature table or straight from structures (see :doc:`kit`).
 * **Annotation & contacts** — ``annotate`` / ``contacts``: TCR CDR/FR, MHC groove helices/floor and
   peptide markup; multi-layer (5/8/12 Å) contact tables.
 * **Canonical orientation** — ``orient`` / ``superimpose``: one common MHC frame, docking angles,

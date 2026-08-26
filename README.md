@@ -27,9 +27,9 @@ against a curated reference; structures are oriented into one canonical frame; a
 contact maps, potential, and scores are reproduced numerically (validated against committed oracles
 to floating-point precision).
 
-While the original tcren focused on TCR:peptide contacts, the new version brings in features to 
-score TCR:MHC and peptide:MHC interactions, required to get full picture of TCR:pMHC binding 
-mechanics and estimate ddG values.
+Where the original tcren scored TCR:peptide contacts alone, this version also scores the TCR:MHC
+and peptide:MHC interfaces, which a full picture of TCR:pMHC binding mechanics and any ΔΔG
+estimate both need.
 
 ## What it does
 
@@ -47,8 +47,8 @@ From one TCR–peptide–MHC structure (crystal or model), each task is one comm
 | Percentile-rank a peptide vs background | `tcren rank` | `percentile_rank` |
 | ΔΔG of mutations (alanine scan / neoantigen) | `tcren ddg` | `alanine_scan`, `neoantigen_ddg` |
 | **Predict a CPL response matrix from a template** | `tcren cpl` | `response_matrix`, `mutation_effect`, `position_scan`, `equimolar_effect` |
-| Binder vs non-binder for a TCR model | `tcren recognize` | `cohort.p_native`, `cohort.q_score` |
-| **Every interface descriptor, in four families** | `tcren features` | `recognition_table(include=...)`, `descriptors` |
+| Binder vs non-binder for a TCR model | `tcren features` + `tcren recognize --features` | `cohort.p_native`, `cohort.q_score` |
+| **Every interface descriptor, in five families (four by default)** | `tcren features` | `recognition_table(include=...)`, `descriptors` |
 | **All interface descriptors + joint P(real)** | `tcren recognize` | `recognition_features`, `real_probability` |
 | **P(native)** — the channels combined by a latent-class Bayes network | `tcren recognize --features` | `cohort.p_native` |
 | Three-interface energy Φ, poly-Ala ΔΦ, interface geometry | `tcren scoring` | `run_pipeline` |
@@ -78,7 +78,12 @@ mechanics (`tcren mechanics`) — not the contact sum.
 
 ```bash
 pip install tcren          # from PyPI — binary wheels ship the C++ extension; pulls in arda-mapper
+tcren build-mhc-ref        # once: builds the MHC allele reference from IMGT (not bundled in the wheel)
 ```
+
+**`tcren build-mhc-ref` is a required one-time step after a `pip install`.** The curated MHC
+allele reference is built from IMGT on demand rather than shipped in the wheel, and every command
+that annotates a structure needs it.
 
 For development (a repo-local `.venv` via [`uv`](https://docs.astral.sh/uv/), an editable
 install, and the reference data fetched into `data/`):
@@ -251,15 +256,16 @@ Two commands, two jobs. **`tcren features` reads structures and writes descripto
 runs once and the scoring pass can be repeated for nothing.
 
 ```bash
-tcren features  -s my_pdbs/ -o feats.tsv                   # every descriptor, four families
-tcren features  -s my_pdbs/ -o shape.tsv -i topology       # one channel -- and only it is computed
-tcren recognize --features feats.tsv -o scores.tsv         # Q, T, P_native. No structure re-read
+tcren features  -s my_pdbs/ -o feats.tsv                   # the four default families (--all adds kinetics)
+tcren features  -s my_pdbs/ -o shape.tsv -i topology       # one family -- and only it is computed
+tcren recognize --features feats.tsv -o scores.tsv         # Q, P_native + the G/T/E channels
 ```
 
-Descriptors are catalogued in four **channels**, split by what each is invariant under — which is
-also the axis along which they carry independent evidence:
+Descriptors are catalogued in five **families**, four of them computed by default (`kinetics` is
+opt-in), split by what each is invariant under — which is also the axis along which they carry
+independent evidence:
 
-| channel | what it is | invariance |
+| family | what it is | invariance |
 |---|---|---|
 | `placement` | where the receptor sits in the groove frame — angles, TCRdock parameters, ride height, shift, offset, the CDR3 loop frames | frame-**dependent** |
 | `interface` | how much contact and of what chemical kind — buried area, contact counts and types, hydrogen bonds, clashes | SE(3)-invariant |
@@ -267,7 +273,7 @@ also the axis along which they carry independent evidence:
 | `energetics` | statistical-potential interface energies `F` and their poly-alanine references `dF` | SE(3)-invariant |
 | `kinetics` | the interface as a spring network — stiffness, rupture, coupling residues (off unless asked) | — |
 
-`tcren recognize -s my_pdbs/` does both passes in one step:
+`tcren recognize -s my_pdbs/` reads the structures itself, skipping the feature file:
 
 ```bash
 tcren recognize -s my_pdbs/ -o recognize.tsv               # descriptors + p_real
@@ -279,7 +285,7 @@ tcren recognize -s my_pdbs/ -o scored.tsv --mechanics      # + the spring-networ
 | **(a) energy** — `F` per interface (TCRen on TCR:peptide, MJ on presentation) + poly-alanine `dF` + loop parts | `F_tcr_pep`, `F_tcr_mhc`, `F_pep_mhc`, `dF_tcr_pep`, `dF_pep_mhc`, `F_cdr12`, `F_cdr3a`, `F_cdr3b` |
 | **(a′) intra-peptide** (`--full`) — the peptide's contacts with *itself*, which every interface sum omits | `F_pep_int`, `n_pep_int` |
 | **(b) geometry** — every docking + interface descriptor | `pitch`, `crossing`, `crossing_signed`, `dock_d`, `dock_torsion`, `dock_{tcr,mhc}_u{y,z}`, `extent`, `chain_balance`, `burial`, `n_contacts_{tp,tm}`, `n_pep_contacted`, `ct_{tp,tm}_*` |
-| **(c) cohort scores** — no training set, no binding label | `Q` — interface quality; `T` — footprint shape; `P_native` — the three channels combined. See [`tcren.cohort`](src/tcren/cohort.py) |
+| **(c) cohort scores** — no training set, no binding label; written by `tcren recognize --features`, not by `-s` | `Q` — interface quality; `G` / `T` / `E` — the geometry, topology and energetics channels on their own; `P_native` — the three combined. See [`tcren.cohort`](src/tcren/cohort.py) |
 | **(d) joint P(real)** ~ Bayesian model over energy + geometry | `p_real` — distribution-aware Bayesian **logistic** (5-fold CV AUC 0.885); `p_real_bn` — the Gaussian **BN** variant |
 
 **Where the joint model lives.** `p_real` is the frozen recognizer we derive from real crystals vs
@@ -310,7 +316,7 @@ columns, not Kd/ΔG/kon.) From Python:
 
 ```python
 from tcren.recognition import recognition_features, real_probability
-feats = recognition_features("complex.pdb")    # dict of the 35 descriptors (RECOGNITION_FEATURES)
+feats = recognition_features("complex.pdb")    # dict of the 34 descriptors (RECOGNITION_FEATURES)
 p = real_probability(feats)                     # {"logistic": P(real), "bn": P(real)}
 ```
 
@@ -532,6 +538,9 @@ structures) — though with two distinct epitopes per group that is a 2-vs-2 com
 properly-powered evidence is the trend over all 279 class-I structures: `frac_above_ridge` rises
 0.054 (8-mers) → 0.569 (13-mers), Spearman on `relief` +0.414, p = 5.5e-13.
 
+`notebooks/pnative_channels.py` (marimo) runs the released scoring path over a directory of
+structures — one featurisation pass, one latent-class fit per channel, then `P_native` — and ends on
+the correlation whose sign says whether a pose was copied from a template.
 `notebooks/surface_topology.py` (marimo) draws the elevation / charge / hydropathy maps and
 reproduces this comparison.
 
@@ -705,7 +714,7 @@ Worked examples of every view, with images: **[Figure gallery](https://docs.isal
 | `tcren.ddg` | fast virtual-matrix ΔΔG — alanine scan, neoantigen mutants |
 | `tcren.cpl` | CPL response-matrix prediction from one template complex; equimolar and wild-type references; per-position and per-cell queries |
 | `tcren.binder` | binder/non-binder classifier from AF-orthogonal interface geometry |
-| `tcren.recognition` | 35-descriptor extractor (`recognition_features`) + frozen real-vs-shuffled recognizers — distribution-aware Bayesian logistic + Gaussian BN — for joint `P(real)` |
+| `tcren.recognition` | 34-descriptor extractor (`recognition_features`) + frozen real-vs-shuffled recognizers — distribution-aware Bayesian logistic + Gaussian BN — for joint `P(real)` |
 | `tcren.orient` | canonical frame, `superimpose` onto the canonical DB, docking angles, reverse-dock detection |
 | `tcren.refine` | peptide substitution + refinement (DOPE MC; CCD/OpenMM/ProMod3/FlexPepDock engines); register QC |
 | `tcren.clashes` / `mechanics` | steric-clash report; interface spring-network stiffness + rupture model |
@@ -726,8 +735,16 @@ Structures live in the Hugging Face dataset
 | `Canonical2026` | `Native2026` re-oriented into the canonical frame (`tcren orient`) |
 
 `tcren` reads `.pdb`/`.cif`/`.pdb.gz`/`.cif.gz` and `.tar.gz` batches; an installed library lazily
-fetches the canonical reference structures from the Hub when orienting a new complex. The root
-`data/` holds `Native2026` (+ `Canonical2026`, gitignored, fetched on demand), `PDB_date.tsv`,
+fetches the canonical reference structures from the Hub when orienting a new complex.
+
+**Where it all lives: `tcren.paths.tcren_home()`.** That one root holds the MHC allele reference
+(`database/mhc/`, written by `tcren build-mhc-ref`), its mmseqs index (`data/mhc_cache/`) and the
+structure sets (`data/`). It resolves to `$TCREN_HOME` when set; otherwise to the source checkout,
+recognised by its `pyproject.toml`, so a development install uses the repo's own `data/`;
+otherwise to `$XDG_CACHE_HOME/tcren` (in practice `~/.cache/tcren`), which an installed wheel can
+write and which survives an upgrade. `$TCREN_DATA_DIR` overrides the `data/` subdirectory alone.
+
+That `data/` holds `Native2026` (+ `Canonical2026`, gitignored, fetched on demand), `PDB_date.tsv`,
 and **`TCRen_potential.csv`** — the 2022 (`karnaukhov2022`) matrix, kept for reproducing
 published results; the current default is the bundled `tcren2` (use `-p karnaukhov2022`
 for the old one). `Canonical2026`'s
@@ -745,9 +762,16 @@ Runnable examples under [`notebooks/`](notebooks/) (rendered in the
 - `pymol_canonical_figures` — ray-traced PyMOL panels (overlay, groove, interface) by class/species
 - `mhc_pseudosequence_mps` — NetMHCpan MHC pseudosequence (MPS) residues vs. peptide contacts
 - `example_gil_a02_rs_motif` — GILGFVFTL/HLA-A*02 and the public CDR3β Arg–Ser motif
-- `surface_topology.py` — **marimo**: elevation / charge / hydropathy maps over the groove, and the
-  featureless-vs-bulged epitope comparison against the structures the literature names
+- `pocket_cdr_3d` — 3D peptide-binding pocket with the CDR loops overlaid (py3Dmol)
+- `tcren_analysis` — potential heatmaps (TCRen / MJ / Keskin) and contact distributions
 - `natcompsci2022/` — full reproduction of the Nat Comput Sci 2022 analyses
+
+Two **marimo** apps ship alongside them (`pip install 'tcren[marimo]'`, then `marimo run <file>`):
+
+- `surface_topology.py` — elevation / charge / hydropathy maps over the groove, and the
+  featureless-vs-bulged epitope comparison against the structures the literature names
+- `pymol_interactive.py` — a PyMOL render explorer over the canonical scenes (overlay, groove,
+  interface, residue importance)
 
 ## Performance
 

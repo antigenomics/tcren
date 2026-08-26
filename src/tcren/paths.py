@@ -1,10 +1,11 @@
 """Filesystem locations for tcren's reference data.
 
-The library's runtime dataset lives in the repo ``data/`` directory (or ``$TCREN_DATA_DIR``):
-the canonical ``Native2026`` structure set (HF ``isalgo/tcren_structures``, gitignored) and
-``PDB_date.tsv``. Structures are fetched lazily; nothing here is bundled into the installed
-package, except ``Canonical2026``'s ``orient_metadata.json``, which rides in ``tcren/data/`` so
-an installed ``superimpose`` can describe the database it fetched.
+The library's runtime dataset lives under :func:`tcren_home` --- the source checkout when
+tcren is run from one, ``$TCREN_HOME`` when set, and a user cache directory otherwise. It holds
+the canonical ``Native2026`` structure set (HF ``isalgo/tcren_structures``, gitignored),
+``PDB_date.tsv`` and the built MHC allele reference. Structures are fetched lazily; nothing here
+is bundled into the installed package, except ``Canonical2026``'s ``orient_metadata.json``, which
+rides in ``tcren/data/`` so an installed ``superimpose`` can describe the database it fetched.
 """
 
 from __future__ import annotations
@@ -14,16 +15,33 @@ from pathlib import Path
 
 from .structure.io import STRUCTURE_SUFFIXES
 
-_REPO = Path(__file__).resolve().parents[2]
 NATIVE2026 = "Native2026"
 # The canonical reference structures (and full Native2026 set) live in this HF dataset.
 HF_REPO = "isalgo/tcren_structures"
 
 
+def tcren_home() -> Path:
+    """Root of tcren's on-disk reference data.
+
+    ``$TCREN_HOME`` when set; otherwise the source checkout, recognised by its
+    ``pyproject.toml``. An installed wheel has no checkout above it --- ``parents[2]`` is then
+    ``site-packages``' parent --- so it falls back to a user cache directory, which is both
+    writable and stable across upgrades.
+    """
+    env = os.environ.get("TCREN_HOME")
+    if env:
+        return Path(env)
+    checkout = Path(__file__).resolve().parents[2]
+    if (checkout / "pyproject.toml").exists():
+        return checkout
+    cache = os.environ.get("XDG_CACHE_HOME")
+    return (Path(cache) if cache else Path.home() / ".cache") / "tcren"
+
+
 def data_dir() -> Path:
-    """Root of the runtime dataset: ``$TCREN_DATA_DIR`` or the repo ``data/`` directory."""
+    """Root of the runtime dataset: ``$TCREN_DATA_DIR`` or ``data/`` under :func:`tcren_home`."""
     env = os.environ.get("TCREN_DATA_DIR")
-    return Path(env) if env else _REPO / "data"
+    return Path(env) if env else tcren_home() / "data"
 
 
 def native_dir() -> Path:

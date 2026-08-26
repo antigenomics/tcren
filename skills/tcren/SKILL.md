@@ -73,8 +73,10 @@ Reference: `arda.annotate_sequences([(id, seq), ...])` — one call, threads int
   `F_tcr_mhc`, `F_pep_mhc`, `F_total`; `run_pipeline(…, reference_aa="A")` / `tcren scoring --delta`
   adds `dF_*` and `dF_total` (each interface's `tcren.ddg.reference_delta`; `dF_tcr_mhc` ≡ 0, the
   peptide is not in that interface). Use ΔΦ, not Φ, when each candidate carries its **own**
-  generated pose. **Column names are shared with `tcren recognize`** — one vocabulary, tables join
-  on `pdb.id`. (Manuscript notation: Φ for the energy, φ for a potential matrix entry, F for the
+  generated pose. **Column names are shared with `tcren recognize`** — one vocabulary — but the
+  **keys differ**: `scoring` emits `pdb.id`, `recognize`/`features` emit `complex.id`, so rename
+  one before joining (`scoring --geometry` does that rename internally).
+  (Manuscript notation: Φ for the energy, φ for a potential matrix entry, F for the
   binder-direction channel `−Φ_TCR:pep` in `cohort.f_score`.)
 - `tcren scoring --geometry` appends the interface descriptors + `Q` by calling
   `recognition_table` + `cohort.q_score` — it does **not** reimplement them.
@@ -139,7 +141,7 @@ QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses ar
   `frac_marg_lt1`, `exp_lost` (expected contacts lost under a `delta`-Å shift). A coordinate-only interface
   positional-confidence readout. Self-check `python -m tcren.stability`.
 - `tcren recognize` appends both as output columns: `n_clashes`, `clash_score`, `exp_lost`, `mean_margin`,
-  `frac_robust` (extra columns, **not** part of the 35 `RECOGNITION_FEATURES` the models consume).
+  `frac_robust` (extra columns, **not** part of the 34 `RECOGNITION_FEATURES` the models consume).
 - `check_register(model, reference=None) -> RegisterReport` — always reports the clash burden; with a
   correctly-registered `reference` (crystal / trusted pose) it adds the **anchor-Cα RMSD** in the
   MHC-groove frame (`peptide_rmsd`) → `wrong_register` (True/False; `None` without a reference).
@@ -251,7 +253,7 @@ QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses ar
   - `interface_mechanics(structure, ...) -> dict` — **the one definition of "the mechanics row"**:
     the union of the three above under their shipped defaults. `tcren mechanics` and
     `tcren recognize --mechanics` both go through it, so the two agree by construction.
-- **For a cohort, prefer `tcren recognize --scores --mechanics -t 0`** over running `recognize` and
+- **For a cohort, prefer `tcren recognize --mechanics -t 0`** over running `recognize` and
   `mechanics` as two commands. Both need the same annotated structure, so the second command repeats
   the parse and both mmseqs searches and returns a second table (CSV, keyed `pdb.id` rather than
   `complex.id`) that then has to be joined; the flag reuses the annotation and costs only the
@@ -263,7 +265,7 @@ QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses ar
   barrier, not the well depth (physically apt for the TCR mechanosensor / catch bonds). Use them
   **between structures** (one value per complex) to rank/compare; do not pool many per-residue or
   per-spring rows from one structure as independent samples — that is pseudo-replication.
-- Self-check (no PDB): `conda run -n tcren-fold python -m tcren.mechanics`.
+- Self-check (no PDB): `python -m tcren.mechanics`.
 
 ## Docking geometry — `tcren.orient.docking` + `tcren.orient.tcrdock_geometry`
 
@@ -335,14 +337,24 @@ QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses ar
   H-bearing depositions (5jhd: +7 of 28 contacts, −58.5% F_tcr_pep) and breaks legacy-oracle parity
   on 5jhd/7qpj, recorded as a subset relation in the regression test.
 
-## Feature channels — `tcren features` (descriptors) vs `tcren recognize` (scores)
+## Feature families — `tcren features` (descriptors) vs `tcren recognize` (scores)
 
 - **Two commands, two jobs.** `tcren features` reads structures and writes descriptors;
   `tcren recognize` turns a descriptor table into scores. The feature pass is the expensive half,
   so run it once and re-score for free:
-  `tcren features -s <in> -i <channels> -o feats.tsv` then
-  `tcren recognize --features feats.tsv -o scores.tsv`.
-- **Five channels, split by invariance** (`tcren.recognition.DESCRIPTORS`, `FAMILIES`):
+
+  ```bash
+  tcren features  -s <in> -i placement,interface,topology,energetics -o feats.tsv
+  tcren recognize --features feats.tsv -o scores.tsv
+  ```
+
+  `scores.tsv` is `complex.id` + **`Q`** (fit-free interface quality), the three channel posteriors
+  **`G`** / **`T`** / **`E`** (geometry / topology / energetics) and **`P_native`**, and nothing
+  else. `tcren recognize -s <in>` is the *other* mode: it reads structures and writes the
+  descriptor table with `p_real`, not `Q`/`P_native`.
+- **Five families, split by invariance** (`tcren.recognition.DESCRIPTORS`, `FAMILIES`); a
+  *family* is a slice of the descriptor table, a *channel* is one of the three networks `P_native`
+  sums, and `P_NATIVE_POOL` is the map between them:
   `placement` (groove-frame pose — angles, TCRdock params, ride height/shift/offset, CDR3 frames;
   frame-**dependent**), `interface` (contact size + chemistry), `topology` (the *shape* of the
   contact set, size-free), `energetics` (Φ and ΔΦ), `kinetics` (spring network; off by default).
@@ -350,7 +362,7 @@ QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses ar
   2026-08-24. Both retired names still resolve in `descriptors()`; the split is what lets the
   independence claim be stated — measured on VDJdb, topology ⟂ interface at |ρ| = 0.023 while
   topology–placement is 0.177 (0.448 on TCRvdb), because uniform coverage *is* ride height.
-- **Only the requested channels are computed.** `-i topology` never builds the energies.
+- **Only the requested families are computed.** `-i topology` never builds the energies.
 - **Contact counts are `interface`, not `topology`** (`FOOTPRINT_SIZE_FEATURES`). A shape channel
   carrying the interface's size would correlate with the interface channel by construction.
 - `P_native` (`tcren.cohort.p_native`) combines **three** channels — `geometry`, `topology`,
@@ -387,9 +399,10 @@ QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses ar
   contact map as a *shape*, not a sum: how evenly the six CDR loops spread their contacts, whether
   the germline/CDR3 division of labour holds, and whether the footprint is one connected patch.
   No potential, no reference structure, no fitted parameter.
-  CLI: `tcren features -s <in> -i topology -o <out>`. (`tcren footprint` still works and is the
-  same code path, now hidden; `--score` lives on it, and `fp_score` also comes out of
-  `tcren recognize --features`.)
+  CLI: `tcren features -s <in> -i topology -o <out>`, then `tcren recognize --features <out>`
+  for the cohort-standardised shape posterior `T`. (`tcren footprint` is the same code path,
+  now hidden and superseded; its `--score` no longer emits the removed `fp_score` z-sum but the
+  same `T` posterior, so there is no reason to prefer it.)
 - **The MHC pass must run AFTER chain typing, and it is not optional.** `classify_chains` leaves an
   MHC chain typed generically `"MHC"`; `interface("tcr_mhc")` matches the supertype `annotate_mhc`
   assigns. Skip it and six of the twelve cells are structurally unreachable with no error —
@@ -534,12 +547,12 @@ QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses ar
   frozen real-vs-shuffled transfer does NOT carry (0.53, crystal→AF shift, same as the BN). Appendix
   `logistic_stan/` (`make PY=<pymc-venv>`; ROC/PR + posterior-forest gnuplot, encoding table).
 - **`tcren recognize` / `recognition_features` (2026-07-06):** `recognition.recognition_features(struct)`
-  ports the manuscript's 35-descriptor extractor into tcren (docking geometry + TCRen/MJ F & poly-Ala dF +
+  ports the manuscript's 34-descriptor extractor into tcren (docking geometry + TCRen/MJ F & poly-Ala dF +
   contact tallies + biopython ΔSASA `burial` + `mhc_class_bin`) — verified **byte-exact** vs
   `canonical2026_features.csv` (burial max diff 4e-11). Uses `import_structure` (C-gene trimmed) to match
   training; **no `_geom` C-ext needed** (only arda for annotation). `frozen_recognizers()` loads both
   shipped models; `real_probability(rows)` → `{"logistic","bn"}` P(real). CLI `tcren recognize -s pdbs/ -o
-  out.tsv` writes one TSV row/PDB = 35 descriptors + `p_real` + `p_real_bn` (`--features-only` skips models).
+  out.tsv` writes one TSV row/PDB = 34 descriptors + `p_real` + `p_real_bn` (`--features-only` skips models).
   The user-facing "one TSV for a/b/d" answer; koff joins it under `--mechanics` (2026-07-28), and only
   ddF (ala), which is per-residue rather than per-structure, stays its own command `tcren ddg`.
 - **`--full` feature table (2026-07-13, audited 2026-07-28):** `recognition_features(struct, full=True)` /
@@ -553,8 +566,9 @@ QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses ar
   (`{tcren,mj,d}_{tp,cdr12,cdr3a,cdr3b}`) were **removed** — `tcren_*` duplicated `F_*`, and MJ is not the
   potential used on TCR:peptide. New: `crossing_signed` (signed scanning angle, carries docking polarity)
   and `DESCRIPTORS` / `descriptors(family, tcr_only=)` — the catalogue giving each column's family
-  (`geometry`/`physics`/`kinetics`/`score`) and whether the receptor enters it. Only `F_pep_mhc`,
-  `dF_pep_mhc` and `mhc_class_bin` do not; they carry cohort identity, so receptor questions must use
+  (`placement`/`interface`/`topology`/`energetics`/`kinetics`/`score`, with `geometry` and
+  `physics` surviving as aliases) and whether the receptor enters it. Five columns do not —
+  `F_pep_mhc`, `dF_pep_mhc`, `mhc_class_bin`, `F_pep_int` and `n_pep_int`; they carry cohort identity, so receptor questions must use
   `tcr_only=True`. Frozen recognizers verified **bit-identical** through `_FROZEN_ALIASES`.
 - **`--scores` — LEGACY, v1 reproduction only.** Emits the frozen `p_bind` (`binder.binder_score`)
   and `p_forced` (`recognition.forced_pose_score`). Both are fitted, neither is used anywhere in the
@@ -562,8 +576,8 @@ QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses ar
   ranking and `cohort.strain_z` for forced-pose grading; both are fit-free.
 - **`-t/--threads` on `tcren scoring` and `tcren recognize` (2026-07-26):** both accept a file, a
   directory, a `.tar.gz`, a quoted glob or a `.txt` manifest; `-t N` runs N concurrent workers (`-t 0`
-  = all cores). Cohort-relative scores (`q_bind`, `s_strain`) are still computed over the **whole** set,
-  never per batch. `scoring` gains ~7.6x on 8 threads; `recognize` less (its cost is Python
+  = all cores). Cohort-relative scores (`Q`, `P_native`, and the legacy `q_bind`/`s_strain` under
+  `--scores`) are still computed over the **whole** set, never per batch. `scoring` gains ~7.6x on 8 threads; `recognize` less (its cost is Python
   featurisation, not mmseqs), so batch its annotation rather than expecting linear scaling.
 
 - **`cohort.q_coupled` / `cohort.coupling` — DEPRECATED at 2.12, superseded by `p_native` (2026-07-26):**
@@ -584,6 +598,17 @@ QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses ar
   **pose-conditional**: it inverts on forced poses, which is the whole reason the shape channel
   exists. It enters `P_native` as the `energetics` channel, whose sign EM fits per cohort rather
   than being told. Do not hand-combine it with Q — that is what `p_native` is for.
+
+## MHC allele reference — `tcren build-mhc-ref`, built on demand
+
+- **Not bundled in the wheel.** The curated allele FASTA is built from IMGT/HLA + UniProt mouse by
+  `tcren build-mhc-ref`, which must be run **once after a `pip install`**; every command that
+  annotates a structure needs it. It lands in `database/mhc/` under `paths.tcren_home()`.
+- `paths.tcren_home()` is the single root for on-disk reference data: `$TCREN_HOME` when set,
+  else the source checkout (recognised by its `pyproject.toml`), else `$XDG_CACHE_HOME/tcren`
+  (`~/.cache/tcren`). Added at 2.12.1, because deriving the roots from `Path(__file__).parents[2]`
+  resolved to `site-packages`' parent in an installed wheel and every annotate failed.
+  `paths.data_dir()` is `data/` under it, overridable on its own with `$TCREN_DATA_DIR`.
 
 ## MHC mapping speed — `mhc.reference.reference_db()`
 
@@ -647,7 +672,9 @@ from tcren.paper import (
 - Non-structure inputs + 2022 comparison baselines are **committed** under
   `notebooks/natcompsci2022/data_legacy/` (vdjdb, Birnbaum, MJ/Keskin, IEDB, epitope lists,
   `TCRpMHCmodels.tar.gz`, PDB dates, mir/R oracle) — never a pipeline input. `results_new/` is computed.
-- Root `data/` holds the library dataset (gitignored structures): `Native2026` (orientation
+- Root `data/` — resolved through `paths.data_dir()`, i.e. `data/` under `paths.tcren_home()`,
+  which is the checkout in a dev install and `~/.cache/tcren` from a wheel — holds the library
+  dataset (gitignored structures): `Native2026` (orientation
   references), `Canonical2026` (the default `superimpose` database), `PDB_date.tsv`,
   `TCRen_potential.csv`. `Canonical2026`'s `orient_metadata.json` moved into
   `src/tcren/data/` — it must ship in the wheel, since `fetch-data` downloads only structures and

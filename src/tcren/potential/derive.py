@@ -237,7 +237,7 @@ def derive_tcren_loo(
     Args:
         contacts: Contact table (see :func:`derive_tcren`).
         pdb_ids: Structures to leave out one at a time (also the inclusion set).
-        **kwargs: Forwarded to :func:`derive_tcren`.
+        kwargs: Forwarded to :func:`derive_tcren`.
 
     Returns:
         Long table ``residue.aa.from, residue.aa.to, TCRen.LOO, pdb.id`` stacking the

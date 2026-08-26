@@ -91,7 +91,7 @@ backbone RMSD ≈ the displacement itself (it is a repack step, to be paired wit
 The true accuracy ceiling is the FlexPepDock oracle; the native C++ engines (`CPP_REWRITE.md`) are
 validated against it. These smoke numbers characterise pipeline behaviour, not final accuracy.
 
-### Cross-peptide docking accuracy (the honest test)
+### Cross-peptide docking accuracy, scored against a held-out native
 
 `scripts/fold_crossdock_benchmark.py` measures the real question, not self-reconstruction: take pMHC
 structure **A**, replace its peptide with a *different* peptide **P_B** that binds the same MHC allele
@@ -116,44 +116,147 @@ energy optimum). The FlexPepDock oracle is currently a no-op on these 5-chain co
 setup needed), so the one method that might beat the baseline is not yet measured. The open problem for
 the C++ rewrite is de-novo pocket/pose prediction, not refinement speed.
 
-## Binder identification (`tcren.binder`)
+## Receptor ranking on AI-generated structures (`P_native`)
 
 Ranking candidate TCRs against a fixed pMHC on generated (AlphaFold/TCRmodel2) structures. The raw
-TCR:peptide contact energy is at chance there (ROC-AUC ≈ 0.44, the forced-pose problem: the generator
-seats every TCR in a plausible pose). AF-orthogonal interface geometry (interface size, dual-chain
-balance, H-bonds, buried ΔSASA; native `tcren._geom` C kernel) plus the CDR1/2−CDR3α TCRen contrast
-recovers it:
+TCR:peptide contact energy is at chance there — the forced-pose problem: the generator seats every
+TCR in a plausible low-energy pose, binder or not. `P_native` reads the interface instead: a latent
+class over three channels (geometry, footprint topology, contact energetics), each a
+conditional-linear-Gaussian Bayes network, their log-odds added.
 
-| model | macro ROC-AUC | pooled ROC-AUC | note |
-|-------|------------------|----------------|------|
-| **`cohort.q_score` (Q, fit-free)** | **~0.80** | **~0.81** | **recommended** — equal-weight, no training set, generalises across cohorts |
-| tcren.binder (5-feature fitted `p_bind`) | 0.796 | 0.810 | matches Q in-sample; does **not** transfer across cohorts |
-| AlphaFold/TCRmodel2 ranking confidence | 0.795 | — | the strongest AF confidence here |
-| AlphaFold/TCRmodel2 ipTM | 0.794 | 0.793 | the baseline usually quoted |
-| raw TCR:peptide TCRen energy | 0.49 | 0.44 | forced pose (at/below chance) |
+**How to read every number below.** All are **macro** averages over epitope cohorts — the mean of
+the per-cohort value — because a pooled AUC on these panels reads epitope composition rather than
+recognition. `P_native` and its channels are fitted **leave-one-epitope-out**: a cohort is scored by
+a model anchored on the *other* cohorts' rows, so no scored row contributes its own label to the fit
+that scores it. Numbers are quoted to three decimals, as the generator prints them. Source: the
+benchmark repo `~/vcs/projects/2026-tcren2-code`, files
+`bench/eda/out/native_bn_{endpoint,channel_auc,template,glm,glm_gain}_*.csv` and `results/ledger.md`.
 
-TCRvdb (2 epitopes, HLA-A\*02:01), **raw labels** (`padj < 1e-5`, no label cleaning). Both scores are
-~ipTM-independent and use no generator-reported metric.
+### TCRvdb — n = 618 structures, 309 binders / 309 non-binders, 2 epitope cohorts
 
-> **Prefer the fit-free `Q` (`tcren.cohort.q_score`) over the fitted `p_bind`.** They match in-sample,
-> but a logistic trained on one cohort learns that cohort's epitope composition and does not transfer
-> (benchmark ledger C25); `Q` has no training set and nothing to transfer. With ipTM, the fit-free
-> `z(ipTM) + z(Q)` reaches macro 0.83 vs ipTM 0.79 — and the 2D (ipTM, Q) allowed region shows *why*:
-> a forced pose is confident but geometry-poor, the corner `Q` catches and a sum blurs.
+TCRmodel2 models of a validated receptor panel on HLA-A\*02:01; GLCTLVAML n = 195, YLQPRTFLL
+n = 423. **Raw labels** (`padj < 1e-5`, no cleaning).
 
-> **Pick the baseline deliberately.** ipTM is the weakest of AlphaFold's three confidences on this
-> task, so a margin quoted against it flatters tcren. The 5-feature model leads all three, but only
-> just — 0.796 against 0.795 and 0.794. On macro-PR the ordering is wider apart and pLDDT (0.808) is
-> the one to beat, not ipTM (0.782).
+| score | macro ROC-AUC | macro PR-AUC | macro precision @ 10% recall |
+|---|--:|--:|--:|
+| **`P_native`** | **0.832** | **0.849** | **0.955** |
+| `T` — topology channel alone | 0.815 | 0.828 | 0.933 |
+| `S` = `q_coupled(Q, ΔΦ)` — **deprecated**, kept as the harness check | 0.802 | 0.817 | 0.935 |
+| `D2_pep24` — single topology descriptor | 0.787 | 0.804 | 0.925 |
+| AlphaFold/TCRmodel2 ipTM | 0.795 | 0.783 | 0.912 |
+| AlphaFold/TCRmodel2 ranking confidence | 0.795 | 0.783 | 0.912 |
+| AlphaFold/TCRmodel2 pLDDT | 0.776 | 0.800 | 0.916 |
+| `Q` — interface geometry, fit-free | 0.779 | 0.764 | 0.827 |
+| `P_native`, flat network over the union of the same features | 0.750 | 0.758 | 0.892 |
+| ΔΦ TCR:peptide (inverse `dF`) | 0.557 | 0.622 | 0.729 |
 
-> **Label denoising is a separate algorithm and is not benchmarked here.** Filtering TCRvdb by TCRNET
-> motif-cluster consistency raises every method's score, tcren's and AlphaFold's alike; a number
-> computed that way measures the two algorithms jointly and is not a tcren result. (For the record:
-> the shipped coefficients were *fit* on such a subset — see `tcren.binder.model`. That is a
-> deliberate choice, not a gap: denoised **training** is label-noise reduction and generalises better
-> on raw held-out labels (20-seed CV macro 0.776 vs 0.761, 20/20 seeds), while denoised **evaluation**
-> would measure the two algorithms jointly. Refitting on raw labels was measured and would make the
-> model worse.)
+`S` reproducing 0.802 / 0.817 is the harness check that nothing upstream moved; it is superseded by
+`P_native` and its constituents `cohort.coupling` / `cohort.q_coupled` are deprecated (still
+importable, byte-identical, so every published `S` reproduces).
 
-Caveat: coefficients are frozen from a 2-epitope training set;
-cross-allele/epitope generalization untested (re-fit via `scripts/binder_validate.py`).
+### VDJdb real-versus-mock — n = 1,089 structures, 523 real / 566 mock, 22 epitope cohorts
+
+TCRmodel2 models of motif-supported VDJdb binders against mock complexes built by the identical
+unrelaxed procedure.
+
+| score | macro ROC-AUC | macro PR-AUC | macro precision @ 10% recall |
+|---|--:|--:|--:|
+| **`P_native`** | **0.718** | 0.685 | 0.812 |
+| `P_native`, flat network over the union | 0.689 | **0.692** | **0.872** |
+| `T` — topology channel alone | 0.648 | 0.640 | 0.774 |
+| AlphaFold/TCRmodel2 pLDDT | 0.605 | 0.613 | 0.779 |
+| AlphaFold/TCRmodel2 ipTM | 0.592 | 0.606 | 0.770 |
+| `S` = `q_coupled(Q, ΔΦ)` — deprecated | 0.576 | 0.577 | 0.720 |
+| `Q` — interface geometry, fit-free | 0.560 | 0.564 | 0.698 |
+| `D2_pep24` — single topology descriptor | 0.528 | 0.523 | 0.646 |
+| ΔΦ TCR:peptide (inverse `dF`) | 0.488 | 0.506 | 0.649 |
+
+Both `P_native` rules are published: the factored (log-odds sum) rule lifts the hard cohorts, the
+flat network holds the top of the ranking on the easy ones.
+
+### What each channel says on its own
+
+| channel | TCRvdb ROC / PR (n = 618) | VDJdb ROC / PR (n = 1,089) |
+|---|--:|--:|
+| geometry | 0.782 / 0.763 | 0.633 / 0.630 |
+| topology | 0.815 / 0.828 | 0.648 / 0.640 |
+| energetics | 0.426 / 0.502 | 0.674 / 0.652 |
+
+Topology is the only channel above chance on both. The energetics channel sits on **opposite sides
+of chance** on the two panels — 0.426 against 0.674 — which is the forced-pose inversion read
+directly, and the reason a hand-picked weighting does not transfer while a fitted sign does.
+
+### Template coverage is the variable that matters
+
+Split the VDJdb panel by whether *some* receptor has already been co-crystallized with that peptide.
+Template-covered: 6 cohorts, n = 297 structures, 142 real. Template-free: 16 cohorts, n = 792
+structures, 381 real. Macro ROC-AUC within each split:
+
+| score | template-covered | template-free | lost |
+|---|--:|--:|--:|
+| **`P_native`** | 0.721 | **0.716** | **0.005** |
+| GLM(`P_native` + ipTM + pLDDT), in sample | 0.735 | 0.727 | 0.008 |
+| `T` — topology channel | 0.756 | 0.608 | 0.148 |
+| pLDDT | 0.675 | 0.579 | 0.096 |
+| ipTM | 0.692 | 0.555 | 0.136 |
+| `Q` — interface geometry | 0.729 | 0.497 | 0.232 |
+| ΔΦ TCR:peptide | 0.622 | 0.438 | 0.185 |
+
+Every score that reads the placement collapses when the template goes; `P_native` does not, and the
+generator's own confidence does **not** fall to warn you that it should be distrusted.
+
+### Composing with the generator's confidence
+
+A plain logistic on `P_native`, ipTM and pLDDT, **fitted and read in sample** as a demonstration of
+complementarity rather than a ranking claim. Δ is the joint model minus `P_native` alone, with a
+paired percentile 95% CI from 2,000 resamples macro-averaged over cohorts.
+
+| panel | score | macro ROC-AUC | macro PR-AUC | macro P @ 10% recall |
+|---|---|--:|--:|--:|
+| TCRvdb (n = 618) | ipTM | 0.795 | 0.783 | 0.912 |
+| TCRvdb (n = 618) | pLDDT | 0.776 | 0.800 | 0.916 |
+| TCRvdb (n = 618) | GLM(ipTM + pLDDT) | 0.796 | 0.787 | 0.917 |
+| TCRvdb (n = 618) | `P_native` | 0.832 | 0.849 | 0.955 |
+| TCRvdb (n = 618) | GLM(`P_native` + ipTM + pLDDT) | **0.840** | **0.861** | **1.000** |
+| VDJdb (n = 1,089) | ipTM | 0.592 | 0.606 | 0.770 |
+| VDJdb (n = 1,089) | pLDDT | 0.605 | 0.613 | 0.779 |
+| VDJdb (n = 1,089) | GLM(ipTM + pLDDT) | 0.597 | 0.609 | 0.789 |
+| VDJdb (n = 1,089) | `P_native` | 0.718 | 0.685 | 0.812 |
+| VDJdb (n = 1,089) | GLM(`P_native` + ipTM + pLDDT) | **0.729** | **0.719** | **0.830** |
+
+| panel | ΔROC-AUC vs `P_native` | 95% CI | ΔPR-AUC vs `P_native` | 95% CI |
+|---|--:|---|--:|---|
+| TCRvdb (n = 618) | +0.008 | [−0.009, +0.027] | +0.012 | [−0.012, +0.036] |
+| VDJdb (n = 1,089) | +0.011 | [−0.012, +0.035] | **+0.034** | **[+0.005, +0.054]** |
+
+On TCRvdb the generator's confidences add **nothing resolvable** above `P_native`: both intervals
+contain zero, at P(Δ>0) = 0.814 for ROC and 0.818 for PR. On VDJdb only the PR gain clears zero
+(P(Δ>0) = 0.994). They rank well on their own; on these cohorts they carry little the structure does
+not already say.
+
+### Why the score has no fitted coefficient
+
+> **Fitting to a cohort does not transfer, so nothing shipped is fitted to one.** The frozen
+> 5-feature `p_bind` (`tcren.binder`, kept for v1 reproduction and reached only via
+> `recognize --scores`) reads macro ROC 0.796 / pooled ROC 0.810 / macro PR 0.804 on the same 618
+> TCRvdb structures — competitive in sample, and it does not carry over. Train on VDJdb, test on
+> TCRvdb: macro 0.466, **below chance**. Train on TCRvdb, test on VDJdb: macro 0.537. Against a
+> within-cohort TCRvdb cross-validation of 0.811. Holding whole epitopes out of the VDJdb panel
+> drops a random-fold pooled 0.808 to 0.471, because class balance there tracks epitope almost
+> perfectly. `P_native` is fitted per cohort **without any binding label**, so there is no
+> coefficient to carry and nothing to transfer. (Source: `results/ledger.md`, entries C25 and the
+> receptor-ranking table.)
+
+> **Pick the baseline deliberately.** Which AlphaFold confidence is strongest depends on the metric.
+> On TCRvdb macro ROC, ipTM (0.795) and ranking confidence (0.795) lead pLDDT (0.776); on macro PR
+> the order flips and pLDDT (0.800) leads both (0.783). Quote the margin against the best one for
+> the metric being reported.
+
+> **Label denoising is a separate algorithm and is not benchmarked here.** Filtering TCRvdb by
+> TCRNET motif-cluster consistency raises every method's score, tcren's and AlphaFold's alike; a
+> number computed that way measures the two algorithms jointly and is not a tcren result. All rows
+> above use raw labels. For the record, the legacy `p_bind` coefficients were *fit* on such a
+> subset; the within-TCRvdb 5-fold CV once offered as evidence for that (macro 0.776 denoised
+> against 0.761 raw, 20/20 seeds) is **not a split** — TCRvdb is two epitopes, so random folds
+> interpolate inside two clouds — and under the proper cross-dataset split the advantage vanishes,
+> denoising changing transfer by ≤ 0.006 in either direction (`results/ledger.md`, C24).

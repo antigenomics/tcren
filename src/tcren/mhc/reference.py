@@ -1,7 +1,9 @@
-"""Build and load the curated MHC reference shipped under ``database/mhc/``.
+"""Build and load the curated MHC reference under ``database/mhc/``.
 
-The committed reference is a single FASTA (``alleles.aa.fasta``) whose headers encode the
-metadata (``allele|locus|mhc_class|chain_role|species``) plus a ``metadata.tsv`` mirror.
+The reference is a single FASTA (``alleles.aa.fasta``) whose headers encode the
+metadata (``allele|locus|mhc_class|chain_role|species``) plus a ``metadata.tsv`` mirror. It is
+built on demand from IMGT by ``tcren build-mhc-ref`` and written under
+:func:`tcren.paths.tcren_home`, not bundled into the wheel.
 The mmseqs search index is built on demand into a gitignored cache (mirroring arda's
 commit-FASTA / build-index-on-demand split).
 """
@@ -13,12 +15,12 @@ from pathlib import Path
 
 import polars as pl
 
+from ..paths import tcren_home
 from . import imgt
 from .imgt import MhcAllele
 
-_REPO = Path(__file__).resolve().parents[3]
-DATABASE_DIR = _REPO / "database" / "mhc"
-CACHE_DIR = _REPO / "data" / "mhc_cache"
+DATABASE_DIR = tcren_home() / "database" / "mhc"
+CACHE_DIR = tcren_home() / "data" / "mhc_cache"
 
 _META_FIELDS = ("allele", "locus", "mhc_class", "chain_role", "species")
 

@@ -19,9 +19,10 @@ from pathlib import Path
 
 import requests
 
+from ..paths import tcren_home
 from ..structure.io import is_structure_file
 
-_REPO = Path(__file__).resolve().parents[3]
+_REPO = tcren_home()
 PAPER_DIR = _REPO / "notebooks" / "natcompsci2022"
 # Shared data lives one level up (notebooks/data) so sibling notebooks can reuse it; the
 # regression results stay under the paper notebook dir (results_legacy/, results_new/).

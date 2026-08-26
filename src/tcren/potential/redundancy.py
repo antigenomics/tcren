@@ -69,8 +69,8 @@ def nonredundant_ids(
 
     Args:
         markup: Per-structure table with a ``pdb.id`` column and the ``fields`` columns.
-        t: Distance cutoff for ``fcluster`` (``criterion="distance"``). ``None`` turns
-            redundancy filtering **off** and returns every ``pdb.id`` unchanged.
+        t: Distance cutoff for ``fcluster`` (``criterion="distance"``); ``None`` turns
+            redundancy filtering off and returns every ``pdb.id`` unchanged.
         fields: Sequence columns whose per-pair distances are summed (default
             ``cdr3a``, ``cdr3b``, ``peptide``).
         linkage_method: Linkage method for ``scipy.cluster.hierarchy.linkage``

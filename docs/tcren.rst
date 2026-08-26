@@ -181,6 +181,22 @@ tcren.footprint module
    :undoc-members:
    :show-inheritance:
 
+tcren.pose module
+~~~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: tcren.pose
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+tcren.torsions module
+~~~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: tcren.torsions
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 tcren.surface module
 ~~~~~~~~~~~~~~~~~~~~~~~
 
