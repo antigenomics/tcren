@@ -1306,6 +1306,7 @@ def features(
     radii: str = typer.Option("7,8", "--radii", help="Calpha thresholds for the footprint flag complex (topology family)"),
     threads: int = typer.Option(1, "-t", "--threads", help="worker processes for featurisation (0 = all cores); annotation is always one batched call"),
     autodetect_species: bool = typer.Option(True, "--autodetect-species/--no-autodetect-species", help="also search mouse to catch a mis-declared organism; --no- halves the annotation cost"),
+    metadata: bool = typer.Option(True, "--metadata/--no-metadata", help="join the set's metadata.tsv (label, epitope, allele, ipTM/pLDDT) when one ships beside the structures"),
 ) -> None:
     """Raw per-structure descriptors, one row per structure, in the four (+1) feature families.
 
@@ -1364,10 +1365,22 @@ def features(
                              autodetect_species=autodetect_species,
                              threads=threads if threads > 0 else (_os.cpu_count() or 1))
     table = pl.DataFrame(rows)
+    n_meta = 0
+    if metadata:                      # the set's own labels and generator confidences, if it ships them
+        from .metadata import join_metadata, read_metadata
+        m = read_metadata(structures)
+        if m is not None:
+            before = len(table.columns)
+            table = join_metadata(table, structures)
+            n_meta = len(table.columns) - before
+            hit = int(table[m.columns[1] if len(m.columns) > 1 else "id"].is_not_null().sum()) \
+                if len(m.columns) > 1 else table.height
+            typer.echo(f"  metadata.tsv: +{n_meta} columns, {hit}/{table.height} rows matched")
     table.write_csv(str(out), separator="\t")
     n_err = int(table["error"].is_not_null().sum()) if "error" in table.columns else 0
-    typer.echo(f"features [{','.join(fams)}]: {table.height} structures, {len(table.columns) - 1} "
-               f"descriptors -> {out}" + (f"  ({n_err} failed)" if n_err else ""))
+    typer.echo(f"features [{','.join(fams)}]: {table.height} structures, "
+               f"{len(table.columns) - 1 - n_meta} descriptors -> {out}"
+               + (f"  ({n_err} failed)" if n_err else ""))
 
 
 @app.command(rich_help_panel=_P_SCORE, hidden=True)

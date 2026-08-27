@@ -29,6 +29,25 @@ feature is also available programmatically from :func:`tcren.recognition.recogni
 :data:`tcren.recognition.DESCRIPTORS` gives every column's family and whether the receptor enters its
 definition; :func:`tcren.recognition.descriptors` selects on both (see :ref:`descriptor-families`).
 
+Metadata that ships with a structure set
+----------------------------------------
+
+Descriptors are computed *from* coordinates; the binding label, the epitope and allele, and the
+generator's own confidence (``iptm``, ``plddt``, ``ranking_confidence``) are not in the coordinates
+and travel beside them, in a ``metadata.tsv`` keyed by ``id`` = the structure stem — the same value
+``tcren features`` writes into ``complex.id``. ``tcren features`` joins it automatically when one is
+present (``--no-metadata`` to skip), and :func:`tcren.metadata.join_metadata` does the same in
+Python::
+
+    from tcren.metadata import join_metadata
+    table = join_metadata(table, "vdjdb_free_pool")     # no-op if the set ships none
+
+The key must be the **stem, not a bare receptor hash**. A receptor that appears once as a positive
+and once as a mispaired negative shares its hash across both rows, so a hash-keyed table is not
+unique and the join silently drops rows: the shipped ``vdjdb_binder_benchmark`` table was keyed that
+way and matched 523 of 1,089 structures, losing all 566 negatives.
+:func:`tcren.metadata.read_metadata` raises on a duplicate ``id`` for that reason.
+
 Conventions used below: **tp** = TCR↔peptide interface, **tm** = TCR↔MHC, **pm** = peptide↔MHC.
 ``F_*`` is a raw interface energy Φ and ``dF_*`` its poly-alanine reference delta ΔΦ — every energy
 column is named ``F``, because the potential is fixed by the interface rather than chosen per column:
