@@ -353,6 +353,34 @@ P_NATIVE_POOL: dict[str, tuple[str, ...]] = {
     "energetics": ("energetics",),
 }
 
+@lru_cache(maxsize=1)
+def pnative_anchors() -> dict[str, np.ndarray]:
+    """The reference complexes :func:`p_native` anchors on (cached; treat as read-only).
+
+    273 real TCR:pMHC complexes over 161 epitopes, 27 HLA allele groups and 201 distinct CDR3
+    pairs, descriptored once and shipped in the wheel. They are appended to the design matrix with
+    their responsibilities pinned to *native* and are **never scored** — their only job is to fix
+    which mixture component means native, which a finite mixture does not determine on its own.
+
+    Selection is deterministic and carries no random seed; see ``pnative_anchors.NOTES.md`` beside
+    the CSV. Every epitope in it is absent from the TCRen2 benchmarks, so a benchmark cohort cannot
+    be anchored on itself.
+    """
+    import csv  # noqa: PLC0415
+    from importlib import resources  # noqa: PLC0415
+
+    path = resources.files("tcren.data").joinpath("pnative_anchors.csv")
+    with resources.as_file(path) as fh, open(fh, newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    out = {}
+    for name in rows[0]:
+        try:
+            out[name] = np.array([float(r[name]) for r in rows])
+        except ValueError:
+            continue                                     # complex.id, epitope, source
+    return out
+
+
 #: The feature each channel is oriented by when a fit carries no anchors. A mixture is identified
 #: only up to permutation, so without this the two components can swap between runs. A leading
 #: ``"-"`` means *lower* is native-like.
@@ -437,8 +465,13 @@ def p_native(table, *, channels=P_NATIVE_CHANNELS, features=None, rule: str = "s
         features: explicit ``{family: (name, ...)}`` overriding :data:`P_NATIVE_FEATURES` (channel
             keys are accepted too), or a flat sequence of column names to use as-is.
         rule: ``"sum"`` to add per-channel log-odds, ``"flat"`` to fit one network over the union.
-        anchors: optional ``{row_index: 0|1}`` of known labels for a **semi-supervised** fit; they
-            are pinned at every E-step and orient the components. ``None`` is fully unsupervised.
+        anchors: ``None`` (the default) fits fully unsupervised, oriented by
+            :data:`P_NATIVE_ORIENT`. ``"auto"`` appends the shipped reference complexes of
+            :func:`pnative_anchors` as extra, never-scored rows pinned to *native*, so the same
+            anchors fix the component meaning on every call. An explicit ``{row_index: 0|1}`` over
+            the caller's own rows is used verbatim. **The shipped anchors are positives only and
+            do not reproduce the TCRen2 benchmark numbers**, which are anchored on other cohorts'
+            labelled binders *and* non-binders; see ``pnative_anchors.NOTES.md``.
         orient_by: the feature whose higher-mean component is called native when there are no
             anchors, ``"-name"`` to orient on the lower mean. A mixture is identified only up to
             permutation, so this is what stops the two components swapping between runs. ``None``
@@ -492,16 +525,29 @@ def p_native(table, *, channels=P_NATIVE_CHANNELS, features=None, rule: str = "s
         raise ValueError(f"p_native needs at least two usable columns, got {keep}; "
                          f"run `tcren features` with the channels {list(channels)}")
     X = np.column_stack(cols)
-    if len(X) <= len(keep):
-        raise ValueError(f"p_native needs more structures than features: {len(X)} rows, "
+    n_eval = len(X)
+    if n_eval <= len(keep):
+        raise ValueError(f"p_native needs more structures than features: {n_eval} rows, "
                          f"{len(keep)} columns. Narrow `features=` or score a larger cohort.")
+
+    if anchors == "auto":
+        # The shipped reference rows go BELOW the cohort and are pinned to native. They are part of
+        # the design matrix, never of the output: the slice at the end is what keeps them unscored.
+        ref = pnative_anchors()
+        missing = [n for n in keep if n not in ref]
+        if missing:
+            raise ValueError(f"the shipped anchors carry no {missing}; pass anchors=None to fit "
+                             f"unsupervised, or features= to stay within the anchored set")
+        Xa = np.column_stack([ref[n] for n in keep])
+        X = np.vstack([X, Xa])
+        anchors = {n_eval + i: 1.0 for i in range(len(Xa))}
 
     orient = orient_by or P_NATIVE_ORIENT.get(channels[0] if len(channels) == 1 else "geometry",
                                               "burial")
     if orient.lstrip("-") not in keep:
         orient = keep[0]
     model = GaussianBNClassifier(keep).fit_em(X, anchors=anchors, orient_by=orient, rounds=rounds)
-    scores = model.predict_proba(X)[:, 1]
+    scores = model.predict_proba(X)[:, 1][:n_eval]
     return (scores, model) if return_model else scores
 
 
