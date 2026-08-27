@@ -284,3 +284,50 @@ def test_signed_channels_get_a_zero_centred_ramp():
     assert lo < 0 < hi and lo == pytest.approx(-hi)
     assert to_t(0.0) == pytest.approx(0.5)                 # zero sits at the ramp's midpoint
     assert to_t(2.0) > 0.5                                 # the least greasy cell is still greasy
+
+
+# --- the TCR face and the two-sided comparison ----------------------------------------------------
+def test_tcr_side_maps_the_receptor_underside_above_the_groove(annotated):
+    """Same frame, opposite face: the TCR's lowest points sit above the groove floor, and higher
+    than the pMHC surface on average — otherwise the two rays were cast in the same direction."""
+    p = surface_map(annotated["1ao7"], side="pmhc")
+    t = surface_map(annotated["1ao7"], side="tcr")
+    assert (p.grid, p.extent) == (t.grid, t.extent)
+    assert t.side == "tcr" and p.side == "pmhc"
+    both = np.isfinite(p.channels["h"]) & np.isfinite(t.channels["h"])
+    assert both.sum() > 100
+    assert np.nanmean(t.channels["h"][both]) > np.nanmean(p.channels["h"][both])
+    assert set(np.unique(t.source[np.isfinite(t.channels["h"])])) <= {
+        SOURCE_CODES[n] for n in ("none", "cdr1a", "cdr2a", "cdr3a", "cdr1b", "cdr2b", "cdr3b", "tcr_fr")}
+
+
+def test_surface_map_rejects_an_unknown_side(annotated):
+    with pytest.raises(ValueError, match="side must be"):
+        surface_map(annotated["1ao7"], side="mhc")
+
+
+def test_complementarity_signs_follow_the_physics(annotated):
+    """On a real complex the two faces must be shape-complementary and charge-anticomplementary."""
+    from tcren.surface import surface_complementarity
+
+    c = surface_complementarity(surface_map(annotated["1ao7"], side="pmhc"),
+                                surface_map(annotated["1ao7"], side="tcr"))
+    assert c["n_cells"] > 50
+    assert c["coverage"] > 0.8
+    assert c["shape_r"] > 0                                # groove rises -> receptor rides over it
+    assert c["charge_product"] < 0                         # plus meets minus
+    assert np.isfinite(c["d_h"]) and np.isfinite(c["gap_sd"])
+
+
+def test_complementarity_rejects_two_faces_of_the_same_kind(annotated):
+    from tcren.surface import surface_complementarity
+
+    p = surface_map(annotated["1ao7"], side="pmhc")
+    with pytest.raises(ValueError, match="expected"):
+        surface_complementarity(p, p)
+
+
+def test_surface_distance_refuses_a_mixed_pile_of_faces(annotated):
+    with pytest.raises(ValueError, match="same face"):
+        surface_distance([surface_map(annotated["1ao7"], side="pmhc"),
+                          surface_map(annotated["1ao7"], side="tcr")])

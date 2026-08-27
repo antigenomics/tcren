@@ -35,7 +35,9 @@ What tcren does
 * **Surface topology** — ``surface``: the pMHC face a TCR meets *before* it binds, as a height field
   over the groove with hydropathy and charge painted on, plus the scalars that make "featureless" a
   number (``relief``, ``peak_to_valley``, ``frac_above_ridge``) and a map distance that clusters
-  epitopes (:mod:`tcren.surface`).
+  epitopes; ``--side tcr`` rasters the receptor underside in the same frame, and
+  ``surface_complementarity`` scores shape, charge and hydropathy agreement between the two faces
+  (:mod:`tcren.surface`).
 * **Backbone dynamics** — :func:`tcren.peptide_stability`: flexible-backbone Metropolis Monte Carlo
   of the peptide's φ/ψ against DOPE, reporting how far the peptide *wanders* rather than a better
   pose — whether its own side chains hold the TCR-facing conformation, which a contact potential

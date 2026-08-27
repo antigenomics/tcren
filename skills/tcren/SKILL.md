@@ -454,6 +454,21 @@ QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses ar
   fixed in global axes, so the map wobbled 1.35 Å (median cell) under a rigid rotation of the input.
 - Validated on all 374 Canonical2026: `frac_above_ridge` 0.054 (8-mers) → 0.569 (13-mers); same-epitope
   maps closer than cross-epitope at P = 0.917.
+- **Both faces, one frame.** `surface_map(structure, side="tcr")` rasters the receptor's V-domain
+  *underside* instead of the groove — same frame, same grid, lowest point per cell instead of
+  highest — and `surface_complementarity(pmhc_map, tcr_map)` compares them cell for cell:
+  `shape_r` (positive = complementary), `charge_r`/`charge_product` (**negative** = complementary,
+  plus meeting minus), `phobic_r`/`phobic_product` (positive), `gap_mean`/`gap_sd`, and the
+  per-channel map distances `d_h`/`d_charge`/`d_phobic`. CLI: `--side tcr`, `--complementarity <csv>`.
+- **The two limits on that comparison are calibrated, not assumed** (60 Native2026 crystals).
+  `DEFAULT_EXTENT` is sized for a class-II 15-mer, far wider than any receptor footprint: over the
+  full extent a TCR projection reaches only **0.741** of occupied pMHC cells *at any Z cutoff*, and
+  the shortfall is nearly all at the far groove end (0.348 beyond y = +15 Å against 0.987 near
+  y = 0). So `COMPARE_WINDOW = (12, 12)` Å crops first, and `MAX_GAP = 10` Å is where the Z curve
+  has gone flat (0.895 at 4 Å → 0.951 at 10 Å → 0.962 uncapped). Peptide-owned cells are covered at
+  **0.917** even over the full extent, so cropping discards no epitope surface.
+- **The gap is mostly negative and that is correct**: median `h_tcr − h_pmhc` = −1.7 Å with 71% of
+  cells interdigitated, because the two faces interlock rather than stack. The Z cutoff is one-sided.
 - Figures: `viz.surface2d.render_surface_map(smap, channel)` → SVG string (hand-built, zero deps).
 
 ## Rotamer-averaged contacts — `tcren.rotamers`

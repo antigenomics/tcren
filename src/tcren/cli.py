@@ -745,6 +745,8 @@ def surface(
     grid: str = typer.Option("64x32", "--grid", help="map cells as <n_y>x<n_x> (along groove x across)"),
     scale: str = typer.Option("kd", "--scale", help="hydropathy scale: kd (Kyte-Doolittle) or mj"),
     channel: str = typer.Option("h", "--channel", help="channel for --svg and --compare: h, phobic, charge"),
+    side: str = typer.Option("pmhc", "--side", help="face to map: pmhc (the groove a TCR descends onto) or tcr (the receptor underside, same frame)"),
+    complementarity: Path = typer.Option(None, "--complementarity", help="also map the TCR underside and write the per-structure shape/charge/hydropathy agreement between the two faces here"),
     region: str = typer.Option(None, "--region", help="restrict --compare to one source, e.g. peptide"),
     compare: Path = typer.Option(None, "--compare", help="also write the pairwise map-distance matrix here"),
     cells: Path = typer.Option(None, "--cells", help="also write the long per-cell table here"),
@@ -760,22 +762,33 @@ def surface(
     The groove frame is refit from each structure, so maps are comparable without prealigning the
     inputs: ``--compare`` writes the pairwise Manhattan map distance, which clusters structures of
     the same epitope together.
+
+    ``--side tcr`` maps the receptor's underside in the same frame instead, and
+    ``--complementarity`` builds both faces and reports how well they agree cell for cell — shape,
+    charge and hydropathy — over the calibrated window and Z cutoff.
     """
-    from .surface import surface_distance, surface_map, surface_table
+    from .surface import surface_complementarity, surface_distance, surface_map, surface_table
 
     try:
         n_y, n_x = (int(v) for v in grid.lower().split("x"))
     except ValueError as exc:
         raise typer.BadParameter(f"--grid must look like 64x32, got {grid!r}") from exc
 
-    maps, rows = [], []
+    maps, rows, comp = [], [], []
     for _pid, s in iter_structures(structures, importer=parse_structure):
         try:
             if all(c.chain_type is None for c in s.chains):
                 classify_chains(s, organism=organism, autodetect_species=True)
             from .mhc import annotate_mhc
             annotate_mhc(s)
-            maps.append(surface_map(s, grid=(n_y, n_x), scale=scale))
+            m = surface_map(s, grid=(n_y, n_x), scale=scale, side=side)
+            maps.append(m)
+            if complementarity is not None:
+                other = surface_map(s, grid=(n_y, n_x), scale=scale,
+                                    side="tcr" if side == "pmhc" else "pmhc")
+                a, b = (m, other) if side == "pmhc" else (other, m)
+                comp.append({"structure.id": s.pdb_id, "peptide": a.peptide,
+                             **surface_complementarity(a, b)})
         except Exception as exc:  # noqa: BLE001 - keep the batch resilient, report per structure
             rows.append({"structure.id": s.pdb_id, "error": f"{type(exc).__name__}: {exc}"})
 
@@ -793,6 +806,9 @@ def surface(
         pl.DataFrame({"structure.id": ids, **{i: dist[:, k] for k, i in enumerate(ids)}}
                      ).write_csv(str(compare))
         typer.echo(f"wrote {compare}")
+    if complementarity is not None and comp:
+        pl.DataFrame(comp).write_csv(str(complementarity))
+        typer.echo(f"wrote {complementarity} ({len(comp)} structures)")
     if svg is not None and maps:
         from .viz.surface2d import render_surface_map
         svg.mkdir(parents=True, exist_ok=True)

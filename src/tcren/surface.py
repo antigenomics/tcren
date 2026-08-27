@@ -54,6 +54,7 @@ _MHC_TYPES = ("MHCa", "MHCb", "MHC")
 _TCR_TYPES = ("TRA", "TRB", "TRD", "TRG")
 _HELIX_REGIONS = ("HELIX_A1", "HELIX_A2", "HELIX_B1")
 _GROOVE_REGIONS = _HELIX_REGIONS + ("GROOVE_FLOOR",)
+_V_REGIONS = ("FR1", "CDR1", "FR2", "CDR2", "FR3", "CDR3", "FR4")
 
 #: Default map window in Å, (x0, x1, y0, y1), centred on the groove-floor centroid. Fixed rather
 #: than fitted per structure, so every map shares one grid and cells correspond across epitopes.
@@ -65,6 +66,24 @@ CHANNELS = ("h", "phobic", "charge")
 
 #: Percentile of MHC-helix cell heights taken as the groove rim in :func:`surface_stats`.
 RIDGE_PERCENTILE = 90.0
+
+#: Z cutoff for :func:`surface_complementarity` — the largest ``h_tcr − h_pmhc`` clearance, in Å,
+#: at which a cell still counts as surface facing surface. Calibrated over 60 Native2026 crystals:
+#: inside :data:`COMPARE_WINDOW` the cutoff reaches 0.895 of occupied pMHC cells at 4 Å, 0.951 at
+#: 10 Å and 0.962 with no cutoff at all, so 10 Å sits where the curve has gone flat. One-sided on
+#: purpose: the median gap is **−1.7 Å** and 71% of cells are interdigitated (the receptor's lowest
+#: point in a cell lies below the groove's highest point in the same cell), because the two faces
+#: interlock rather than stack.
+MAX_GAP = 10.0
+
+#: Half-widths ``(x, y)`` in Å of the window :func:`surface_complementarity` compares over.
+#: :data:`DEFAULT_EXTENT` is sized for a class-II 15-mer with overhangs, which is much wider than
+#: any receptor's footprint: over the full extent a TCR projection reaches only 0.741 of occupied
+#: pMHC cells however large the Z cutoff, and the shortfall is nearly all at the far groove end
+#: (coverage 0.348 beyond y = +15 Å against 0.987 near y = 0). Cropping to ±12 Å lifts coverage to
+#: 0.951 without a Z cutoff doing the work. The peptide's own cells are covered at 0.917 even over
+#: the full extent, so no part of the epitope surface is being discarded here.
+COMPARE_WINDOW = (12.0, 12.0)
 
 
 @dataclass(slots=True)
@@ -79,6 +98,7 @@ class SurfaceMap:
     scale: str = "kd"
     n_atoms: int = 0
     peptide: str = ""
+    side: str = "pmhc"                                      # which face was mapped
 
     def occupancy(self) -> float:
         """Fraction of grid cells that any surface point reached."""
@@ -101,7 +121,8 @@ class SurfaceMap:
         return pl.DataFrame(data)
 
 
-SOURCE_NAMES = ("none", "peptide", "mhc_helix_a1", "mhc_helix_a2", "mhc_helix_b1", "mhc_floor")
+SOURCE_NAMES = ("none", "peptide", "mhc_helix_a1", "mhc_helix_a2", "mhc_helix_b1", "mhc_floor",
+                "cdr1a", "cdr2a", "cdr3a", "cdr1b", "cdr2b", "cdr3b", "tcr_fr")
 SOURCE_CODES = {name: i for i, name in enumerate(SOURCE_NAMES)}
 
 
@@ -223,6 +244,44 @@ def _surface_atoms(structure) -> tuple[np.ndarray, np.ndarray, list, list]:
     return np.asarray(coords, float), np.asarray(radii, float), residues, sources
 
 
+def _tcr_atoms(structure) -> tuple[np.ndarray, np.ndarray, list, list]:
+    """Heavy atoms of the TCR's **underside** — the face that descends onto the groove.
+
+    The complement of :func:`_surface_atoms`: pMHC excluded, TCR kept. Only the V domain is taken
+    when region markup is available (FR1-4 + CDR1-3), because the constant domains sit far above
+    the groove and can never own a cell's lowest point; dropping them is a speed-up, not a change.
+    """
+    coords, radii, residues, sources = [], [], [], []
+    loop_code = {("TRA", "CDR1"): "cdr1a", ("TRA", "CDR2"): "cdr2a", ("TRA", "CDR3"): "cdr3a",
+                 ("TRB", "CDR1"): "cdr1b", ("TRB", "CDR2"): "cdr2b", ("TRB", "CDR3"): "cdr3b"}
+
+    def _take(residue, code):
+        for a in residue.atoms:
+            if a.element == "H":
+                continue
+            coords.append(a.coord)
+            radii.append(_BONDI.get(a.element, _DEFAULT_RADIUS))
+            residues.append(residue)
+            sources.append(code)
+
+    for chain in structure.chains:
+        if chain.chain_type not in _TCR_TYPES:
+            continue
+        vdom = [reg for reg in chain.regions if reg.region_type in _V_REGIONS]
+        if vdom:
+            for reg in vdom:
+                code = SOURCE_CODES[loop_code.get((chain.chain_type, reg.region_type), "tcr_fr")]
+                for r in reg.residues:
+                    _take(r, code)
+        else:
+            for r in chain.residues:
+                _take(r, SOURCE_CODES["tcr_fr"])
+
+    if not coords:
+        raise ValueError("no TCR atoms found; is the structure chain-typed?")
+    return np.asarray(coords, float), np.asarray(radii, float), residues, sources
+
+
 def _height_candidates(local: np.ndarray, radii: np.ndarray, grid, extent):
     """Every (cell, height, atom) a top-down ray cast produces.
 
@@ -297,8 +356,9 @@ def surface_map(
     scale: str = "kd",
     probe: float = 1.4,
     smooth: bool = True,
+    side: str = "pmhc",
 ) -> SurfaceMap:
-    """Build the TCR-facing height + chemistry map of one pMHC.
+    """Build the TCR-facing height + chemistry map of one pMHC, or the TCR face that meets it.
 
     Each cell keeps the **highest** point of the solvent-accessible surface above it — the first
     thing a TCR descending onto the groove would touch — and takes its chemistry from the atom that
@@ -314,6 +374,11 @@ def surface_map(
             :meth:`tcren.potential.Potential.hydrophobicity_fit`).
         probe: solvent probe radius in Å, added to each atom's vdW radius.
         smooth: apply the 8-neighbour average to the numeric channels.
+        side: ``"pmhc"`` (default) keeps the **highest** surface point per cell — the groove face a
+            TCR descends onto. ``"tcr"`` keeps the **lowest** point of the TCR V domains in the same
+            groove frame, i.e. the receptor's underside. Both maps carry the same grid, extent and
+            frame, so they register cell-for-cell and can be compared by
+            :func:`surface_complementarity`.
 
     Returns:
         A :class:`SurfaceMap`.
@@ -321,9 +386,15 @@ def surface_map(
     Raises:
         ValueError: if the groove plane or the pMHC atoms cannot be located.
     """
-    xyz, radii, residues, sources = _surface_atoms(structure)
+    if side not in ("pmhc", "tcr"):
+        raise ValueError(f"side must be 'pmhc' or 'tcr', got {side!r}")
+    xyz, radii, residues, sources = (_surface_atoms if side == "pmhc" else _tcr_atoms)(structure)
     origin, basis = _groove_frame(structure)
     local = (xyz - origin) @ basis.T
+    # The ray cast always keeps the topmost surface. Flipping z turns it into a cast from below,
+    # which is what the TCR underside is; the heights are flipped back into the groove frame after.
+    if side == "tcr":
+        local = local * np.array([1.0, 1.0, -1.0])
 
     cell, owner, height = _height_candidates(local, radii + probe, grid, extent)
     n_y, n_x = grid
@@ -337,7 +408,7 @@ def surface_map(
     phobic_by_aa = KYTE_DOOLITTLE if scale == "kd" else _mj_hydropathy()
     flat = {ch: np.full(n_y * n_x, np.nan) for ch in CHANNELS}
     src = np.zeros(n_y * n_x, dtype=np.int8)
-    flat["h"][top_cell] = top_z
+    flat["h"][top_cell] = -top_z if side == "tcr" else top_z
     flat["phobic"][top_cell] = [phobic_by_aa.get(residues[o].aa, np.nan) for o in top_owner]
     flat["charge"][top_cell] = [SIDE_CHAIN_CHARGE.get(residues[o].aa, 0.0) for o in top_owner]
     src[top_cell] = [sources[o] for o in top_owner]
@@ -350,7 +421,7 @@ def surface_map(
     return SurfaceMap(
         structure_id=getattr(structure, "pdb_id", "") or "",
         grid=grid, extent=extent, channels=channels, source=src.reshape(n_y, n_x),
-        scale=scale, n_atoms=len(radii),
+        scale=scale, n_atoms=len(radii), side=side,
         peptide="".join(r.aa for r in pep.residues) if pep else "",
     )
 
@@ -449,9 +520,11 @@ def surface_distance(maps: list[SurfaceMap], channel: str = "h",
     """
     if not maps:
         return [], np.zeros((0, 0))
-    grid, extent = maps[0].grid, maps[0].extent
+    grid, extent, side = maps[0].grid, maps[0].extent, maps[0].side
     if any(m.grid != grid or m.extent != extent for m in maps):
         raise ValueError("all maps must share the same grid and extent to be comparable")
+    if any(m.side != side for m in maps):
+        raise ValueError("all maps must map the same face; use surface_complementarity across faces")
 
     stack = np.stack([m.channels[channel] for m in maps])
     if region is not None:
@@ -466,6 +539,82 @@ def surface_distance(maps: list[SurfaceMap], channel: str = "h",
             d[i, j] = d[j, i] = (float(np.abs(stack[i][both] - stack[j][both]).sum() / both.sum())
                                  if both.any() else np.nan)
     return [m.structure_id for m in maps], d
+
+
+def surface_complementarity(pmhc: SurfaceMap, tcr: SurfaceMap, *,
+                            max_gap: float = MAX_GAP,
+                            window: tuple[float, float] | None = COMPARE_WINDOW,
+                            region: str | tuple[str, ...] | None = None,
+                            tcr_region: str | tuple[str, ...] | None = None) -> dict[str, float]:
+    """Cell-for-cell agreement between a pMHC face and the TCR underside that meets it.
+
+    Both maps must come from the same structure (same groove frame, grid and extent), one built
+    with ``side="pmhc"`` and one with ``side="tcr"``. A cell enters the comparison when both maps
+    reach it **and** the vertical clearance between them is at most ``max_gap`` — the Z cutoff that
+    keeps the footprint to surface actually facing surface, rather than the map corners where the
+    receptor overhangs nothing. See :data:`MAX_GAP` for how the default was chosen.
+
+    Returned keys, all over the retained cells:
+
+    ``n_cells`` / ``coverage``
+        Cells retained, and their share of the occupied pMHC cells inside ``window``.
+    ``gap_mean`` / ``gap_sd``
+        Mean and spread of ``h_tcr − h_pmhc`` in Å. A tight, even gap is a well-packed interface;
+        a wide or ragged one is a receptor resting on a few high points.
+    ``shape_r``
+        Pearson *r* between the two height fields. **Positive** is complementary: where the groove
+        rises the receptor must ride up over it.
+    ``charge_r`` / ``charge_product``
+        Pearson *r* between the two charge fields, and the mean of their product.
+        **Negative** is complementary — plus meeting minus.
+    ``phobic_r`` / ``phobic_product``
+        The same for hydropathy. **Positive** is complementary — apolar meeting apolar.
+    ``d_h`` / ``d_charge`` / ``d_phobic``
+        Mean absolute difference per cell in each channel, the SURFMAP map distance of
+        :func:`surface_distance` applied across the two faces instead of across two structures.
+
+    Raises:
+        ValueError: if the maps disagree on grid/extent, or are not one of each side.
+    """
+    if pmhc.grid != tcr.grid or pmhc.extent != tcr.extent:
+        raise ValueError("maps must share a grid and extent to be compared cell-for-cell")
+    if (pmhc.side, tcr.side) != ("pmhc", "tcr"):
+        raise ValueError(f"expected (pmhc, tcr) sides, got ({pmhc.side}, {tcr.side})")
+
+    hp, ht = pmhc.channels["h"], tcr.channels["h"]
+    occupied = np.isfinite(hp)
+    if window is not None:
+        n_y, n_x = pmhc.grid
+        x0, x1, y0, y1 = pmhc.extent
+        yy = np.abs(_centres(y0, y1, n_y))[:, None] <= window[1]
+        xx = np.abs(_centres(x0, x1, n_x))[None, :] <= window[0]
+        occupied = occupied & yy & xx
+    for smap, sel in ((pmhc, region), (tcr, tcr_region)):
+        if sel is not None:
+            names = (sel,) if isinstance(sel, str) else tuple(sel)
+            occupied = occupied & np.isin(smap.source, [SOURCE_CODES[n] for n in names])
+    keep = occupied & np.isfinite(ht) & ((ht - hp) <= max_gap)
+    out = {k: float("nan") for k in ("gap_mean", "gap_sd", "shape_r", "charge_r", "charge_product",
+                                     "phobic_r", "phobic_product", "d_h", "d_charge", "d_phobic")}
+    out["n_cells"] = float(keep.sum())
+    out["coverage"] = float(keep.sum() / max(int(occupied.sum()), 1))
+    if keep.sum() < 3:
+        return out
+
+    gap = ht[keep] - hp[keep]
+    out["gap_mean"], out["gap_sd"] = float(gap.mean()), float(gap.std())
+    for name, a, b in (("shape", hp[keep], ht[keep]),
+                       ("charge", pmhc.channels["charge"][keep], tcr.channels["charge"][keep]),
+                       ("phobic", pmhc.channels["phobic"][keep], tcr.channels["phobic"][keep])):
+        m = np.isfinite(a) & np.isfinite(b)
+        # A constant field (an all-neutral charge patch) has no correlation to report, not a zero.
+        if m.sum() >= 3 and a[m].std() > 0 and b[m].std() > 0:
+            out[f"{name}_r"] = float(np.corrcoef(a[m], b[m])[0, 1])
+        if name != "shape" and m.any():
+            out[f"{name}_product"] = float(np.mean(a[m] * b[m]))
+        out["d_h" if name == "shape" else f"d_{name}"] = (
+            float(np.abs(a[m] - b[m]).mean()) if m.any() else float("nan"))
+    return out
 
 
 def surface_tree(maps: list[SurfaceMap], channel: str = "h", region: str | None = None,
