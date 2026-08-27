@@ -37,6 +37,8 @@ Info
 
 from __future__ import annotations
 
+import os
+
 from pathlib import Path
 
 import polars as pl
@@ -774,13 +776,24 @@ def surface(
     except ValueError as exc:
         raise typer.BadParameter(f"--grid must look like 64x32, got {grid!r}") from exc
 
+    # MHC annotation is batched. Called per structure it spawns one mmseqs process each -- ~7 s
+    # against 0.025 s when 40 structures share a single search -- which made a dataset-scale
+    # `tcren surface` run look stalled while it was in fact 40x slower than it had to be.
+    from .mhc import annotate_mhc_batch
+
     maps, rows, comp = [], [], []
+    batch = []
     for _pid, s in iter_structures(structures, importer=parse_structure):
-        try:
-            if all(c.chain_type is None for c in s.chains):
+        if all(c.chain_type is None for c in s.chains):
+            try:
                 classify_chains(s, organism=organism, autodetect_species=True)
-            from .mhc import annotate_mhc
-            annotate_mhc(s)
+            except Exception as exc:  # noqa: BLE001
+                rows.append({"structure.id": s.pdb_id, "error": f"{type(exc).__name__}: {exc}"})
+                continue
+        batch.append(s)
+    annotate_mhc_batch(batch, threads=max(1, (os.cpu_count() or 4)))
+    for s in batch:
+        try:
             m = surface_map(s, grid=(n_y, n_x), scale=scale, side=side)
             maps.append(m)
             if complementarity is not None:

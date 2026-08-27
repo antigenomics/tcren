@@ -116,6 +116,103 @@ def _select_atoms(residue, keep_hydrogens: bool) -> tuple[Atom, ...]:
     return tuple(atoms)
 
 
+# =================================================================================================
+# fast PDB path
+# =================================================================================================
+# Biopython's PDBParser is 86% of the wall clock of any dataset-scale pass through tcren: profiled
+# over Native2026 it spends 19.0 s of a 30.3 s run in ``_parse_coordinates`` alone, building 2.1 M
+# Atom and 2.4 M Entity objects we immediately throw away, and a further 5.3 s is spent in
+# ``_select_atoms`` unwrapping them again. A PDB ATOM record is fixed-column, so the whole file can
+# be sliced as one uint8 array and the residue boundaries found with a single ``np.flatnonzero``.
+#
+# This path is exact or it does not run. It bails to Biopython -- returning ``None`` -- on anything
+# it is not certain of: a blank element column (Biopython infers the element with rules worth not
+# duplicating), a short or ragged ATOM line, or a coordinate field that will not parse. Equality
+# with the Biopython result on every ``tests/assets/pdb`` file is asserted by the unit tests.
+_ATOM = b"ATOM  "
+
+
+def _pdb_bytes(path: Path, gzipped: bool) -> bytes:
+    opener = gzip.open if gzipped else open
+    with opener(path, "rb") as fh:
+        return fh.read()
+
+
+def _parse_pdb_fast(raw: bytes, pdb_id: str, keep_hydrogens: bool) -> Structure | None:
+    """Vectorised ATOM-record parse, or ``None`` if this file needs the reference parser."""
+    end = raw.find(b"\nENDMDL")                      # first model only, as ``model=0`` asks
+    if end != -1:
+        raw = raw[:end]
+    lines = [ln for ln in raw.split(b"\n") if ln[:6] == _ATOM]
+    n = len(lines)
+    if not n:
+        return None
+    lens = list(map(len, lines))                     # one pass; three separate min/max cost more
+    width, narrowest = max(lens), min(lens)
+    if narrowest < 78:                               # no element column to read
+        return None
+    # Padding costs an ljust per line, so skip it on the usual file where every record is the
+    # same length -- which is what the format specifies and what every writer here emits.
+    flat = b"".join(lines) if narrowest == width else b"".join(ln.ljust(width) for ln in lines)
+    buf = np.frombuffer(flat, dtype=np.uint8).reshape(n, width)
+
+    def col(a, b, dtype):                            # one fixed column range, one value per line
+        return np.frombuffer(buf[:, a:b].tobytes(), dtype=dtype)
+
+    resnames, chain_ids = col(17, 20, "S3"), col(21, 22, "S1")
+    resseqs, icodes = col(22, 26, "S4"), col(26, 27, "S1")
+    elements = np.char.upper(np.char.strip(col(76, 78, "S2")))
+    if (elements == b"").any():                      # Biopython would infer these; do not guess
+        return None
+    try:
+        # float32 first, deliberately. Biopython reads coordinates into a float32 array before
+        # anything widens them, so a PDB's three decimals come back as 59.42599869, not 59.426.
+        # Parsing the text straight to float64 is the more faithful reading of the file, but it
+        # would move every downstream number in its last digits against everything computed
+        # before. The gain is ~2e-5 A on a coordinate; matching bit for bit is worth more.
+        xyz = np.stack([col(a, a + 8, "S8").astype(np.float32) for a in (30, 38, 46)],
+                       axis=1).astype(np.float64)
+        resnum = resseqs.astype(np.int64)
+    except ValueError:
+        return None
+
+    # Atom names and elements repeat: a whole file holds ~40 distinct names over ~5,000 records,
+    # so decoding the uniques and indexing turns 1.4 M bytes.decode() calls into a few dozen.
+    def decoded(arr, strip=False):
+        uniq, inv = np.unique(arr, return_inverse=True)
+        table = [(b.decode().strip() if strip else b.decode()) for b in uniq]
+        return table, inv
+
+    name_tab, name_ix = decoded(col(12, 16, "S4"), strip=True)
+    el_tab, el_ix = decoded(elements)
+    keep = np.ones(n, bool) if keep_hydrogens else (elements != b"H")
+
+    # A residue break is any change in (chain, resseq, icode, resname) -- the same test
+    # StructureBuilder applies. Waters and any non-amino resname are dropped afterwards.
+    same = ((chain_ids[1:] == chain_ids[:-1]) & (resseqs[1:] == resseqs[:-1])
+            & (icodes[1:] == icodes[:-1]) & (resnames[1:] == resnames[:-1]))
+    starts = np.flatnonzero(~same) + 1
+    bounds = list(zip(np.r_[0, starts].tolist(), np.r_[starts, n].tolist()))
+
+    name_ix, el_ix, keep_l = name_ix.tolist(), el_ix.tolist(), keep.tolist()
+    by_chain: dict[str, list[Residue]] = {}
+    for lo, hi in bounds:
+        resname = resnames[lo].decode().strip().upper()
+        if resname in _WATER:
+            continue
+        atoms = tuple(Atom(name=name_tab[name_ix[i]], element=el_tab[el_ix[i]], coord=xyz[i])
+                      for i in range(lo, hi) if keep_l[i])
+        if not atoms:
+            continue
+        residues = by_chain.setdefault(chain_ids[lo].decode(), [])
+        aa = _one_letter(resname) or "X"
+        residues.append(Residue(seq_index=len(residues), pdb_index=int(resnum[lo]),
+                                insertion_code=icodes[lo].decode().strip(),
+                                aa=aa if len(aa) == 1 else "X", resname=resname, atoms=atoms))
+    return Structure(pdb_id=pdb_id,
+                     chains=[Chain(chain_id=c, residues=r) for c, r in by_chain.items() if r])
+
+
 def parse_structure(
     path: str | Path,
     pdb_id: str | None = None,
@@ -142,7 +239,12 @@ def parse_structure(
     path = Path(path)
     inner, gzipped = _strip_gz(path.name)
     pdb_id = pdb_id or inner.rsplit(".", 1)[0]
-    parser = MMCIFParser(QUIET=True) if _structure_format(path.name) == "cif" else PDBParser(QUIET=True)
+    is_cif = _structure_format(path.name) == "cif"
+    if not is_cif and model == 0:
+        fast = _parse_pdb_fast(_pdb_bytes(path, gzipped), pdb_id, keep_hydrogens)
+        if fast is not None:
+            return fast
+    parser = MMCIFParser(QUIET=True) if is_cif else PDBParser(QUIET=True)
 
     if gzipped:
         with gzip.open(path, "rt") as handle:

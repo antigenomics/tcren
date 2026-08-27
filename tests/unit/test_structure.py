@@ -96,3 +96,41 @@ def test_mean_bfactor_reads_the_column_and_respects_the_chain():
     assert 1.0 < whole < 200.0                       # a plausible crystallographic B
     assert chain_a != whole                          # one chain is not the whole file
     assert math.isnan(mean_bfactor(p, "Z"))          # a chain that is not in the file
+
+
+# --- the vectorised PDB fast path ------------------------------------------------------------
+@pytest.mark.parametrize("asset", sorted(p.name for p in PDB_DIR.glob("*")))
+def test_fast_pdb_path_matches_biopython_exactly(asset, monkeypatch):
+    """The fast path is exact or it does not run: every asset must parse identically to Biopython.
+
+    Biopython's PDBParser is 86% of the wall clock of a dataset-scale pass through tcren, so ATOM
+    records are sliced as one uint8 array instead. That is only admissible while the two agree
+    atom for atom, which is what this asserts across every shipped structure.
+    """
+    import numpy as np
+
+    from tcren.structure import io
+
+    path = PDB_DIR / asset
+    fast = io.parse_structure(path)
+    monkeypatch.setattr(io, "_parse_pdb_fast", lambda *a, **k: None)
+    ref = io.parse_structure(path)
+
+    assert [c.chain_id for c in fast.chains] == [c.chain_id for c in ref.chains]
+    for cf, cr in zip(fast.chains, ref.chains):
+        assert len(cf.residues) == len(cr.residues)
+        for rf, rr in zip(cf.residues, cr.residues):
+            assert (rf.seq_index, rf.pdb_index, rf.insertion_code, rf.aa, rf.resname) == \
+                   (rr.seq_index, rr.pdb_index, rr.insertion_code, rr.aa, rr.resname)
+            assert len(rf.atoms) == len(rr.atoms)
+            for af, ar in zip(rf.atoms, rr.atoms):
+                assert (af.name, af.element) == (ar.name, ar.element)
+                assert np.array_equal(af.coord, ar.coord)
+
+
+def test_fast_pdb_path_declines_a_file_with_no_element_column():
+    """A blank element column is Biopython's inference problem -- bail out, never guess."""
+    from tcren.structure.io import _parse_pdb_fast
+
+    line = "ATOM      1  N   MET A   1      10.000  10.000  10.000  1.00 20.00"
+    assert _parse_pdb_fast((line.ljust(80) + "\n").encode(), "x", True) is None

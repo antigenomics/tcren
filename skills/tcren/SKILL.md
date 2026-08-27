@@ -471,6 +471,22 @@ QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses ar
   cells interdigitated, because the two faces interlock rather than stack. The Z cutoff is one-sided.
 - Figures: `viz.surface2d.render_surface_map(smap, channel)` → SVG string (hand-built, zero deps).
 
+## Parsing speed — the PDB fast path
+
+- `parse_structure` takes a **vectorised ATOM-record path** for `.pdb` at `model=0`: the records are
+  sliced as one uint8 array and residue breaks found with `np.flatnonzero`. **3.3x** end to end
+  (22.1 -> 6.6 ms per crystal), and it is what makes a dataset-scale pass tractable — Biopython was
+  86% of the wall clock (19.0 s of 30.3 s over Native2026, building 2.1 M Atom objects to discard).
+- **Exact or it does not run.** `_parse_pdb_fast` returns `None` — falling back to Biopython — on a
+  blank element column, a short ATOM line, or an unparseable coordinate. Coordinates are read
+  **through float32**, matching Biopython bit for bit rather than being more accurate: a PDB's three
+  decimals come back as `59.42599869`, and every previously computed number depends on that.
+  Verified by re-deriving all three potentials of `pot_realmock.py` from structures: max |delta| =
+  0.0000000000 over 1,140 cells.
+- The remaining cost is ~655 k `Atom` constructions per 120 structures. That is the data model, not
+  the language — **a C++ extension would not help without making residues array-backed**, which is a
+  redesign, not an optimisation.
+
 ## Rotamer-averaged contacts — `tcren.rotamers`
 
 - `contact_probabilities(structure, interface) -> df[..., p]` and `soft_energy(structure, potential)`.
