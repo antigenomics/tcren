@@ -192,3 +192,34 @@ def test_ddg_contact_weights_scale_the_virtual_path():
     for w in (0.5, 2.0):
         got = ddg(cm, native, mutant, pot, weights=np.full(n_rows, w))
         assert got == pytest.approx(w * base), (w, got, base)
+
+
+def test_response_matrix_tcr_weights_scale_only_the_receptor_interface():
+    """The same linearity contract as `ddg`, one level up, and confined to one interface.
+
+    `response_matrix` is what the CPL reconstruction calls, so a Potts `p_model` scan enters the
+    published panel through here. Three contracts: `None` and all-ones are byte-identical to the
+    default, a uniform w scales the TCR:peptide term by exactly w, and the presentation term does
+    not move at all -- the shipped Potts model is fitted on TCR:peptide and has no business
+    reweighting the groove.
+    """
+    import numpy as np
+
+    from tcren import response_matrix
+
+    cm, pot = _toy_contact_map(), _toy_potential()
+    n_rows = cm.interface("tcr_peptide").height
+
+    base = response_matrix(cm, "AGK", tcr_potential=pot, mhc_potential=pot)
+    assert np.any(base.phi_tcr != 0.0), "the toy map has to score for this to test anything"
+
+    ones = response_matrix(cm, "AGK", tcr_potential=pot, mhc_potential=pot,
+                           tcr_weights=np.ones(n_rows))
+    assert np.allclose(ones.phi_tcr, base.phi_tcr, equal_nan=True)
+    assert np.allclose(ones.phi_mhc, base.phi_mhc, equal_nan=True)
+
+    for w in (0.5, 2.0):
+        got = response_matrix(cm, "AGK", tcr_potential=pot, mhc_potential=pot,
+                              tcr_weights=np.full(n_rows, w))
+        assert np.allclose(got.phi_tcr, w * base.phi_tcr, equal_nan=True), w
+        assert np.allclose(got.phi_mhc, base.phi_mhc, equal_nan=True), w

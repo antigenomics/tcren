@@ -205,6 +205,7 @@ def _engaged(contact_map: ContactMap, interface: str, tcr_regions: str) -> set[i
 def _threaded_energies(
     contact_map: ContactMap, peptide: str, potential: Potential, interface: str,
     positions: Sequence[int], tcr_regions: str, contact_weight: str,
+    weights: "np.ndarray | None" = None,
 ):
     """``(len(positions), 20)`` of ``Phi(x_{i->a})`` for one interface, in ONE batched call."""
     variants, keys = [], []
@@ -214,7 +215,7 @@ def _threaded_energies(
             keys.append((i, a))
     kw = {"tcr_regions": tcr_regions} if interface == "tcr_peptide" else {}
     scored = score_peptides(contact_map, variants, potential, interface=interface,
-                            contact_weight=contact_weight, **kw)
+                            contact_weight=contact_weight, weights=weights, **kw)
     by_seq = dict(zip(scored["peptide"].to_list(), scored["score"].to_list()))
     out = np.full((len(positions), 20), np.nan)
     row = {p: k for k, p in enumerate(positions)}
@@ -232,6 +233,7 @@ def response_matrix(
     mhc_potential: Potential | None = None,
     tcr_regions: str = "all",
     contact_weight: str = "residue",
+    tcr_weights: "np.ndarray | None" = None,
 ) -> ResponseMatrix:
     """Predict the CPL response matrix of a template TCR:pMHC complex.
 
@@ -254,6 +256,14 @@ def response_matrix(
         tcr_regions: which TCR regions contribute on the TCR side (``"all"``/``"cdr"``/``"cdr+fr"``).
         contact_weight: ``"residue"`` (default) or ``"atomic"``; passed through to
             :func:`tcren.scoring.score_peptides`.
+        tcr_weights: an explicit per-contact multiplier for the **TCR:peptide** interface only, one
+            value per row of ``contact_map.interface("tcr_peptide")`` and in its row order. Its use
+            is the same as :func:`tcren.ddg.ddg`'s ``weights``: replace the map's hard 0/1 contact
+            indicator with a contact **probability** -- :func:`tcren.potts.contact_probabilities`'
+            ``p_model`` -- so every threaded substitution is scored against how often each pair
+            actually touches rather than against one frozen snapshot of whether it did. The
+            presentation interface is left alone, because the shipped Potts model is fitted on
+            TCR:peptide. ``None`` (default) leaves the result byte-identical.
 
     Returns:
         A :class:`ResponseMatrix`.
@@ -278,7 +288,8 @@ def response_matrix(
         )
 
     phi_tcr = _threaded_energies(contact_map, peptide, tcr_potential or _tcren_potential(),
-                                 "tcr_peptide", positions, tcr_regions, contact_weight)
+                                 "tcr_peptide", positions, tcr_regions, contact_weight,
+                                 tcr_weights)
     phi_mhc = _threaded_energies(contact_map, peptide, mhc_potential or mj(),
                                  "peptide_mhc", positions, tcr_regions, contact_weight)
     # A position engaged on only one interface contributes nothing on the other, and a NaN there

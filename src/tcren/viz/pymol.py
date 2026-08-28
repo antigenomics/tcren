@@ -49,7 +49,7 @@ __all__ = [
     "Axis", "CANONICAL_AXES", "CORNERS", "PALETTES", "CHAIN_COLOURS",
     "gizmo_cgo", "label_points", "gizmo_scene", "probe_rotation", "render", "composite",
     "overlay_scene", "groove_scene", "interface_scene",
-    "residue_importance", "importance_scene",
+    "residue_importance", "importance_scene", "groove_importance_scene",
 ]
 
 
@@ -574,8 +574,10 @@ def importance_scene(pid, canon_dir, importance, *, by: str = "phi",
         pid: PDB id.
         canon_dir: The canonical (oriented) structure directory.
         importance: The frame from :func:`residue_importance`.
-        by: Which column to colour by — ``phi`` (energy share) or ``n_contacts`` (geometric
-            share).
+        by: Which column to colour by. ``phi`` (energy share) and ``n_contacts`` (geometric
+            share) come from :func:`residue_importance`; any other numeric column of the frame
+            works too, which is how a predicted engagement from
+            :func:`tcren.potts.contact_map` is coloured onto the peptide.
         regions: Which region types to draw as coloured sticks. ``PEPTIDE`` matches the peptide
             chain, whose residues carry no CDR region label.
         spectrum: Any PyMOL spectrum name.
@@ -586,16 +588,18 @@ def importance_scene(pid, canon_dir, importance, *, by: str = "phi",
     Raises:
         ValueError: If ``by`` is not a column of ``importance``.
     """
-    if by not in ("phi", "n_contacts"):
-        raise ValueError(f"by must be 'phi' or 'n_contacts', not {by!r}")
-
     rows = importance.to_dicts() if hasattr(importance, "to_dicts") else list(importance)
+    if rows and by not in rows[0]:
+        raise ValueError(f"by={by!r} is not a column of the importance frame; have "
+                         f"{sorted(rows[0])}")
     wanted = [r for r in rows
               if r.get("region.type") in regions
               or (("PEPTIDE" in regions) and not r.get("region.type"))]
     if not wanted:
         wanted = rows
     values = [float(r[by]) for r in wanted]
+    # Only the energy share is signed, so only it gets a ramp centred on zero; a one-sided
+    # quantity (a contact count, a predicted engagement) is ramped over its own range.
     if by == "phi":
         lim = max(abs(min(values, default=0.0)), abs(max(values, default=0.0)), 1e-6)
         lo, hi = -lim, lim
@@ -625,6 +629,74 @@ def importance_scene(pid, canon_dir, importance, *, by: str = "phi",
         f'cmd.spectrum("b", "{spectrum}", "{sel}", minimum={lo:.4f}, maximum={hi:.4f})',
     ])
     return _scene(loads, body, VIEW_TOP, f'cmd.zoom("{sel}", buffer=6, complete=1)')
+
+
+
+def groove_importance_scene(pid, canon_dir, importance, *, by: str = "p_expected",
+                            spectrum: str = "yellow_green_blue", surface: bool = False) -> str:
+    """What is presented, coloured by how engaged each residue of it is.
+
+    :func:`groove_scene`'s framing -- the peptide threaded along the cleft, seen from above, with
+    the groove helices and the sheet floor kept as furniture -- with the peptide coloured by a
+    per-residue value instead of by element. The value rides in on the B-factor column, which is
+    what PyMOL's ``spectrum`` reads.
+
+    This is the picture of :func:`tcren.potts.contact_map` with ``by="position"``: how engaged the
+    contact model expects each peptide residue to be, before any residue identity is scored. Unlike
+    :func:`importance_scene` it zooms the groove rather than the coloured selection, so several
+    complexes rendered this way are directly comparable.
+
+    Args:
+        pid: PDB id.
+        canon_dir: The canonical (oriented) structure directory.
+        importance: Rows carrying ``chain.id``, ``residue.index`` and ``by``.
+        by: The column to colour by. Ramped over its own range, which is right for a one-sided
+            quantity; :func:`importance_scene` centres on zero for the signed energy share.
+        spectrum: Any PyMOL spectrum name.
+        surface: Add a translucent molecular surface over the MHC ribbon.
+
+    Returns:
+        A PyMOL scene body for :func:`render`.
+
+    Raises:
+        ValueError: If ``importance`` is empty or ``by`` is not one of its columns.
+    """
+    rows = importance.to_dicts() if hasattr(importance, "to_dicts") else list(importance)
+    if not rows:
+        raise ValueError(f"{pid}: no residues to colour")
+    if by not in rows[0]:
+        raise ValueError(f"by={by!r} is not a column of the importance frame; have "
+                         f"{sorted(rows[0])}")
+    values = [float(r[by]) for r in rows]
+    lo, hi = min(values), max(values)
+    if hi - lo < 1e-9:                      # a flat profile would make `spectrum` divide by zero
+        hi = lo + 1e-6
+    sel = " or ".join(f'(chain {r["chain.id"]} and resi {r["residue.index"]})' for r in rows)
+    alters = "\n".join(
+        f'cmd.alter("chain {r["chain.id"]} and resi {r["residue.index"]}", "b={float(r[by]):.4f}")'
+        for r in rows)
+
+    loads = f'cmd.load(r"{Path(canon_dir) / f"{pid}.pdb.gz"}", "m")'
+    body = "\n".join([
+        'cmd.hide("everything")',
+        'cmd.show("cartoon", "chain D+E")',
+        'cmd.color("grey80", "chain D+E")',
+        'cmd.color("salmon", "chain D+E and ss H")',      # the groove helices
+        'cmd.color("palecyan", "chain D+E and ss S")',    # the beta-sheet floor
+        'cmd.set("cartoon_transparency", 0.25)',
+        'cmd.alter("all", "b=0.0")',
+        alters,
+        "cmd.sort()",
+        f'cmd.show("sticks", "{sel}")',
+        'cmd.set("stick_radius", 0.26)',
+        f'cmd.spectrum("b", "{spectrum}", "{sel}", minimum={lo:.4f}, maximum={hi:.4f})',
+    ] + ([
+        'cmd.show("surface", "chain D+E")',
+        'cmd.set("transparency", 0.55)',
+        'cmd.set("surface_quality", 1)',
+    ] if surface else []))
+    # zoom the GROOVE, not the coloured selection, so a row of complexes is on one scale
+    return _scene(loads, body, VIEW_TOP, 'cmd.zoom("chain C", buffer=11, complete=1)')
 
 
 def interface_scene(pid, canon_dir, cdr_resi) -> str:
