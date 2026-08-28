@@ -32,7 +32,7 @@ your layout differs.
 
 ## marimo apps
 
-Two notebooks here are [marimo](https://marimo.io/) apps rather than Jupyter notebooks — plain
+Five notebooks here are [marimo](https://marimo.io/) apps rather than Jupyter notebooks — plain
 Python files, reactive, and runnable as small web apps. They need the `marimo` extra
 (`pip install 'tcren[marimo]'`):
 
@@ -40,6 +40,8 @@ Python files, reactive, and runnable as small web apps. They need the `marimo` e
 marimo run notebooks/pnative_channels.py     # or `marimo edit` to open the cells
 marimo run notebooks/surface_topology.py
 marimo run notebooks/pymol_interactive.py
+marimo run notebooks/confident_negatives.py
+marimo run notebooks/potts_contact_map.py
 ```
 
 - `pnative_channels.py` — the released scoring path end to end: one featurisation pass over a
@@ -55,3 +57,11 @@ marimo run notebooks/pymol_interactive.py
 - `pymol_interactive.py` — a PyMOL render explorer over the canonical scenes (overlay, groove,
   interface, residue importance). PyMOL itself is a separate binary the module shells out to, so it
   is not a Python dependency and must be installed separately.
+- `confident_negatives.py` — reading a generator's confidence together with the coordinates, the
+  same call `tcren diagnose` makes. Move the confidence slider to the top of the range and watch
+  the corrected probabilities stay spread while the confidence-only reading collapses to one
+  number. Needs a `tcren features` table with the geometry, topology and Potts columns, and falls
+  back to the shipped native-crystal reference so it runs with no data of your own.
+- `potts_contact_map.py` — the predicted contact-frequency map (CDR loop × peptide position) beside
+  the contacts the structure actually made, and its collapse onto a peptide residue-importance
+  profile. The same call `tcren potts map` makes; needs only a structure file.

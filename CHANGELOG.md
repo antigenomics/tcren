@@ -3,6 +3,37 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
+## [2.19.0] — 2026-08-29
+
+**The contact map, read as a map.** `contact_probabilities` has emitted a per-residue-pair marginal
+since 2.16.0, but the grid an experiment measures is coarser, so nothing in the package could be
+compared against one.
+
+### Added
+- **`potts.contact_map` and `tcren potts map`.** Closes the per-pair marginals onto the two grids a
+  caller actually reads. `--by loop` gives one row per (structure, CDR loop, peptide position) —
+  the contact-frequency map, which is what a molecular-dynamics trajectory reports as the fraction
+  of frames in which any residue of that loop touches that position. `--by position` collapses the
+  loops into peptide residue importance: how engaged the model expects each position to be, before
+  any residue identity is scored. `--by pair` is the ungrouped passthrough.
+
+  The closure is the Poisson-binomial "at least one", `P(N >= 1) = 1 - prod(1 - p_j)`, accumulated
+  in `log(1 - p)` so a twelve-residue loop does not underflow and a saturated pair returns 1 rather
+  than `nan`. Columns are `p_any`, `p_expected` (the expected contact count), `n_pairs`,
+  `n_observed` and `observed`.
+
+  These are **frequencies, not energies** — dimensionless and in [0, 1]. They carry no k_B T and
+  belong to the diagnostic and importance side of the model; `score`'s `neg_energy` is the quantity
+  with units, and it is what `S_free`'s Pi block reads.
+- `notebooks/potts_contact_map.py`, a marimo app over the released path: the predicted map beside
+  the contacts the structure made, and the importance profile under it.
+
+### Changed
+- **`contact_probabilities` gained `workers=`**, and `tcren potts score` / `potts contacts` / `potts
+  map` gained `--workers`. The library has had process-parallel per-structure mapping since 2.17.0;
+  three of its five samplers and both CLI entry points never got it. Bit-identical however the work
+  is split, because each structure's numbers are a function of `(seed, pdb.id)` alone.
+
 ## [2.18.0] — 2026-08-29
 
 **The generator says it is confident. What should you believe instead?** `af_band` answered how

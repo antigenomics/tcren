@@ -151,7 +151,19 @@ def _body_bound_unbound(s: int, *, threshold, chains: int, burn: int, draws: int
             "n_var": float(tot.var()) if len(tot) else float("nan")}
 
 
-_BODIES = {"score_sites": _body_score_sites, "bound_unbound": _body_bound_unbound}
+def _body_contact_probabilities(s: int, *, chains: int, burn: int, draws: int, thin: int,
+                                seed: int) -> dict:
+    pid, lo, hi, et, sg, A, cols = _unpack(s)
+    occ, _ = gibbs(et, A, cols, _rng_for(seed, pid), chains=chains, burn=burn, draws=draws,
+                   thin=thin)
+    # `lo`/`hi` travel back with the arrays so the caller scatters them into the right slice of
+    # the full-table buffer; a worker cannot see the frame it came from.
+    return {"lo": int(lo), "hi": int(hi), "p_model": occ,
+            "p_conditional": 1.0 / (1.0 + np.exp(-(et + A @ sg)))}
+
+
+_BODIES = {"score_sites": _body_score_sites, "bound_unbound": _body_bound_unbound,
+           "contact_probabilities": _body_contact_probabilities}
 
 
 def score_sites(sites: pl.DataFrame, model: PottsModel, *, particles: int = 64,
@@ -197,7 +209,7 @@ def score_sites(sites: pl.DataFrame, model: PottsModel, *, particles: int = 64,
 
 def contact_probabilities(sites: pl.DataFrame, model: PottsModel, *, chains: int = 64,
                           burn: int = 100, draws: int = 100, thin: int = 3,
-                          seed: int = 0) -> pl.DataFrame:
+                          seed: int = 0, workers: int | None = None) -> pl.DataFrame:
     """Per-site contact probability under the model, beside the observed indicator.
 
     Three probabilities per site, because the difference between them *is* the couplings:
@@ -216,25 +228,103 @@ def contact_probabilities(sites: pl.DataFrame, model: PottsModel, *, chains: int
         model: A fitted :class:`PottsModel`.
         chains, burn, draws, thin: Gibbs settings; see :func:`tcren.potts.gibbs`.
         seed: Seed for the sampler.
+        workers: Processes to split the structures across. ``None`` (default) uses every core,
+            ``1`` runs serially. Bit-identical either way; see :func:`tcren.potts.score_sites`.
 
     Returns:
         The input frame with the three probabilities appended, one row per site.
     """
     upid, starts, e, sigma, E, eoff, kv, q = _prepare(sites, model)
-    p_mod = np.zeros(len(e))
-    p_cond = np.zeros(len(e))
-    for s in range(len(upid)):
-        lo, hi = starts[s], starts[s + 1]
-        rng = _rng_for(seed, upid[s])
-        et, sg, A, cols = _one(lo, hi, e, sigma, E, eoff, kv, s)
-        occ, _ = gibbs(et, A, cols, rng, chains=chains, burn=burn, draws=draws, thin=thin)
-        p_mod[lo:hi] = occ
-        p_cond[lo:hi] = 1.0 / (1.0 + np.exp(-(et + A @ sg)))
+    rows = _map_structures("contact_probabilities", len(upid),
+                           _payload(upid, starts, e, sigma, E, eoff, kv),
+                           dict(chains=chains, burn=burn, draws=draws, thin=thin, seed=seed),
+                           workers)
+    p_mod, p_cond = np.zeros(len(e)), np.zeros(len(e))
+    for r in rows:
+        p_mod[r["lo"]:r["hi"]] = r["p_model"]
+        p_cond[r["lo"]:r["hi"]] = r["p_conditional"]
     return q.drop("sid", "loop", "pchain").with_columns(
         pl.Series("eta", e),
         pl.Series("p_independent", 1.0 / (1.0 + np.exp(-e))),
         pl.Series("p_model", p_mod),
         pl.Series("p_conditional", p_cond))
+
+
+
+#: What each ``by=`` groups on, beyond ``pdb.id``. ``"pair"`` is the ungrouped passthrough.
+_MAP_KEYS = {"pair": (),
+             "loop": ("region.rec", "pos.par", "aa.par"),
+             "position": ("pos.par", "aa.par")}
+
+
+def contact_map(sites: pl.DataFrame, model: PottsModel, *, by: str = "loop", chains: int = 64,
+                burn: int = 100, draws: int = 100, thin: int = 3, seed: int = 0,
+                workers: int | None = None) -> pl.DataFrame:
+    r"""Predicted contact frequency, closed from per-pair probabilities onto a coarser grid.
+
+    :func:`contact_probabilities` gives ``p_model``, the coupled model's marginal for a single
+    receptor-residue : peptide-residue pair. Two coarser readings are what an experiment actually
+    measures:
+
+    ``by="loop"``
+        one row per (structure, CDR loop, peptide position) — the **contact-frequency map**, the
+        grid a molecular-dynamics trajectory reports as the fraction of frames in which any residue
+        of that loop touches that peptide position.
+    ``by="position"``
+        one row per (structure, peptide position) — **peptide residue importance**: how engaged the
+        model expects that position to be, before any residue identity is scored.
+    ``by="pair"``
+        the ungrouped table, exactly :func:`contact_probabilities`.
+
+    The residues of a loop are distinct pairs with different probabilities, so the number of
+    simultaneous contacts is Poisson-binomially distributed and has no closed form. The event "at
+    least one" does, and it is what a frequency map measures:
+
+    .. math:: P(N \ge 1) \;=\; 1 - \prod_j (1 - p_j)
+
+    where :math:`p_j` is the model marginal of pair :math:`j` in the group and :math:`N` the number
+    of contacts the group makes. It is accumulated in :math:`\log(1 - p)` so a twelve-residue loop
+    does not underflow, and a pair at :math:`p_j = 1` forces the group to 1 exactly rather than to
+    ``nan``.
+
+    These are contact frequencies: dimensionless, in :math:`[0, 1]`, higher meaning more often in
+    contact. They are **not** energies and carry no :math:`k_\mathrm{B}T`, so nothing here belongs
+    in an energy block — this is the diagnostic and importance side of the model.
+
+    Args:
+        sites: Rows from :func:`tcren.potts.available_pairs`.
+        model: A fitted :class:`PottsModel`.
+        by: ``"loop"`` (default), ``"position"`` or ``"pair"``.
+        chains, burn, draws, thin: Gibbs settings; see :func:`tcren.potts.gibbs`.
+        seed: Seed for the sampler.
+        workers: Processes to split the structures across; ``None`` uses every core, ``1`` runs
+            serially. Bit-identical either way.
+
+    Returns:
+        For ``"pair"``, :func:`contact_probabilities`' frame unchanged. Otherwise the grouping
+        columns plus ``p_any`` (the predicted frequency above), ``p_expected`` (the expected number
+        of contacts in the group, :math:`\sum_j p_j`), ``n_pairs`` (available pairs in the group),
+        ``n_observed`` (how many of them this structure made) and ``observed`` (1 if any did, else
+        0 — the indicator the prediction is scored against).
+
+    Example:
+        >>> from tcren.potts import available_pairs, contact_map, PottsModel  # doctest: +SKIP
+        >>> m = contact_map(available_pairs(structure), PottsModel.bundled())  # doctest: +SKIP
+    """
+    if by not in _MAP_KEYS:
+        raise ValueError(f"by must be one of {'|'.join(_MAP_KEYS)}, got {by!r}")
+    p = contact_probabilities(sites, model, chains=chains, burn=burn, draws=draws, thin=thin,
+                              seed=seed, workers=workers)
+    if by == "pair" or p.is_empty():
+        return p
+    keys = ["pdb.id", *_MAP_KEYS[by]]
+    return (p.group_by(keys)
+            .agg([(1.0 - (-pl.col("p_model")).log1p().sum().exp()).alias("p_any"),
+                  pl.col("p_model").sum().alias("p_expected"),
+                  pl.len().cast(pl.Int64).alias("n_pairs"),
+                  pl.col("sigma").sum().cast(pl.Int64).alias("n_observed"),
+                  (pl.col("sigma").max() > 0).cast(pl.Int64).alias("observed")])
+            .sort(keys))
 
 
 def bound_unbound(sites: pl.DataFrame, model: PottsModel, *, threshold: int | None = None,

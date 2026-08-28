@@ -559,3 +559,98 @@ def test_splitting_the_work_across_processes_changes_no_number():
         one = fn(sites, model, workers=1, **kw)
         many = fn(sites, model, workers=workers, **kw)
         assert one.equals(many), f"{fn.__name__} depends on the number of workers"
+
+
+# --------------------------------------------------------------------------- contact_map
+# `contact_probabilities` is per residue pair. What an experiment measures is coarser: a CDR loop
+# against a peptide position (an MD contact-frequency map), or a peptide position on its own
+# (residue importance). `contact_map` closes the pairs onto those grids, and the closure is the
+# only arithmetic it adds.
+
+
+def _map_inputs(n_struct=3):
+    sites = _synthetic_sites(n_struct=n_struct)
+    return sites, fit_potts(sites, couplings=True)
+
+
+@pytest.mark.parametrize("by", ["loop", "position"])
+def test_contact_map_closes_the_pairs_with_poisson_binomial_p_at_least_one(by):
+    """`p_any` must be exactly `1 - prod(1 - p)` over the group, computed here by hand.
+
+    The residues of a loop are distinct pairs with different marginals, so the count of
+    simultaneous contacts is Poisson-binomial and has no closed form. Only "at least one" does, and
+    it is what a frequency map measures.
+    """
+    from tcren.potts import contact_map, contact_probabilities
+
+    sites, model = _map_inputs()
+    kw = dict(chains=8, burn=4, draws=8, thin=1, seed=0, workers=1)
+    pairs = contact_probabilities(sites, model, **kw)
+    got = contact_map(sites, model, by=by, **kw)
+
+    keys = ["pdb.id"] + (["region.rec", "pos.par", "aa.par"] if by == "loop"
+                         else ["pos.par", "aa.par"])
+    assert got.height == pairs.select(keys).n_unique()
+    for row in got.iter_rows(named=True):
+        grp = pairs
+        for k in keys:
+            grp = grp.filter(pl.col(k) == row[k])
+        p = grp["p_model"].to_numpy()
+        assert row["p_any"] == pytest.approx(1.0 - np.prod(1.0 - p), abs=1e-12)
+        assert row["p_expected"] == pytest.approx(p.sum(), abs=1e-12)
+        assert row["n_pairs"] == len(p)
+        assert row["n_observed"] == int(grp["sigma"].sum())
+        assert row["observed"] == int(grp["sigma"].max() > 0)
+
+
+def test_contact_map_by_pair_is_contact_probabilities_unchanged():
+    """The passthrough must not quietly reshape anything — the benchmark joins on these columns."""
+    from tcren.potts import contact_map, contact_probabilities
+
+    sites, model = _map_inputs()
+    kw = dict(chains=8, burn=4, draws=8, thin=1, seed=0, workers=1)
+    assert contact_map(sites, model, by="pair", **kw).equals(contact_probabilities(sites, model,
+                                                                                   **kw))
+
+
+def test_a_certain_pair_forces_its_whole_group_to_one_without_nan():
+    """`p = 1` sends `log(1 - p)` to -inf, which is the correct answer and must not become `nan`.
+
+    Accumulating in log space is what keeps a twelve-residue loop from underflowing; the price is
+    that a saturated pair hits the boundary, so the boundary is pinned here.
+    """
+    from tcren.potts import score as score_mod
+
+    frame = pl.DataFrame({"pdb.id": ["x", "x", "y", "y"],
+                          "region.rec": ["CDR3"] * 4,
+                          "pos.par": [1, 1, 2, 2], "aa.par": ["A", "A", "G", "G"],
+                          "p_model": [1.0, 0.5, 0.25, 0.5], "sigma": [1.0, 0.0, 0.0, 0.0]})
+    # Drive the real aggregation, with the sampler stubbed out: reaching p = 1 through Gibbs takes
+    # a contrived interface, whereas the boundary itself is what needs pinning.
+    orig = score_mod.contact_probabilities
+    try:
+        score_mod.contact_probabilities = lambda *a, **k: frame
+        got = score_mod.contact_map(frame, None, by="loop").sort("pdb.id")
+    finally:
+        score_mod.contact_probabilities = orig
+    assert got["p_any"][0] == 1.0                       # saturated, not nan
+    assert np.isfinite(got["p_any"].to_numpy()).all()
+    assert got["p_any"][1] == pytest.approx(1.0 - 0.75 * 0.5)
+
+
+def test_contact_map_rejects_an_unknown_grouping():
+    from tcren.potts import contact_map
+
+    sites, model = _map_inputs(n_struct=1)
+    with pytest.raises(ValueError, match="by must be one of"):
+        contact_map(sites, model, by="residue", chains=4, burn=2, draws=2, thin=1, workers=1)
+
+
+def test_contact_map_does_not_depend_on_the_number_of_workers():
+    """Same contract as `score_sites`: `workers` is a scheduling knob, never a scientific one."""
+    from tcren.potts import contact_map
+
+    sites, model = _map_inputs(n_struct=6)
+    kw = dict(by="loop", chains=8, burn=4, draws=8, thin=1, seed=0)
+    assert contact_map(sites, model, workers=1, **kw).equals(
+        contact_map(sites, model, workers=3, **kw))

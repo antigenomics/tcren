@@ -194,6 +194,10 @@ Command line
    # per-residue-pair contact probability
    tcren potts contacts -s complex.pdb -o contacts.tsv
 
+   # close those onto the grids an experiment measures
+   tcren potts map -s complex.pdb --by loop     -o map.tsv    # CDR loop x peptide position
+   tcren potts map -s complex.pdb --by position -o import.tsv # peptide residue importance
+
 ``score`` emits one row per structure: ``energy`` (the Hamiltonian of the observed map, lower is
 more favourable), ``log_z`` and ``log_z0``, ``log_lik`` and ``psi`` (the log-likelihood, and the
 same per available pair so it compares across interfaces of different size),
@@ -203,6 +207,29 @@ same per available pair so it compares across interfaces of different size),
 couplings: ``p_independent`` from the one-body model alone, ``p_model`` the marginal of the full
 coupled model by block Gibbs (the one to use), and ``p_conditional`` =
 :math:`P(\sigma_a = 1 \mid \text{the observed rest})`.
+
+``map`` closes those pairs onto a coarser grid, which is where they become comparable with an
+experiment. The residues of one CDR loop are distinct pairs with different marginals, so the number
+of simultaneous contacts is Poisson-binomially distributed and has no closed form; the event "at
+least one" does,
+
+.. math:: P(N \ge 1) \;=\; 1 - \prod_j \left(1 - p_j\right),
+
+with :math:`p_j` the model marginal of pair :math:`j` in the group. That is the quantity a molecular
+-dynamics trajectory reports as the fraction of frames in which a loop touches a peptide position,
+so ``--by loop`` is directly comparable with a measured contact-frequency map. ``--by position``
+collapses the loops and reads how engaged each peptide residue is expected to be, before any residue
+identity is scored. Emitted columns are ``p_any`` (the frequency above), ``p_expected``
+(:math:`\sum_j p_j`, the expected number of contacts), ``n_pairs``, ``n_observed`` and ``observed``.
+The sum is accumulated in :math:`\log(1 - p)`, so a twelve-residue loop does not underflow and a
+saturated pair returns 1 exactly rather than ``nan``.
+
+These are contact **frequencies** — dimensionless, in :math:`[0, 1]`. They are not free energies and
+carry no :math:`k_\mathrm{B}T`, so they belong to the diagnostic and importance side of the model
+rather than to any energy block; ``score``'s ``neg_energy`` is the quantity with units.
+
+``score``, ``contacts`` and ``map`` all take ``--workers`` (default: every core). The per-structure
+numbers are functions of ``(seed, pdb.id)`` alone, so splitting the work changes nothing.
 
 API
 ---

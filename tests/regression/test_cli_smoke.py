@@ -240,3 +240,42 @@ def test_diagnose_refuses_a_table_with_no_confidence_column(tmp_path):
     r = CliRunner().invoke(app, ["diagnose", "--features", str(feats), "--confidence", "iptm"])
     assert r.exit_code != 0
     assert "confidence" in r.output
+
+
+@arda
+def test_potts_map_closes_the_pairs_onto_the_two_grids_a_caller_reads(tmp_path):
+    """`--by loop` is the contact-frequency map, `--by position` the residue-importance profile.
+
+    Both are aggregations of `--by pair`, so the invariant worth asserting at the CLI boundary is
+    that they agree with it: the loop grid cannot have more rows than the pair table, the position
+    grid cannot have more than the loop grid, and every frequency is a probability.
+    """
+    pytest.importorskip("arda")
+    got = {}
+    for by in ("pair", "loop", "position"):
+        out = tmp_path / f"map_{by}.tsv"
+        run("potts", "map", "-s", ASSET, "--by", by, "-o", out, "-w", "1")
+        got[by] = pl.read_csv(out, separator="\t")
+
+    assert got["pair"].height >= got["loop"].height >= got["position"].height > 0
+    for by in ("loop", "position"):
+        d = got[by]
+        assert {"pdb.id", "pos.par", "aa.par", "p_any", "p_expected", "n_pairs", "n_observed",
+                "observed"} <= set(d.columns), d.columns
+        assert d["p_any"].min() >= 0.0 and d["p_any"].max() <= 1.0
+        # p_any is P(at least one) and p_expected the expected count, so the count dominates
+        assert (d["p_expected"] >= d["p_any"] - 1e-9).all()
+        assert set(d["observed"].unique()) <= {0, 1}
+    assert "region.rec" in got["loop"].columns and "region.rec" not in got["position"].columns
+    # the peptide of 1ao7 is a 9-mer, and every position that has an available pair appears once
+    assert got["position"].height == got["position"].select("pos.par").n_unique()
+
+
+def test_potts_map_rejects_an_unknown_grouping(tmp_path):
+    """A bad --by must fail before any structure is parsed, and name the valid choices."""
+    from tcren.cli import app
+
+    res = CliRunner().invoke(app, ["potts", "map", "-s", str(ASSET), "--by", "residue",
+                                   "-o", str(tmp_path / "x.tsv")])
+    assert res.exit_code != 0
+    assert "loop|position|pair" in res.output

@@ -29,7 +29,8 @@ Reference data & potentials
     * ``tcren derive-potential`` — derive a TCRen potential from a contact-map table.
     * ``tcren potts`` — the contact map as a Boltzmann field: ``fit`` a coupled model over the
       residue pairs that *could* have contacted, ``score`` a structure's map (energy, log Z,
-      likelihood), ``contacts`` for per-residue-pair contact probabilities.
+      likelihood), ``contacts`` for per-residue-pair contact probabilities, ``map`` to close
+      those onto a loop x peptide-position frequency map or a per-residue importance profile.
     * ``tcren fetch-data`` / ``fetch-recent`` — fetch reference sets / recent RCSB TCR-pMHC entries.
     * ``tcren build-mhc-ref`` — build the IMGT/HLA + mouse MHC allele reference.
 
@@ -1713,7 +1714,8 @@ if __name__ == "__main__":
 potts_app = typer.Typer(
     add_completion=False,
     help="Coupled Potts model over the contact map: fit it, score a structure's contact map "
-         "under it, and read out per-residue-pair contact probabilities.",
+         "under it, read out per-residue-pair contact probabilities, and close them onto a "
+         "contact-frequency map or a peptide residue-importance profile.",
 )
 app.add_typer(potts_app, name="potts", rich_help_panel=_P_SCORE)
 
@@ -1870,6 +1872,7 @@ def potts_score_cmd(
     particles: int = typer.Option(64, "--particles", help="AIS particles per structure"),
     steps: int = typer.Option(256, "--steps", help="AIS annealing steps"),
     seed: int = typer.Option(0, "--seed"),
+    workers: int | None = typer.Option(None, "-w", "--workers", help="processes; default all cores"),
 ) -> None:
     """Energy, partition function and likelihood of each structure's observed contact map.
 
@@ -1883,7 +1886,8 @@ def potts_score_cmd(
 
     m = PottsModel.from_json(model) if model else PottsModel.bundled()
     pairs, _ = _potts_pairs(structures, partner, radius=m.radius, cutoff=m.cutoff)
-    scores = score_sites(pairs, m, particles=particles, steps=steps, seed=seed)
+    scores = score_sites(pairs, m, particles=particles, steps=steps, seed=seed,
+                         workers=workers)
     scores.write_csv(out, separator="\t")
     med = float(scores["ais_ess"].median())
     typer.echo(f"AIS effective sample size: median {med:.0f} of {particles}"
@@ -1902,6 +1906,7 @@ def potts_contacts_cmd(
     draws: int = typer.Option(100, "--draws"),
     thin: int = typer.Option(3, "--thin"),
     seed: int = typer.Option(0, "--seed"),
+    workers: int | None = typer.Option(None, "-w", "--workers", help="processes; default all cores"),
 ) -> None:
     """Per-residue-pair contact probability under the model, beside what the structure did.
 
@@ -1914,7 +1919,45 @@ def potts_contacts_cmd(
     m = PottsModel.from_json(model) if model else PottsModel.bundled()
     pairs, _ = _potts_pairs(structures, partner, radius=m.radius, cutoff=m.cutoff)
     probs = contact_probabilities(pairs, m, chains=chains, burn=burn, draws=draws, thin=thin,
-                                  seed=seed)
+                                  seed=seed, workers=workers)
     probs.write_csv(out, separator="\t")
     typer.echo(f"wrote {out} ({probs.height} residue pairs over "
                f"{probs['pdb.id'].n_unique()} structures)")
+
+
+@potts_app.command("map")
+def potts_map_cmd(
+    structures: Path = typer.Option(..., "-s", "--structures", help="structure file, folder or glob"),
+    out: Path = typer.Option("potts_map.tsv", "-o", "--out"),
+    model: Path | None = typer.Option(None, "-m", "--model", help="model JSON; default: bundled"),
+    by: str = typer.Option("loop", "--by", help="grouping: loop|position|pair"),
+    partner: str = typer.Option("peptide", "--partner", help="peptide|mhc|both"),
+    chains: int = typer.Option(64, "--chains", help="parallel Gibbs chains"),
+    burn: int = typer.Option(100, "--burn"),
+    draws: int = typer.Option(100, "--draws"),
+    thin: int = typer.Option(3, "--thin"),
+    seed: int = typer.Option(0, "--seed"),
+    workers: int | None = typer.Option(None, "-w", "--workers", help="processes; default all cores"),
+) -> None:
+    """Predicted contact-frequency map, and how engaged each peptide residue is.
+
+    ``--by loop`` gives one row per (structure, CDR loop, peptide position): the frequency map an
+    MD trajectory reports as the fraction of frames in which any residue of that loop touches that
+    position. ``--by position`` collapses the loops and reads peptide residue importance -- how
+    engaged the model expects each position to be, before any residue identity is scored.
+    ``--by pair`` is the ungrouped table and is exactly ``tcren potts contacts``.
+
+    ``p_any`` is ``1 - prod(1 - p)`` over the group's pairs, ``p_expected`` their sum, and
+    ``observed`` the 0/1 the structure itself made. These are frequencies, not energies.
+    """
+    from .potts import PottsModel, contact_map
+
+    if by not in ("loop", "position", "pair"):
+        raise typer.BadParameter("--by must be one of loop|position|pair")
+    m = PottsModel.from_json(model) if model else PottsModel.bundled()
+    pairs, _ = _potts_pairs(structures, partner, radius=m.radius, cutoff=m.cutoff)
+    table = contact_map(pairs, m, by=by, chains=chains, burn=burn, draws=draws, thin=thin,
+                        seed=seed, workers=workers)
+    table.write_csv(out, separator="\t")
+    typer.echo(f"wrote {out} ({table.height} rows, --by {by}, over "
+               f"{table['pdb.id'].n_unique()} structures)")
