@@ -27,6 +27,9 @@ Reference data & potentials
     * ``tcren orient`` — build a canonical database from native complexes.
     * ``tcren shuffle`` — wrong-TCR-on-real-pMHC decoys, the negatives for a recognition model.
     * ``tcren derive-potential`` — derive a TCRen potential from a contact-map table.
+    * ``tcren potts`` — the contact map as a Boltzmann field: ``fit`` a coupled model over the
+      residue pairs that *could* have contacted, ``score`` a structure's map (energy, log Z,
+      likelihood), ``contacts`` for per-residue-pair contact probabilities.
     * ``tcren fetch-data`` / ``fetch-recent`` — fetch reference sets / recent RCSB TCR-pMHC entries.
     * ``tcren build-mhc-ref`` — build the IMGT/HLA + mouse MHC allele reference.
 
@@ -1276,6 +1279,8 @@ def _score_feature_table(path: Path, out: Path) -> None:
     The whole point of splitting the two commands is that the expensive pass runs once. Everything
     here is arithmetic over an existing table -- no structure is parsed and nothing is annotated.
     """
+    import numpy as np
+
     from .cohort import P_NATIVE_CHANNELS, Q_FEATURES_GEOM, p_native, q_score
 
     sep = "," if path.suffix.lower() == ".csv" else "\t"
@@ -1321,8 +1326,118 @@ def _score_feature_table(path: Path, out: Path) -> None:
     except ValueError as exc:
         typer.echo(f"  P_native skipped: {exc}")
 
+    # S_free: the recommended single-structure score. Unlike P_native above it fits nothing at
+    # call time, so it is defined for one row and its value does not depend on what else was scored
+    # alongside it. The energy term needs `tcren potts score`, so a features-only table gets the
+    # two-block form and the message says which was emitted.
+    from .reliability import PI_FROZEN, T_FEATURES_TOPO, s_free
+    need = (*Q_FEATURES_GEOM, *T_FEATURES_TOPO)
+    absent = [c for c in need if c not in t.columns]
+    if absent:
+        typer.echo(f"  S_free skipped: missing {', '.join(absent)}")
+    else:
+        e = t[PI_FROZEN].to_numpy() if PI_FROZEN in t.columns else None
+        v = s_free(t, energy=e)
+        scores = scores.with_columns(pl.Series("S_free", v))
+        from .reliability import p_binder
+        link = "binder_bm|S_nat"
+        scores = scores.with_columns(pl.Series("p_binder", p_binder(v, link=link)))
+        typer.echo(f"  S_free: Q + T{' + ' + PI_FROZEN if e is not None else ''} in native-sd "
+                   f"units, {int(np.isfinite(v).sum())} of {len(v)} finite"
+                   + ("" if e is not None else f"  (no {PI_FROZEN} column: run `tcren potts score`"
+                      " and join it to get the energy term)"))
+        typer.echo(f"  p_binder: frozen out-of-fold Platt link {link!r}")
+
     scores.write_csv(str(out), separator="\t")
     typer.echo(f"wrote {out} ({scores.height} rows, {len(scores.columns) - 1} scores)")
+
+
+@app.command(rich_help_panel=_P_SCORE)
+def assess(
+    features_table: Path = typer.Option(..., "--features", "-f", help="a `tcren features` table (TSV/CSV)"),
+    out: Path = typer.Option("assess.tsv", "-o", "--out", help="per-structure assessment (TSV)"),
+    link: str = typer.Option("binder_bm|S_nat", "--link", help="frozen calibration link; `--list-links` to see them"),
+    band: str = typer.Option("binder_bm|ipTM", "--band", help="frozen AlphaFold band table for the diagnostic"),
+    budget: float = typer.Option(0.5, "--budget", help="recall budget for the expected-precision column"),
+    list_links: bool = typer.Option(False, "--list-links", help="print the frozen links and band tables, then exit"),
+) -> None:
+    """Assess a set of modelled complexes: reliability, ranking, and what the generator is missing.
+
+    Three blocks, one table:
+
+    * **reliability** — `S_free` and the calibrated `p_binder`, both defined for a single structure.
+    * **ranking** — rank and percentile within the set, for triage when only the order matters.
+    * **generator diagnostic** — when the table carries ipTM, `p_nonbinder_af` reads the frozen band
+      table: how often a model this confident is a non-binder, and what `S_free` still separates
+      inside that band.
+
+    This is `tcren recognize` narrowed to the shipped, single-structure-defined score and widened
+    with the two things a caller actually decides on. `recognize` remains the full read-out.
+    """
+    import numpy as np
+
+    from .reliability import (af_band, available_bands, available_links, inversion_flag,
+                              p_binder, screening_yield,
+                              PI_FROZEN, T_FEATURES_TOPO, s_free)
+    from .cohort import Q_FEATURES_GEOM
+
+    if list_links:
+        typer.echo("calibration links:")
+        for k in available_links():
+            typer.echo(f"  {k}")
+        typer.echo("band tables:")
+        for k in available_bands():
+            typer.echo(f"  {k}")
+        return
+
+    sep = "," if features_table.suffix.lower() == ".csv" else "\t"
+    t = pl.read_csv(features_table, separator=sep, infer_schema_length=None)
+    if "complex.id" not in t.columns:
+        raise typer.BadParameter(f"--features needs a 'complex.id' column; got {list(t.columns)[:6]}")
+    absent = [c for c in (*Q_FEATURES_GEOM, *T_FEATURES_TOPO) if c not in t.columns]
+    if absent:
+        raise typer.BadParameter(
+            f"missing {', '.join(absent)} — rerun `tcren features -i placement,interface,topology`")
+
+    e = t[PI_FROZEN].to_numpy() if PI_FROZEN in t.columns else None
+    v = s_free(t, energy=e)
+    pb = p_binder(v, link=link)
+    order = np.argsort(np.argsort(-np.where(np.isfinite(v), v, -np.inf)))
+    n = len(v)
+    o = pl.DataFrame({"complex.id": t["complex.id"], "S_free": v, "p_binder": pb,
+                      "rank": order + 1, "percentile": 100.0 * (1 - order / max(n - 1, 1))})
+    if e is not None:
+        o = o.with_columns(pl.Series("inversion_flag", inversion_flag(t, energy=e)))
+
+    # expected precision if you keep the top `budget` fraction -- the triage number
+    y = screening_yield(v, budget=budget)
+    k = y["n_tested"]
+    keep = np.argsort(-np.where(np.isfinite(v), v, -np.inf))[:k]
+    typer.echo(f"{n} structures; S_free = Q + T{' + ' + PI_FROZEN if e is not None else ''} "
+               f"in native-sd units, {int(np.isfinite(v).sum())} finite")
+    typer.echo(f"  p_binder via {link!r}; mean {np.nanmean(pb):.3f}")
+    typer.echo(f"  top {budget:.0%} of the set ({k} structures): "
+               f"mean p_binder {np.nanmean(pb[keep]):.3f} against {np.nanmean(pb):.3f} overall")
+
+    if "iptm" in t.columns:
+        bands = af_band(t["iptm"].to_numpy(), reference=band)
+        o = o.with_columns(
+            pl.Series("af_band", [b.get("band") for b in bands], dtype=pl.Int64),
+            pl.Series("p_nonbinder_af", [b.get("p_nonbinder") for b in bands]),
+            pl.Series("s_free_roc_in_band", [b.get("s_free_roc_in_band") for b in bands]))
+        top = [b for b in bands if b.get("band") == 9]
+        if top:
+            typer.echo(f"  generator diagnostic ({band}): {len(top)} of {n} structures sit in the "
+                       f"top confidence decile, where {top[0]['p_nonbinder']:.1%} "
+                       f"[{top[0]['ci_lo']:.1%}, {top[0]['ci_hi']:.1%}] of benchmark models are "
+                       f"NON-binders and S_free still reads "
+                       f"{top[0]['s_free_roc_in_band']:.3f} ROC-AUC")
+    else:
+        typer.echo("  no ipTM column: the generator diagnostic is skipped "
+                   "(join a metadata.tsv, or pass --metadata to `tcren features`)")
+
+    o.write_csv(str(out), separator="\t")
+    typer.echo(f"wrote {out} ({o.height} rows, {len(o.columns) - 1} columns)")
 
 
 @app.command(rich_help_panel=_P_SCORE)
@@ -1500,3 +1615,215 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+# ------------------------------------------------------------------ potts (contact-map model)
+
+potts_app = typer.Typer(
+    add_completion=False,
+    help="Coupled Potts model over the contact map: fit it, score a structure's contact map "
+         "under it, and read out per-residue-pair contact probabilities.",
+)
+app.add_typer(potts_app, name="potts", rich_help_panel=_P_SCORE)
+
+#: Structures per annotation batch — one mmseqs search per chunk rather than one per structure,
+#: with peak memory bounded on a set of a few thousand.
+_POTTS_CHUNK = 150
+
+
+def _is_alphabeta(s) -> bool:
+    """The HARD RULE, as in ``derive-potential``: αβ TCR plus a peptide, or out of scope."""
+    have = {(c.chain_type, r.region_type) for c in s.chains for r in c.regions}
+    return (("TRA", "CDR3") in have and ("TRB", "CDR3") in have
+            and any(c.chain_type == "PEPTIDE" for c in s.chains))
+
+
+def _potts_markup(s) -> dict:
+    """The redundancy-weighting inputs, exactly as ``annotate_structure_set`` builds them."""
+    def region(chain_type: str, region_type: str):
+        for c in s.chains:
+            if c.chain_type == chain_type:
+                for r in c.regions:
+                    if r.region_type == region_type:
+                        return r.sequence
+        return None
+    return {"pdb.id": s.pdb_id, "cdr3a": region("TRA", "CDR3"), "cdr3b": region("TRB", "CDR3"),
+            "peptide": next((c.sequence() for c in s.chains if c.chain_type == "PEPTIDE"), None),
+            "species": s.complex_species}
+
+
+def _potts_pairs(structures: Path, partner: str, *, radius: float, cutoff: float,
+                 organism: str = "human", alphabeta: bool = True):
+    """Available residue pairs for a structure, a folder or a glob — annotated in batches.
+
+    ``partner="mhc"`` and ``"both"`` additionally need the MHC groove regions, which chain typing
+    alone does not assign, so those paths pay one ``annotate_mhc_batch`` per chunk and require the
+    allele reference (``tcren build-mhc-ref``). The peptide-only path does not.
+
+    Returns ``(pairs, markup)``; the markup is carried out of the same pass rather than costing a
+    second annotation of the whole set when ``--balance`` needs it.
+    """
+    from .potts import available_pairs
+    from .structure import structure_id_from_path, structure_paths
+
+    paths = structure_paths(structures)
+    need_mhc = partner in ("mhc", "both")
+    parts = [partner] if partner != "both" else ["peptide", "mhc"]
+    frames, markup, kept, seen, empty = [], [], 0, 0, 0
+    for i in range(0, len(paths), _POTTS_CHUNK):
+        batch = []
+        for p in paths[i:i + _POTTS_CHUNK]:
+            try:
+                batch.append(parse_structure(p, pdb_id=structure_id_from_path(p)))
+            except Exception:  # noqa: BLE001 - an unparseable file is skipped and counted
+                seen += 1
+        if need_mhc:
+            _annotate_set(batch, organism=organism, autodetect_species=True)
+        else:
+            from .annotation.arda_adapter import _import_arda
+            from .paper.helpers import _batch_annotate
+            recs = _batch_annotate(batch, _import_arda())
+            for k, s in enumerate(batch):
+                try:
+                    classify_chains(s, organism=organism, autodetect_species=True,
+                                    precomputed_records=recs[k])
+                except Exception:  # noqa: BLE001
+                    pass
+        for s in batch:
+            seen += 1
+            if alphabeta and not _is_alphabeta(s):
+                continue
+            fr = [available_pairs(s, pt, radius=radius, cutoff=cutoff) for pt in parts]
+            fr = [f for f in fr if not f.is_empty()]
+            if not fr:
+                empty += 1
+                continue
+            frames.append(pl.concat(fr))
+            markup.append(_potts_markup(s))
+            kept += 1
+    if not frames:
+        raise typer.BadParameter(f"no available residue pairs found in {structures}")
+    df = pl.concat(frames)
+    typer.echo(f"{seen} structures seen, {kept} kept" +
+               (f" ({empty} with no residue pair inside {radius:.0f} A)" if empty else "") +
+               f"; {df.height} available pairs, {int(df['sigma'].sum())} contacts at "
+               f"{cutoff:.0f} A")
+    return df, pl.DataFrame(markup)
+
+
+@potts_app.command("fit")
+def potts_fit_cmd(
+    structures: Path = typer.Option(..., "-s", "--structures", help="structure file, folder or glob"),
+    out: Path = typer.Option("potts.json", "-o", "--out", help="model JSON"),
+    partner: str = typer.Option("peptide", "--partner", help="peptide|mhc|both"),
+    radius: float = typer.Option(15.0, "--radius", help="availability radius, A (Calpha-Calpha)"),
+    cutoff: float = typer.Option(5.0, "--cutoff", help="contact definition, A (closest heavy atom)"),
+    couplings: bool = typer.Option(True, "--couplings/--no-couplings",
+                                   help="fit the sigma-sigma kernel; --no-couplings gives the "
+                                        "factorised model, whose log Z is then exact"),
+    coupling_matrix: str | None = typer.Option(
+        None, "--coupling-matrix",
+        help="fix J to one scale on a bundled potential (tcren2|tcren|mj|mj1996|keskin) instead "
+             "of fitting 400 free cells; competing matrices then carry identical parameter counts"),
+    balance: str | None = typer.Option(
+        None, "--balance", help="down-weight structure redundancy: epitope|tcr|both"),
+    ridge: float = typer.Option(1.0, "--ridge", help="L2 penalty on every coefficient but the intercept"),
+    pairs_out: Path | None = typer.Option(None, "--pairs-out", help="also write the site table"),
+) -> None:
+    """Fit the coupled contact-map model to a set of structures.
+
+    Penalised pseudolikelihood, then a projection to the zero-sum gauge. No partition function is
+    needed to fit — the conditional of one site given the rest is an ordinary logistic regression
+    whose extra covariates are counts of contacting neighbours.
+
+    The αβ TCR:pMHC HARD RULE applies, as in ``derive-potential``: a structure missing either CDR3
+    or the peptide is out of scope and is skipped.
+    """
+    if partner not in ("peptide", "mhc", "both"):
+        raise typer.BadParameter("--partner must be one of: peptide, mhc, both")
+    from .potts import fit_potts, kernel_table
+
+    pairs, markup = _potts_pairs(structures, partner, radius=radius, cutoff=cutoff)
+    weights = None
+    if balance is not None:
+        axes = {"epitope": (("peptide",),), "tcr": (("cdr3a", "cdr3b"),),
+                "both": (("peptide",), ("cdr3a", "cdr3b"))}.get(balance)
+        if axes is None:
+            raise typer.BadParameter("--balance must be one of: epitope, tcr, both")
+        from .potential import balanced_weights
+        weights = balanced_weights(markup, axes=axes)   # markup came out of the same pass
+    model = fit_potts(pairs, radius=radius, cutoff=cutoff, couplings=couplings,
+                      coupling_matrix=coupling_matrix, weights=weights, ridge=ridge,
+                      joint=(partner == "both") or None, notes=str(structures))
+    model.to_json(out)
+    if pairs_out is not None:
+        pairs.write_csv(pairs_out, separator="\t")
+        typer.echo(f"wrote {pairs_out}")
+    typer.echo(f"{model.n_structures} structures, {model.n_sites} available pairs, "
+               f"{model.n_contacts} contacts, {model.n_parameters()} parameters, "
+               f"pseudo-logLik {model.pseudo_loglik:.1f}")
+    if model.beta_matrix is not None:
+        typer.echo(f"beta({coupling_matrix}) = {model.beta_matrix:+.3f}")
+    if couplings:
+        with pl.Config(tbl_rows=25, tbl_hide_dataframe_shape=True):
+            typer.echo(str(kernel_table(model)))
+    typer.echo(f"wrote {out}")
+
+
+@potts_app.command("score")
+def potts_score_cmd(
+    structures: Path = typer.Option(..., "-s", "--structures", help="structure file, folder or glob"),
+    out: Path = typer.Option("potts_scores.tsv", "-o", "--out"),
+    model: Path | None = typer.Option(None, "-m", "--model", help="model JSON; default: bundled"),
+    partner: str = typer.Option("peptide", "--partner", help="peptide|mhc|both"),
+    particles: int = typer.Option(64, "--particles", help="AIS particles per structure"),
+    steps: int = typer.Option(256, "--steps", help="AIS annealing steps"),
+    seed: int = typer.Option(0, "--seed"),
+) -> None:
+    """Energy, partition function and likelihood of each structure's observed contact map.
+
+    ``log Z`` is estimated by annealed importance sampling from the uncoupled model, whose
+    partition function is exact and closed form, so the reference is a verified model rather than
+    an approximation. Check ``ais_ess``: close to ``--particles`` means the schedule was long
+    enough. ``psi`` is the log-likelihood per available pair, and is the column to compare across
+    interfaces of different size.
+    """
+    from .potts import PottsModel, score_sites
+
+    m = PottsModel.from_json(model) if model else PottsModel.bundled()
+    pairs, _ = _potts_pairs(structures, partner, radius=m.radius, cutoff=m.cutoff)
+    scores = score_sites(pairs, m, particles=particles, steps=steps, seed=seed)
+    scores.write_csv(out, separator="\t")
+    med = float(scores["ais_ess"].median())
+    typer.echo(f"AIS effective sample size: median {med:.0f} of {particles}"
+               + ("  [LOW -- raise --steps]" if med < 0.3 * particles else ""))
+    typer.echo(f"wrote {out} ({scores.height} structures)")
+
+
+@potts_app.command("contacts")
+def potts_contacts_cmd(
+    structures: Path = typer.Option(..., "-s", "--structures", help="structure file, folder or glob"),
+    out: Path = typer.Option("potts_contacts.tsv", "-o", "--out"),
+    model: Path | None = typer.Option(None, "-m", "--model", help="model JSON; default: bundled"),
+    partner: str = typer.Option("peptide", "--partner", help="peptide|mhc|both"),
+    chains: int = typer.Option(64, "--chains", help="parallel Gibbs chains"),
+    burn: int = typer.Option(100, "--burn"),
+    draws: int = typer.Option(100, "--draws"),
+    thin: int = typer.Option(3, "--thin"),
+    seed: int = typer.Option(0, "--seed"),
+) -> None:
+    """Per-residue-pair contact probability under the model, beside what the structure did.
+
+    Three probabilities, and their differences are the couplings: ``p_independent`` is the one-body
+    model alone; ``p_model`` is the marginal of the full coupled model, sampled by block Gibbs, and
+    is the one to use; ``p_conditional`` is ``P(contact | the observed rest)``.
+    """
+    from .potts import PottsModel, contact_probabilities
+
+    m = PottsModel.from_json(model) if model else PottsModel.bundled()
+    pairs, _ = _potts_pairs(structures, partner, radius=m.radius, cutoff=m.cutoff)
+    probs = contact_probabilities(pairs, m, chains=chains, burn=burn, draws=draws, thin=thin,
+                                  seed=seed)
+    probs.write_csv(out, separator="\t")
+    typer.echo(f"wrote {out} ({probs.height} residue pairs over "
+               f"{probs['pdb.id'].n_unique()} structures)")

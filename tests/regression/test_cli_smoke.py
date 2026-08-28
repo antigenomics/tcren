@@ -168,3 +168,34 @@ def test_a_missing_structure_is_one_line_not_a_traceback(monkeypatch, capsys, tm
     assert exc.value.code == 1
     err = capsys.readouterr().err.strip()
     assert err.startswith("Error:") and "\n" not in err, err
+
+
+@arda
+def test_potts_score_emits_the_energy_block_that_s_free_consumes(tmp_path):
+    """The column `reliability.s_free` names as its Pi block has to be the column this writes.
+
+    It was not: 2.15.0 emitted only `energy = E(sigma)`, the opposite sign, so the three-block
+    `S_free` was unreachable from the shipped package and every caller silently fell back to two
+    blocks. The contract is a sign, so assert the sign.
+    """
+    pytest.importorskip("arda")
+    from tcren.reliability import PI_FROZEN
+
+    out = tmp_path / "potts.tsv"
+    run("potts", "score", "-s", ASSET, "-o", out)
+    df = pl.read_csv(out, separator="\t")
+    assert df.height == 1 and PI_FROZEN in df.columns, df.columns
+    assert df[PI_FROZEN][0] == pytest.approx(-df["energy"][0])
+
+
+@arda
+def test_assess_writes_the_three_blocks_a_caller_decides_on(tmp_path):
+    """`tcren assess` is the one command that turns a folder of models into a decision."""
+    pytest.importorskip("arda")
+    feats, out = tmp_path / "feats.tsv", tmp_path / "assessed.tsv"
+    run("features", "-s", ASSET, "-i", "placement,interface,topology,energetics", "-o", feats)
+    run("assess", "--features", feats, "-o", out)
+    df = pl.read_csv(out, separator="\t")
+    assert df.height == 1 and df["complex.id"][0] == "1ao7"
+    assert {"S_free", "p_binder", "rank", "percentile"} <= set(df.columns), df.columns
+    assert 0.0 < df["p_binder"][0] < 1.0

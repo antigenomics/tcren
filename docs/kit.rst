@@ -18,18 +18,32 @@ The expensive pass — parse, annotate, contact map, descriptors — runs once:
    tcren recognize  --features feats.tsv -o scores.tsv
 
 ``scores.tsv`` carries ``Q`` (interface geometry), the three channel posteriors ``G``, ``T``, ``E``,
-and ``P_native``. Join your generator's ``iptm`` / ``plddt`` on the structure-file stem if you want
-to compose with them; they are not structural quantities, so tcren does not compute them.
+``P_native``, and ``S_free`` with its calibrated ``p_binder``. Join your generator's ``iptm`` /
+``plddt`` on the structure-file stem if you want to compose with them; they are not structural
+quantities, so tcren does not compute them.
+
+For a per-structure decision rather than a score table, :doc:`reliability` documents ``tcren
+assess``, which adds the ranking and the generator diagnostic to the same input.
 
 The three questions the kit answers
 -----------------------------------
 
 **1. Does this receptor bind this epitope?**
-   ``P_native`` (:func:`tcren.cohort.p_native`) is the posterior of a latent class over three
-   channels — geometry, footprint topology, and contact energetics — fitted by expectation
-   maximization on the cohort you pass. **No binding label enters the fit.** On a two-epitope
-   TCRvdb screen it reaches macro ROC-AUC 0.832 and PR-AUC 0.849; on a 22-cohort balanced
-   real-versus-mock VDJdb benchmark, 0.718 and 0.685.
+   ``S_free`` (:func:`tcren.reliability.s_free`) is the recommended answer: three fit-free
+   directional blocks — geometry ``Q``, footprint topology ``T``, and the interface energy read
+   against the partition function — each divided by its own native spread, so they carry equal
+   weight in native-sd units. Nothing is fitted at score time, so it is **defined for a single
+   structure** and its value does not depend on what else you scored alongside it.
+   :func:`tcren.reliability.p_binder` turns it into a probability through a frozen out-of-fold
+   Platt link.
+
+   ``P_native`` (:func:`tcren.cohort.p_native`) is still emitted. It is the posterior of a latent
+   class over the same three channels, fitted by expectation maximization on the cohort you pass
+   and anchored on labelled structures from *other* cohorts, leave one epitope out — so no scored
+   structure informs the model that ranks it, but the protocol is semi-supervised rather than
+   label-free, and the published numbers (macro ROC-AUC 0.832 / PR-AUC 0.849 on a two-epitope
+   TCRvdb screen; 0.718 / 0.685 on a 22-cohort balanced VDJdb benchmark) depend on which rows the
+   fit was anchored on. It is not the recommended score.
 
 **2. Did the generator have a template, and does that matter?**
    It matters enormously, and this is the result the method exists for. Split the VDJdb benchmark
@@ -94,6 +108,6 @@ What the kit does *not* claim
 - **Not a substitute for reporting template coverage.** Nothing computable from the model announces
   which regime a cohort is in — the generator's confidence least of all — so template availability
   is a covariate to report, not one to infer. It needs only a PDB lookup on the peptide.
-- ``P_native`` is **cohort-relative**: it standardizes and fits over the set you pass. Score a whole
-  batch of candidates together, not one at a time. For a single structure, use ``Q`` against the
-  shipped crystal reference (:func:`tcren.cohort.native_reference`).
+- ``P_native`` is **cohort-relative**: it standardizes and fits over the set you pass, and raises
+  when a cohort has fewer rows than features. Score a whole batch of candidates together, not one
+  at a time. For a single structure use ``S_free``, which has none of those properties.

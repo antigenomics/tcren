@@ -173,7 +173,8 @@ def native_reference() -> dict:
     return {c: np.array([float(r[c]) for r in rows]) for c in rows[0]}
 
 
-def q_score(table, reference=None, features=Q_FEATURES_GEOM, method="z", decorrelate=True) -> np.ndarray:
+def q_score(table, reference=None, features=Q_FEATURES_GEOM, method="z", decorrelate=True,
+            signs=None) -> np.ndarray:
     r"""Interface-quality score ``Q`` — fit-free, single-structure-capable; the default binder score.
 
     The default is the **directional, decorrelated** one-class score over ``k = len(features)`` terms
@@ -204,6 +205,9 @@ def q_score(table, reference=None, features=Q_FEATURES_GEOM, method="z", decorre
         method: per-descriptor standardization, ``"z"`` (default) or ``"rank"`` — see :func:`zscore`.
         decorrelate: whiten by the native covariance and project onto :math:`\mathbf 1` (default); else
             the equal-weight mean.
+        signs: per-descriptor orientation replacing :math:`\mathbf 1`, for a block whose terms are not
+            all "higher = more native" — the topology block's footprint fraction runs the other way.
+            Length must match ``features``. ``None`` keeps :math:`\mathbf 1`.
     """
     ref = native_reference() if (decorrelate and reference is None) else reference
     Z = np.vstack([zscore(_derive(table, f), None if ref is None else _derive(ref, f), method=method)
@@ -212,7 +216,10 @@ def q_score(table, reference=None, features=Q_FEATURES_GEOM, method="z", decorre
         return np.nanmean(Z, axis=0)
     Zref = np.vstack([zscore(_derive(ref, f), None, method=method) for f in features])   # k x n_ref
     C = np.atleast_2d(np.cov(Zref))                                      # native descriptor correlation
-    w = np.linalg.pinv(C) @ np.ones(len(features))                      # C^{-1} 1: the decorrelated weights
+    sgn = np.ones(len(features)) if signs is None else np.asarray(signs, float)
+    if len(sgn) != len(features):
+        raise ValueError(f"signs has {len(sgn)} entries for {len(features)} features")
+    w = np.linalg.pinv(C) @ sgn                                          # C^{-1} s: the decorrelated weights
     return np.nansum(w[:, None] * Z, axis=0)
 
 

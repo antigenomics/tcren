@@ -193,6 +193,112 @@ QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses ar
   because every score in the package is built on it — but **do not cite it as Miyazawa–Jernigan
   1996**. See `SOURCES`.
 
+## Contact-map Potts model — `tcren.potts` / `tcren potts`
+
+Every other scoring path reads the contact map a structure **has**. This one models the map itself:
+the random variable is the whole configuration `sigma`, one binary per *available* residue pair.
+
+```
+E(sigma) = - sum_a eta_a sigma_a - 1/2 sum_ab A_ab sigma_a sigma_b ,   P(sigma) = exp(-E)/Z
+```
+
+A **site** `a = (i,j)` is a receptor residue and a partner residue whose **Calpha** atoms lie within
+`radius` (15 A); `sigma_a = 1` iff a heavy-atom contact formed within `cutoff` (5 A, the unchanged
+TCRen definition). The availability mask is **Calpha-only on purpose** — a side-chain- or
+type-aware radius would make the single-body field circular. That reference state is the point:
+a TCRen potential is a Boltzmann inversion *conditioned on a contact existing*, so a residue that
+could have reached the peptide and declined contributes nothing to it; here the non-event is the
+observable.
+
+```python
+from tcren.potts import PottsModel, available_pairs, fit_potts, score_sites, contact_probabilities
+
+pairs = available_pairs(structure)                 # or partner="mhc" (needs annotate_mhc first)
+model = PottsModel.bundled()                       # or fit_potts(pairs, weights=...)
+score_sites(pairs, model)                          # energy, log Z, log-likelihood, psi
+contact_probabilities(pairs, model)                # p_independent / p_model / p_conditional
+```
+
+```
+tcren potts fit      -s structures/ -o potts.json --balance both
+tcren potts score    -s structures/ -o scores.tsv          # bundled model by default
+tcren potts contacts -s complex.pdb -o contacts.tsv
+```
+
+**Fitting needs no partition function.** `P(sigma_a | rest)` is logistic in
+`eta_a + sum_k K_k n_k(a)` with `n_k(a)` the count of contacting neighbours in coupling class `k`,
+so the coupled fit is a weighted-binomial GLM with a few extra integer covariates and stays convex
+(Besag pseudolikelihood; consistency arXiv:1010.0311, same recipe as plmDCA arXiv:1211.1281).
+**Scoring does**, and its reference is exact: `ais_log_z` anneals only the coupling term from
+`beta = 0`, where the model IS the uncoupled one and `log Z_0 = sum_a log(1+exp(eta_a))` in closed
+form. **Always read `ais_ess`** — effective sample size out of `--particles`; small means the
+schedule was too short.
+
+**Gauge: penalise then project.** The design is over-parametrised and identified by an L2 ridge,
+*then* projected to zero-sum. An L2 penalty silently picks its own gauge (plmDCA flags this), so
+the projection is a separate step, never a constraint. After it, `J` is directly comparable with a
+double-centred `Potential`.
+
+**Three coupling families**, all on sequence offsets so no extra coordinates are needed:
+`K(di,dj)` within one loop (`|di|,|dj| <= 2`, 12 classes), `L(|dj|, same chain?)` across two
+hypervariable loops (6), and `M` for the same receptor residue against both partners (1, joint
+models only). Everything else is asserted uncoupled.
+
+**The result to know.** On the 362 alpha-beta Native2026 crystals every **axial** class is positive
+and every **off-axis** class negative — `K(+1,0) = +0.79`, `K(0,+1) = +0.66` against
+`K(+1,+1) = -0.82`, `K(+1,-1) = -0.81`. A made contact recruits its own sequence neighbours onto
+the *same* partner residue and suppresses the diagonal one. **This is invisible in raw data**: the
+diagonal offsets look positive unconditionally (odds ratio +1.43) and only turn negative once the
+axial terms and the Calpha distance profile are held fixed. The couplings buy +505.7 nats of
+pseudo-log-likelihood for 18 parameters.
+
+**`--coupling-matrix` is the fair way to compare potentials.** It fixes `J` to one scale on a
+bundled matrix, so competitors carry identical parameter counts and identical designs and their
+pseudo-log-likelihoods compare directly; and because the matrix is double-centred it contributes
+nothing to the one-body marginals, so the 40 field parameters absorb all composition content in
+every fit and the comparison is about **pair structure alone**. Measured on Native2026, the ranking
+**inverts** between interfaces: TCRen2 beats MJ by 103.3 nats on TCR:peptide, MJ beats TCRen2 by
+35.5 nats on the TCR:MHC groove, and TCRen2's fitted scale falls 5.4-fold across that move
+(+1.131 -> +0.209) while MJ's barely moves (+0.803 -> +0.974). That is the measurement behind
+scoring `F_tcr_mhc` with MJ and reserving TCRen for TCR:peptide — **do not reuse TCRen2 on the
+groove.**
+
+**Two bundled models**, `PottsModel.bundled("potts_tcr_peptide")` (the default, 64,622 sites /
+7,865 contacts) and `"potts_tcr_mhc"` (239,093 / 15,451 — the TCR makes twice as many contacts with
+the MHC as with the peptide). Both carry the alpha-beta HARD RULE, as `derive-potential` does.
+
+**Bound versus unbound** (`bound_unbound`, `count_profile`, 2.14.0). `E(empty) = 0`, so the scores
+`score_sites` already emits decompose exactly:
+
+```
+-E(sigma_obs)  =  log Z  +  L(sigma_obs)
+[binding log-odds]  [capacity]  [typicality]
+```
+
+`bound_unbound` gives three readings of the whole-interface two-state contrast from ONE Gibbs pass:
+`df_empty` = `log(Z - 1)`, exact; `df_threshold` = `log[P(N>=x)/P(N<x)]`, in which `Z` cancels so no
+AIS is needed; and `mu_star`, the chemical potential at which the model's mean contact count matches
+the observed one (`nan` outside the sampled support — that is not a failure, it is refusing to
+extrapolate). They are not competing estimates: no sampler reaches `N = 0` for a docked pose, so
+`df_empty` must come from `log Z`. `count_profile` gives the pooled `F(N) = -log p(N)` landscape, so
+a threshold is read off it rather than assumed.
+
+**Constraining a statistic of the whole configuration.** `gibbs(..., observer=fn)` calls `fn` on
+each kept draw with the `(chains, n)` configuration matrix — that is the hook for accumulating the
+kind of statistic a Lagrange multiplier couples to (Jaynes; Tkacik et al. 2014's K-pairwise model is
+this with `O` = the total activity). Because such a statistic depends on sigma only through a
+low-dimensional summary, one sampling pass serves every step of a moment-matching fit: reweight with
+`tilt_mean` rather than resampling. A LINEAR tilt in `N` is exactly a constant added to every field,
+`E - mu N = -(eta + mu).sigma`, which is what makes the reweighting checkable against direct
+simulation.
+
+**Gotchas.** `partner="mhc"` needs the groove regions, which chain typing alone does not assign —
+run `annotate_mhc` / `annotate_mhc_batch` first or every MHC residue is silently dropped for want
+of a within-region coordinate. Distance-bin edges are **global** (base 0), never derived from a
+frame's own minimum, or a model fitted on one set indexes the wrong coefficients on another.
+`psi` (log-likelihood per available pair), not `log_lik`, is the column to compare across
+interfaces of different size.
+
 ## Ring stacking — `tcren.stacking.ring_stacking` (geometry, NOT an energy)
 
 - A contact potential scores a pair by identity alone, so two rings face-to-face at 3.5 Å score the
@@ -392,6 +498,84 @@ QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses ar
   - Keep the feature count small: the BIC hill climb is quadratic (0.01 s at 18 features on 618
     rows, 1.7 s at 40, **45 s at 89**). `P_NATIVE_FEATURES` is the compact default, keyed by
     FAMILY; `_channel_columns(channel)` resolves a channel through the pool.
+
+## Single-structure reliability — `tcren.reliability` / `tcren assess`
+
+**`P_native` is not the score to ship.** `cohort.p_native` refits a latent-class model on every
+call and **raises when a cohort has fewer rows than features**, so it is undefined for one structure
+and its value depends on what else was scored alongside it. Use `S_free`.
+
+```python
+from tcren.potts import score_sites, available_pairs, PottsModel
+from tcren.reliability import s_free, p_binder, af_band
+
+potts_scores = score_sites(available_pairs(structure), PottsModel.bundled())  # writes neg_energy
+v = s_free(feature_table, energy=potts_scores["neg_energy"])   # energy optional
+p = p_binder(v, link="binder_bm|S_nat")                        # frozen out-of-fold Platt
+b = af_band(meta["iptm"], reference="binder_bm|ipTM")          # the generator diagnostic
+```
+
+`S_free = Q/sd_Q + T/sd_T + (Pi - mu)/sd_Pi`. Three fit-free directional blocks `z(x)' C^-1 s` over
+the Native2026 crystals, each divided by its own native spread.
+
+**The outer transform is a DIVIDE, not a z.** A block score's native mean is 0 by construction, so
+re-centring is a no-op; its variance is `s' C^-1 s`, which is not 1 — measured 1.43 (`Q`), 1.61
+(`T`), 14.13 (`Pi`). Without the division the energy would carry ten times the weight of the
+geometry. Equal weight *in native-sd units* is the claim.
+
+`Pi` is `neg_energy` from `tcren.potts`, the interface energy read against the partition function
+rather than a poly-alanine reference. It is the frozen choice because it is the **least redundant
+with `Q`** of the five ways of spending `-E = log Z + L`: native Pearson +0.33, against +0.75 for
+the contact count and +0.51 for `log Z`. Pass `energy=None` and the two-block form is returned —
+still defined, and reported as such rather than imputed.
+
+`t_score` is new and is the block that **survives without a template**: on the balanced VDJdb panel
+`T` loses 0.06 ROC-AUC where the epitope has no solved complex, against `Q`'s 0.24. It needs
+`q_score(..., signs=T_SIGNS)`, because the footprint's connected-component fraction at 7 A runs the
+other way from the rest.
+
+**Calibration is per-link and the name is a contract.** `p_binder`'s links were fitted out of fold
+and each expects the score its name carries; handing a raw `S_free` to a `min rank%(...)` link is a
+category error, not a rescaling. `available_links()` / `available_bands()` list what ships.
+
+```
+tcren features -s models/ -i placement,interface,topology,energetics -o feats.tsv
+tcren potts   score -s models/ -o potts.tsv        # writes neg_energy, keyed on pdb.id
+# join potts.tsv's neg_energy onto feats.tsv on the structure id, then:
+tcren assess --features joined.tsv -o assessed.tsv
+```
+
+**Gotcha.** `tcren features` does not compute `neg_energy` — it comes from `tcren potts score` and
+has to be joined. Skip the join and `assess` emits the two-block `Q + T` form; it says so in its
+report, so read the first line rather than assuming three blocks.
+
+**The forced-pose flag — why a confident model can be wrong in a readable way.** A generator pushed
+into a confident but wrong pose does not build a random interface. To seat the chains it picks
+residue pairs it believes are favourable, so the recognition energy comes out *good* — often better
+than a genuine complex of the same epitope. The energy **inverts** under forcing instead of
+degrading: on a 24-cohort forced-pose panel (1,707 structures) it reads macro ROC-AUC **0.4952** and
+is below 0.5 in **15 of 24 cohorts**, where ipTM reads 0.6093.
+
+```python
+from tcren.reliability import inversion_flag, screening_yield
+f = inversion_flag(feature_table, energy=potts_scores["neg_energy"])  # NaN without the energy
+y = screening_yield(v, budget=0.10, prevalence=0.48)   # what testing the top 10% implies
+```
+
+`inversion_flag` is the energy block minus the mean of the two shape blocks, in native-sd units.
+Large positive = the energy is vouching for a structure the footprint does not, which is the pattern
+to distrust; a generator fakes favourable contacts far more easily than a well-formed footprint.
+It ranks and triages — it is not calibrated, `p_binder` is.
+
+`screening_yield` returns the cut only: how many structures, at what threshold and percentile, plus
+`expected_hits` under a stated prevalence. **Enrichment over random is not returned** — it needs
+labels the function does not have, and a NaN there would read like a measurement.
+
+`assess` emits three blocks: reliability (`S_free`, `p_binder`), ranking within the set (rank,
+percentile, expected precision at a recall budget), and — when the table carries ipTM — the
+generator diagnostic (`af_band`, `p_nonbinder_af`, `s_free_roc_in_band`). The last column is the
+actionable one: on the balanced VDJdb panel the **top ipTM decile is 26.2 %** [18.7, 35.5]
+**non-binders**, and is also the band where `S_free` reads highest.
 
 ## Footprint shape — `tcren.footprint` / `tcren footprint`
 

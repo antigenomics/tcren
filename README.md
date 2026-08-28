@@ -51,6 +51,8 @@ From one TCR–peptide–MHC structure (crystal or model), each task is one comm
 | **Every interface descriptor, in five families (four by default)** | `tcren features` | `recognition_table(include=...)`, `descriptors` |
 | **All interface descriptors + joint P(real)** | `tcren recognize` | `recognition_features`, `real_probability` |
 | **P(native)** — the channels combined by a latent-class Bayes network | `tcren recognize --features` | `cohort.p_native` |
+| **Is *this* model worth believing?** — `S_free`, a calibrated `p_binder`, and the generator diagnostic | `tcren assess` | `reliability.s_free`, `p_binder`, `af_band` |
+| **The contact map as a probability model** — energy, partition function, per-pair contact probability | `tcren potts fit` / `score` / `contacts` | `potts.fit_potts`, `score_sites`, `contact_probabilities` |
 | Three-interface energy Φ, poly-Ala ΔΦ, interface geometry | `tcren scoring` | `run_pipeline` |
 | Annotate chains + region markup | `tcren annotate` | `classify_chains`, `annotate_mhc` |
 | Interface contact table (5/8/12 Å) | `tcren contacts` | `ContactMap`, `multi_contacts` |
@@ -285,8 +287,36 @@ tcren recognize -s my_pdbs/ -o scored.tsv --mechanics      # + the spring-networ
 | **(a) energy** — `F` per interface (TCRen on TCR:peptide, MJ on presentation) + poly-alanine `dF` + loop parts | `F_tcr_pep`, `F_tcr_mhc`, `F_pep_mhc`, `dF_tcr_pep`, `dF_pep_mhc`, `F_cdr12`, `F_cdr3a`, `F_cdr3b` |
 | **(a′) intra-peptide** (`--full`) — the peptide's contacts with *itself*, which every interface sum omits | `F_pep_int`, `n_pep_int` |
 | **(b) geometry** — every docking + interface descriptor | `pitch`, `crossing`, `crossing_signed`, `dock_d`, `dock_torsion`, `dock_{tcr,mhc}_u{y,z}`, `extent`, `chain_balance`, `burial`, `n_contacts_{tp,tm}`, `n_pep_contacted`, `ct_{tp,tm}_*` |
-| **(c) cohort scores** — no training set, no binding label; written by `tcren recognize --features`, not by `-s` | `Q` — interface quality; `G` / `T` / `E` — the geometry, topology and energetics channels on their own; `P_native` — the three combined. See [`tcren.cohort`](src/tcren/cohort.py) |
+| **(c) cohort scores** — no training set, no binding label; written by `tcren recognize --features`, not by `-s` | `Q` — interface quality; `G` / `T` / `E` — the geometry, topology and energetics channels on their own; `P_native` — the three combined; `S_free` and its calibrated `p_binder`. See [`tcren.cohort`](src/tcren/cohort.py), [`tcren.reliability`](src/tcren/reliability.py) |
 | **(d) joint P(real)** ~ Bayesian model over energy + geometry | `p_real` — distribution-aware Bayesian **logistic** (5-fold CV AUC 0.885); `p_real_bn` — the Gaussian **BN** variant |
+
+### Is *this* model worth believing? — `tcren assess`
+
+A co-folding model will seat any TCR against any peptide. `assess` answers the three questions a
+caller actually has about one structure, from coordinates alone:
+
+```bash
+tcren features -s models/ -i placement,interface,topology,energetics -o feats.tsv
+tcren potts   score -s models/ -o potts.tsv            # writes neg_energy, the energy block
+# join potts.tsv's neg_energy onto feats.tsv on the structure id, then:
+tcren assess --features joined.tsv -o assessed.tsv
+```
+
+- **Reliability** — `S_free` = `Q/sd_Q + T/sd_T + (Pi - mu)/sd_Pi`, three fit-free directional
+  blocks each divided by its own native spread, so they carry equal weight in native-sd units.
+  Nothing is fitted at score time, so **it is defined for a single structure**. `p_binder` turns it
+  into a probability through a frozen out-of-fold Platt link.
+- **Ranking** — the structure's rank and percentile inside the set, and the expected precision at a
+  recall budget.
+- **The generator diagnostic** — which AlphaFold confidence band the model falls in, how often
+  models in that band turned out to be non-binders, and what `S_free` still separates *inside* it.
+  On a balanced 22-cohort VDJdb panel the top ipTM decile is 26.2% [18.7, 35.5] non-binders, and is
+  also the band where `S_free` reads highest.
+
+Without the joined `neg_energy` column `assess` emits the two-block `Q + T` form and says so in its
+report rather than imputing the missing block. `P_native` is still emitted by `recognize`, now
+documented as cohort-refit and not the recommended score: it refits per call, raises when a cohort
+has fewer rows than features, and its value depends on what else was scored alongside it.
 
 **Where the joint model lives.** `p_real` is the frozen recognizer we derive from real crystals vs
 wrong-TCR *shuffled* decoys: code in [`tcren.recognition`](src/tcren/recognition.py)

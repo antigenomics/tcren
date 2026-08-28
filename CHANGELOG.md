@@ -3,6 +3,196 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
+## [2.16.0] — 2026-08-28
+
+**The two questions a score does not answer.** `S_free` says how native-like an interface looks.
+It does not say *why* to distrust a confident one, and it does not say what testing the top of the
+ranking would actually return. Both are read off things already computed.
+
+### Added
+
+- `tcren.reliability.inversion_flag` — the forced-pose detector. A generator pushed into a
+  confident but wrong pose does not produce a random interface: to seat the chains it selects
+  residue pairs it believes are favourable, so the recognition energy comes out **good**. The
+  energy inverts under forcing rather than degrading. Measured on a 24-cohort forced-pose panel
+  (1,707 structures) the TCR:peptide energy reads macro ROC-AUC 0.4952 and is below 0.5 in **15 of
+  24 cohorts**, where ipTM reads 0.6093. The flag is the energy block's native-sd score minus the
+  mean of the geometry and topology blocks: large positive is an energy vouching for a structure
+  the shape does not. Needs the `neg_energy` term; returns NaN without it rather than scoring.
+- `tcren.reliability.screening_yield` — the cut a testing budget implies: how many structures, at
+  what score threshold and what percentile, plus the hits a blind test of that slice would return
+  under a stated prevalence. Enrichment over random is deliberately **not** returned: it needs
+  labels this function does not have, and a NaN would read like a measurement.
+- `tcren assess` emits `inversion_flag` whenever the input carries the energy term, and takes its
+  triage cut from `screening_yield` rather than an inline rounding.
+- `tcren.ddg.ddg` takes `weights=`, the per-contact multiplier `tcren.scoring.score_peptides`
+  already accepted, so a substitution can be scored against a contact **probability** —
+  `tcren.potts.contact_probabilities`' `p_model`, or a rotamer-averaged occupancy — instead of the
+  map's hard 0/1 indicator. It is dropped on a rebuilt mutant map, whose rows no longer align with
+  the native's, rather than silently mis-applied.
+
+## [2.15.0] — 2026-08-28
+
+**A score you can put on one structure, and a number you can read as a probability.** `P_native`
+refits a latent-class model per call, raises when a cohort has fewer rows than features, and its
+published numbers depend on which rows the fit was anchored on. `S_free` has none of those
+properties, and `tcren assess` is the command that turns a folder of models into the three things a
+caller decides on.
+
+### Added
+
+- `tcren.reliability` — `s_free`, the recommended single-structure binder score:
+  `Q/sd_Q + T/sd_T + (Pi - mu)/sd_Pi`, three fit-free directional blocks `z(x)' C^-1 s` over the
+  Native2026 crystals, each divided by its own native spread. **The outer transform is one divide,
+  not a z**: a block score's native mean is 0 by construction, but its variance is `s' C^-1 s`
+  (1.43 for `Q`, 1.61 for `T`, 14.13 for `Pi`), so without the division the energy would carry ten
+  times the weight of the geometry. `Pi` is `neg_energy` from `tcren.potts` — the interface energy
+  read against the partition function rather than a poly-alanine reference, and the least redundant
+  with `Q` of the five ways of spending `-E = log Z + L` (native Pearson +0.33, against +0.75 for
+  the contact count).
+- `tcren.reliability.t_score` — the topology block, the SHAPE of the contact set free of its size.
+  It is the block that survives where the geometry block does not: on the balanced VDJdb panel `T`
+  loses 0.06 ROC-AUC when the epitope has no solved complex to template on, against `Q`'s 0.24.
+- `tcren.reliability.p_binder` and `af_band` — **ten** frozen out-of-fold calibration links
+  (Platt, leave-one-epitope-out on the 22-cohort panel and within-epitope 5-fold on TCRvdb): the
+  five scores `S_nat`, `ipTM`, `pLDDT`, `z(ipTM)+z(pLDDT)+z(S_nat)` and `min rank%(ipTM, S_nat)`,
+  each under both the `binder_bm|` and `tcrvdb|` benchmarks. **Four** confidence-band tables behind
+  the generator diagnostic — ipTM *and* pLDDT, under both benchmarks. `available_links()` and
+  `available_bands()` list them; a value outside a band table's range clamps rather than
+  extrapolating.
+- `tcren.reliability.moments` — the accessor for every frozen constant above.
+- `tcren.reliability.reliability_reference` — the four geometry and five topology descriptors plus
+  the Potts energies over the 369 complete-case Native2026 crystals, so a single user structure can
+  be standardized against the crystal manifold for all three blocks at once.
+- **`tcren assess`** — reliability (`S_free`, `p_binder`), ranking within the set (rank, percentile,
+  expected precision at a recall budget), and the generator diagnostic (`af_band`,
+  `p_nonbinder_af`, and what `S_free` still separates INSIDE that band). On the balanced VDJdb panel
+  the top ipTM decile is 26.2% [18.7, 35.5] non-binders and is also where `S_free` reads highest.
+- `tcren recognize --features` emits `S_free` and `p_binder` beside the existing columns. When the
+  table carries no `neg_energy` the two-block form is emitted and the message says so, rather than
+  imputing the energy silently.
+- `tcren.cohort.q_score` takes `signs=`, the per-descriptor orientation replacing `1`. It is what
+  lets a block carry a term that runs the other way — the topology block's footprint fraction.
+- Two shipped data files behind all of the above: `src/tcren/data/reliability_reference.csv`
+  (the 369 complete-case Native2026 crystals, nine block descriptors plus the Potts energies) and
+  `src/tcren/data/reliability_moments.json` (the block moments, the ten Platt links and the four
+  band tables). Neither is refitted at call time, so a score computed today means what it meant
+  when the paper was written.
+- `tcren.potts.score_sites` and `bound_unbound` now also emit **`neg_energy`**, the sign-corrected
+  interface energy. It is the `Pi` block `s_free` reads, and it is the column
+  `docs/reliability.rst` and `SKILL.md` tell you to join — before this, only `energy` (the opposite
+  sign) was written, so the three-block `S_free` was unreachable from the shipped package and every
+  caller silently fell back to the two-block form. `tests/regression/test_cli_smoke.py` now runs
+  `potts score` → `assess` and asserts the sign, which is the check that was missing.
+
+### Notes
+
+`P_native` is still emitted and still documented, now as cohort-refit and not the recommended
+score. Nothing about it changed; what changed is that there is an alternative defined at n = 1.
+
+`pyproject.toml` goes `2.12.1` → `2.15.0` in one step: 2.13.0 and 2.14.0 are recorded here for the
+work they contain but were never uploaded, so no `tcren info` ever reported them.
+
+## [2.14.0] — 2026-08-28
+
+**Bound versus unbound, for the whole interface.** `eta_a` is the free energy between a single
+site's two states; the same contrast for the whole interface needs a macrostate, and the contact
+count `N(sigma)` defines one. Because `E(empty) = 0` exactly, three readings of that contrast come
+out of the model already fitted, and one Gibbs pass serves all of them — every tilt in `N` is an
+exponential family, so the tilted expectation is a reweighted average over draws taken at zero
+tilt.
+
+### Added
+
+- `tcren.potts.bound_unbound` — `df_empty` = `log(Z - 1)`, the exact two-state contrast against the
+  empty configuration; `df_threshold` = `log[P(N >= x)/P(N < x)]`, in which `Z` cancels; and
+  `mu_star`, the chemical potential at which the model's mean contact count matches the observed
+  one. `nan` outside the sampled support rather than a silent extrapolation.
+- `tcren.potts.count_profile` — the pooled free-energy profile `F(N) = -log p(N)` along the contact
+  count, beside the observed counts, so a threshold is read off the landscape rather than assumed.
+- `tcren.potts.tilt_mean`, `mu_star`, `count_free_energy`, `delta_f_empty`, `delta_f_threshold` —
+  the underlying reweighting and histogram primitives.
+- `tcren.potts.gibbs` takes an optional `observer` callback, invoked on each kept draw with the
+  `(chains, n)` configuration matrix. It exists so that a statistic of *whole configurations* — the
+  kind a Lagrange multiplier couples to in Jaynes' construction — can be accumulated during
+  sampling without materialising every draw. Default `None`; no behaviour change when unset.
+
+### Notes
+
+- A **linear** tilt in `N` is exactly a constant added to every field, `E - mu N = -(eta + mu).sigma`,
+  so the reweighting identity is checked against direct simulation in `tests/unit/test_potts.py`
+  rather than assumed. `delta_f_empty` is checked against exact enumeration of all `2^12`
+  configurations.
+- `df_empty` and `df_threshold` are not two estimates of one quantity. The unbound basin of a
+  *docked* pose is astronomically improbable — the model is conditioned on an available set that
+  already holds the receptor against the peptide — so no sampler reaches `N = 0` and only the
+  `log Z` route gives it.
+
+## [2.13.0] — 2026-08-28
+
+**The contact map itself becomes a model.** Every scoring path in `tcren` reads a contact map that
+a structure *has*; `tcren.potts` models the map as a random variable. A **site** is a residue pair
+whose Cα atoms lie within 15 Å — a pair that *could* have contacted — and the configuration σ says
+which of them did:
+
+```
+E(σ) = -Σ_a η_a σ_a - ½ Σ_ab A_ab σ_a σ_b ,   P(σ) = exp(-E(σ))/Z
+```
+
+That reference state is the point. A TCRen potential is a Boltzmann inversion conditioned on a
+contact *existing*, so a residue that could have reached the peptide and declined contributes
+nothing to it. Here the non-event is the observable, which is what lets the one-body fields
+separate reach from chemistry.
+
+### Added
+
+- `tcren.potts` — `PottsModel`, `available_pairs`, `fit_potts`, `score_sites`,
+  `contact_probabilities`, `sample_maps`, `score_structure` (the one-shot wrapper: enumerate one
+  structure's pairs and score them), `connected_correlations` (the two-point generative check) and
+  `kernel_table` (the coupling coefficients with cluster-robust s.e., what `potts fit` prints),
+  plus the numerics (`irls`, `gauge`, `gibbs`, `ais_log_z`, `exact_log_z`, `colour`,
+  `centred_potential`). Docs: `docs/potts.rst`.
+- `tcren potts fit` / `score` / `contacts` — fit a model from structures, get each structure's
+  energy, partition function and likelihood, and read out per-residue-pair contact probabilities.
+  `--partner peptide|mhc|both`, `--coupling-matrix`, `--balance`, `--no-couplings`.
+- Two bundled models, shipped as `src/tcren/data/potts_tcr_peptide.json` and
+  `potts_tcr_mhc.json`: `potts_tcr_peptide` (the default; 362 αβ Native2026 crystals, 64,622 sites,
+  7,865 contacts) and `potts_tcr_mhc` (239,093 sites, 15,451 contacts). Both reproduce from the
+  CLI: `tcren potts fit -s data/Native2026 --balance both -o …`.
+
+### What it measures
+
+- **Contacts are strongly dependent, and the sign flips off-axis.** On the crystals every axial
+  coupling is positive and every off-axis one negative: `K(+1,0) = +0.792 ± 0.057`,
+  `K(0,+1) = +0.656 ± 0.053` against `K(+1,+1) = -0.816 ± 0.064` and `K(+1,-1) = -0.812 ± 0.066`
+  (log-odds per contacting neighbour, s.e. clustered on the structure). A made contact recruits its
+  own sequence neighbours onto the *same* partner residue and suppresses the diagonal one. The
+  couplings buy +505.7 nats of pseudo-log-likelihood for 18 parameters. Unconditionally the
+  diagonal offsets look *positive* — the negative sign appears only once the axial terms and the
+  Cα distance profile are held fixed.
+- **P(contact) ∝ TCRen, with a scale.** Fixing J to one coefficient on the double-centred TCRen2
+  matrix — 1 parameter against 400 — gives `β = +1.131 ± 0.062` and costs 103.9 nats. The shipped
+  potential is already at very nearly the right temperature on the log-odds axis.
+- **Which potential belongs on which interface.** `--coupling-matrix` gives every candidate an
+  identical parameter count and design, and the double-centring means none of them can win on
+  composition. The ranking **inverts**: TCRen2 beats MJ by 103.3 nats on TCR:peptide; MJ beats
+  TCRen2 by 35.5 nats on the TCR:MHC groove, where TCRen2's scale falls 5.4-fold (+1.131 → +0.209)
+  while MJ's barely moves (+0.803 → +0.974). This is the measurement behind scoring `F_tcr_mhc`
+  with Miyazawa–Jernigan and reserving TCRen for TCR:peptide — that default was a judgement call
+  and is now a number.
+
+### Numerics
+
+Fitting is penalised pseudolikelihood and needs **no partition function**: the conditional of one
+site given the rest is a logistic regression whose extra covariates are counts of contacting
+neighbours, so it is convex. Scoring needs `Z`, and gets it by annealed importance sampling that
+anneals *only* the coupling term — at β = 0 the model is the uncoupled one, whose
+`log Z₀ = Σ log(1 + e^η)` is exact, so the reference is a verified model, not an approximation.
+Transitions are block Gibbs on a greedy colouring of the real coupling graph, with conditional
+independence asserted against the edge lists rather than argued. Verified against exact enumeration
+of all 2¹³ configurations (within 0.12 nat at couplings up to ±1.5) and against the closed form at
+zero coupling (marginals to 0.02, `log Z` to 1e-12).
+
 ## [2.12.1] — 2026-08-27
 
 **An installed wheel could not find its reference data.** Every on-disk root was derived from the

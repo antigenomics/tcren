@@ -27,6 +27,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
+import numpy as np
 import polars as pl
 
 from .contactmap import ContactMap, Interface
@@ -47,11 +48,12 @@ def _score_one(
     interface: Interface,
     tcr_regions: str,
     contact_weight: str = "residue",
+    weights: "np.ndarray | None" = None,
 ) -> float:
     """Score a single peptide and return its scalar energy."""
     res = score_peptides(
         contact_map, [peptide], potential, interface=interface,
-        tcr_regions=tcr_regions, contact_weight=contact_weight,
+        tcr_regions=tcr_regions, contact_weight=contact_weight, weights=weights,
     )
     if res.height == 0:
         raise ValueError(
@@ -82,6 +84,7 @@ def ddg(
     structure: Structure | None = None,
     cutoff: float = 5.0,
     sidechain: bool = False,
+    weights: np.ndarray | None = None,
 ) -> float:
     """ΔΔG of a peptide mutation as ``E(native) - E(mutant)``.
 
@@ -102,6 +105,14 @@ def ddg(
             is ``None``, in which case ``contact_map``'s own cutoff applies.
         sidechain: Passed to the rebuilt contact map, so a caller filtering on side-chain
             participation filters the mutant by the *mutant's* reach and not the native's.
+        weights: An explicit per-contact multiplier, one value per row of the selected interface
+            and in its row order, forwarded to :func:`tcren.scoring.score_peptides`. Its use here
+            is to replace the map's hard 0/1 contact indicator with a contact **probability** --
+            :func:`tcren.potts.contact_probabilities`' ``p_model``, or a rotamer-averaged
+            occupancy -- so a substitution is scored against how often each pair actually touches
+            rather than against one frozen snapshot of whether it did. ``None`` (default) leaves
+            the result byte-identical. Ignored on a rebuilt mutant map (``structure=`` given),
+            whose rows are its own and no longer align with the native's.
 
     Returns:
         ``E(native) - E(mutant)``; positive means the mutant has the LOWER energy, i.e. the
@@ -112,12 +123,15 @@ def ddg(
     if interface not in _PEPTIDE_INTERFACES:
         return 0.0
     e_native = _score_one(
-        contact_map, native, potential, interface, tcr_regions, contact_weight
+        contact_map, native, potential, interface, tcr_regions, contact_weight, weights
     )
     mutant_map = (contact_map if structure is None
                   else _mutant_map(structure, mutant, cutoff, sidechain))
+    # A rebuilt mutant has its own contact rows, so a weight vector indexed on the native map
+    # would be silently misaligned; drop it rather than mis-apply it.
     e_mutant = _score_one(
-        mutant_map, mutant, potential, interface, tcr_regions, contact_weight
+        mutant_map, mutant, potential, interface, tcr_regions, contact_weight,
+        weights if structure is None else None
     )
     return e_native - e_mutant
 

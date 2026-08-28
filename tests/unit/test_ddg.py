@@ -174,3 +174,21 @@ def test_neoantigen_ddg():
     assert df["mutant"].to_list() == mutants
     assert df.filter(pl.col("mutant") == "AGA")["ddG"][0] == pytest.approx(2.5)
     assert df.filter(pl.col("mutant") == "AGK")["ddG"][0] == pytest.approx(0.0)
+
+
+def test_ddg_contact_weights_scale_the_virtual_path():
+    """`weights` is what lets a contact PROBABILITY replace the map's 0/1 indicator, which is how
+    a Potts `p_model` scan enters. Two contracts: all-ones is byte-identical to the default, and a
+    uniform w scales ddG by exactly w, because the energy is linear in the per-contact weight."""
+    import numpy as np
+
+    cm, pot = _toy_contact_map(), _toy_potential()
+    native, mutant = "AGK", "AGA"
+    n_rows = cm.interface("tcr_peptide").height
+
+    base = ddg(cm, native, mutant, pot)
+    assert base != 0.0, "the toy mutation has to move the energy for this to test anything"
+    assert ddg(cm, native, mutant, pot, weights=np.ones(n_rows)) == pytest.approx(base)
+    for w in (0.5, 2.0):
+        got = ddg(cm, native, mutant, pot, weights=np.full(n_rows, w))
+        assert got == pytest.approx(w * base), (w, got, base)

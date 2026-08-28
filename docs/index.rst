@@ -23,8 +23,13 @@ What tcren does
   (virtual-matrix, no re-docking).
 * **Interface descriptors** — ``features``: one flat per-structure table, in five invariance
   families, four of them computed by default (see :doc:`features`).
-* **Recognition scores** — ``recognize``: ``Q``, the three channel posteriors ``G`` / ``T`` / ``E``
-  and ``P_native``, from a feature table or straight from structures (see :doc:`kit`).
+* **Recognition scores** — ``recognize``: ``Q``, the three channel posteriors ``G`` / ``T`` / ``E``,
+  ``P_native``, and ``S_free`` with its calibrated ``p_binder``, from a feature table or straight
+  from structures (see :doc:`kit`).
+* **Single-structure reliability** — ``assess``: is *this* generated model worth believing?
+  ``S_free`` and a calibrated ``p_binder``, the structure's rank inside the set, and the generator
+  diagnostic — which AlphaFold confidence band it falls in, how often models in that band are
+  non-binders, and what ``S_free`` still separates inside it (see :doc:`reliability`).
 * **Annotation & contacts** — ``annotate`` / ``contacts``: TCR CDR/FR, MHC groove helices/floor and
   peptide markup; multi-layer (5/8/12 Å) contact tables.
 * **Canonical orientation** — ``orient`` / ``superimpose``: one common MHC frame, docking angles,
@@ -44,6 +49,10 @@ What tcren does
   scoring a single handed-in pose cannot see (:mod:`tcren.dynamics`).
 * **Potential derivation** — ``derive-potential``: re-derive the TCRen potential (classic/AM/LOO,
   with non-redundancy filtering) from a structure set.
+* **Contact-map Potts model** — ``potts fit`` / ``score`` / ``contacts``: a Boltzmann distribution
+  over the contact map itself, whose sites are the residue pairs that *could* have contacted. Gives
+  a structure's map an energy (``neg_energy``, the term ``S_free`` reads), a partition function and
+  a likelihood, and every residue pair a contact probability (:mod:`tcren.potts`, see :doc:`potts`).
 * **QC, mechanics & maps** — steric-clash and register checks, an interface spring-network /
   rupture model, and 2D complementarity maps + 3D pocket/CDR views.
 
@@ -63,7 +72,9 @@ What tcren does
    getting-started
    oracle
    potentials
+   potts
    features
+   reliability
    gallery
    kit
    performance

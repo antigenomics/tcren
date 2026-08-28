@@ -128,8 +128,39 @@ Options
        ``s_strain``, kept for v1 reproduction; implies ``--full``
 
 ``--features`` and ``-s`` are the two ways in. With ``--features`` the output is the score table
-alone — ``complex.id``, ``Q``, ``G``, ``T``, ``E`` and ``P_native``; with ``-s`` it is the
-descriptor table plus ``p_real``.
+alone — ``complex.id``, ``Q``, ``G``, ``T``, ``E``, ``P_native``, and ``S_free`` with its calibrated
+``p_binder``; with ``-s`` it is the descriptor table plus ``p_real``.
+
+.. _reliability-columns:
+
+Columns the reliability score reads
+------------------------------------
+
+:func:`tcren.reliability.s_free` is the recommended single-structure score and reads three blocks
+off this table. Two of them come from ``tcren features`` directly, and the third has to be joined:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 18 30 52
+
+   * - block
+     - source
+     - what to request
+   * - ``Q``, geometry
+     - ``tcren features``
+     - ``-i placement,interface`` — ``burial``, ``n_pep_contacted``, ``chain_balance``, ``n_hbond``
+   * - ``T``, topology
+     - ``tcren features``
+     - ``-i topology`` — ``D2_pep24``, ``fp_b0_frac_r7``, ``H_cell``, ``L_canon``, ``ab_imb``
+   * - ``neg_energy``, the energy
+     - ``tcren potts score``
+     - join on ``pdb.id``; it is :math:`-E(\sigma_{\mathrm{obs}})`, the interface energy read
+       against the partition function
+
+So ``-i placement,interface,topology,energetics`` is what ``tcren assess`` requires (see
+:doc:`reliability`), and
+without the joined ``neg_energy`` column ``assess`` emits the two-block form and says so in its
+report rather than imputing the missing block.
 
 .. _descriptor-families:
 
