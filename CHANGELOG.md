@@ -3,6 +3,45 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
+## [2.18.0] — 2026-08-29
+
+**The generator says it is confident. What should you believe instead?** `af_band` answered how
+often a confidence band is wrong; nothing answered what to believe in its place. This does.
+
+### Added
+- **`reliability.correct_confidence` and `tcren diagnose`.** One logistic over three terms —
+  the generator's confidence, `S_free`, and the observed contact count, the last two in native-sd
+  units — returning the corrected probability **and its decomposition**: `p_confidence` (the
+  confidence alone, through the same link), `delta_logit` (what the coordinates added, in nats) and
+  `p_corrected`. The decomposition is exact by construction, so a caller can see whether a number
+  moved because of the generator or because of the structure.
+
+  Coefficients are frozen, fitted out of fold, and rounded to one decimal — rounding costs under
+  0.003 macro ROC-AUC, well inside the fold-to-fold spread. **This is the one shipped read-out that
+  is not fit-free**: `s_free` takes no label anywhere, this learns four numbers from labels, the
+  same standing as `p_binder`'s Platt links.
+
+  Validated where the epitope has structural precedent. Leave-one-epitope-out on the balanced VDJdb
+  panel it adds **+0.051** macro ROC-AUC to ipTM and **+0.068** to pLDDT over the 6 cohorts whose
+  epitope has a solved complex (n = 284), and *subtracts* about 0.04 over the 16 that do not
+  (n = 743) — the same template covariate the receptor benchmarks divide under.
+- `reliability.available_corrections()` and `CORRECTION_VALIDATED_ON`.
+- `notebooks/confident_negatives.py`, a marimo app over the released path: move the confidence
+  slider to the top of the range and watch the corrected probabilities stay spread while the
+  confidence-only reading collapses to one number.
+
+### Changed
+- **`data/reliability_moments.json` now has a producer**, and gained a `corrections` block. Until
+  now the file every shipped score divides by was hand-assembled and committed once with 2.16.0 —
+  no script wrote it and no benchmark stage regenerated it. It is now written by the benchmark's
+  `bench/scripts/build_reliability_moments.py`, which defaults to a dry run and prints what would
+  change, because a frozen constant that moves is a finding rather than something to overwrite.
+
+  Installing it moved the four Potts blocks (`neg_energy`, `log_z`, `log_lik`, `n_contacts`, n 361
+  → 362), which is exactly the 2.17.0 AIS seeding fix reaching the frozen file. Effect on `S_free`:
+  max shift 0.0059 against the score's own spread of 2.0057 (0.3%), old against new correlating at
+  0.99999994. `Q` and `T` are unchanged and verified to reproduce to 1e-10.
+
 ## [2.17.0] — 2026-08-28
 
 **Three defects in `p_native`, and a sampler whose seed did not do what it said.** All four are

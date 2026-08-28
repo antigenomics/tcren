@@ -144,3 +144,72 @@ def test_screening_yield_is_the_cut_and_never_a_nan_measurement():
     assert rel.screening_yield(s, 1.0)["n_tested"] == 100
     with pytest.raises(ValueError, match="budget"):
         rel.screening_yield(s, 1.5)
+
+
+def _corr_inputs():
+    """The native crystals, their energy and contact count -- everything a correction reads."""
+    ref = rel.reliability_reference()
+    return ref, np.asarray(ref[rel.PI_FROZEN], float), np.asarray(ref["n_contacts"], float)
+
+
+def test_every_frozen_correction_resolves_and_an_unknown_one_raises():
+    assert rel.available_corrections() == ["binder_bm|ipTM", "binder_bm|pLDDT",
+                                           "tcrvdb|ipTM", "tcrvdb|pLDDT"]
+    ref, e, n = _corr_inputs()
+    for k in rel.available_corrections():
+        out = rel.correct_confidence(ref, np.full(len(e), 0.85), reference=k, energy=e, contacts=n)
+        assert np.isfinite(out["p_corrected"]).any()
+    with pytest.raises(KeyError, match="no frozen correction"):
+        rel.correct_confidence(ref, np.full(len(e), 0.85), reference="nope|ipTM")
+
+
+def test_the_decomposition_reconstructs_the_corrected_probability_exactly():
+    """`delta_logit` is what the structure added, so the two probabilities differ by exactly it.
+
+    This is the property the CLI reports on, and the reason the correction is readable at all: a
+    caller can see whether a number moved because of the generator or because of the coordinates.
+    """
+    ref, e, n = _corr_inputs()
+    r = rel.correct_confidence(ref, np.full(len(e), 0.85), energy=e, contacts=n)
+    lo_c = np.log(r["p_confidence"] / (1 - r["p_confidence"]))
+    lo_k = np.log(r["p_corrected"] / (1 - r["p_corrected"]))
+    ok = np.isfinite(lo_c) & np.isfinite(lo_k)
+    assert np.allclose((lo_k - lo_c)[ok], r["delta_logit"][ok])
+
+
+def test_a_better_structure_is_corrected_upwards_at_the_same_confidence():
+    """Hold the generator's confidence fixed and vary only the coordinates."""
+    ref, e, n = _corr_inputs()
+    conf = np.full(len(e), 0.85)
+    r = rel.correct_confidence(ref, conf, energy=e, contacts=n)
+    s = r["s_free"]
+    ok = np.isfinite(s) & np.isfinite(r["p_corrected"])
+    good, bad = s[ok] >= np.nanpercentile(s[ok], 75), s[ok] <= np.nanpercentile(s[ok], 25)
+    assert r["p_corrected"][ok][good].mean() > r["p_corrected"][ok][bad].mean()
+    # and the confidence-only reading cannot tell them apart, because it never saw the structure
+    assert np.allclose(r["p_confidence"][ok][good].mean(), r["p_confidence"][ok][bad].mean())
+
+
+def test_the_correction_is_defined_for_a_single_structure():
+    """The property the whole score family rests on: no cohort, no refit, n = 1 is enough."""
+    ref, e, n = _corr_inputs()
+    one = {k: np.asarray(v)[:1] for k, v in ref.items()}
+    r = rel.correct_confidence(one, np.array([0.9]), energy=e[:1], contacts=n[:1])
+    assert r["p_corrected"].shape == (1,)
+    assert np.isfinite(r["p_corrected"]).all()
+    # and it agrees with the same row scored inside the whole set
+    whole = rel.correct_confidence(ref, np.full(len(e), 0.9), energy=e, contacts=n)
+    assert np.allclose(r["p_corrected"][0], whole["p_corrected"][0])
+
+
+def test_the_contact_term_drops_out_rather_than_being_imputed():
+    """No contact count is a smaller model, not a wrong one -- and it says so with NaN."""
+    ref, e, n = _corr_inputs()
+    conf = np.full(len(e), 0.85)
+    with_n = rel.correct_confidence(ref, conf, energy=e, contacts=n)
+    without = rel.correct_confidence(ref, conf, energy=e, contacts=None)
+    assert np.isnan(without["n_contacts"]).all()
+    assert not np.allclose(with_n["delta_logit"], without["delta_logit"])
+    # dropping a term must not introduce NaN of its own: what is undefined without the contact
+    # count is exactly what was already undefined with it (rows missing a descriptor block)
+    assert np.array_equal(np.isfinite(without["p_corrected"]), np.isfinite(with_n["p_corrected"]))

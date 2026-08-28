@@ -1,38 +1,40 @@
 {
-  "_note": "Frozen native moments and calibration links for tcren.reliability. Q/T/F are the block scores z^T C^-1 s over reliability_reference.csv; their native MEAN is 0 by construction, so the outer transform is one divide by `sd`. Provenance: 2026-tcren2-code bench/eda/blockcov.py and bench/eda/calibrate.py, 2026-08-28. Block moments are over the 369 complete-case crystals in reliability_reference.csv.",
+  "_note": "Frozen native moments, calibration links, AlphaFold reliability bands and the structural confidence correction for tcren.reliability. Q/T/F are the block scores z^T C^-1 s over reliability_reference.csv; their native MEAN is 0 by construction, so the outer transform is one divide by `sd`. Provenance: 2026-tcren2-code bench/scripts/build_reliability_moments.py, assembling bench/eda/blockcov.py, bench/eda/calibrate.py and bench/eda/confidence_correction.py. The corrections are the ONLY part fitted on labels.",
   "blocks": {
     "Q": {
       "mean": -1.4441925523579272e-16,
-      "sd": 1.4299982673169807
+      "sd": 1.4299982673169807,
+      "n": 369
     },
     "T": {
       "mean": -1.3479130488673987e-16,
-      "sd": 1.6067608536350966
+      "sd": 1.6067608536350966,
+      "n": 369
     },
     "neg_energy": {
-      "mean": 18.46120077839335,
-      "sd": 14.13458919921275,
-      "n": 361
+      "mean": 18.410202982379786,
+      "sd": 14.148271808268621,
+      "n": 362
     },
     "log_z": {
-      "mean": 46.16001763988921,
-      "sd": 16.920214693964304,
-      "n": 361
+      "mean": 46.04082133301961,
+      "sd": 17.047926522110334,
+      "n": 362
     },
     "log_lik": {
-      "mean": -27.69791372022161,
-      "sd": 7.645904005554315,
-      "n": 361
+      "mean": -27.629759390310213,
+      "sd": 7.744366018741426,
+      "n": 362
     },
     "mu_star": {
-      "mean": 0.031992769444444444,
-      "sd": 0.42297134941268594,
+      "mean": 0.03199277329258621,
+      "sd": 0.42297132431121587,
       "n": 360
     },
     "n_contacts": {
-      "mean": 21.786703601108034,
-      "sd": 6.092222046689066,
-      "n": 361
+      "mean": 21.726519337016576,
+      "sd": 6.190334074287391,
+      "n": 362
     }
   },
   "pi_frozen": "neg_energy",
@@ -467,5 +469,59 @@
         "s_free_roc_in_band": 0.696923076923077
       }
     ]
+  },
+  "corrections": {
+    "tcrvdb|ipTM": {
+      "form": "logit(p) = b0 + b_conf * (conf - conf_mean)/conf_sd + b_s_free * S_free + b_n_contacts * n_contacts",
+      "b0": -0.0,
+      "b_conf": 1.0,
+      "b_s_free": 0.5,
+      "b_n_contacts": 0.1,
+      "conf_mean": 0.7848693406779662,
+      "conf_sd": 0.10960782447016382,
+      "n_folds": 5,
+      "fold_scheme": "within-epitope 5-fold",
+      "roc_raw": 0.793941431557508,
+      "roc_corrected_out_of_fold": 0.8204695656405424
+    },
+    "tcrvdb|pLDDT": {
+      "form": "logit(p) = b0 + b_conf * (conf - conf_mean)/conf_sd + b_s_free * S_free + b_n_contacts * n_contacts",
+      "b0": 0.1,
+      "b_conf": 0.7,
+      "b_s_free": 0.6,
+      "b_n_contacts": 0.1,
+      "conf_mean": 93.29293483845738,
+      "conf_sd": 2.001209790417118,
+      "n_folds": 5,
+      "fold_scheme": "within-epitope 5-fold",
+      "roc_raw": 0.7710859018631171,
+      "roc_corrected_out_of_fold": 0.8227073609408888
+    },
+    "binder_bm|ipTM": {
+      "form": "logit(p) = b0 + b_conf * (conf - conf_mean)/conf_sd + b_s_free * S_free + b_n_contacts * n_contacts",
+      "b0": 0.0,
+      "b_conf": 0.1,
+      "b_s_free": 0.1,
+      "b_n_contacts": 0.1,
+      "conf_mean": 0.7793880013437195,
+      "conf_sd": 0.10564680221505497,
+      "n_folds": 22,
+      "fold_scheme": "leave-one-epitope-out",
+      "roc_raw": 0.5910022885904459,
+      "roc_corrected_out_of_fold": 0.5761412494843356
+    },
+    "binder_bm|pLDDT": {
+      "form": "logit(p) = b0 + b_conf * (conf - conf_mean)/conf_sd + b_s_free * S_free + b_n_contacts * n_contacts",
+      "b0": 0.0,
+      "b_conf": 0.3,
+      "b_s_free": 0.1,
+      "b_n_contacts": 0.1,
+      "conf_mean": 92.99781894161025,
+      "conf_sd": 1.9054444445670928,
+      "n_folds": 22,
+      "fold_scheme": "leave-one-epitope-out",
+      "roc_raw": 0.6043960635226308,
+      "roc_corrected_out_of_fold": 0.5972386667088255
+    }
   }
 }

@@ -71,6 +71,45 @@ From the command line
 Add the energy term by joining ``tcren potts score``'s ``neg_energy``; without it ``assess`` emits
 the two-block form and says so rather than imputing.
 
+Correcting the generator's confidence
+-------------------------------------
+
+``af_band`` says how often a confidence band is wrong. It does not say what to believe instead.
+:func:`correct_confidence` does, by reading the confidence together with the coordinates:
+
+.. math:: \mathrm{logit}\,P(\mathrm{binder}) = b_0 + b_c\,z(c)
+          + b_S\,S_{\mathrm{free}} + b_N\,N
+
+with :math:`c` the generator's confidence, :math:`S_{\mathrm{free}}` the single-structure binder
+score and :math:`N` the observed contact count, both in native-sd units. It returns the corrected
+probability **and its parts**, so a caller can see whether a number moved because of the generator
+or because of the structure:
+
+.. code-block:: text
+
+   $ tcren diagnose --features feats.tsv --confidence iptm -o diagnosed.tsv
+   618 structures corrected against 'tcrvdb|ipTM'
+     the structure argues AGAINST 267 of 590 (45%); mean shift -0.048 nats, range [-4.31, +2.07]
+     the five the generator is most confident about:
+       67c6026f...  iptm 0.931  p_conf 0.792 -> p_corrected 0.935  (+1.33 nats)
+       d3bcd432...  iptm 0.921  p_conf 0.777 -> p_corrected 0.765  (-0.07 nats)
+       52f8a2cb...  iptm 0.919  p_conf 0.772 -> p_corrected 0.681  (-0.46 nats)
+
+Two properties to state when reporting it.
+
+**It is not fit-free.** Every other score in this module takes no label anywhere;
+:func:`correct_confidence` learns four coefficients from labels and freezes them, exactly as
+:func:`p_binder`'s Platt links do. The structural terms it reads are themselves fit-free, but the
+weighting is not.
+
+**It is validated where the epitope has structural precedent.** Leave-one-epitope-out on the
+balanced VDJdb panel, the correction adds **+0.051** macro ROC-AUC to ipTM and **+0.068** to pLDDT
+over the 6 cohorts whose epitope has a solved complex (n = 284), and *subtracts* about 0.04 over
+the 16 that do not (n = 743). That is the template covariate everything in this framework divides
+under: where no receptor has been co-crystallized with the peptide, nothing works, the generator's
+own confidence included. Coefficients are rounded to one decimal, which costs under 0.003 macro
+ROC-AUC.
+
 API
 ---
 
@@ -78,12 +117,15 @@ API
 .. autofunction:: t_score
 .. autofunction:: p_binder
 .. autofunction:: af_band
+.. autofunction:: correct_confidence
 .. autofunction:: reliability_reference
 .. autofunction:: available_links
 .. autofunction:: available_bands
+.. autofunction:: available_corrections
 .. autofunction:: moments
 .. autofunction:: inversion_flag
 .. autofunction:: screening_yield
 .. autodata:: T_FEATURES_TOPO
 .. autodata:: T_SIGNS
 .. autodata:: PI_FROZEN
+.. autodata:: CORRECTION_VALIDATED_ON

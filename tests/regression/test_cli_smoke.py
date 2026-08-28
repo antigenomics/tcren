@@ -199,3 +199,44 @@ def test_assess_writes_the_three_blocks_a_caller_decides_on(tmp_path):
     assert df.height == 1 and df["complex.id"][0] == "1ao7"
     assert {"S_free", "p_binder", "rank", "percentile"} <= set(df.columns), df.columns
     assert 0.0 < df["p_binder"][0] < 1.0
+
+
+@arda
+def test_diagnose_corrects_the_generator_confidence_and_shows_its_parts(tmp_path):
+    """`tcren diagnose` answers "it says it is confident -- what should I believe instead"."""
+    import numpy as np
+
+    pytest.importorskip("arda")
+    feats, out = tmp_path / "feats.tsv", tmp_path / "diagnosed.tsv"
+    run("features", "-s", ASSET, "-i", "placement,interface,topology,energetics,potts", "-o", feats)
+    # the assets are crystals and carry no generator output, so the confidence is supplied here
+    pl.read_csv(feats, separator="\t").with_columns(
+        pl.lit(0.88).alias("iptm")).write_csv(feats, separator="\t")
+    run("diagnose", "--features", feats, "--confidence", "iptm", "-o", out)
+    df = pl.read_csv(out, separator="\t")
+    assert df.height == 1 and df["complex.id"][0] == "1ao7"
+    assert {"p_confidence", "delta_logit", "p_corrected", "S_free"} <= set(df.columns), df.columns
+    assert 0.0 < df["p_corrected"][0] < 1.0
+    # the decomposition is the point: the two probabilities differ by exactly delta_logit
+    lo = lambda p: float(np.log(p / (1 - p)))  # noqa: E731
+    assert lo(df["p_corrected"][0]) - lo(df["p_confidence"][0]) == pytest.approx(
+        df["delta_logit"][0], abs=1e-9)
+
+
+def test_diagnose_lists_its_frozen_corrections_without_a_features_table():
+    """The listing flag must not require the table it is helping the caller prepare."""
+    assert "tcrvdb|ipTM" in run("diagnose", "--list-references").output
+
+
+def test_diagnose_refuses_a_table_with_no_confidence_column(tmp_path):
+    """A missing confidence is a clear error naming the column, never a silent skip."""
+    from tcren.cli import app
+
+    feats = tmp_path / "feats.tsv"
+    pl.DataFrame({"complex.id": ["x"], **{c: [0.0] for c in
+                  ("burial", "n_pep_contacted", "chain_balance", "n_hbond",
+                   "D2_pep24", "fp_b0_frac_r7", "H_cell", "L_canon", "ab_imb")}}
+                 ).write_csv(feats, separator="\t")
+    r = CliRunner().invoke(app, ["diagnose", "--features", str(feats), "--confidence", "iptm"])
+    assert r.exit_code != 0
+    assert "confidence" in r.output

@@ -157,6 +157,10 @@ off this table. Two of them come from ``tcren features`` directly, and the third
      - join on ``pdb.id``; it is :math:`-E(\sigma_{\mathrm{obs}})`, the interface energy read
        against the partition function
 
+``tcren diagnose`` reads the same blocks plus ``n_contacts`` from the ``potts`` family, so
+``-i placement,interface,topology,potts`` is its full input; without ``n_contacts`` the
+contact term drops out and is reported as ``n/a`` rather than imputed.
+
 So ``-i placement,interface,topology,energetics`` is what ``tcren assess`` requires (see
 :doc:`reliability`), and
 without the joined ``neg_energy`` column ``assess`` emits the two-block form and says so in its

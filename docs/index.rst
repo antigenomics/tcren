@@ -26,6 +26,9 @@ What tcren does
 * **Recognition scores** — ``recognize``: ``Q``, the three channel posteriors ``G`` / ``T`` / ``E``,
   ``P_native``, and ``S_free`` with its calibrated ``p_binder``, from a feature table or straight
   from structures (see :doc:`kit`).
+* **Correcting the generator** — ``diagnose``: it says it is confident, what should you
+  believe instead? Reads the confidence together with the coordinates and returns a
+  corrected probability plus the parts it is made of (see :doc:`reliability`).
 * **Single-structure reliability** — ``assess``: is *this* generated model worth believing?
   ``S_free`` and a calibrated ``p_binder``, the structure's rank inside the set, and the generator
   diagnostic — which AlphaFold confidence band it falls in, how often models in that band are

@@ -245,3 +245,81 @@ def screening_yield(score, budget: float = 0.1, prevalence: float | None = None)
     if prevalence is not None:
         out["expected_hits"] = float(k * prevalence)
     return out
+
+
+#: Where the correction is validated. Measured 2026-08-29, leave-one-epitope-out on the 22-cohort
+#: VDJdb panel: it adds where the epitope has a solved complex to template on and subtracts where
+#: it does not, which is the same template covariate the receptor-ranking benchmarks divide under.
+CORRECTION_VALIDATED_ON = "epitopes with a solved TCR:pMHC complex"
+
+
+def correct_confidence(table, confidence, reference: str = "tcrvdb|ipTM",
+                       energy=None, contacts=None) -> dict:
+    """Correct a generator's confidence with the structure it produced. Higher = more believable.
+
+    A co-folding model returns a confident complex for any receptor--pMHC pair, binding or not, so
+    its confidence is not a probability that the complex is real. This reads the confidence
+    *together with* the coordinates:
+
+    .. math:: \\mathrm{logit}\\,P(\\mathrm{binder}) = b_0 + b_c\\,z(c) + b_S\\,S_{\\mathrm{free}}
+              + b_N\\,N
+
+    where :math:`c` is the generator's confidence, :math:`S_{\\mathrm{free}}` the single-structure
+    binder score and :math:`N` the observed contact count, both in native-sd units. The
+    coefficients are frozen, fitted out of fold on the benchmarks and rounded to one decimal --
+    rounding costs under 0.003 macro ROC-AUC, well inside the fold-to-fold spread.
+
+    **This is the one shipped read-out that is not fit-free.** ``s_free`` takes no label anywhere;
+    this learns four numbers from labels, exactly as :func:`p_binder`'s Platt links do. Say so when
+    reporting it.
+
+    **Where it is validated.** On the balanced VDJdb panel, leave-one-epitope-out, the correction
+    adds **+0.051** macro ROC-AUC to ipTM and **+0.068** to pLDDT over the 6 cohorts whose epitope
+    has a solved complex (n = 284), and *subtracts* about 0.04 over the 16 that do not (n = 743).
+    That is the same template covariate everything else in this framework divides under: where no
+    receptor has been co-crystallized with the peptide, nothing works, the generator's own
+    confidence included. Read the correction as an improvement for epitopes with structural
+    precedent, and read the template covariate beside it.
+
+    Args:
+        table: a ``tcren features`` table, as for :func:`s_free`.
+        confidence: the generator's confidence per row -- ipTM or pLDDT, matching ``reference``.
+        reference: which frozen correction, ``<benchmark>|<confidence>``;
+            :func:`available_corrections` lists them.
+        energy: :math:`\\Pi` per row, from :mod:`tcren.potts`. Without it ``S_free`` is the
+            two-block form and the correction is weaker, not wrong.
+        contacts: the observed contact count per row, from :mod:`tcren.potts`. Without it that
+            term drops out and ``n_contacts`` is reported as NaN.
+
+    Returns:
+        A dict of arrays, all the same length as ``table``: ``p_corrected`` (the number to
+        threshold on), ``p_confidence`` (the confidence alone through the same link, so the two are
+        comparable), ``delta_logit`` (what the structure added, in nats -- positive means the
+        coordinates argue *for* the complex), ``s_free`` and ``n_contacts`` as used.
+    """
+    cor = moments().get("corrections", {})
+    if reference not in cor:
+        raise KeyError(f"no frozen correction {reference!r}; have {sorted(cor)}")
+    c = cor[reference]
+    m = moments()["blocks"]
+
+    v = np.atleast_1d(np.asarray(confidence, float))
+    z = (v - c["conf_mean"]) / c["conf_sd"]
+    s = np.asarray(s_free(table, energy=energy), float)
+    if contacts is None:
+        n = np.full(np.shape(s), np.nan)
+        n_term = np.zeros(np.shape(s))
+    else:
+        n = (np.asarray(contacts, float) - m["n_contacts"]["mean"]) / m["n_contacts"]["sd"]
+        n_term = c["b_n_contacts"] * n
+
+    delta = c["b_s_free"] * s + n_term
+    lo_conf = c["b0"] + c["b_conf"] * z
+    return {"p_corrected": 1.0 / (1.0 + np.exp(-(lo_conf + delta))),
+            "p_confidence": 1.0 / (1.0 + np.exp(-lo_conf)),
+            "delta_logit": delta, "s_free": s, "n_contacts": n}
+
+
+def available_corrections() -> list[str]:
+    """The frozen confidence corrections, ``<benchmark>|<confidence>``."""
+    return sorted(moments().get("corrections", {}))
