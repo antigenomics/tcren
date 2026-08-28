@@ -102,13 +102,22 @@ def test_pi_frozen_matches_the_shipped_moments():
 
 
 def test_pi_frozen_is_the_column_potts_emits():
-    """The blocker of 2.15.0: `s_free`'s energy block named a column no tcren function wrote."""
-    import inspect
+    """The blocker of 2.15.0: `s_free`'s energy block named a column no tcren function wrote.
 
-    from tcren.potts import bound_unbound, score_sites
+    Asserted against the columns the scorers actually return, not against their source text: the
+    literal moved out of `score_sites` when the per-structure loop was parallelised in 2.17.0, and
+    a source grep called that a regression when nothing had changed about the output.
+    """
+    from test_potts import _synthetic_sites
 
-    for fn in (score_sites, bound_unbound):
-        assert f'"{rel.PI_FROZEN}"' in inspect.getsource(fn), fn.__name__
+    from tcren.potts import bound_unbound, fit_potts, score_sites
+
+    sites = _synthetic_sites()
+    model = fit_potts(sites, couplings=False)
+    for fn, kw in ((score_sites, {"particles": 8, "steps": 4}),
+                   (bound_unbound, {"chains": 8, "burn": 4, "draws": 4, "thin": 1,
+                                    "particles": 8, "steps": 4})):
+        assert rel.PI_FROZEN in fn(sites, model, workers=1, **kw).columns, fn.__name__
 
 
 def test_inversion_flag_is_defined_for_one_structure_and_needs_the_energy(ref):

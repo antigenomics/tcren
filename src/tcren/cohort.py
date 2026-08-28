@@ -357,35 +357,8 @@ P_NATIVE_CHANNELS = ("geometry", "topology", "energetics")
 P_NATIVE_POOL: dict[str, tuple[str, ...]] = {
     "geometry": ("placement", "interface"),
     "topology": ("topology",),
-    "energetics": ("energetics",),
+    "energetics": ("potts",),
 }
-
-@lru_cache(maxsize=1)
-def pnative_anchors() -> dict[str, np.ndarray]:
-    """The reference complexes :func:`p_native` anchors on (cached; treat as read-only).
-
-    273 real TCR:pMHC complexes over 161 epitopes, 27 HLA allele groups and 201 distinct CDR3
-    pairs, descriptored once and shipped in the wheel. They are appended to the design matrix with
-    their responsibilities pinned to *native* and are **never scored** — their only job is to fix
-    which mixture component means native, which a finite mixture does not determine on its own.
-
-    Selection is deterministic and carries no random seed; see ``pnative_anchors.NOTES.md`` beside
-    the CSV. Every epitope in it is absent from the TCRen2 benchmarks, so a benchmark cohort cannot
-    be anchored on itself.
-    """
-    import csv  # noqa: PLC0415
-    from importlib import resources  # noqa: PLC0415
-
-    path = resources.files("tcren.data").joinpath("pnative_anchors.csv")
-    with resources.as_file(path) as fh, open(fh, newline="") as handle:
-        rows = list(csv.DictReader(handle))
-    out = {}
-    for name in rows[0]:
-        try:
-            out[name] = np.array([float(r[name]) for r in rows])
-        except ValueError:
-            continue                                     # complex.id, epitope, source
-    return out
 
 
 #: The feature each channel is oriented by when a fit carries no anchors. A mixture is identified
@@ -394,7 +367,7 @@ def pnative_anchors() -> dict[str, np.ndarray]:
 P_NATIVE_ORIENT: dict[str, str] = {
     "geometry": "burial",        # a native interface buries more surface
     "topology": "D2_pep24",      # a native footprint spreads over more cells
-    "energetics": "-F_tcr_pep",  # Phi is a contact-preference sum: LOWER is more favourable
+    "energetics": "neg_energy",  # -E under the coupled model: HIGHER is more favourable
 }
 
 #: The compact per-channel feature set :func:`p_native` uses by default — the terms each channel has
@@ -403,11 +376,18 @@ P_NATIVE_ORIENT: dict[str, str] = {
 #: 89), and a cohort of a few hundred structures cannot identify a dense graph over ninety nodes.
 #: Pass ``features=`` to widen it.
 P_NATIVE_FEATURES: dict[str, tuple[str, ...]] = {
-    "placement": ("height", "dock_d", "crossing_signed", "pitch", "dock_tcr_uz"),
+    "placement": ("height", "dock_d", "crossing_signed", "dock_torsion", "dock_tcr_uz"),
     "interface": ("burial", "n_hbond", "chain_balance", "n_pep_contacted", "n_clashes"),
     "topology": ("D2_pep24", "fp_b0_frac_r7", "H_cell", "L_canon", "ab_imb"),
-    "energetics": ("F_tcr_pep", "F_tcr_mhc", "dF_tcr_pep"),
+    "potts": ("neg_energy", "log_z", "log_lik"),
 }
+
+#: Descriptors barred from every channel, checked by :func:`_channel_columns`. ``pitch`` is
+#: :func:`tcren.orient.docking_angles`'s ``incident_angle`` under a second name — the same quantity
+#: :mod:`tcren.pipeline` calls ``pitch_angle`` — and it reads AlphaFold's confidence rather than the
+#: interface, out-discriminating every clean docking angle for that reason. It was a fitted column
+#: of ``p_native`` until 2.17.0; ``dock_torsion`` replaces it in the placement channel.
+P_NATIVE_BANNED: frozenset[str] = frozenset({"pitch", "pitch_angle", "incident_angle"})
 
 
 def _channel_columns(channel: str, features=None) -> list[str]:
@@ -418,7 +398,12 @@ def _channel_columns(channel: str, features=None) -> list[str]:
     """
     src = P_NATIVE_FEATURES if features is None else features
     out = [n for fam in P_NATIVE_POOL.get(channel, (channel,)) for n in src.get(fam, ())]
-    return out or list(src.get(channel, ()))
+    out = out or list(src.get(channel, ()))
+    bad = P_NATIVE_BANNED & set(out)
+    if bad:
+        raise ValueError(f"channel {channel!r} names banned descriptor(s) {sorted(bad)}: "
+                         "these are AlphaFold-confidence leakage, not interface geometry")
+    return out
 
 
 def _logit(p) -> np.ndarray:
@@ -427,7 +412,7 @@ def _logit(p) -> np.ndarray:
 
 
 def p_native(table, *, channels=P_NATIVE_CHANNELS, features=None, rule: str = "sum",
-             anchors=None, orient_by: str | None = None, rounds: int = 50,
+             anchors=None, orient_by: str | dict[str, str] | None = None, rounds: int = 50,
              return_model: bool = False):
     r"""``P(native)`` — the cohort's own Bayes network over the feature channels, fitted by EM.
 
@@ -473,15 +458,13 @@ def p_native(table, *, channels=P_NATIVE_CHANNELS, features=None, rule: str = "s
             keys are accepted too), or a flat sequence of column names to use as-is.
         rule: ``"sum"`` to add per-channel log-odds, ``"flat"`` to fit one network over the union.
         anchors: ``None`` (the default) fits fully unsupervised, oriented by
-            :data:`P_NATIVE_ORIENT`. ``"auto"`` appends the shipped reference complexes of
-            :func:`pnative_anchors` as extra, never-scored rows pinned to *native*, so the same
-            anchors fix the component meaning on every call. An explicit ``{row_index: 0|1}`` over
-            the caller's own rows is used verbatim. **The shipped anchors are positives only and
-            do not reproduce the TCRen2 benchmark numbers**, which are anchored on other cohorts'
-            labelled binders *and* non-binders; see ``pnative_anchors.NOTES.md``.
+            :data:`P_NATIVE_ORIENT`. An explicit ``{row_index: 0|1}`` over the caller's own rows is
+            used verbatim; those rows are part of the design matrix and are still scored.
         orient_by: the feature whose higher-mean component is called native when there are no
-            anchors, ``"-name"`` to orient on the lower mean. A mixture is identified only up to
-            permutation, so this is what stops the two components swapping between runs. ``None``
+            anchors, ``"-name"`` to orient on the lower mean. A dict keyed by channel orients each
+            channel separately, which is what an overriding ``features`` dict usually needs.
+            A mixture is identified only up to permutation, so this is what stops the two
+            components swapping between runs. ``None``
             takes each channel's entry in :data:`P_NATIVE_ORIENT`.
         rounds: maximum EM iterations.
         return_model: also return the fitted
@@ -508,7 +491,8 @@ def p_native(table, *, channels=P_NATIVE_CHANNELS, features=None, rule: str = "s
         for ch in channels:
             parts[ch], models[ch] = p_native(
                 table, channels=(ch,), features=features, rule="flat", anchors=anchors,
-                orient_by=orient_by, rounds=rounds, return_model=True)
+                orient_by=orient_by.get(ch) if isinstance(orient_by, dict) else orient_by,
+                rounds=rounds, return_model=True)
         pri = float(np.mean([m.prior_ for m in models.values()]))
         total = sum(_logit(v) for v in parts.values()) - (len(parts) - 1) * _logit(pri)
         scores = 1.0 / (1.0 + np.exp(-total))
@@ -537,22 +521,18 @@ def p_native(table, *, channels=P_NATIVE_CHANNELS, features=None, rule: str = "s
         raise ValueError(f"p_native needs more structures than features: {n_eval} rows, "
                          f"{len(keep)} columns. Narrow `features=` or score a larger cohort.")
 
-    if anchors == "auto":
-        # The shipped reference rows go BELOW the cohort and are pinned to native. They are part of
-        # the design matrix, never of the output: the slice at the end is what keeps them unscored.
-        ref = pnative_anchors()
-        missing = [n for n in keep if n not in ref]
-        if missing:
-            raise ValueError(f"the shipped anchors carry no {missing}; pass anchors=None to fit "
-                             f"unsupervised, or features= to stay within the anchored set")
-        Xa = np.column_stack([ref[n] for n in keep])
-        X = np.vstack([X, Xa])
-        anchors = {n_eval + i: 1.0 for i in range(len(Xa))}
-
+    if isinstance(orient_by, dict):
+        orient_by = orient_by.get(channels[0] if len(channels) == 1 else "geometry")
     orient = orient_by or P_NATIVE_ORIENT.get(channels[0] if len(channels) == 1 else "geometry",
                                               "burial")
     if orient.lstrip("-") not in keep:
-        orient = keep[0]
+        raise ValueError(
+            f"cannot orient this fit: {orient.lstrip('-')!r} is not among the columns kept "
+            f"({keep}). It was either absent from the table or constant across it. Falling back "
+            f"to an arbitrary column used to be the behaviour, and it silently reversed the "
+            f"latent labels -- the component called native became the other one. Pass "
+            f"orient_by= naming a column that is present and varies, higher = more binder-like, "
+            f"or '-name' to orient on the lower mean.")
     model = GaussianBNClassifier(keep).fit_em(X, anchors=anchors, orient_by=orient, rounds=rounds)
     scores = model.predict_proba(X)[:, 1][:n_eval]
     return (scores, model) if return_model else scores

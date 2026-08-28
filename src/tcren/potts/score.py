@@ -6,6 +6,10 @@ available-pair set. Nothing is fitted.
 
 from __future__ import annotations
 
+import hashlib
+import os
+from concurrent.futures import ProcessPoolExecutor
+
 import numpy as np
 import polars as pl
 
@@ -16,9 +20,28 @@ from .sample import (ais_log_z, count_free_energy, delta_f_empty, delta_f_thresh
 from .sites import available_pairs, eta, site_codes
 
 
+def _rng_for(seed: int, pdb_id) -> np.random.Generator:
+    """A generator determined by ``(seed, pdb_id)`` alone — never by table position.
+
+    Every sampler below used to share one generator across its loop over structures, so a
+    structure's ``log Z`` depended on **how many structures preceded it in the table**: the same
+    PDB scored on its own, in a reordered frame, or in a subset came back with a different value.
+    Deriving the stream from the structure's own identifier makes every sampled quantity a function
+    of the structure, which is what makes a per-structure score reproducible. ``blake2b`` rather
+    than :func:`hash`, whose seed is randomised per interpreter.
+    """
+    h = int.from_bytes(hashlib.blake2b(str(pdb_id).encode(), digest_size=8).digest(), "big")
+    return np.random.default_rng(np.random.SeedSequence([int(seed), h]))
+
+
 def _prepare(sites: pl.DataFrame, model: PottsModel):
     """Per-structure arrays: ``(pdb ids, starts, eta, sigma, edge table, offsets, coefficients)``."""
-    sites = sites.filter(pl.col("d_ca") <= model.radius).sort("pdb.id", maintain_order=True)
+    # Sorted on the site's own identity, not on arrival order. The colouring, the edge indices and
+    # therefore every sampled quantity are functions of this order, so leaving it to the caller made
+    # `log Z` depend on how the pair table happened to be concatenated. With `_rng_for` below, this
+    # is the second half of "a per-structure score is a function of the structure".
+    sites = (sites.filter(pl.col("d_ca") <= model.radius)
+             .sort("pdb.id", "chain.rec", "region.rec", "pos.rec", "pos.par"))
     codes, _, q = site_codes(sites, model)
     e = eta(codes, model)
     sigma = q["sigma"].to_numpy()
@@ -43,8 +66,96 @@ def _one(lo: int, hi: int, e, sigma, E, eoff, kv, s: int):
     return e[lo:hi], sigma[lo:hi], A, cols
 
 
+#: Filled once per worker process by :func:`_init_workers`, so the prepared arrays cross the
+#: process boundary once rather than once per structure.
+_SHARED: dict = {}
+
+
+def _init_workers(payload: dict) -> None:
+    _SHARED.clear()
+    _SHARED.update(payload)
+
+
+def _run_chunk(args):
+    body, idx, kw = args
+    return [_BODIES[body](s, **kw) for s in idx]
+
+
+def _map_structures(body: str, n: int, payload: dict, kw: dict, workers: int | None):
+    """Run one per-structure body over every structure, in contiguous chunks.
+
+    Safe to parallelise only because each result is a function of ``(seed, pdb.id)`` and of that
+    structure's own sites — never of its position in the frame — so the output is identical however
+    the work is split. Chunks are contiguous and as few as there are workers: a pool of thousands of
+    one-structure tasks spends its time in dispatch and pickling.
+
+    Measured on an M3 (16 cores), 64 structures of 20--80 sites: serial 48.9 ms per structure,
+    3.6x at 8 processes. Threads make it *slower* (0.33x) — the arrays are too small for numpy to
+    release the GIL usefully.
+    """
+    if workers is None:
+        workers = os.cpu_count() or 1
+    if workers <= 1 or n < 2 * workers:
+        _init_workers(payload)
+        return _run_chunk((body, list(range(n)), kw))
+    bounds = np.linspace(0, n, workers + 1).astype(int)
+    chunks = [(body, list(range(bounds[i], bounds[i + 1])), kw)
+              for i in range(workers) if bounds[i + 1] > bounds[i]]
+    with ProcessPoolExecutor(max_workers=workers, initializer=_init_workers,
+                             initargs=(payload,)) as ex:
+        return [row for part in ex.map(_run_chunk, chunks) for row in part]
+
+
+def _payload(upid, starts, e, sigma, E, eoff, kv) -> dict:
+    return {"upid": upid, "starts": starts, "e": e, "sigma": sigma, "E": E, "eoff": eoff, "kv": kv}
+
+
+def _unpack(s: int):
+    """``(pdb id, lo, hi, rng, eta, sigma, A, colours)`` for structure ``s`` from the shared arrays."""
+    d = _SHARED
+    lo, hi = d["starts"][s], d["starts"][s + 1]
+    et, sg, A, cols = _one(lo, hi, d["e"], d["sigma"], d["E"], d["eoff"], d["kv"], s)
+    return d["upid"][s], lo, hi, et, sg, A, cols
+
+
+def _body_score_sites(s: int, *, particles: int, steps: int, seed: int) -> dict:
+    pid, lo, hi, et, sg, A, cols = _unpack(s)
+    log_z, ess = ais_log_z(et, A, cols, _rng_for(seed, pid), particles=particles, steps=steps)
+    en = energy(sg, et, A)
+    f = et + A @ sg
+    pll = float(np.sum(sg * f - np.logaddexp(0.0, f)))
+    return {"pdb.id": pid, "n_sites": int(hi - lo), "n_contacts": int(sg.sum()),
+            "energy": en, "neg_energy": -en,
+            "log_z": log_z, "log_z0": factorised_log_z(et),
+            "log_lik": -en - log_z, "psi": (-en - log_z) / (hi - lo),
+            "pseudo_log_lik": pll, "psi_pseudo": pll / (hi - lo),
+            "ais_ess": ess, "n_colours": len(cols)}
+
+
+def _body_bound_unbound(s: int, *, threshold, chains: int, burn: int, draws: int, thin: int,
+                        particles: int, steps: int, seed: int) -> dict:
+    pid, lo, hi, et, sg, A, cols = _unpack(s)
+    rng = _rng_for(seed, pid)
+    _, tot = gibbs(et, A, cols, rng, chains=chains, burn=burn, draws=draws, thin=thin)
+    lz, _ = ais_log_z(et, A, cols, rng, particles=particles, steps=steps)
+    n_obs = float(sg.sum())
+    return {"pdb.id": pid, "n_sites": hi - lo, "n_contacts": n_obs,
+            "neg_energy": -energy(sg, et, A),
+            "log_z": lz, "df_empty": delta_f_empty(lz),
+            "df_threshold": (float("nan") if threshold is None
+                             else delta_f_threshold(tot, threshold)),
+            "mu_star": mu_star(tot, n_obs),
+            "n_lo": float(tot.min()) if len(tot) else float("nan"),
+            "n_hi": float(tot.max()) if len(tot) else float("nan"),
+            "n_mean": float(tot.mean()) if len(tot) else float("nan"),
+            "n_var": float(tot.var()) if len(tot) else float("nan")}
+
+
+_BODIES = {"score_sites": _body_score_sites, "bound_unbound": _body_bound_unbound}
+
+
 def score_sites(sites: pl.DataFrame, model: PottsModel, *, particles: int = 64,
-                steps: int = 256, seed: int = 0) -> pl.DataFrame:
+                steps: int = 256, seed: int = 0, workers: int | None = None) -> pl.DataFrame:
     """Energy, ``log Z`` and likelihoods for every structure in a table of available pairs.
 
     Columns, one row per structure:
@@ -74,23 +185,13 @@ def score_sites(sites: pl.DataFrame, model: PottsModel, *, particles: int = 64,
         particles: AIS particles per structure.
         steps: AIS annealing steps.
         seed: Seed for the sampler.
+        workers: Processes to split the structures across. ``None`` takes every core, ``1``
+            runs serially. The result is identical either way — each structure's numbers
+            depend on ``(seed, pdb.id)`` alone, never on how the work was split.
     """
-    rng = np.random.default_rng(seed)
     upid, starts, e, sigma, E, eoff, kv, _ = _prepare(sites, model)
-    rows = []
-    for s in range(len(upid)):
-        lo, hi = starts[s], starts[s + 1]
-        et, sg, A, cols = _one(lo, hi, e, sigma, E, eoff, kv, s)
-        log_z, ess = ais_log_z(et, A, cols, rng, particles=particles, steps=steps)
-        en = energy(sg, et, A)
-        f = et + A @ sg
-        pll = float(np.sum(sg * f - np.logaddexp(0.0, f)))
-        rows.append({"pdb.id": upid[s], "n_sites": int(hi - lo), "n_contacts": int(sg.sum()),
-                     "energy": en, "neg_energy": -en,
-                     "log_z": log_z, "log_z0": factorised_log_z(et),
-                     "log_lik": -en - log_z, "psi": (-en - log_z) / (hi - lo),
-                     "pseudo_log_lik": pll, "psi_pseudo": pll / (hi - lo),
-                     "ais_ess": ess, "n_colours": len(cols)})
+    rows = _map_structures("score_sites", len(upid), _payload(upid, starts, e, sigma, E, eoff, kv),
+                           {"particles": particles, "steps": steps, "seed": seed}, workers)
     return pl.DataFrame(rows)
 
 
@@ -119,12 +220,12 @@ def contact_probabilities(sites: pl.DataFrame, model: PottsModel, *, chains: int
     Returns:
         The input frame with the three probabilities appended, one row per site.
     """
-    rng = np.random.default_rng(seed)
     upid, starts, e, sigma, E, eoff, kv, q = _prepare(sites, model)
     p_mod = np.zeros(len(e))
     p_cond = np.zeros(len(e))
     for s in range(len(upid)):
         lo, hi = starts[s], starts[s + 1]
+        rng = _rng_for(seed, upid[s])
         et, sg, A, cols = _one(lo, hi, e, sigma, E, eoff, kv, s)
         occ, _ = gibbs(et, A, cols, rng, chains=chains, burn=burn, draws=draws, thin=thin)
         p_mod[lo:hi] = occ
@@ -138,7 +239,8 @@ def contact_probabilities(sites: pl.DataFrame, model: PottsModel, *, chains: int
 
 def bound_unbound(sites: pl.DataFrame, model: PottsModel, *, threshold: int | None = None,
                   chains: int = 64, burn: int = 100, draws: int = 100, thin: int = 3,
-                  particles: int = 64, steps: int = 256, seed: int = 0) -> pl.DataFrame:
+                  particles: int = 64, steps: int = 256, seed: int = 0,
+                  workers: int | None = None) -> pl.DataFrame:
     """The whole-interface two-state free energy, in its three readings.
 
     A single site has two states, ``sigma_a = 0`` and ``1``, and ``eta_a`` is the free-energy
@@ -180,30 +282,18 @@ def bound_unbound(sites: pl.DataFrame, model: PottsModel, *, threshold: int | No
         chains, burn, draws, thin: Gibbs settings; see :func:`tcren.potts.gibbs`.
         particles, steps: AIS settings; see :func:`tcren.potts.ais_log_z`.
         seed: Seed for both samplers.
+        workers: Processes to split the structures across. ``None`` takes every core, ``1``
+            runs serially. The result is identical either way — each structure's numbers
+            depend on ``(seed, pdb.id)`` alone, never on how the work was split.
 
     Returns:
         One row per structure.
     """
-    rng = np.random.default_rng(seed)
     upid, starts, e, sigma, E, eoff, kv, _ = _prepare(sites, model)
-    out = []
-    for s in range(len(upid)):
-        lo, hi = starts[s], starts[s + 1]
-        et, sg, A, cols = _one(lo, hi, e, sigma, E, eoff, kv, s)
-        _, tot = gibbs(et, A, cols, rng, chains=chains, burn=burn, draws=draws, thin=thin)
-        lz, _ = ais_log_z(et, A, cols, rng, particles=particles, steps=steps)
-        n_obs = float(sg.sum())
-        out.append({
-            "pdb.id": upid[s], "n_sites": hi - lo, "n_contacts": n_obs,
-            "neg_energy": -energy(sg, et, A),
-            "log_z": lz, "df_empty": delta_f_empty(lz),
-            "df_threshold": (float("nan") if threshold is None
-                             else delta_f_threshold(tot, threshold)),
-            "mu_star": mu_star(tot, n_obs),
-            "n_lo": float(tot.min()) if len(tot) else float("nan"),
-            "n_hi": float(tot.max()) if len(tot) else float("nan"),
-            "n_mean": float(tot.mean()) if len(tot) else float("nan"),
-            "n_var": float(tot.var()) if len(tot) else float("nan")})
+    out = _map_structures("bound_unbound", len(upid), _payload(upid, starts, e, sigma, E, eoff, kv),
+                          {"threshold": threshold, "chains": chains, "burn": burn, "draws": draws,
+                           "thin": thin, "particles": particles, "steps": steps, "seed": seed},
+                          workers)
     return pl.DataFrame(out)
 
 
@@ -215,11 +305,11 @@ def count_profile(sites: pl.DataFrame, model: PottsModel, *, chains: int = 64, b
     contact-count landscape has a barrier -- if it does not, a threshold reading of the two-state
     contrast has nothing to key on and ``mu_star`` is the meaningful statistic.
     """
-    rng = np.random.default_rng(seed)
     upid, starts, e, sigma, E, eoff, kv, _ = _prepare(sites, model)
     keep, obs = [], []
     for s in range(len(upid)):
         lo, hi = starts[s], starts[s + 1]
+        rng = _rng_for(seed, upid[s])
         et, sg, A, cols = _one(lo, hi, e, sigma, E, eoff, kv, s)
         _, tot = gibbs(et, A, cols, rng, chains=chains, burn=burn, draws=draws, thin=thin)
         keep.append(tot)
@@ -240,11 +330,11 @@ def sample_maps(sites: pl.DataFrame, model: PottsModel, *, chains: int = 64, bur
     The generative check: a model that reproduces a real interface must reproduce the *spread* of
     its contact count, not only the mean.
     """
-    rng = np.random.default_rng(seed)
     upid, starts, e, sigma, E, eoff, kv, _ = _prepare(sites, model)
     out = []
     for s in range(len(upid)):
         lo, hi = starts[s], starts[s + 1]
+        rng = _rng_for(seed, upid[s])
         et, sg, A, cols = _one(lo, hi, e, sigma, E, eoff, kv, s)
         _, totals = gibbs(et, A, cols, rng, chains=chains, burn=burn, draws=draws, thin=thin)
         out.append(pl.DataFrame({"pdb.id": [upid[s]] * len(totals),
@@ -273,7 +363,6 @@ def connected_correlations(sites: pl.DataFrame, model: PottsModel, *, chains: in
     Returns:
         One row per coupling class: ``class``, ``n_edges``, ``c_data``, ``c_model``.
     """
-    rng = np.random.default_rng(seed)
     upid, starts, e, sigma, E, eoff, kv, q = _prepare(sites, model)
     n_k = len(kv)
     if not n_k:
@@ -283,6 +372,7 @@ def connected_correlations(sites: pl.DataFrame, model: PottsModel, *, chains: in
     m_n = np.zeros(n_k)
     for s in range(len(upid)):
         lo, hi = starts[s], starts[s + 1]
+        rng = _rng_for(seed, upid[s])
         et, sg, A, cols = _one(lo, hi, e, sigma, E, eoff, kv, s)
         Es = E[eoff[s]:eoff[s + 1]]
         ea, eb, ec = Es[:, 0] - lo, Es[:, 1] - lo, Es[:, 2]

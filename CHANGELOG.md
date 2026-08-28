@@ -3,6 +3,72 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
+## [2.17.0] — 2026-08-28
+
+**Three defects in `p_native`, and a sampler whose seed did not do what it said.** All four are
+reproducibility fixes: the same structure now gets the same number whatever else is scored beside
+it, and no channel reads a descriptor that is really a generator confidence.
+
+### Fixed
+- **`tcren.potts` samplers were seeded once per table, not per structure.** Every entry point in
+  `potts/score.py` built one `np.random.default_rng(seed)` *outside* its loop, so each structure's
+  AIS run consumed whatever the preceding structures had left: the same PDB scored on its own, in a
+  subset, or in a reordered frame returned a different `log Z`. The generator is now derived from
+  `(seed, pdb.id)` via `blake2b`, and `_prepare` sorts sites on their own identity
+  (`pdb.id, chain.rec, region.rec, pos.rec, pos.par`, which is unique) rather than on arrival
+  order, so the colouring is canonical too. Affects `score_sites`, `contact_probabilities`,
+  `bound_unbound`, `count_profile`, `connected_correlations` and `sample_maps`. **Values move by
+  AIS sampling noise relative to 2.16.0** — that is the defect being removed, not a new one.
+- **`P_NATIVE_FEATURES["placement"]` carried `pitch`**, which is
+  `orient.docking_angles(s).incident_angle` — the same quantity `pipeline.py` calls `pitch_angle`
+  and treats as AlphaFold-confidence leakage rather than interface geometry. Replaced by
+  `dock_torsion`. `Q_FEATURES_GEOM` and `T_FEATURES_TOPO` never contained it, so `q_score`,
+  `t_score` and `s_free` are unchanged.
+- **`p_native`'s energetics channel had never migrated to the Potts energy.** It read `F_tcr_pep`,
+  `F_tcr_mhc` and `dF_tcr_pep` — the poly-alanine-referenced contact energies, which are the right
+  instrument for ranking *peptides* and are at or below chance for ranking *receptors*. The channel
+  now reads `neg_energy`, `log_z` and `log_lik`, and `P_NATIVE_ORIENT["energetics"]` orients on
+  `neg_energy` (higher is more favourable) instead of `-F_tcr_pep`.
+
+- **`p_native` silently reversed its own labelling when the orientation feature was missing.**
+  A finite mixture is identified only up to a swap of its components, so `orient_by` (defaulting to
+  the channel's `P_NATIVE_ORIENT` entry) is the only thing that decides which component is called
+  native. When that column was absent from the table or constant across it, the code fell back to
+  the first surviving column, whose direction is arbitrary. The energetics migration above turned
+  that latent hazard into a measured reversal: a caller passing the old `F_TERMS` explicitly got
+  Spearman **−0.63** against `-F_tcr_all` where the same call had read **+0.63**. It now raises,
+  naming the column and pointing at `orient_by`. Every in-tree caller already passes `orient_by`
+  explicitly, so nothing that worked stops working.
+
+### Added
+- **A `potts` descriptor family in `tcren features`.** `-i potts` emits `neg_energy`, `log_z`,
+  `log_lik` and `psi` per structure, so the energy the receptor task wants
+  comes out of the same command as every other descriptor rather than out of a separate scoring
+  pass that has to be joined back on.
+- `cohort.P_NATIVE_BANNED`, checked by `_channel_columns`: naming `pitch`, `pitch_angle` or
+  `incident_angle` in any channel now raises instead of quietly fitting on it.
+
+### Added
+- **`workers=` on `score_sites` and `bound_unbound`: the per-structure loop now runs in processes.**
+  `None` (the default) takes every core, `1` runs serially. Structures are split into as many
+  contiguous chunks as there are workers, and the prepared arrays cross the process boundary once
+  via the pool initializer rather than once per task. Measured on 616 TCRvdb structures:
+  `score_sites` **82.6 s -> 19.8 s (4.2x)**, `bound_unbound` **199.3 s -> 35.9 s (5.6x)**, both with
+  **max |diff| exactly 0** against the serial run.
+
+  This is only sound because of the seeding fix above: a structure's numbers depend on
+  `(seed, pdb.id)` and on its own sites, never on its position in the frame, so splitting the work
+  cannot move a value. Threads were measured and are *worse* than serial (0.33x) — the arrays are
+  too small for numpy to release the GIL usefully. `contact_probabilities`, `count_profile`,
+  `sample_maps` and `connected_correlations` still run serially.
+
+### Removed
+- **The shipped `pnative_anchors.csv` and the `anchors="auto"` path.** Nothing read them: no
+  benchmark producer, no test and no CLI subcommand passed `anchors="auto"`, and the one anchored
+  path in the TCRen2 benchmark builds its own `{row: label}` dict from held-out rows. The file was
+  8.3% of the wheel. `anchors=` still takes an explicit `{row_index: 0|1}`, and `anchors=None`
+  (unsupervised, oriented by `P_NATIVE_ORIENT`) is unchanged and remains the default.
+
 ## [2.16.0] — 2026-08-28
 
 **The two questions a score does not answer.** `S_free` says how native-like an interface looks.

@@ -658,6 +658,14 @@ DESCRIPTORS: dict[str, tuple[str, bool]] = {
     # the peptide's contacts with itself: a property of the epitope's bound conformation alone
     "F_pep_int": ("energetics", False),
     "n_pep_int": ("interface", False),
+    # -- potts: the contact map read against the coupled model (`tcren.potts`) -------------------
+    # The same energy, referenced against the partition function instead of a poly-alanine
+    # interface: `neg_energy = log_z + log_lik`, so the three carry capacity, typicality and their
+    # sum. `n_sites` is how many pairs the backbone put in reach, `n_contacts` how many engaged.
+    "neg_energy": ("potts", True),
+    "log_z": ("potts", True),
+    "log_lik": ("potts", True),
+    "psi": ("potts", True),
     # -- kinetics: contact fragility (``recognize``) -------------------------------------------
     "exp_lost": ("kinetics", True),
     "mean_margin": ("kinetics", True),
@@ -687,7 +695,7 @@ DESCRIPTORS: dict[str, tuple[str, bool]] = {
     "P_native": ("score", True),
 }
 
-FAMILIES = ("placement", "interface", "topology", "energetics", "kinetics")
+FAMILIES = ("placement", "interface", "topology", "energetics", "potts", "kinetics")
 
 #: Retired family names kept working for callers written before the 2026-08-24 split.
 _FAMILY_ALIASES = {"geometry": ("placement", "interface"), "physics": ("energetics",)}
@@ -1215,6 +1223,9 @@ def _featurise_families(id_, s, organism: str, include, radii) -> dict:
             row.update(_placement_columns(s))
         if "topology" in want:
             row.update(_footprint_columns(s, radii))
+        if "potts" in want:
+            from .potts import score_structure
+            row.update({k: v for k, v in score_structure(s).items() if k != "pdb.id"})
         if "kinetics" in want:
             from .mechanics import interface_mechanics
             row.update(interface_mechanics(s))

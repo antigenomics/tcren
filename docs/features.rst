@@ -194,9 +194,20 @@ also the axis along which they carry independent evidence:
    * - ``energetics``
      - statistical-potential interface energies and their poly-alanine references.
      - ``F_tcr_pep``, ``F_tcr_mhc``, ``F_cdr12/3a/3b``, ``dF_tcr_pep``
+   * - ``potts``
+     - the same contact energy read against the **partition function** instead of a poly-alanine
+       interface, under the coupled contact-map model (:mod:`tcren.potts`). The decomposition is
+       exact: ``neg_energy = log_z + log_lik``, capacity plus typicality.
+     - ``neg_energy``, ``log_z``, ``log_lik``, ``psi``
    * - ``kinetics``
      - the interface as a network of breakable springs. Off unless asked for.
      - ``K_tens``, ``aniso``, ``rupture_force``, ``rupture_work``, ``couple_*``
+
+Which reference to use is decided by the task, not by preference. ``energetics`` subtracts a
+poly-alanine interface *in the same pose*, which is right when every candidate carries its own pose
+— ranking peptides for a fixed receptor. ``potts`` subtracts every contact map the geometry admits,
+which is right when the pose is shared and what varies is capacity — ranking receptors for a fixed
+epitope. Each is at or near chance on the other's task.
 
 ``placement`` and ``interface`` were a single ``geometry`` family until 2026-08-24, and
 ``energetics`` was ``physics``. Both retired names still resolve in
@@ -207,7 +218,9 @@ The three **channels** ``P_native`` combines are ``geometry``, ``topology`` and 
 (:data:`tcren.cohort.P_NATIVE_CHANNELS`). A channel is not a family:
 :data:`~tcren.cohort.P_NATIVE_POOL` maps each channel onto the families it draws on, and
 ``geometry`` is the pooled pair above, fitted as one network because ``placement`` and
-``interface`` are the most dependent pair measured. ``kinetics`` is a descriptor family only — it
+``interface`` are the most dependent pair measured. The ``energetics`` **channel** draws on the
+``potts`` **family**, not on the family of the same name: since 2.17.0 it reads ``neg_energy``,
+``log_z`` and ``log_lik`` rather than ``F_tcr_pep``, because the receptor task is where it is used. ``kinetics`` is a descriptor family only — it
 measures unbinding rather than nativeness, so it enters no channel and is not computed unless
 asked for.
 

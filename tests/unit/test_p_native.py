@@ -15,10 +15,10 @@ from tcren.cohort import (P_NATIVE_CHANNELS, P_NATIVE_FEATURES, P_NATIVE_ORIENT,
                           _channel_columns, p_native)
 from tcren.recognition import GaussianBNClassifier
 
-NAMES = ["burial", "n_hbond", "height", "F_tcr_pep", "noise"]
+NAMES = ["burial", "n_hbond", "height", "neg_energy", "noise"]
 #: burial and n_hbond rise with nativeness, the energy runs BACKWARDS (the forced-pose regime this
 #: replaces), height falls, and one column is pure noise that must earn no weight.
-TRUE_SIGN = {"burial": +1, "n_hbond": +1, "height": -1, "F_tcr_pep": -1, "noise": 0}
+TRUE_SIGN = {"burial": +1, "n_hbond": +1, "height": -1, "neg_energy": -1, "noise": 0}
 
 
 def _cohort(n: int = 400, seed: int = 0):
@@ -28,7 +28,7 @@ def _cohort(n: int = 400, seed: int = 0):
         2.0 * y + rng.normal(0, 1, n),          # burial
         1.5 * y + rng.normal(0, 1, n),          # n_hbond
         -1.6 * y + rng.normal(0, 1, n),         # height
-        -1.8 * y + rng.normal(0, 1, n),         # F_tcr_pep, inverted
+        -1.8 * y + rng.normal(0, 1, n),         # neg_energy, inverted
         rng.normal(0, 1, n)])                   # noise
     return X, y
 
@@ -98,10 +98,10 @@ def _table(n: int = 300):
     X, y = _cohort(n, seed=1)
     t = {n_: X[:, j] for j, n_ in enumerate(NAMES)}
     t.update(chain_balance=X[:, 0] * 0.3, n_pep_contacted=X[:, 1] * 0.4, n_clashes=X[:, 4],
-             dock_d=X[:, 2], crossing_signed=X[:, 2] * 0.5, pitch=X[:, 2] * 0.2,
+             dock_d=X[:, 2], crossing_signed=X[:, 2] * 0.5, dock_torsion=X[:, 2] * 0.2,
              dock_tcr_uz=X[:, 2] * 0.1, D2_pep24=X[:, 0] * 0.6, fp_b0_frac_r7=-X[:, 0] * 0.2,
              H_cell=X[:, 0] * 0.5, L_canon=X[:, 1] * 0.3, ab_imb=X[:, 4] * 0.1,
-             F_tcr_mhc=X[:, 3] * 0.5, dF_tcr_pep=X[:, 3] * 0.7)
+             log_z=X[:, 3] * 0.5, log_lik=X[:, 3] * 0.7)
     return pl.DataFrame(t), y
 
 
@@ -179,12 +179,37 @@ def test_T_is_p_native_over_the_topology_channel_alone():
 
 
 def test_energetics_is_oriented_on_the_favourable_direction():
-    """Phi is a contact-preference sum in which LOWER is more favourable, so the energetics channel
-    is oriented on its negation. Orienting on the raw column labels the wrong component native."""
-    assert P_NATIVE_ORIENT["energetics"].startswith("-")
+    """Orienting on the wrong end of the energy axis labels the wrong component native.
+
+    Until 2.17.0 the channel read `F_tcr_pep`, a contact-preference sum in which LOWER is more
+    favourable, so it was oriented on `-F_tcr_pep`. It now reads the Potts `neg_energy`, where
+    HIGHER is more favourable, so the negation is gone — and the test that matters is that the
+    orientation feature is a column of the channel and points the favourable way, not which
+    spelling it happens to have."""
+    orient = P_NATIVE_ORIENT["energetics"]
+    assert orient == "neg_energy"
+    assert not orient.startswith("-")
+    assert orient.lstrip("-") in _channel_columns("energetics")
 
 
 def test_unknown_rule_is_rejected():
     t, _ = _table()
     with pytest.raises(ValueError, match="rule must be"):
         p_native(t, rule="average")
+
+
+def test_an_absent_orientation_feature_raises_instead_of_flipping_the_labels():
+    """A mixture is identified only up to a label swap, so the orientation feature decides which
+    component is called native. When it is missing the old code fell back to the first surviving
+    column, whose direction is arbitrary — the 2.17.0 energetics migration turned that into a
+    measured sign reversal (Spearman +0.63 became −0.63 against the same reference). It raises now.
+    """
+    t, _ = _table()
+    with pytest.raises(ValueError, match="cannot orient this fit"):
+        p_native(t, channels=("geometry",), rule="flat", orient_by="a_column_not_in_the_table")
+
+    # naming a column that IS present still fits, and flipping its sign flips the labelling —
+    # which is the reversal the fallback used to introduce without saying so
+    up = p_native(t, channels=("geometry",), rule="flat", orient_by="burial")
+    down = p_native(t, channels=("geometry",), rule="flat", orient_by="-burial")
+    assert np.corrcoef(up, down)[0, 1] < -0.99

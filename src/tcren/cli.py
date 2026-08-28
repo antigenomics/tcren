@@ -1444,7 +1444,7 @@ def assess(
 def features(
     structures: str = typer.Option(..., "-s", "--structures", help="TCR-pMHC structure file, directory, glob, or .tar.gz"),
     out: Path = typer.Option("features.tsv", "-o", "--out", help="per-structure descriptor table (TSV)"),
-    include: str = typer.Option("placement,interface,topology,energetics", "-i", "--include", help="comma-separated feature families: placement, interface, topology, energetics, kinetics"),
+    include: str = typer.Option("placement,interface,topology,energetics", "-i", "--include", help="comma-separated feature families: placement, interface, topology, energetics, potts, kinetics"),
     all_families: bool = typer.Option(False, "--all", help="every family, kinetics included"),
     organism: str = typer.Option("human", "--organism"),
     radii: str = typer.Option("7,8", "--radii", help="Calpha thresholds for the footprint flag complex (topology family)"),

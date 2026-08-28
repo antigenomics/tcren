@@ -179,3 +179,42 @@ def test_q_coupled_r_override_defaults_to_the_measured_coupling():
     out = q_coupled(q, e, r=rvec)
     assert out.shape == (60,)
     assert np.isclose(out[10], q_coupled(q, e, r=float(rvec[10]))[10])
+
+
+def test_no_channel_names_a_banned_descriptor():
+    """`pitch` IS `pitch_angle`: both are `docking_angles(s).incident_angle`.
+
+    The project bans that quantity as AlphaFold-confidence leakage rather than interface geometry,
+    and it sat in `P_NATIVE_FEATURES["placement"]` until 2.17.0 under the shorter name — which is
+    exactly why the ban has to be checked on the resolved column list rather than on the spelling
+    somebody happened to type.
+    """
+    from tcren.cohort import (P_NATIVE_BANNED, P_NATIVE_CHANNELS, P_NATIVE_FEATURES,
+                              Q_FEATURES_GEOM, _channel_columns)
+
+    for ch in P_NATIVE_CHANNELS:
+        assert not (P_NATIVE_BANNED & set(_channel_columns(ch)))
+    assert not (P_NATIVE_BANNED & {n for v in P_NATIVE_FEATURES.values() for n in v})
+    assert not (P_NATIVE_BANNED & set(Q_FEATURES_GEOM))
+
+    with pytest.raises(ValueError, match="banned descriptor"):
+        _channel_columns("geometry", {"placement": ("height", "pitch")})
+
+
+def test_the_energetics_channel_reads_the_potts_energy():
+    """It read `F_tcr_pep` until 2.17.0 — the poly-alanine reference, which is the peptide task's
+    instrument and is at or below chance on the receptor task the channel is used for."""
+    from tcren.cohort import P_NATIVE_ORIENT, _channel_columns
+
+    cols = _channel_columns("energetics")
+    assert cols == ["neg_energy", "log_z", "log_lik"]
+    assert not [c for c in cols if c.startswith(("F_", "dF_"))]
+    assert P_NATIVE_ORIENT["energetics"].lstrip("-") in cols
+
+
+def test_the_potts_family_is_a_feature_family():
+    """`-i potts` has to be a real family or the migrated channel has no columns to read."""
+    from tcren.recognition import FAMILIES, descriptors
+
+    assert "potts" in FAMILIES
+    assert {"neg_energy", "log_z", "log_lik"} <= set(descriptors("potts"))
