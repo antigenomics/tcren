@@ -157,6 +157,13 @@ QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses ar
 - `reference_delta(cm, peptide, pot, interface="tcr_peptide", reference_aa="A") -> float` = ΔΦ = Φ(peptide)
   − Φ(all-`reference_aa` peptide). It is the **full-peptide alanine scan** (== sum of `alanine_scan().ddG`)
   and subtracts the pose's identity-independent geometry baseline Φ(polyAla).
+- **`interface="complex"` sums both peptide-bearing interfaces** (TCR:peptide with `potential`,
+  peptide:MHC with `mhc_potential=`, default MJ), matching `cpl.response_matrix`'s cell convention.
+  `ddg`, `neoantigen_ddg` and `reference_delta` all take it; CLI is `tcren ddg --interface complex`.
+  **Use it to rank whole library peptides.** `tcr_peptide` alone is blind to presentation — on 1ao7
+  the C-terminal anchor swap `LLFGYPVYV -> LLFGYPVYA` reads ΔΔG **0.0000** over `tcr_peptide` and
+  **-0.9740** over the complex. The two effects are NOT separable in a library varying every
+  position; report the per-interface terms beside the complex.
 - **Use for GENERATED poses only.** On a *fixed* contact map ΔΦ = Φ − const → ranking unchanged
   (no-op); it differs only across candidates with their *own* structure (AF swap models). There it
   normalizes out the per-pose interface geometry: **rescues forced/wrong-register poses** whose geometry

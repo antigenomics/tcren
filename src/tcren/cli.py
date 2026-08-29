@@ -556,7 +556,8 @@ def ddg_cmd(
     mutant: list[str] = typer.Option(None, "--mutant", help="mutant peptide(s); repeat for several (neoantigen mode)"),
     potential: str | None = typer.Option(None, "-p", "--potential", help="potential: bundled name (tcren2|karnaukhov2022|mj|keskin) or CSV path (default: tcren2)"),
     out: Path = typer.Option("ddg.csv", "-o", "--out"),
-    interface: str = typer.Option("tcr_peptide", "--interface", help="tcr_peptide|tcr_mhc|peptide_mhc"),
+    interface: str = typer.Option("tcr_peptide", "--interface", help="tcr_peptide|tcr_mhc|peptide_mhc|complex (both peptide-bearing interfaces summed)"),
+    mhc_potential: str | None = typer.Option(None, "--mhc-potential", help="peptide:MHC potential for --interface complex (default: Miyazawa-Jernigan)"),
     regions: str = typer.Option("all", "--regions", help="TCR regions on the TCR side: all|cdr|cdr+fr (default: all)"),
     organism: str = typer.Option("human", "--organism"),
     cutoff: float = typer.Option(5.0, "--cutoff"),
@@ -572,17 +573,29 @@ def ddg_cmd(
         raise typer.BadParameter("--regions must be one of all|cdr|cdr+fr")
     if alanine_scan == bool(mutant):
         raise typer.BadParameter("pass exactly one of --alanine-scan or --mutant")
+    if interface == "complex" and alanine_scan:
+        raise typer.BadParameter("--interface complex needs --mutant; the alanine scan is "
+                                 "single-interface")
     from .ddg import alanine_scan as run_scan, neoantigen_ddg
+
+    from .mhc import annotate_mhc
 
     pot = _load_potential(potential)
     frames = []
     for _pid, s in iter_structures(structures, importer=parse_structure):
         classify_chains(s, organism=organism)
+        # Without this the peptide:MHC interface comes out EMPTY, so `--interface peptide_mhc`
+        # returned 0.0 for every mutant and `complex` would silently be the receptor term alone --
+        # the same silent-zero the `cpl` command annotates against.
+        annotate_mhc(s)
         cm = ContactMap.from_structure(s, cutoff=cutoff)
         if alanine_scan:
             df = run_scan(cm, native, pot, interface=interface, tcr_regions=regions)
         else:
-            df = neoantigen_ddg(cm, native, mutant, pot, interface=interface, tcr_regions=regions)
+            df = neoantigen_ddg(cm, native, mutant, pot, interface=interface,
+                                tcr_regions=regions,
+                                mhc_potential=_load_potential(mhc_potential)
+                                if mhc_potential else None)
         frames.append(df.with_columns(pl.lit(cm.pdb_id).alias("complex.id")))
     pl.concat(frames).write_csv(str(out))
     typer.echo(f"wrote {out}")

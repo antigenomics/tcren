@@ -43,6 +43,40 @@ def _toy_contact_map() -> ContactMap:
     return ContactMap(pdb_id="toy", contacts=contacts, peptide_length=3)
 
 
+def _toy_complex_potential() -> Potential:
+    """A full 4x4 potential, so a peptide residue can sit on either side of a contact.
+
+    `_toy_potential` only defines rows for the TCR residues A and L. The peptide:MHC interface puts
+    the PEPTIDE on the ``from`` side, so scoring it needs rows for the peptide's own residues too.
+    """
+    aa = ("A", "L", "K", "G")
+    rows = [{"residue.aa.from": f, "residue.aa.to": s, "value": v}
+            for f, r in zip(aa, ([1.0, -2.0, 0.5, 3.0], [0.1, 0.2, -1.5, 2.5],
+                                 [-0.7, 1.2, 0.3, -2.1], [2.2, -0.4, 1.7, 0.6]))
+            for s, v in zip(aa, r)]
+    return Potential(name="toy4", matrix=pl.DataFrame(rows), alphabet=aa)
+
+
+def _toy_complex_map() -> ContactMap:
+    """The toy map plus a peptide:MHC contact, so both peptide-bearing interfaces score.
+
+    `_toy_contact_map` has an EMPTY peptide:MHC interface, which is fine for the receptor-only
+    identities above but makes any presentation assertion vacuously true. Here MHC groove residue
+    'K' contacts peptide position 1 -- the position the TCR does not touch -- so a mutation there
+    moves the presentation term and nothing else. Note the peptide is on the ``from`` side of a
+    peptide:MHC row, which is how `ContactMap.interface` selects it.
+    """
+    c = _toy_contact_map().contacts
+    mhc = pl.DataFrame({
+        "chain.type.from": ["PEPTIDE"], "chain.type.to": ["MHCa"],
+        "residue.aa.from": ["G"], "residue.aa.to": ["K"],
+        "region.type.from": ["PEPTIDE"], "residue.index.from": [1],
+        "residue.index.to": [45], "region.start.from": [0], "region.start.to": [40],
+        "pdb.id": ["toy"],
+    })
+    return ContactMap(pdb_id="toy", contacts=pl.concat([c, mhc.select(c.columns)]),
+                      peptide_length=3)
+
 def test_ddg_native_vs_native_is_zero():
     cm, pot = _toy_contact_map(), _toy_potential()
     assert ddg(cm, "AGK", "AGK", pot) == 0.0
@@ -223,3 +257,53 @@ def test_response_matrix_tcr_weights_scale_only_the_receptor_interface():
                               tcr_weights=np.full(n_rows, w))
         assert np.allclose(got.phi_tcr, w * base.phi_tcr, equal_nan=True), w
         assert np.allclose(got.phi_mhc, base.phi_mhc, equal_nan=True), w
+
+
+def test_complex_interface_sums_both_peptide_bearing_interfaces():
+    """`interface="complex"` is TCR:peptide + peptide:MHC, each with its own potential.
+
+    This is the contract that makes a LIBRARY ranking match a response-matrix cell. A cell has
+    summed both interfaces since `response_matrix` existed, but a whole peptide could only be
+    scored one interface at a time, so a combinatorial-library ROC silently saw the receptor term
+    alone -- blind to a destroyed MHC anchor, which is the commonest reason a library peptide is
+    inactive. Note the two effects are NOT separable in a library that varies every position;
+    reporting them apart is the most the score can do.
+    """
+    cm, pot = _toy_complex_map(), _toy_complex_potential()
+    tcr = ddg(cm, "AGK", "AAA", pot, interface="tcr_peptide")
+    mhc = ddg(cm, "AGK", "AAA", pot, interface="peptide_mhc")
+    both = ddg(cm, "AGK", "AAA", pot, interface="complex", mhc_potential=pot)
+    assert mhc != pytest.approx(0.0), "the presentation term has to move for this to test anything"
+    assert both == pytest.approx(tcr + mhc)
+    assert both != pytest.approx(tcr), "scoring the receptor alone must not equal the complex"
+
+
+def test_complex_interface_defaults_the_presentation_potential_to_mj():
+    """Leaving `mhc_potential` unset uses Miyazawa-Jernigan, matching `cpl.response_matrix`."""
+    from tcren.potential import mj
+
+    cm, pot = _toy_complex_map(), _toy_complex_potential()
+    assert ddg(cm, "AGK", "AAA", pot, interface="complex") == pytest.approx(
+        ddg(cm, "AGK", "AAA", pot, interface="complex", mhc_potential=mj()))
+
+
+def test_complex_weights_reach_only_the_receptor_channel():
+    """`weights` reweights TCR:peptide alone, exactly as `response_matrix`'s `tcr_weights` does."""
+    import numpy as np
+
+    cm, pot = _toy_complex_map(), _toy_complex_potential()
+    n = cm.interface("tcr_peptide").height
+    tcr = ddg(cm, "AGK", "AAA", pot, interface="tcr_peptide")
+    mhc = ddg(cm, "AGK", "AAA", pot, interface="peptide_mhc")
+    got = ddg(cm, "AGK", "AAA", pot, interface="complex", mhc_potential=pot,
+              weights=np.full(n, 2.0))
+    assert got == pytest.approx(2.0 * tcr + mhc)
+
+
+def test_reference_delta_complex_is_the_whole_complex_dphi():
+    """The poly-alanine ΔΦ the CPL per-clone table reports is the sum of the two channels."""
+    cm, pot = _toy_complex_map(), _toy_complex_potential()
+    tcr = reference_delta(cm, "AGK", pot, interface="tcr_peptide")
+    mhc = reference_delta(cm, "AGK", pot, interface="peptide_mhc")
+    assert reference_delta(cm, "AGK", pot, interface="complex",
+                           mhc_potential=pot) == pytest.approx(tcr + mhc)

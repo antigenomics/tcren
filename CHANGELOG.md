@@ -3,6 +3,39 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
+## [2.21.0] — 2026-08-29
+
+**A peptide could only be scored one interface at a time.** A CPL response-matrix *cell* has summed
+both peptide-bearing interfaces since `cpl.response_matrix` existed — TCRen over TCR:peptide plus
+Miyazawa-Jernigan over peptide:MHC — because an activation read-out fires only if the peptide is
+presented *and* the receptor engages. A whole *peptide* had no such path: `ddg`, `neoantigen_ddg`
+and `reference_delta` took a single `interface`, so a combinatorial-library ranking silently scored
+the receptor term alone and was blind to a destroyed MHC anchor. On 1ao7 the C-terminal anchor
+substitution `LLFGYPVYV -> LLFGYPVYA` reads **ΔΔG = 0.0000** over `tcr_peptide` and **-0.9740** over
+the complex.
+
+### Added
+
+- **`interface="complex"`** on `ddg`, `neoantigen_ddg` and `reference_delta`, with a
+  `mhc_potential=` argument defaulting to Miyazawa-Jernigan — the same convention
+  `cpl.response_matrix` uses, so a library ranking and a matrix cell are now the same score.
+  Exercised on real coordinates: the complex equals the sum of its two interfaces to machine
+  precision. `weights=` still reaches the receptor channel only, matching `tcr_weights`.
+- **`tcren ddg --interface complex`** and **`--mhc-potential`**.
+
+### Fixed
+
+- **`tcren ddg` never annotated the MHC**, so `--interface peptide_mhc` returned `0.0` for every
+  mutant — a silent zero, not an error. The command now runs `annotate_mhc`, as `tcren cpl` always
+  has. Any earlier peptide:MHC ΔΔG from the CLI is void; the library API was unaffected.
+
+### Note
+
+The two effects are **not separable in a combinatorial library that varies every position**: a
+peptide can be inactive because it does not present or because it is not recognised, and the assay
+reads only activation. `complex` is the right score for ranking; the per-interface terms are
+reported alongside it so the confound is visible rather than absorbed.
+
 ## [2.20.0] — 2026-08-29
 
 **The residue, not just the position.** 2.19.0 could say how engaged a peptide position was expected

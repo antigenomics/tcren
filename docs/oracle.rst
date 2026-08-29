@@ -92,3 +92,30 @@ stabilising -- the mutant improves on the native:
 Pass exactly one of ``--alanine-scan`` (one row per position mutated to alanine) or one
 or more ``--mutant`` (neoantigen mode). Both subcommands share the ``--interface``,
 ``--regions``, ``-p/--potential`` and ``--cutoff`` options with ``tcren score``.
+
+Which interface, and why it matters for a library
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``--interface tcr_peptide`` (the default) answers a **recognition** question and is structurally
+blind to presentation. On 1ao7 the C-terminal anchor substitution reads exactly zero, because the
+TCR never touches that position:
+
+.. code-block:: console
+
+   $ tcren ddg -s 1ao7.pdb --native LLFGYPVYV --mutant LLFGYPVYA --interface tcr_peptide
+   # ddG = 0.0000
+
+``--interface complex`` sums both peptide-bearing interfaces — the TCR:peptide potential plus
+``--mhc-potential`` (Miyazawa-Jernigan by default) over peptide:MHC — which is the convention
+:func:`tcren.cpl.response_matrix` has always used for a response-matrix cell:
+
+.. code-block:: console
+
+   $ tcren ddg -s 1ao7.pdb --native LLFGYPVYV --mutant LLFGYPVYA --interface complex
+   # ddG = -0.9740
+
+Use ``complex`` to **rank** whole peptides from a combinatorial or activation library: the assay
+fires only if the peptide is presented *and* the receptor engages, so a peptide whose anchors are
+destroyed must score badly, and under ``tcr_peptide`` it scores like any other. The two effects are
+**not separable** in a library that varies every position — report the per-interface terms beside
+the complex rather than reading either alone as the mechanism.

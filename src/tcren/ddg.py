@@ -39,6 +39,10 @@ from .structure.model import Structure
 #: change the energy of an interface that the peptide is part of; for any other
 #: interface (e.g. ``"tcr_mhc"``) every per-position ΔΔG is exactly 0.
 _PEPTIDE_INTERFACES: frozenset[str] = frozenset({"tcr_peptide", "peptide_mhc"})
+#: Both peptide-bearing interfaces at once, each with its own potential. The CPL response
+#: matrix has always summed them (:func:`tcren.cpl.response_matrix`); a whole peptide could
+#: not be scored the same way, so a library ranking silently saw the receptor term alone.
+_COMPLEX = "complex"
 
 
 def _score_one(
@@ -78,13 +82,14 @@ def ddg(
     mutant: str,
     potential: Potential,
     *,
-    interface: Interface = "tcr_peptide",
+    interface: Interface | str = "tcr_peptide",
     tcr_regions: str = "all",
     contact_weight: str = "residue",
     structure: Structure | None = None,
     cutoff: float = 5.0,
     sidechain: bool = False,
     weights: np.ndarray | None = None,
+    mhc_potential: Potential | None = None,
 ) -> float:
     """ΔΔG of a peptide mutation as ``E(native) - E(mutant)``.
 
@@ -93,7 +98,17 @@ def ddg(
         native: Native peptide sequence.
         mutant: Mutant peptide sequence (same length as ``native``).
         potential: Pairwise potential to score with.
-        interface: Which interface to score over (default ``"tcr_peptide"``).
+        interface: Which interface to score over (default ``"tcr_peptide"``). ``"complex"``
+            scores BOTH peptide-bearing interfaces and sums them -- ``potential`` over
+            TCR:peptide plus ``mhc_potential`` over peptide:MHC -- which is the convention
+            :func:`tcren.cpl.response_matrix` has always used for a response-matrix cell, and the
+            one an activation read-out needs: the assay fires only if the peptide is presented AND
+            the receptor engages. Scoring ``"tcr_peptide"`` alone answers a recognition question
+            and is blind to presentation, so a peptide whose anchors are destroyed scores like any
+            other. Note the two channels are NOT separable in a library that varies every position.
+        mhc_potential: The peptide:MHC potential used by ``interface="complex"``. ``None``
+            (default) is Miyazawa-Jernigan, matching :func:`tcren.cpl.response_matrix`. Ignored
+            for any single-interface call.
         tcr_regions: Which TCR regions to keep on the TCR side (passed through to
             ``score_peptides``).
         contact_weight: ``"residue"`` (default) or ``"atomic"``; passed through to
@@ -120,6 +135,16 @@ def ddg(
         Always ``0.0`` for interfaces that do not contain the peptide (e.g.
         ``"tcr_mhc"``), since a peptide mutation cannot affect them.
     """
+    if interface == _COMPLEX:
+        from .potential import mj
+        # `weights` reweights the RECEPTOR channel only, exactly as `response_matrix`'s
+        # `tcr_weights` does; the presentation channel keeps the map's own indicator.
+        common = dict(tcr_regions=tcr_regions, contact_weight=contact_weight,
+                      structure=structure, cutoff=cutoff, sidechain=sidechain)
+        return (ddg(contact_map, native, mutant, potential, interface="tcr_peptide",
+                    weights=weights, **common)
+                + ddg(contact_map, native, mutant, mhc_potential or mj(),
+                      interface="peptide_mhc", **common))
     if interface not in _PEPTIDE_INTERFACES:
         return 0.0
     e_native = _score_one(
@@ -233,13 +258,14 @@ def reference_delta(
     peptide: str,
     potential: Potential,
     *,
-    interface: Interface = "tcr_peptide",
+    interface: Interface | str = "tcr_peptide",
     reference_aa: str = "A",
     tcr_regions: str = "all",
     contact_weight: str = "residue",
     structure: Structure | None = None,
     cutoff: float = 5.0,
     sidechain: bool = False,
+    mhc_potential: Potential | None = None,
 ) -> float:
     """Poly-alanine reference difference ΔΦ = Φ(peptide) − Φ(reference) on this contact map.
 
@@ -263,7 +289,11 @@ def reference_delta(
         contact_map: The candidate's own contact map.
         peptide: The candidate peptide sequence.
         potential: Pairwise potential to score with.
-        interface: Which interface to score over (default ``"tcr_peptide"``).
+        interface: Which interface to score over (default ``"tcr_peptide"``). ``"complex"``
+            sums both peptide-bearing interfaces, which is the whole-complex ΔΦ a combinatorial
+            library ranking needs -- the receptor term alone cannot see a destroyed anchor.
+        mhc_potential: peptide:MHC potential for ``interface="complex"`` (default
+            Miyazawa-Jernigan).
         reference_aa: The amino acid the reference peptide is made of (default alanine).
         tcr_regions: Which TCR regions to keep on the TCR side.
         contact_weight: ``"residue"`` (default) or ``"atomic"``.
@@ -285,4 +315,5 @@ def reference_delta(
     reference = reference_aa * len(peptide)
     return ddg(contact_map, peptide, reference, potential,
                interface=interface, tcr_regions=tcr_regions, contact_weight=contact_weight,
-               structure=structure, cutoff=cutoff, sidechain=sidechain)
+               structure=structure, cutoff=cutoff, sidechain=sidechain,
+               mhc_potential=mhc_potential)
