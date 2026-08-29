@@ -43,6 +43,39 @@ T_SIGNS = (1.0, -1.0, 1.0, 1.0, 1.0)
 #: The partition-function-referenced energy S_free spends. See the module docstring.
 PI_FROZEN = "neg_energy"
 
+#: Columns only the ``potts`` family emits. A feature table carrying ``n_contacts`` alongside none
+#: of these was written by tcren <= 2.19.0 without ``-i potts``, so its ``n_contacts`` is the
+#: footprint's CDR-loop tally (now ``n_loop_contacts``) rather than the engaged-pair count these
+#: moments were estimated on. See :func:`_check_potts_contacts`.
+_POTTS_MARKERS = (PI_FROZEN, "log_z", "log_lik", "psi", "n_sites", "mu_star")
+
+
+def _column_names(table) -> set[str]:
+    """The column names of a dict / pandas / polars table, the way :func:`tcren.cohort._col` reads them."""
+    if hasattr(table, "columns") and not isinstance(table, dict):
+        return set(table.columns)
+    return set(table)
+
+
+def _check_potts_contacts(table) -> None:
+    """Raise unless a table's ``n_contacts`` came from :mod:`tcren.potts`.
+
+    The contact term of :func:`correct_confidence` is standardized against the Potts engaged-pair
+    population, and the two counts differ by a factor of two to four on real structures (1ao7: 66
+    footprint contacts against 29 Potts ones), so feeding the wrong one shifts that term by several
+    native sd and moves the corrected probability with no error and no NaN. A table with no
+    ``n_contacts`` column at all is fine — the caller joined the count from somewhere this cannot
+    see, which is the documented path.
+    """
+    cols = _column_names(table)
+    if "n_contacts" in cols and not cols & set(_POTTS_MARKERS):
+        raise ValueError(
+            "this table's 'n_contacts' did not come from the potts family: it carries none of "
+            f"{list(_POTTS_MARKERS)}, so the column is tcren <= 2.19.0's footprint CDR-loop tally "
+            "(renamed 'n_loop_contacts'), which the frozen correction is not standardized on. "
+            "Rebuild with `tcren features -i placement,interface,topology,potts`, or drop the "
+            "column and pass contacts= from `tcren potts score`.")
+
 
 @lru_cache(maxsize=1)
 def reliability_reference() -> dict:
@@ -288,8 +321,11 @@ def correct_confidence(table, confidence, reference: str = "tcrvdb|ipTM",
             :func:`available_corrections` lists them.
         energy: :math:`\\Pi` per row, from :mod:`tcren.potts`. Without it ``S_free`` is the
             two-block form and the correction is weaker, not wrong.
-        contacts: the observed contact count per row, from :mod:`tcren.potts`. Without it that
-            term drops out and ``n_contacts`` is reported as NaN.
+        contacts: the observed contact count per row, from :mod:`tcren.potts` — the available
+            pairs that engaged, **not** the footprint's CDR-loop tally, which is a different
+            quantity under a different name (``n_loop_contacts``). Passing it against a ``table``
+            whose ``n_contacts`` has no Potts provenance raises rather than standardizing the wrong
+            population; without it the term drops out and ``n_contacts`` is reported as NaN.
 
     Returns:
         A dict of arrays, all the same length as ``table``: ``p_corrected`` (the number to
@@ -300,6 +336,8 @@ def correct_confidence(table, confidence, reference: str = "tcrvdb|ipTM",
     cor = moments().get("corrections", {})
     if reference not in cor:
         raise KeyError(f"no frozen correction {reference!r}; have {sorted(cor)}")
+    if contacts is not None:
+        _check_potts_contacts(table)
     c = cor[reference]
     m = moments()["blocks"]
 

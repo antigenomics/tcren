@@ -82,7 +82,18 @@ def test_every_declared_feature_is_present_and_finite():
 
 def test_contact_totals_add_up():
     r = footprint_features(_full_complex())
-    assert r["n_contacts"] == r["n_pep_contacts"] + r["n_mhc_contacts"]
+    assert r["n_loop_contacts"] == r["n_pep_contacts"] + r["n_mhc_contacts"]
+
+
+def test_the_loop_tally_does_not_borrow_the_potts_column_name():
+    """Regression, 2026-08-29. Through 2.19.0 the total above was written as `n_contacts`, which
+    is also what `tcren.potts` emits for the available pairs that engaged -- 66 against 29 on 1ao7.
+    Whichever pass ran last won the column, and `tcren.reliability` standardizes `n_contacts`
+    against the Potts population, so the loop tally reached the frozen correction as a several-sd
+    outlier with no error. The two quantities now have two names."""
+    r = footprint_features(_full_complex())
+    assert "n_contacts" not in r
+    assert "n_contacts" not in FOOTPRINT_FEATURES
 
 
 def test_unannotated_mhc_is_flagged_not_silently_empty():

@@ -31,6 +31,29 @@ composition away and nothing composed it.
   substitute into and raises rather than being averaged.
 
 ### Fixed
+- **`n_contacts` was two different counts under one name, and the second silently won.** The
+  footprint pass wrote the CDR-loop contact tally; the Potts pass wrote the available pairs that
+  engaged. They are not the same number on the same structure — 1ao7 66 against 29, 1bd2 58 against
+  21, 1fo0 42 against 11 — and since `_featurise_families` runs `topology` before `potts`, the
+  emitted column meant whichever family the caller asked for, with no error either way.
+
+  This mattered because `reliability.correct_confidence` standardizes `n_contacts` against
+  `reliability_moments["blocks"]["n_contacts"]`, which is the **Potts** population. `tcren diagnose`
+  on the default `-i placement,interface,topology,energetics` table therefore standardized the
+  footprint tally against Potts moments: 1ao7's contact term read z = +7.2 where the Potts count
+  gives +1.2, and the corrected probability moved with no warning and no NaN to notice. No published
+  number is affected — the benchmark reads the count from `potts_bound_scores.csv` and standardizes
+  it against the same population — so this was a library-user-facing defect only.
+
+  Three changes close it. The footprint total is **`n_loop_contacts`** now, beside its existing
+  `n_pep_contacts` / `n_mhc_contacts` siblings and the `interface` family's `n_contacts_tp` /
+  `n_contacts_tm`. Bare `n_contacts` is **catalogued under `potts`**, where it was previously
+  catalogued nowhere and so was dropped by `-i potts` and `-i topology` alike and emitted only when
+  a caller happened to ask for `interface` as well. And `correct_confidence` **raises** when handed
+  a table carrying `n_contacts` but none of the columns only the Potts pass emits (`neg_energy`,
+  `log_z`, `log_lik`, `psi`, `n_sites`, `mu_star`), which is what a pre-fix or topology-only table
+  looks like, rather than standardizing the wrong quantity;
+  `tcren diagnose` reports that as a parameter error naming the rebuild command.
 - **Documentation, audited paragraph by paragraph against the source.** `P_native` was still called
   "the recommended score" in three places while two others correctly said `S_free` is — it is
   cohort-refit, `S_free` is fit-free and defined for one structure. `SKILL.md` claimed anchors are
@@ -478,7 +501,7 @@ itself is not the one 2.10.0 shipped. Re-run anything you are comparing across t
   produces the shipped TCRen2; the recipe in `data/potentials.json` is unchanged and
   `tests/regression/test_shipped_potentials.py` still reproduces the file bit-for-bit.
 
-## [2.10.0] — 2026-08-23
+## [2.10.0] — 2026-08-22
 
 *Partial: this section records only what the `[Unreleased]` block that stood here had documented.
 Neither 2.10.0 nor 2.11.0 was ever published to PyPI, so the entry below first reached users in

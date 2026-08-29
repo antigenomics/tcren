@@ -641,7 +641,8 @@ DESCRIPTORS: dict[str, tuple[str, bool]] = {
     "clash_score": ("interface", True),
     # the MHC class indicator is a property of the presenting molecule alone
     "mhc_class_bin": ("interface", False),
-    # the raw footprint contact counts are interface SIZE, not shape -- see FOOTPRINT_SIZE_FEATURES
+    # the raw footprint contact counts are interface SIZE, not shape -- see FOOTPRINT_SIZE_FEATURES.
+    # The total among them is `n_loop_contacts`; bare `n_contacts` belongs to `potts` below.
     **{f: ("interface", True) for f in FOOTPRINT_SIZE_FEATURES},
     # -- topology: the shape of the contact set (`tcren.footprint`) ------------------------------
     **{f: ("topology", True) for f in footprint_topology_features()},
@@ -662,10 +663,18 @@ DESCRIPTORS: dict[str, tuple[str, bool]] = {
     # The same energy, referenced against the partition function instead of a poly-alanine
     # interface: `neg_energy = log_z + log_lik`, so the three carry capacity, typicality and their
     # sum. `n_sites` is how many pairs the backbone put in reach, `n_contacts` how many engaged.
+    #
+    # `n_contacts` is catalogued HERE and nowhere else. Through 2.19.0 it was also the name of the
+    # footprint's CDR-loop tally, which is a different count on the same structure (1ao7: 29 here,
+    # 66 there), and since the topology pass runs before the potts pass the emitted column meant
+    # whichever family the caller happened to ask for. `tcren.reliability` standardizes it against
+    # the Potts population, so the footprint tally reached the correction as a ~6-sd outlier with
+    # no warning. The footprint one is now `n_loop_contacts`.
     "neg_energy": ("potts", True),
     "log_z": ("potts", True),
     "log_lik": ("potts", True),
     "psi": ("potts", True),
+    "n_contacts": ("potts", True),
     # -- kinetics: contact fragility (``recognize``) -------------------------------------------
     "exp_lost": ("kinetics", True),
     "mean_margin": ("kinetics", True),

@@ -622,9 +622,14 @@ actionable one: on the balanced VDJdb panel the **top ipTM decile is 26.2 %** [1
   ~30 contacts among ~30 residues it is dominated by `E` and just tracks interface size; the patch
   count is scale-free instead. If someone asks for "the Betti number of the interface", this is the
   distinction to make.
-- `n_contacts` counts only what the partition sees — the six CDR loops. Framework contacts are
+- `n_loop_contacts` counts only what the partition sees — the six CDR loops. Framework contacts are
   excluded by construction, so it is smaller than the full interface count. The topology features
   are **not** restricted this way: they use every contacted pMHC residue.
+- **It is not `n_contacts`, and the distinction is load-bearing.** `n_contacts` belongs to the
+  `potts` family — the available pairs that engaged, 29 on 1ao7 against this module's 66 — and it
+  is the column `tcren diagnose` standardizes against the frozen Potts moments. Through 2.19.0 both
+  passes wrote the one name and the later pass won; a stale table carrying the loop tally as
+  `n_contacts` is now refused by `reliability.correct_confidence` rather than corrected.
 
 ## Surface topology — `tcren.surface` / `tcren surface`
 

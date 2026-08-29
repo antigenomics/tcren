@@ -3,6 +3,7 @@ import json
 from importlib import resources
 
 import numpy as np
+import polars as pl
 import pytest
 
 from tcren import reliability as rel
@@ -213,3 +214,30 @@ def test_the_contact_term_drops_out_rather_than_being_imputed():
     # dropping a term must not introduce NaN of its own: what is undefined without the contact
     # count is exactly what was already undefined with it (rows missing a descriptor block)
     assert np.array_equal(np.isfinite(without["p_corrected"]), np.isfinite(with_n["p_corrected"]))
+
+
+def test_a_table_whose_contact_count_is_not_the_potts_one_is_refused():
+    """Regression, 2026-08-29. `tcren features -i placement,interface,topology` used to emit the
+    footprint's CDR-loop tally under `n_contacts` -- 66 on 1ao7 where the Potts engaged-pair count
+    is 29 -- and the frozen correction standardizes that column against the Potts population. The
+    contact term read z = +7.2 for a native interface instead of +1.2 and the corrected probability
+    moved, with no error, no warning and no NaN to notice. The footprint tally is `n_loop_contacts`
+    now, and a table that still calls it `n_contacts` has to be refused rather than corrected.
+    """
+    ref, e, n = _corr_inputs()
+    conf = np.full(len(e), 0.85)
+    topo_only = {k: v for k, v in ref.items() if k not in rel._POTTS_MARKERS}
+    assert "n_contacts" in topo_only, "the column the old topology pass wrote, under the old name"
+    with pytest.raises(ValueError, match="potts"):
+        rel.correct_confidence(topo_only, conf, contacts=topo_only["n_contacts"])
+    # the same refusal through a polars frame, which is what `tcren diagnose` hands it
+    frame = pl.DataFrame({k: np.asarray(v, float) for k, v in topo_only.items()})
+    with pytest.raises(ValueError, match="n_loop_contacts"):
+        rel.correct_confidence(frame, conf, contacts=frame["n_contacts"].to_numpy())
+    # it is the provenance that is refused and not the missing energy: drop the column and the
+    # same table corrects fine, with the contact term dropped rather than mis-standardized
+    dropped = {k: v for k, v in topo_only.items() if k != "n_contacts"}
+    out = rel.correct_confidence(dropped, conf)
+    assert np.isfinite(out["p_corrected"]).any() and np.isnan(out["n_contacts"]).all()
+    # and a table that does carry the potts columns is untouched by the guard
+    assert np.isfinite(rel.correct_confidence(ref, conf, energy=e, contacts=n)["p_corrected"]).any()

@@ -61,6 +61,20 @@ def test_contact_counts_are_interface_size_not_topology():
     assert set(footprint_topology_features()) == topo
 
 
+def test_the_engaged_pair_count_belongs_to_potts_and_to_no_other_family():
+    """`n_contacts` is the Potts count of available pairs that engaged, and nothing else.
+
+    Regression, 2026-08-29: the footprint wrote its CDR-loop tally under the same name, so
+    `-i placement,interface,topology` emitted one quantity and `-i ...,potts` the other, silently,
+    under one column. `tcren diagnose` standardizes it against the Potts moments either way.
+    """
+    assert DESCRIPTORS["n_contacts"] == ("potts", True)
+    assert "n_contacts" in descriptors("potts")
+    for f in set(FAMILIES) - {"potts"}:
+        assert "n_contacts" not in descriptors(f), f
+    assert "n_loop_contacts" in FOOTPRINT_SIZE_FEATURES and "n_contacts" not in FOOTPRINT_SIZE_FEATURES
+
+
 def test_energetics_is_the_energy_channel_and_nothing_else():
     e = set(descriptors("energetics"))
     assert e == {"F_tcr_pep", "F_tcr_mhc", "F_cdr12", "F_cdr3a", "F_cdr3b",

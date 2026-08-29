@@ -75,7 +75,13 @@ _PSEUDO = 0.5
 #: for exactly that reason: a shape channel that carried the contact count would correlate with the
 #: interface channel by construction, and the whole point of the coverage and topology measures is
 #: that they are size-free.
-FOOTPRINT_SIZE_FEATURES: tuple[str, ...] = ("n_contacts", "n_pep_contacts", "n_mhc_contacts")
+#:
+#: The total is ``n_loop_contacts``, not ``n_contacts``: through 2.19.0 it was written under the
+#: latter name, which :mod:`tcren.potts` also emits for a *different* quantity — the available pairs
+#: that engaged, 29 against this module's 66 on 1ao7. Whichever pass ran last won the column, so a
+#: feature table built without ``potts`` handed the footprint tally to a read-out standardized on
+#: the Potts population. The two now have two names.
+FOOTPRINT_SIZE_FEATURES: tuple[str, ...] = ("n_loop_contacts", "n_pep_contacts", "n_mhc_contacts")
 
 #: Every column :func:`footprint_features` guarantees, size columns included. The radius-tagged
 #: Betti columns (``fp_b0_r7`` and friends) are named from the ``radii`` argument and so are not
@@ -268,9 +274,11 @@ def footprint_features(structure: Structure, *, cutoff: float = 5.0,
         structure gives them no support (no contacts, a single contacted residue).
 
     Note:
-        ``n_contacts`` and its two components count the contacts **the partition sees** — those
-        made by the six CDR loops. Framework contacts are outside :data:`CELL_LOOPS` and are
-        excluded by construction, so this is smaller than the full interface contact count. The
+        ``n_loop_contacts`` and its two components count the contacts **the partition sees** —
+        those made by the six CDR loops. Framework contacts are outside :data:`CELL_LOOPS` and are
+        excluded by construction, so this is smaller than the full interface contact count, and it
+        is a different quantity again from :mod:`tcren.potts`'s ``n_contacts``, which counts the
+        available pairs that engaged rather than the residue pairs in reach of a loop. The
         topology features are not restricted this way: they are built on every contacted pMHC
         residue, framework-driven ones included, because the footprint is a region on the pMHC
         and does not care which part of the receptor produced it.
@@ -313,7 +321,7 @@ def footprint_features(structure: Structure, *, cutoff: float = 5.0,
         row["L_canon"] = float(np.log((gm * cp) / (gp * cm_)))
         row["p_germ_mhc"] = gm / (gm + gp)
         row["p_cdr3_pep"] = cp / (cp + cm_)
-        row["n_contacts"] = float(n_pep + n_mhc)
+        row["n_loop_contacts"] = float(n_pep + n_mhc)
         row["n_pep_contacts"] = float(n_pep)
         row["n_mhc_contacts"] = float(n_mhc)
 

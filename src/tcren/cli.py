@@ -1473,8 +1473,8 @@ def diagnose(
     import numpy as np
 
     from .cohort import Q_FEATURES_GEOM
-    from .reliability import (PI_FROZEN, T_FEATURES_TOPO, available_corrections,
-                              correct_confidence, inversion_flag)
+    from .reliability import (PI_FROZEN, T_FEATURES_TOPO, _check_potts_contacts,
+                              available_corrections, correct_confidence, inversion_flag)
 
     if list_references:
         typer.echo("frozen confidence corrections:")
@@ -1491,7 +1491,8 @@ def diagnose(
     absent = [c for c in (*Q_FEATURES_GEOM, *T_FEATURES_TOPO) if c not in t.columns]
     if absent:
         raise typer.BadParameter(
-            f"missing {', '.join(absent)} - rerun `tcren features -i placement,interface,topology`")
+            f"missing {', '.join(absent)} - rerun "
+            f"`tcren features -i placement,interface,topology,potts`")
     if confidence not in t.columns:
         raise typer.BadParameter(
             f"no {confidence!r} column: the correction needs the generator's own confidence. "
@@ -1499,7 +1500,12 @@ def diagnose(
             f"(one of {[c for c in ('iptm', 'plddt') if c in t.columns]!r} here).")
 
     e = t[PI_FROZEN].to_numpy() if PI_FROZEN in t.columns else None
+    try:  # `n_contacts` is the potts family's engaged-pair count and nothing else, 2026-08-29
+        _check_potts_contacts(t)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
     n = t["n_contacts"].to_numpy() if "n_contacts" in t.columns else None
+    no_n = "" if n is not None else "; no n_contacts column (add -i potts), that term drops out"
     conf = t[confidence].to_numpy()
     r = correct_confidence(t, conf, reference=reference, energy=e, contacts=n)
 
@@ -1515,7 +1521,7 @@ def diagnose(
     down = int((d < 0).sum())
     typer.echo(f"{t.height} structures corrected against {reference!r}"
                f"{'' if e is not None else '; no energy column, S_free is the two-block form'}"
-               f"{'' if n is not None else '; no n_contacts column, that term drops out'}")
+               f"{no_n}")
     typer.echo(f"  the structure argues AGAINST {down} of {int(fin.sum())} "
                f"({down / max(int(fin.sum()), 1):.0%}); mean shift "
                f"{np.nanmean(d):+.3f} nats, range [{np.nanmin(d):+.2f}, {np.nanmax(d):+.2f}]")

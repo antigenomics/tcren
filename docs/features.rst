@@ -157,12 +157,15 @@ off this table. Two of them come from ``tcren features`` directly, and the third
      - join on ``pdb.id``; it is :math:`-E(\sigma_{\mathrm{obs}})`, the interface energy read
        against the partition function
 
-``tcren diagnose`` reads the same blocks plus ``n_contacts``, which is catalogued under
-``interface`` but written by whichever pass ran last — the footprint's CDR-loop count without
-``potts``, the Potts available-pair count with it. The frozen correction is standardized against
-the Potts population, so ask for ``potts``: ``-i placement,interface,topology,potts`` is
-``diagnose``'s full input. Without ``n_contacts`` the
-contact term drops out and is reported as ``n/a`` rather than imputed.
+``tcren diagnose`` reads the same blocks plus ``n_contacts``, the Potts count of available pairs
+that engaged, so its full input is ``-i placement,interface,topology,potts``. The column belongs to
+the ``potts`` family and to no other: through 2.19.0 the footprint wrote its CDR-loop tally under
+the same name — a different quantity on the same structure, 66 against 29 on 1ao7 — and since the
+topology pass runs before the Potts one, the emitted column meant whichever family the caller
+happened to ask for. That tally is ``n_loop_contacts`` now, and a table that still carries the old
+name is **refused** by :func:`~tcren.reliability.correct_confidence` rather than standardized
+against the wrong population. Without ``n_contacts`` the contact term drops out and is reported as
+``n/a`` rather than imputed.
 
 So ``-i placement,interface,topology,energetics`` is what ``tcren assess`` requires (see
 :doc:`reliability`), and
@@ -192,7 +195,8 @@ also the axis along which they carry independent evidence:
        ``offset``, the 18 CDR3 frame terms
    * - ``interface``
      - how much contact there is and of what chemical kind. SE(3)-invariant.
-     - ``burial``, ``extent``, ``n_contacts_tp/tm``, ``n_hbond``, ``ct_*``, ``n_clashes``
+     - ``burial``, ``extent``, ``n_contacts_tp/tm``, ``n_hbond``, ``ct_*``, ``n_clashes``,
+       ``n_loop_contacts``
    * - ``topology``
      - the *shape* of the contact set, free of its size. SE(3)-invariant, so these need no
        canonical orientation.
@@ -205,7 +209,7 @@ also the axis along which they carry independent evidence:
      - the same contact energy read against the **partition function** instead of a poly-alanine
        interface, under the coupled contact-map model (:mod:`tcren.potts`). The decomposition is
        exact: ``neg_energy = log_z + log_lik``, capacity plus typicality.
-     - ``neg_energy``, ``log_z``, ``log_lik``, ``psi``
+     - ``neg_energy``, ``log_z``, ``log_lik``, ``psi``, ``n_contacts``
    * - ``kinetics``
      - the interface as a network of breakable springs. Off unless asked for.
      - ``K_tens``, ``aniso``, ``rupture_force``, ``rupture_work``, ``couple_*``
