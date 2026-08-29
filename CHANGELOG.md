@@ -3,6 +3,44 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
+## [2.20.0] — 2026-08-29
+
+**The residue, not just the position.** 2.19.0 could say how engaged a peptide position was expected
+to be; it could not say what happened when the residue there changed. The machinery was one
+composition away and nothing composed it.
+
+### Added
+- **`potts.peptide_free_energy` and `tcren potts scan`.** `contact_map --by position` reads how
+  engaged a peptide position is expected to be *before any residue identity is scored*; this reads
+  what happens when the identity changes. The partner residue enters the one-body field twice, so
+  threading a residue through position `i` moves eta at every available pair carrying it and the
+  interface free energy moves with it:
+
+      Phi_Potts(x) = log Z0(eta(x)) = sum_s log(1 + exp(eta_s(x)))
+      dF_i(a)      = Phi_Potts(x_{i->a}) - mean_b Phi_Potts(x_{i->b})
+
+  Exact and closed form for the coupling-free model, no sampling. `coupled=True` takes the linear
+  response about the observed sequence, `d log Z / d eta_s = <sigma_s>`, so one Gibbs pass and a dot
+  product per cell. `log Z0` is a sum over independent sites, so `dF` is additive over positions and
+  one `L x 20` table scores a single substitution and any whole partner sequence alike. The
+  reference is the **equimolar** one, the mean over the twenty residues at a position, which is the
+  null a positional-scanning library holds its other positions at.
+
+  **This one IS an energy**, unlike `contact_map`'s frequencies: `log Z0` carries k_B T and belongs
+  in an energy block. A partner position carrying two different residues has no sequence to
+  substitute into and raises rather than being averaged.
+
+### Fixed
+- **Documentation, audited paragraph by paragraph against the source.** `P_native` was still called
+  "the recommended score" in three places while two others correctly said `S_free` is — it is
+  cohort-refit, `S_free` is fit-free and defined for one structure. `SKILL.md` claimed anchors are
+  never scored rows (`fit_em` pins the caller's own rows and keeps them in the design), that the
+  energetics channel needs a leading minus (no shipped channel does), and that `f_score` feeds
+  `P_native` (that channel moved to the `potts` family at 2.17.0). The bundled potential names, the
+  footprint feature count, and `potts score`'s emitted column list were each wrong.
+- **CHANGELOG history.** An `[Unreleased]` block sat between `[2.11.0]` and `[2.9.0]` describing
+  work that had already shipped, and there was no `[2.10.0]` section at all.
+
 ## [2.19.0] — 2026-08-29
 
 **The contact map, read as a map.** `contact_probabilities` has emitted a per-residue-pair marginal
@@ -25,25 +63,6 @@ compared against one.
   These are **frequencies, not energies** — dimensionless and in [0, 1]. They carry no k_B T and
   belong to the diagnostic and importance side of the model; `score`'s `neg_energy` is the quantity
   with units, and it is what `S_free`'s Pi block reads.
-- **`potts.peptide_free_energy` and `tcren potts scan`.** `contact_map --by position` reads how
-  engaged a peptide position is expected to be *before any residue identity is scored*; this reads
-  what happens when the identity changes. The partner residue enters the one-body field twice, so
-  threading a residue through position `i` moves eta at every available pair carrying it and the
-  interface free energy moves with it:
-
-      Phi_Potts(x) = log Z0(eta(x)) = sum_s log(1 + exp(eta_s(x)))
-      dF_i(a)      = Phi_Potts(x_{i->a}) - mean_b Phi_Potts(x_{i->b})
-
-  Exact and closed form for the coupling-free model, no sampling. `coupled=True` takes the linear
-  response about the observed sequence, `d log Z / d eta_s = <sigma_s>`, so one Gibbs pass and a dot
-  product per cell. `log Z0` is a sum over independent sites, so `dF` is additive over positions and
-  one `L x 20` table scores a single substitution and any whole partner sequence alike. The
-  reference is the **equimolar** one, the mean over the twenty residues at a position, which is the
-  null a positional-scanning library holds its other positions at.
-
-  **This one IS an energy**, unlike `contact_map`'s frequencies: `log Z0` carries k_B T and belongs
-  in an energy block. A partner position carrying two different residues has no sequence to
-  substitute into and raises rather than being averaged.
 - `notebooks/potts_contact_map.py`, a marimo app over the released path: the predicted map beside
   the contacts the structure made, and the importance profile under it.
 
@@ -459,7 +478,11 @@ itself is not the one 2.10.0 shipped. Re-run anything you are comparing across t
   produces the shipped TCRen2; the recipe in `data/potentials.json` is unchanged and
   `tests/regression/test_shipped_potentials.py` still reproduces the file bit-for-bit.
 
-## [2.10.0] — 2026-08-19
+## [2.10.0] — 2026-08-23
+
+*Partial: this section records only what the `[Unreleased]` block that stood here had documented.
+Neither 2.10.0 nor 2.11.0 was ever published to PyPI, so the entry below first reached users in
+2.12.0.*
 
 ### Added
 - **`scripts/relax_openmm.py`** — full-complex OpenMM minimization (amber14 + GBn2 implicit solvent,
