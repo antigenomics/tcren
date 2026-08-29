@@ -248,6 +248,14 @@ tcren.potential.redundancy module
    :undoc-members:
    :show-inheritance:
 
+tcren.potential.aaindex module
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: tcren.potential.aaindex
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Scoring
 -------
 

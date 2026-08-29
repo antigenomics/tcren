@@ -197,6 +197,53 @@ class Potential:
             name=self.name, mean=grand, one_body=row, pair=pair, index=index
         )
 
+    def components(self) -> dict[str, "Potential"]:
+        """The three additive parts of :meth:`decompose`, each as a scorable :class:`Potential`.
+
+        :meth:`decompose` splits the matrix as ``e(a,b) = mean + H(a) + H(b) + J(a,b)``. Because an
+        interface score is a *sum over contacts*, that split carries straight through to the score:
+
+        ============  ==========================  ====================================
+        component     matrix                      what its interface sum equals
+        ============  ==========================  ====================================
+        ``"size"``    the grand mean everywhere   ``mean x (number of contacts)``
+        ``"comp"``    ``H(a) + H(b)``             a degree-weighted composition term
+        ``"pair"``    ``J(a, b)``                 the interaction, one-body parts gone
+        ============  ==========================  ====================================
+
+        So scoring a structure with each part in turn says which of three very different things a
+        potential is reading on that interface: how *big* it is, what it is *made of*, or which
+        residue *faces which*. That distinction is not cosmetic -- a matrix with no positive entries
+        has a large negative mean, so its interface sum is dominated by the contact count, and a
+        result obtained with one can be an interface-area effect wearing a chemical name. The three
+        parts sum back to the original exactly, which the unit tests assert.
+
+        Returns:
+            ``{"size": ..., "comp": ..., "pair": ...}``, each named ``<this potential>_<part>``.
+
+        Raises:
+            ValueError: If the potential is not symmetric (see :meth:`decompose`).
+        """
+        d = self.decompose()
+        aas = sorted(d.index, key=lambda a: d.index[a])
+        H, J = d.one_body, d.pair
+        parts = {
+            "size": lambda a, b: d.mean,
+            "comp": lambda a, b: float(H[d.index[a]] + H[d.index[b]]),
+            "pair": lambda a, b: float(J[d.index[a], d.index[b]]),
+        }
+        return {
+            tag: Potential(
+                name=f"{self.name}_{tag}",
+                matrix=pl.DataFrame([
+                    {"residue.aa.from": a, "residue.aa.to": b, "value": float(fn(a, b))}
+                    for a in aas for b in aas
+                ]),
+                alphabet=tuple(aas),
+            )
+            for tag, fn in parts.items()
+        }
+
     def hydrophobicity_fit(self) -> "HydrophobicityFit":
         """Fit ``e(a,b) = C0 + C1 (q_a + q_b) + C2 q_a q_b`` -- one number per residue.
 
@@ -354,11 +401,21 @@ def tcren2() -> Potential:
 def mj() -> Potential:
     """Load the bundled Miyazawa–Jernigan potential (cached; treat as read-only).
 
-    Note that this matrix takes both signs and has a mean near zero, so it is a
-    contact-*pair* matrix, not raw contact energies; :func:`mj1996` is the raw form. Its
-    exact upstream table is not recorded, which is a known gap -- see :func:`mj1996` for
-    what is and is not established about the difference. Every score in the package is
-    built on this file, so it is left exactly as it is.
+    **Identified 2026-08-29: this is AAindex3 ``MIYS990106``, Miyazawa & Jernigan 1999** -- not
+    1985 and not 1996, which is what the "upstream table not recorded" warning here used to say.
+    All 400 cells match the AAindex record exactly (``identify(mj())`` returns
+    ``("MIYS990106", 0.0)``), and the next-closest entry in the whole of AAindex3 is off by 0.65,
+    so the identification is unique. Every score in the package is built on this file and it is
+    left byte-for-byte untouched; what changed is that it can now be cited.
+
+    It takes both signs with a mean of −0.079, so it is a contact-*pair* matrix with the one-body
+    transfer term removed; :func:`mj1996` and :func:`keskin` are raw contact energies (mean ≈ −3.3)
+    and :func:`betancourt` is the other pair-form matrix. Compare like with like, and see
+    :meth:`Potential.components` for why the distinction changes what a comparison measures.
+
+    Reference: Miyazawa S, Jernigan RL. Self-consistent estimation of inter-residue protein contact
+    energies based on an equilibrium mixture approximation of residues. Proteins. 1999;34(1):49-68.
+    doi:10.1002/(SICI)1097-0134(19990101)34:1<49::AID-PROT5>3.0.CO;2-L.
     """
     return Potential.from_csv(_bundled("MJ_Keskin_potentials.csv"), name="MJ")
 
@@ -425,6 +482,11 @@ def mj_partition_energy() -> dict[str, float]:
 @lru_cache(maxsize=None)
 def keskin() -> Potential:
     """Load the bundled Keskin contact potential (cached; treat as read-only).
+
+    **Identified 2026-08-29 as AAindex3 ``KESO980101``**, "Quasichemical transfer energy derived
+    from interfacial regions", matching all 400 cells exactly with the next-closest AAindex3 entry
+    off by 2.77. That is the *solvent-mediated* form; the companion ``KESO980102`` is the
+    residue-mediated one, also available through :func:`aaindex`.
 
     Every entry is negative, from ``-7.23`` to ``-0.50``, so this is a raw contact matrix in
     the same reference state as :func:`mj1996` and **not** in the pair-contact reference state

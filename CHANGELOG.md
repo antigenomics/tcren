@@ -19,10 +19,40 @@ pairs are `mj` ↔ `betancourt` and `keskin` ↔ `mj1996`.
   Thirumalai D. *Protein Sci.* 1999;8(2):361–369. doi:10.1110/ps.8.2.361.
 - `data/BT1999_contact_energies.csv`, with a `SOURCES` entry carrying the re-fetch URL.
 
+- **`potential.aaindex` — the whole of AAindex3, bundled verbatim** (`data/aaindex3.txt`, 47 records,
+  80 kB), so adding a published matrix to a comparison costs a string rather than a transcription.
+  `catalogue()` lists every entry with its kind, symmetry, mean and citation fields; `aaindex(acc)`
+  returns one as a `Potential` and **refuses** the 2 contact-count and 3 side-chain-distance tables,
+  because scoring a contact map with a count table is a silent category error; `entry(acc)` returns
+  them deliberately. 42 of the 47 are usable energies.
+- `potential.identify(pot)` — compares a matrix cell by cell against every AAindex3 entry and
+  returns the accessions ordered by maximum absolute difference.
+- **`Potential.components()`** — the exact `mean + H(a) + H(b) + J(a,b)` split of `decompose()`,
+  returned as three *scorable* potentials. Because an interface score is a sum over contacts, the
+  split carries through to it: `size` sums to `mean x (contact count)`, `comp` to a degree-weighted
+  composition term, `pair` to the interaction proper. Scoring each part in turn says whether a
+  result is reading interface *area*, *composition* or *chemistry* -- a matrix with no positive
+  entries has a large negative mean, so its interface sum is dominated by the contact count.
+
+### Fixed
+- **The bundled `mj()` and `keskin()` matrices are identified.** `mj()` is AAindex3 `MIYS990106`,
+  Miyazawa--Jernigan **1999** (Proteins 34:49-68) -- not 1985 and not 1996 -- and `keskin()` is
+  `KESO980101`, the solvent-mediated interfacial form. Both match 400 of 400 cells exactly, with
+  runners-up off by 0.65 and 2.77, so the identifications are unique. The "upstream table
+  unrecorded / do not cite" warning that had stood on `mj()` since 2026-08-11 is withdrawn; the
+  files are unchanged and can now be cited.
+- **Five cells of `mj1996()` disagree with AAindex3 `MIYS960101`** by 0.04-0.28 (M-V, D-M, E-M, H-R,
+  A-P; the two matrices correlate at 0.99978). Ours was hand-transcribed and four of the five
+  involve Met, Arg or His, so it reads as a transcription slip on our side. Left byte-for-byte
+  untouched under the same rule as the MJ/Keskin file, **pinned by a test** so it stays visible, and
+  `aaindex("MIYS960101")` is the curated alternative. It feeds no reported number.
+
 ### Changed
 - `keskin()` gains a docstring stating its reference state and its citation; both it and the
   `SOURCES` entry now name the like-for-like partner, so a future swap cannot cross reference
   states silently.
+- `docs/potentials.rst` gains three sections: the AAindex3 resource, identifying an unlabelled
+  matrix, and the component split.
 
 ## [2.23.0] — 2026-08-29
 

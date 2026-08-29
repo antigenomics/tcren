@@ -189,16 +189,47 @@ QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses ar
   Consequence to state when using such a potential: the interaction term is only `C2·q_a·q_b`, so it
   **cannot prefer one pair of side chains over another of equal hydrophobicity**.
 - **Both refuse a directed potential.** TCRen is TCR→peptide; decomposing it is meaningless.
-- `mj1996()` = MJ 1996 Table 3 raw contact energies (AAindex MIYS960101, transcribed and
-  cross-checked against a second copy). `mj_partition_energy()` = MJ 1985 one-body scale (MIYS850101,
-  larger = more hydrophobic; **opposite sign convention** to a contact energy). Cross-check that
-  validates both: r = +0.98 between the partition scale and the `q` axis recovered from the 1996
-  matrix, which came from an unrelated source.
-- **The bundled `mj()` is NOT MJ 1996 Table 3** and its upstream table is unrecorded. Table 3 is
-  attractive everywhere (Ala–Ala −2.72); the bundled one takes both signs (Ala–Ala −0.12). r = 0.89
-  between them, but it is not Table 3's double-centred pair part either (r = 0.51). Left untouched
-  because every score in the package is built on it — but **do not cite it as Miyazawa–Jernigan
-  1996**. See `SOURCES`.
+- `Potential.components()` returns that same split as **three scorable potentials**, because an
+  interface score is a sum over contacts and the split carries through to it: `size` (the grand mean
+  everywhere → `mean × contact count`, an *area* term), `comp` (`H(a)+H(b)`, degree-weighted
+  composition) and `pair` (`J`, the interaction). Score a structure with each in turn to say which of
+  the three a result is actually reading. **A matrix with no positive entries has a large negative
+  mean, so its interface sum is dominated by the contact count** — that is how an interface-area
+  effect ends up wearing a chemical name.
+- `mj1996()` = MJ 1996 Table 3 raw contact energies (AAindex MIYS960101, transcribed). **Five of its
+  210 unique pairs disagree with the AAindex record** by 0.04–0.28 (M–V, D–M, E–M, H–R, A–P; r =
+  0.99978). Left untouched, pinned by `tests/unit/test_aaindex.py`; `aaindex("MIYS960101")` is the
+  curated alternative. `mj_partition_energy()` = MJ 1985 one-body scale (MIYS850101, larger = more
+  hydrophobic; **opposite sign convention** to a contact energy). Cross-check that validates both:
+  r = +0.98 between the partition scale and the `q` axis recovered from the 1996 matrix.
+- **The bundled `mj()` is Miyazawa–Jernigan 1999, identified 2026-08-29** — AAindex3 `MIYS990106`,
+  400 of 400 cells exactly, runner-up off by 0.65. It is **not** 1985 and **not** 1996 Table 3, which
+  is what the old "upstream table unrecorded" warning here said. `keskin()` is `KESO980101`, the
+  solvent-mediated interfacial form, likewise 400/400 with the runner-up off by 2.77. Both files are
+  left byte-for-byte untouched; what changed is that they can be cited. See `SOURCES`.
+- **Reference state decides what a comparison measures.** `mj` (−0.079) and `betancourt` (−0.057) are
+  *pair-contact* matrices with the one-body term removed; `keskin` (−3.547) and `mj1996` (−3.166) are
+  *raw contact energies* that keep it. The like-for-like pairs are `mj` ↔ `betancourt` and `keskin` ↔
+  `mj1996`; comparing across the groups compares reference states, not derivations.
+
+### Every published contact matrix — `tcren.potential.aaindex`
+
+`src/tcren/data/aaindex3.txt` is the whole AAindex3 flat file, bundled verbatim (47 records, 80 kB),
+so adding a matrix to a comparison costs a string rather than a transcription.
+
+- `catalogue()` → one row per entry with `kind`, `symmetric`, `n_missing`, `mean`, `min`, `max` and
+  the citation fields. **Read `mean` for reference state** (above).
+- `aaindex(acc)` → one entry as a `Potential`. It **refuses** the 2 contact-*count* tables
+  (`TANS760102`, `MIYS960103`) and the 3 side-chain-*distance* tables (`BONM030104`–`BONM030106`),
+  because scoring a contact map with a count table is a silent category error; `entry(acc)` still
+  returns them deliberately. 42 of the 47 are usable energies.
+- `identify(pot)` → accessions ordered by max |Δ|. **An identification needs an exact match AND a
+  distant runner-up**; that is how `mj()` and `keskin()` were pinned down.
+- Three `ZHAC*` entries are asymmetric by construction (row secondary structure vs column) and
+  `decompose()`/`components()` refuse them.
+- **AAindex's PMID field sometimes cites the paper that tabulated a matrix, not the one that derived
+  it** (`MIYS850102` carries Bastolla 2001). Check the entry's own author/title/journal before
+  citing.
 
 ## Contact-map Potts model — `tcren.potts` / `tcren potts`
 

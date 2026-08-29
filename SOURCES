@@ -29,18 +29,28 @@ The same quantity re-derived on Native2026. Shipped for comparison; no scoring p
 
 - Regenerate: `tcren derive-potential` over Native2026.
 
-## `MJ_Keskin_potentials.csv` — UNRESOLVED
+## `MJ_Keskin_potentials.csv` — published (identified 2026-08-29)
 
 Loaded as both `mj()` and `keskin()`. **Every score in the package is built on this file.**
 
-- Origin: **not recorded**, and not recoverable from the repo history. Carried over from the original
-  R implementation.
-- What is established (2026-08-11, see `mj1996()`): it is **not** MJ 1996 Table 3 — that table is
+- Origin: carried over from the original R implementation with no record, and **identified against
+  AAindex3 on 2026-08-29** by `tcren.potential.identify()`, which compares a matrix cell by cell
+  against all 47 AAindex3 entries:
+  - the `MJ` column is **`MIYS990106`** — Miyazawa S, Jernigan RL, *Proteins.* 1999;34(1):49–68,
+    doi:10.1002/(SICI)1097-0134(19990101)34:1<49::AID-PROT5>3.0.CO;2-L (PMID 10336383). **400 of
+    400 cells match exactly** (max |Δ| = 0); the next-closest AAindex3 entry is off by 0.65, and
+    every other Miyazawa–Jernigan matrix in the file — `MIYS850102`, `MIYS850103`, `MIYS960101`,
+    `MIYS960102`, `MIYS990107` — is off by 0.66 to 6.53. So it is **MJ 1999, not 1985 and not
+    1996**, and the citation risk recorded here since 2026-08-11 is closed.
+  - the `Keskin` column is **`KESO980101`**, the solvent-mediated form — 400 of 400 cells exactly,
+    next-closest off by 2.77.
+- Re-verify: `python -c "from tcren.potential import identify, mj, keskin; print(identify(mj())[:2], identify(keskin())[:2])"`
+- What was established earlier and still holds: it is **not** MJ 1996 Table 3 — that table is
   attractive everywhere (Ala–Ala −2.72, range −7.37 to −0.12) while this one takes both signs
   (Ala–Ala −0.12, range −1.19 to +0.76). It correlates with Table 3 at r = 0.89 but is not its
   double-centred pair part either (r = 0.51).
-- Status: left byte-for-byte untouched, since changing it would change every published number. Cite
-  it as "the bundled MJ-style contact-pair matrix", **not** as Miyazawa & Jernigan 1996.
+- Status: left byte-for-byte untouched, since changing it would change every published number. It
+  can now be cited as Miyazawa & Jernigan 1999.
 - **The two potentials in this one file are in different reference states** (2026-08-29): the `MJ`
   side is mixed-sign with mean −0.079, the `Keskin` side is negative everywhere with mean −3.547.
   Swapping one for the other therefore changes the reference state as well as the derivation. The
@@ -56,6 +66,13 @@ Miyazawa–Jernigan 1996 inter-residue contact energies `e_ij` (RT units), Table
 - Re-fetch: <https://www.genome.jp/dbget-bin/www_bget?aaindex:MIYS960101>
 - Excluded on purpose: the companion repulsive packing-density term of the same paper, which is a
   function of coordination number rather than of a residue pair.
+- **Five cells disagree with AAindex's own `MIYS960101` (2026-08-29)**, by 0.04 to 0.28: M–V, D–M,
+  E–M, H–R and A–P. 205 of the 210 unique pairs agree exactly and the two matrices correlate at
+  0.99978. Four of the five involve Met, Arg or His, which reads like a transcription slip on our
+  side rather than a different edition. **Left byte-for-byte untouched** under the same rule as the
+  MJ/Keskin file, and pinned by `tests/unit/test_aaindex.py`. It feeds no manuscript number:
+  `\PotPinGenericFoldMax` takes the max over three generic potentials and that max is `mj`, not
+  this one. `aaindex("MIYS960101")` is the curated alternative when one is wanted.
 - Reference: Miyazawa S, Jernigan RL. *J Mol Biol.* 1996;256(3):623–644. doi:10.1006/jmbi.1996.0114
 - Loader: `tcren.potential.mj1996()`.
 
@@ -72,6 +89,28 @@ Sign convention is opposite to a contact energy: larger is more hydrophobic.
   transcribed from a different source — a transcription error would break that agreement.
 - Reference: Miyazawa S, Jernigan RL. *Macromolecules.* 1985;18:534–552.
 - Loader: `tcren.potential.mj_partition_energy()`.
+
+## `aaindex3.txt` — published (upstream flat file, verbatim)
+
+The whole of AAindex3, GenomeNet's section of statistical protein contact potentials: 47 records
+over the 20 amino acids, each transcribed by its curators from a published table. Bundled as the
+**upstream file itself** rather than a converted subset, so provenance is the record and a reader
+can diff it against a fresh download.
+
+- Origin: <https://www.genome.jp/ftp/db/community/aaindex/aaindex3> (80 kB), fetched 2026-08-29.
+- Re-fetch: `curl -sL https://www.genome.jp/ftp/db/community/aaindex/aaindex3 -o src/tcren/data/aaindex3.txt`
+- Contents by kind, as `potential.catalogue()` reports them: **42 contact energies**, 2 contact-count
+  tables (`TANS760102`, `MIYS960103`) and 3 side-chain-distance tables (`BONM030104`–`BONM030106`).
+  `potential.aaindex()` refuses the last two kinds, because scoring a contact map with a count table
+  is a silent category error. Three `ZHAC*` entries are asymmetric by construction (row secondary
+  structure vs column secondary structure) and must not be decomposed.
+- Caveat carried in the code: **AAindex's `R` (PMID) field sometimes cites the paper that tabulated
+  a matrix rather than the one that derived it** — `MIYS850102` carries Bastolla 2001. Verify before
+  citing; every entry's own `A`/`T`/`J` fields are the authors, title and journal to check against.
+- Licence: AAindex is distributed publicly by anonymous FTP/HTTPS from GenomeNet and its contents are
+  taken from published literature. **Redistribution terms are not stated on the download page**, so
+  this bundling is flagged rather than settled.
+- Loaders: `tcren.potential.aaindex(accession)`, `entry()`, `catalogue()`, `identify()`.
 
 ## `BT1999_contact_energies.csv` — published
 

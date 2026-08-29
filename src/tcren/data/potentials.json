@@ -37,15 +37,31 @@
     },
     "mj1996": {
       "file": "MJ1996_contact_energies.csv",
-      "description": "Miyazawa & Jernigan 1996 contact energies, used on the presentation interfaces.",
+      "description": "Miyazawa & Jernigan 1996 contact energies e_ij, used on the presentation interfaces. Hand transcribed; five of 210 unique pairs (M-V, D-M, E-M, H-R, A-P) differ from AAindex3 MIYS960101 by 0.04-0.28, correlating at 0.99978. Left untouched and pinned by tests/unit/test_aaindex.py; aaindex('MIYS960101') is the curated alternative.",
       "source": "published",
-      "reference": "Miyazawa S, Jernigan RL. J Mol Biol 1996;256:623-644."
+      "reference": "Miyazawa S, Jernigan RL. J Mol Biol 1996;256:623-644.",
+      "aaindex": [
+        "MIYS960101"
+      ]
     },
     "mj_keskin": {
       "file": "MJ_Keskin_potentials.csv",
-      "description": "Keskin et al. residue contact potentials.",
+      "description": "Two matrices in one file, both identified against AAindex3 on 2026-08-29 at 400/400 cells exactly. 'MJ' is MIYS990106 (Miyazawa-Jernigan 1999), NOT 1985 or 1996; 'Keskin' is KESO980101, the solvent-mediated interfacial form. Re-verify with tcren.potential.identify().",
       "source": "published",
-      "reference": "Keskin O, et al. Protein Sci 1998;7:2578-2586."
+      "reference": "Miyazawa S, Jernigan RL. Proteins 1999;34:49-68 (AAindex3 MIYS990106); Keskin O, Bahar I, Badretdinov AY, Ptitsyn OB, Jernigan RL. Protein Sci 1998;7:2578-2586 (AAindex3 KESO980101).",
+      "aaindex": [
+        "MIYS990106",
+        "KESO980101"
+      ]
+    },
+    "bt1999": {
+      "file": "BT1999_contact_energies.csv",
+      "description": "Betancourt-Thirumalai B matrix: Miyazawa-Jernigan re-referenced with Thr as the reference solvent, so every Thr entry is exactly 0.00. Parsed from the AAindex3 record, never retyped.",
+      "source": "published",
+      "reference": "Betancourt MR, Thirumalai D. Protein Sci 1999;8:361-369.",
+      "aaindex": [
+        "BETM990101"
+      ]
     }
   },
   "known_unresolved": []
