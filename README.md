@@ -31,6 +31,25 @@ Where the original tcren scored TCR:peptide contacts alone, this version also sc
 and peptide:MHC interfaces, which a full picture of TCR:pMHC binding mechanics and any ΔΔG
 estimate both need.
 
+## What it is evaluated on
+
+Five benchmark blocks, chosen to cover the problems users actually bring to a modelled TCR:pMHC
+complex. They are the backbone of the accompanying manuscript, and they are why the API looks the
+way it does.
+
+| block | the question | entry points |
+|---|---|---|
+| **Combinatorial peptide libraries** | which peptides does this receptor read? | `tcren pipeline --delta`, `tcren.ddg.neoantigen_ddg` |
+| **A functionally validated repertoire screen** | which receptors read this epitope? | `tcren features`, `tcren recognize` |
+| **A balanced epitope panel, template-stratified** | the same, where no related complex has been solved | as above, with template availability reported rather than inferred |
+| **Molecular dynamics with measured kinetics** | may a single static structure be scored at all, and what does its energy reach? | the three interface energies, `tcren.potts` contact marginals |
+| **Model-confidence diagnostics** | which confidently modelled complexes are not real, and can ipTM/pLDDT be corrected? | `tcren diagnose`, `tcren.reliability.correct_confidence` |
+
+The last is the one most users reach for first: you already have an AlphaFold model and want to know
+whether to trust it. It is also the only read-out here that is fitted — it takes the generator's
+confidence as a prior and adds the structure as log-odds, learning four coefficients and freezing
+them. Everything else takes no binding label anywhere.
+
 ## What it does
 
 > **Scope.** `tcren` is for **αβ TCR : peptide–MHC** complexes and nothing else: a TRA and a
