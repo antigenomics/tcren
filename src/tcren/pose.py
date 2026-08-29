@@ -147,12 +147,24 @@ def _spearman(x: np.ndarray, y: np.ndarray) -> float:
     return float(spearmanr(x[ok], y[ok]).statistic)
 
 
-def _interface_layers(structure: Structure, cutoff: float, partner=(PEPTIDE_TYPE,)) -> pl.DataFrame:
-    """The d1/d2/d3 layers pivoted onto one row per TCR:``partner`` residue pair.
+def _interface_layers(structure: Structure, cutoff: float, partner=(PEPTIDE_TYPE,),
+                      receptor=None) -> pl.DataFrame:
+    """The d1/d2/d3 layers pivoted onto one row per ``receptor``:``partner`` residue pair.
+
+    Args:
+        structure: The chain-typed complex.
+        cutoff: The d1 (closest heavy-atom) threshold, Å.
+        partner: Chain types on the partner side.
+        receptor: Chain types on the receptor side. ``None`` (default) is the TCR/BCR receptor,
+            which is what every caller wanted while the only interfaces were TCR:peptide and
+            TCR:MHC. Pass the MHC types to make the **groove** the receptor and the peptide the
+            partner — the peptide:MHC arm, whose Hamiltonian is a separate field from the
+            receptor's and whose partner-side numbering is the plain peptide position.
 
     Returns a frame keyed by the residue pair with columns ``d1``/``d2``/``d3`` (Angstrom, null where
-    that layer does not reach), ``aa.tcr``/``aa.pep`` and the d1 atom names. The TCR side is
-    normalised to ``aa.tcr`` regardless of which side the canonical chain ordering put it on.
+    that layer does not reach), ``aa.tcr``/``aa.pep`` and the d1 atom names. The receptor side is
+    normalised to ``aa.tcr`` regardless of which side the canonical chain ordering put it on — the
+    column keeps its name across arms so one site schema serves all three.
     """
     stacked = multi_contacts(
         structure,
@@ -163,7 +175,7 @@ def _interface_layers(structure: Structure, cutoff: float, partner=(PEPTIDE_TYPE
         pl.col("chain.id.from").replace_strict(ctype, default=None).alias("type.from"),
         pl.col("chain.id.to").replace_strict(ctype, default=None).alias("type.to"),
     )
-    tcr, pep = list(RECEPTOR_TYPES), list(partner)
+    tcr, pep = list(RECEPTOR_TYPES if receptor is None else receptor), list(partner)
     fwd = pl.col("type.from").is_in(tcr) & pl.col("type.to").is_in(pep)
     rev = pl.col("type.from").is_in(pep) & pl.col("type.to").is_in(tcr)
     stacked = stacked.filter(fwd | rev).with_columns(

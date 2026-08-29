@@ -8,6 +8,8 @@ interface is the central object for scoring and reproduces the schema of
 
 from __future__ import annotations
 
+import warnings
+
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
@@ -103,6 +105,27 @@ class ContactMap:
         return cls(pdb_id=structure.pdb_id, contacts=df, peptide_length=peptide_length,
                    peptide_internal=internal)
 
+    def _warn_if_mhc_unannotated(self, which: str) -> None:
+        """Warn on an MHC-side selection over a map whose MHC chains were never refined.
+
+        ``classify_chains`` types an MHC chain ``"MHC"``; only ``annotate_mhc`` splits that into
+        ``"MHCa"``/``"MHCb"``, which is what :data:`MHC_TYPES` matches. Without that second pass
+        every MHC-side interface selects ZERO rows and the caller gets an empty frame rather than
+        an error -- which is how ``tcren ddg --interface peptide_mhc`` returned 0.0 for every
+        mutant and ``tcren contacts --interface peptide_mhc`` wrote a header and nothing else.
+        A ``RuntimeWarning`` rather than an exception, matching :func:`tcren.footprint.cell_counts`,
+        which has flagged the same condition since it was found there. Warn only when the evidence
+        is unambiguous: unrefined ``"MHC"`` chains present and no refined one anywhere. The CLI
+        commands that select an MHC interface now annotate up front, so this is the backstop and
+        not the first line of defence.
+        """
+        types = set(self.contacts["chain.type.from"]) | set(self.contacts["chain.type.to"])
+        if "MHC" in types and not (types & set(MHC_TYPES)):
+            warnings.warn(
+                f"{self.pdb_id}: MHC chains are not annotated (chain_type == 'MHC'); interface "
+                f"{which!r} will select ZERO rows -- run tcren.mhc.annotate_mhc on the structure "
+                "before building the contact map", RuntimeWarning, stacklevel=3)
+
     def _interface(self, from_types: tuple[str, ...], to_types: tuple[str, ...]) -> pl.DataFrame:
         sel = self.contacts.filter(
             pl.col("chain.type.from").is_in(list(from_types))
@@ -136,8 +159,10 @@ class ContactMap:
         if which == "tcr_peptide":
             sel = self._interface(RECEPTOR_TYPES, (PEPTIDE_TYPE,))
         elif which == "tcr_mhc":
+            self._warn_if_mhc_unannotated(which)
             sel = self._interface(RECEPTOR_TYPES, MHC_TYPES)
         elif which == "peptide_mhc":
+            self._warn_if_mhc_unannotated(which)
             sel = self._interface((PEPTIDE_TYPE,), MHC_TYPES)
             self._iface_cache[key] = sel
             return sel

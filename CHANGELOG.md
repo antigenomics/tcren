@@ -3,6 +3,40 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
+## [2.22.0] — 2026-08-29
+
+**The presentation interface gets its own Hamiltonian.** `available_pairs` enumerated
+receptor:partner pairs only, so the groove's grip on the peptide — the term an activation read-out
+cannot do without — had no model at all and was scored with Miyazawa-Jernigan throughout.
+
+### Added
+
+- **`available_pairs(..., receptor="mhc", partner="peptide")`** — the peptide:MHC arm. The groove
+  residue takes the receptor slot and `region.rec` is a groove region, so `MHC_RECEPTOR_REGIONS`
+  replaces the TCR loop set in the `g_region` block. `fit_potts` and `site_codes` take
+  `regions=` to carry it; `PottsModel` already stored its own level set.
+- **`tcren potts fit --receptor mhc`**. On the 362 Native2026 crystals: 195,674 available pairs,
+  23,492 contacts, 507 parameters, pseudo-logLik −17,121.5. The per-position contact profile is the
+  textbook groove — peaks of 10, 9 and 10 contacts at P1, P2 and P9 against 1 at the bulge.
+- **The groove's chemistry is not the receptor's.** The fitted pair field correlates with the
+  shipped TCRen2 at **r = +0.017** and with Miyazawa-Jernigan at **r = +0.042**, so the two
+  interfaces are not one field read twice.
+
+### Fixed
+
+Three instances of one defect: an MHC-side interface selects **zero rows** until `annotate_mhc`
+splits `chain_type == "MHC"` into `MHCa`/`MHCb`, and nothing said so.
+
+- **`tcren contacts --interface peptide_mhc` wrote a header and no rows** (and `--interface all`
+  silently omitted every MHC-side contact). It now annotates, and `peptide_mhc` over Native2026
+  goes from 0 to **24,648** contacts.
+- **`ContactMap.interface` now emits a `RuntimeWarning`** when the map's MHC chains are still
+  unrefined, matching the flag `footprint.cell_counts` has carried for the same condition.
+- **`python -m tcren.cli potts …` reported "No such command 'potts'".** The `__main__` guard sat
+  two thirds up the module, so the app ran before the nine `potts` subcommands below were
+  registered; the `tcren` console script, which imports first, saw them. The guard is now at the
+  end of the file.
+
 ## [2.21.0] — 2026-08-29
 
 **A peptide could only be scored one interface at a time.** A CPL response-matrix *cell* has summed

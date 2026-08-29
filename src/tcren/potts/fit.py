@@ -21,7 +21,7 @@ import polars as pl
 import scipy.sparse as sp
 
 from .kernel import edges, neighbour_counts
-from .model import PottsModel, kernel_names
+from .model import REGIONS, PottsModel, kernel_names
 from .sites import site_codes
 
 #: ℓ2 ridge on every coefficient but the intercept — about one pseudo-observation of information.
@@ -123,7 +123,8 @@ def cluster_se(X, resid: np.ndarray, gid: np.ndarray, n_groups: int, H) -> np.nd
 def fit_potts(sites: pl.DataFrame, *, radius: float = 15.0, cutoff: float = 5.0,
               couplings: bool = True, coupling_matrix: str | None = None,
               weights: dict[str, float] | None = None, ridge: float = DEFAULT_RIDGE,
-              joint: bool | None = None, notes: str = "") -> PottsModel:
+              joint: bool | None = None, regions: tuple[str, ...] | None = None,
+              notes: str = "") -> PottsModel:
     """Fit the model to a table of available pairs.
 
     Args:
@@ -138,6 +139,10 @@ def fit_potts(sites: pl.DataFrame, *, radius: float = 15.0, cutoff: float = 5.0,
         weights: Per-structure weights, e.g. from
             :func:`tcren.potential.balanced_weights`, to down-weight redundancy. Missing ids get 1.
         ridge: ℓ2 penalty on every coefficient but the intercept.
+        regions: Receptor-region level set for the ``g_region`` block. ``None`` (default) is the
+            TCR loop set. The peptide:MHC arm passes :data:`tcren.potts.MHC_RECEPTOR_REGIONS`,
+            because there the receptor is the groove and every TCR loop level would be unused
+            while every groove region collapsed into ``other``.
         joint: Include the cross-class coupling family. Defaults to whether both partner classes
             are present.
         notes: Free text stored on the model.
@@ -156,7 +161,7 @@ def fit_potts(sites: pl.DataFrame, *, radius: float = 15.0, cutoff: float = 5.0,
     sites = sites.filter(pl.col("d_ca") <= radius).sort("pdb.id", maintain_order=True)
     if sites.is_empty():
         raise ValueError("no available pairs inside the radius")
-    codes, sizes, q = site_codes(sites, radius=radius)
+    codes, sizes, q = site_codes(sites, radius=radius, regions=regions)
     if joint is None:
         joint = q["cls"].n_unique() > 1
     sigma = q["sigma"].to_numpy()
@@ -186,6 +191,7 @@ def fit_potts(sites: pl.DataFrame, *, radius: float = 15.0, cutoff: float = 5.0,
         coupling=(J.tolist() if J is not None else None),
         beta_matrix=(None if fixed is None else float(bg[slices[-1]][0])),
         coupling_matrix_name=coupling_matrix,
+        regions=list(regions) if regions else list(REGIONS),
         radius=radius, cutoff=cutoff, joint=bool(joint),
         n_structures=int(len(upid)), n_sites=int(q.height), n_contacts=int(sigma.sum()),
         pseudo_loglik=pll, notes=notes)

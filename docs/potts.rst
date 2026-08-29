@@ -163,8 +163,21 @@ Shipped models
      - TCR:MHC groove over the same crystals — twice as many contacts as the peptide interface.
        Reproduce with ``tcren potts fit -s data/Native2026 --partner mhc --balance both -o …``
        (needs the allele reference: ``tcren build-mhc-ref``).
+   * - ``potts_pep_mhc``
+     - 195,674
+     - 23,492
+     - **The presentation arm**: the groove's grip on the peptide, over the same crystals. Here the
+       groove is the *receptor*, so ``region.rec`` is a groove region and the model carries
+       :data:`tcren.potts.MHC_RECEPTOR_REGIONS` rather than the TCR loop set. Reproduce with
+       ``tcren potts fit -s data/Native2026 --receptor mhc --partner peptide --balance both -o …``.
 
-Load either with :meth:`tcren.potts.PottsModel.bundled`.
+Load any of them with :meth:`tcren.potts.PottsModel.bundled`.
+
+The three arms are three separate Hamiltonians, not one field read three ways, and the fit says so:
+the peptide:MHC coupling block correlates with the shipped TCRen2 at **r = +0.017** and with
+Miyazawa-Jernigan at **r = +0.042**. The groove's chemistry is its own. Its per-position contact
+profile is the textbook one — on 1ao7, peaks of 10, 9 and 10 contacts at P1, P2 and P9 against 1 at
+the TCR-facing bulge.
 
 Which potential belongs on which interface
 ------------------------------------------

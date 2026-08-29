@@ -307,3 +307,21 @@ def test_reference_delta_complex_is_the_whole_complex_dphi():
     mhc = reference_delta(cm, "AGK", pot, interface="peptide_mhc")
     assert reference_delta(cm, "AGK", pot, interface="complex",
                            mhc_potential=pot) == pytest.approx(tcr + mhc)
+
+
+def test_mhc_interface_warns_when_the_groove_was_never_annotated():
+    """An MHC-side selection over an unrefined map must say so, not return an empty frame.
+
+    `classify_chains` types an MHC chain "MHC"; only `annotate_mhc` splits it into MHCa/MHCb, which
+    is what the interface matches. Three CLI commands shipped the silent version of this -- `ddg`
+    returned 0.0 for every peptide:MHC mutant and `contacts` wrote a header and nothing else.
+    """
+    cm = _toy_complex_map()
+    unrefined = cm.contacts.with_columns(
+        pl.col("chain.type.to").replace({"MHCa": "MHC"}),
+        pl.col("chain.type.from").replace({"MHCa": "MHC"}))
+    bad = ContactMap(pdb_id="toy", contacts=unrefined, peptide_length=3)
+    with pytest.warns(RuntimeWarning, match="MHC chains are not annotated"):
+        assert bad.interface("peptide_mhc").is_empty()
+    # the annotated map is unaffected and still scores
+    assert not cm.interface("peptide_mhc").is_empty()

@@ -23,18 +23,25 @@ MHC_PARTNER: tuple[str, ...] = ("MHCa", "MHCb")
 #: them has no within-region coordinate, so it cannot carry a sequence offset and is dropped.
 GROOVE_REGIONS: tuple[str, ...] = ("HELIX_A1", "HELIX_A2", "HELIX_B1", "GROOVE_FLOOR")
 
+#: Receptor-region levels when the MHC groove IS the receptor (the peptide:MHC arm). The
+#: `g_region` block indexes `chain.rec + ":" + region.rec`, so a model fitted on that arm
+#: carries these instead of the TCR loops -- see `PottsModel.regions`.
+MHC_RECEPTOR_REGIONS: tuple[str, ...] = tuple(
+    f"{c}:{r}" for c in MHC_PARTNER for r in GROOVE_REGIONS) + ("other",)
+
 SITE_COLUMNS: tuple[str, ...] = (
     "pdb.id", "aa.rec", "chain.rec", "region.rec", "pos.rec",
     "aa.par", "pos.par", "par.len", "role.par", "cls", "d_heavy", "d_ca", "sigma",
 )
 
 
-def _sided(structure: Structure, partner: tuple[str, ...]) -> pl.DataFrame | None:
+def _sided(structure: Structure, partner: tuple[str, ...],
+           receptor: tuple[str, ...] | None = None) -> pl.DataFrame | None:
     """``pose._interface_layers`` plus the normalised partner key and both annotation joins."""
     from ..contacts.table import residue_annotation
     from ..pose import _interface_layers
 
-    w = _interface_layers(structure, 5.0, partner=partner)
+    w = _interface_layers(structure, 5.0, partner=partner, receptor=receptor)
     if w.is_empty() or "d3" not in w.columns:
         return None
     # The partner-side key is whichever end of the pair the normalised receptor key is not. Chain
@@ -61,14 +68,25 @@ def _sided(structure: Structure, partner: tuple[str, ...]) -> pl.DataFrame | Non
 
 
 def available_pairs(structure: Structure, partner: str = "peptide", *,
+                    receptor: str = "tcr",
                     radius: float = 15.0, cutoff: float = 5.0) -> pl.DataFrame:
     """Every receptor:partner residue pair inside ``radius``, with whether it contacted.
 
+    Three arms, and they are three **separate Hamiltonians**, not one field read three ways: the
+    receptor's grip on the peptide, its grip on the groove, and the groove's grip on the peptide.
+    The last is the presentation term, and it is the one an activation read-out cannot do without —
+    a peptide whose anchors are destroyed never presents, so it never activates, whatever the
+    receptor would have done with it.
+
     Args:
-        structure: A chain-typed structure. For ``partner="mhc"`` it must also carry MHC groove
-            regions — run :func:`tcren.mhc.annotate_mhc` (or ``annotate_mhc_batch`` over a set)
-            first, or every MHC residue is dropped for want of a groove region.
+        structure: A chain-typed structure. Whenever the MHC is on either side it must also carry
+            groove regions — run :func:`tcren.mhc.annotate_mhc` (or ``annotate_mhc_batch`` over a
+            set) first, or every MHC residue is dropped for want of a groove region.
         partner: ``"peptide"`` or ``"mhc"``.
+        receptor: ``"tcr"`` (default) or ``"mhc"``. ``receptor="mhc", partner="peptide"`` is the
+            **peptide:MHC** arm: the groove residue takes the receptor slot, the peptide residue
+            the partner slot, and ``region.rec`` is a groove region rather than a CDR loop — so a
+            model fitted here carries :data:`MHC_RECEPTOR_REGIONS`, not the TCR loop set.
         radius: Availability radius, Å, on the Cα–Cα distance.
         cutoff: Contact definition, Å, on the closest heavy-atom distance.
 
@@ -86,9 +104,21 @@ def available_pairs(structure: Structure, partner: str = "peptide", *,
     """
     if partner not in ("peptide", "mhc"):
         raise ValueError(f"partner must be 'peptide' or 'mhc', got {partner!r}")
-    w = _sided(structure, ("PEPTIDE",) if partner == "peptide" else MHC_PARTNER)
+    if receptor not in ("tcr", "mhc"):
+        raise ValueError(f"receptor must be 'tcr' or 'mhc', got {receptor!r}")
+    if receptor == "mhc" and partner != "peptide":
+        raise ValueError("receptor='mhc' pairs with partner='peptide' (the presentation arm); "
+                         f"got partner={partner!r}")
+    w = _sided(structure, ("PEPTIDE",) if partner == "peptide" else MHC_PARTNER,
+               receptor=MHC_PARTNER if receptor == "mhc" else None)
     if w is None:
         return pl.DataFrame(schema={c: pl.Utf8 for c in SITE_COLUMNS})
+    if receptor == "mhc":
+        # The groove is the receptor here, so it is `region.rec` that must be a groove region --
+        # an MHC residue outside the groove (b2m, the alpha-3 domain) is not presenting anything.
+        w = w.filter(pl.col("region.rec").is_in(list(GROOVE_REGIONS)))
+        if w.is_empty():
+            return pl.DataFrame(schema={c: pl.Utf8 for c in SITE_COLUMNS})
     if partner == "peptide":
         peptide = next((c.sequence() for c in structure.chains
                         if c.chain_type == "PEPTIDE"), "")
@@ -126,7 +156,8 @@ def available_pairs(structure: Structure, partner: str = "peptide", *,
 
 
 def site_codes(sites: pl.DataFrame, model: PottsModel | None = None, *,
-               radius: float = 15.0, dbin: float = DBIN):
+               radius: float = 15.0, dbin: float = DBIN,
+               regions: tuple[str, ...] | None = None):
     """Integer code arrays per one-body block, plus the block sizes and the annotated frame.
 
     Bin edges are **global** (base 0), never derived from the frame's own minimum: a parameter
@@ -140,7 +171,9 @@ def site_codes(sites: pl.DataFrame, model: PottsModel | None = None, *,
         ``pchain`` and a global ``sid`` added.
     """
     aa = tuple(model.alphabet) if model else AA
-    regions = tuple(model.regions) if model else REGIONS
+    # An explicit level set is how the peptide:MHC arm keeps its groove regions: the default
+    # REGIONS are TCR loops, and every groove region would fall into "other".
+    regions = tuple(model.regions) if model else (regions or REGIONS)
     roles = tuple(model.roles) if model else ROLES
     classes = tuple(model.classes) if model else CLASSES
     if model is not None:

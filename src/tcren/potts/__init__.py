@@ -34,11 +34,12 @@ from .sample import (ais_log_z, count_free_energy, delta_f_empty, delta_f_thresh
 from .score import (bound_unbound, connected_correlations, contact_map, contact_probabilities,
                     peptide_free_energy,
                     count_profile, sample_maps, score_sites, score_structure)
-from .sites import GROOVE_REGIONS, MHC_PARTNER, available_pairs, eta, site_codes
+from .sites import (GROOVE_REGIONS, MHC_PARTNER, MHC_RECEPTOR_REGIONS, available_pairs, eta,
+                    site_codes)
 
 __all__ = [
     "AA", "CDR_LOOPS", "CLASSES", "CROSS_DJ", "DBIN", "OFFSETS", "REGIONS", "ROLES",
-    "GROOVE_REGIONS", "MHC_PARTNER", "DEFAULT_RIDGE",
+    "GROOVE_REGIONS", "MHC_PARTNER", "MHC_RECEPTOR_REGIONS", "DEFAULT_RIDGE",
     "PottsModel", "centred_potential", "kernel_names",
     "available_pairs", "site_codes", "eta",
     "edges", "neighbour_counts", "bucket_edges", "colour", "coupling_matrix",

@@ -202,10 +202,17 @@ def contacts(
     organism: str = typer.Option("human", "--organism"),
 ) -> None:
     """Compute and emit an annotated contact table."""
+    from .mhc import annotate_mhc
     if regions not in TCR_REGIONS:
         raise typer.BadParameter("--regions must be one of all|cdr|cdr+fr")
+    # An MHC-side interface selects nothing until annotate_mhc splits "MHC" into MHCa/MHCb, and
+    # `ContactMap.interface` now refuses rather than returning an empty frame. `all` needs it too:
+    # the unrefined table is missing every MHC-side row without saying so.
+    need_mhc = interface in ("tcr_mhc", "peptide_mhc", "all")
     frames = []
     for s in _iter_typed(structures, organism):
+        if need_mhc:
+            annotate_mhc(s)
         cm = ContactMap.from_structure(s, cutoff=cutoff)
         frames.append(
             (cm.contacts if interface == "all" else cm.interface(interface, tcr_regions=regions))
@@ -1724,9 +1731,6 @@ def main() -> None:
         raise SystemExit(1) from None
 
 
-if __name__ == "__main__":
-    main()
-
 
 # ------------------------------------------------------------------ potts (contact-map model)
 
@@ -1765,12 +1769,13 @@ def _potts_markup(s) -> dict:
 
 
 def _potts_pairs(structures: Path, partner: str, *, radius: float, cutoff: float,
-                 organism: str = "human", alphabeta: bool = True):
+                 receptor: str = "tcr", organism: str = "human", alphabeta: bool = True):
     """Available residue pairs for a structure, a folder or a glob — annotated in batches.
 
-    ``partner="mhc"`` and ``"both"`` additionally need the MHC groove regions, which chain typing
-    alone does not assign, so those paths pay one ``annotate_mhc_batch`` per chunk and require the
-    allele reference (``tcren build-mhc-ref``). The peptide-only path does not.
+    ``partner="mhc"``, ``"both"`` and ``receptor="mhc"`` additionally need the MHC groove regions,
+    which chain typing alone does not assign, so those paths pay one ``annotate_mhc_batch`` per
+    chunk and require the allele reference (``tcren build-mhc-ref``). The TCR:peptide path does
+    not.
 
     Returns ``(pairs, markup)``; the markup is carried out of the same pass rather than costing a
     second annotation of the whole set when ``--balance`` needs it.
@@ -1779,7 +1784,7 @@ def _potts_pairs(structures: Path, partner: str, *, radius: float, cutoff: float
     from .structure import structure_id_from_path, structure_paths
 
     paths = structure_paths(structures)
-    need_mhc = partner in ("mhc", "both")
+    need_mhc = partner in ("mhc", "both") or receptor == "mhc"
     parts = [partner] if partner != "both" else ["peptide", "mhc"]
     frames, markup, kept, seen, empty = [], [], 0, 0, 0
     for i in range(0, len(paths), _POTTS_CHUNK):
@@ -1805,7 +1810,8 @@ def _potts_pairs(structures: Path, partner: str, *, radius: float, cutoff: float
             seen += 1
             if alphabeta and not _is_alphabeta(s):
                 continue
-            fr = [available_pairs(s, pt, radius=radius, cutoff=cutoff) for pt in parts]
+            fr = [available_pairs(s, pt, receptor=receptor, radius=radius, cutoff=cutoff)
+                  for pt in parts]
             fr = [f for f in fr if not f.is_empty()]
             if not fr:
                 empty += 1
@@ -1828,6 +1834,7 @@ def potts_fit_cmd(
     structures: Path = typer.Option(..., "-s", "--structures", help="structure file, folder or glob"),
     out: Path = typer.Option("potts.json", "-o", "--out", help="model JSON"),
     partner: str = typer.Option("peptide", "--partner", help="peptide|mhc|both"),
+    receptor: str = typer.Option("tcr", "--receptor", help="tcr|mhc; --receptor mhc --partner peptide fits the PRESENTATION arm, the groove's grip on the peptide"),
     radius: float = typer.Option(15.0, "--radius", help="availability radius, A (Calpha-Calpha)"),
     cutoff: float = typer.Option(5.0, "--cutoff", help="contact definition, A (closest heavy atom)"),
     couplings: bool = typer.Option(True, "--couplings/--no-couplings",
@@ -1853,9 +1860,14 @@ def potts_fit_cmd(
     """
     if partner not in ("peptide", "mhc", "both"):
         raise typer.BadParameter("--partner must be one of: peptide, mhc, both")
-    from .potts import fit_potts, kernel_table
+    if receptor not in ("tcr", "mhc"):
+        raise typer.BadParameter("--receptor must be one of: tcr, mhc")
+    if receptor == "mhc" and partner != "peptide":
+        raise typer.BadParameter("--receptor mhc pairs with --partner peptide")
+    from .potts import MHC_RECEPTOR_REGIONS, fit_potts, kernel_table
 
-    pairs, markup = _potts_pairs(structures, partner, radius=radius, cutoff=cutoff)
+    pairs, markup = _potts_pairs(structures, partner, receptor=receptor,
+                                 radius=radius, cutoff=cutoff)
     weights = None
     if balance is not None:
         axes = {"epitope": (("peptide",),), "tcr": (("cdr3a", "cdr3b"),),
@@ -1866,7 +1878,9 @@ def potts_fit_cmd(
         weights = balanced_weights(markup, axes=axes)   # markup came out of the same pass
     model = fit_potts(pairs, radius=radius, cutoff=cutoff, couplings=couplings,
                       coupling_matrix=coupling_matrix, weights=weights, ridge=ridge,
-                      joint=(partner == "both") or None, notes=str(structures))
+                      joint=(partner == "both") or None,
+                      regions=MHC_RECEPTOR_REGIONS if receptor == "mhc" else None,
+                      notes=str(structures))
     model.to_json(out)
     if pairs_out is not None:
         pairs.write_csv(pairs_out, separator="\t")
@@ -2020,3 +2034,11 @@ def potts_scan_cmd(
     typer.echo(f"wrote {out} ({table.height} rows, "
                f"{'coupled' if coupled else 'uncoupled'}, over "
                f"{table['pdb.id'].n_unique()} structures)")
+
+
+# The __main__ guard belongs at the END of the module. It used to sit just after `main()`,
+# roughly two thirds up, so `python -m tcren.cli` ran the app before the `potts` subcommands
+# below were registered and reported "No such command 'potts'" -- while the `tcren` console
+# script, which imports the module first, saw all nine.
+if __name__ == "__main__":
+    main()
