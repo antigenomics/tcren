@@ -38,12 +38,12 @@ The three questions the kit answers
    Platt link.
 
    ``P_native`` (:func:`tcren.cohort.p_native`) is still emitted. It is the posterior of a latent
-   class over the same three channels, fitted by expectation maximization on the cohort you pass
-   and anchored on labelled structures from *other* cohorts, leave one epitope out — so no scored
-   structure informs the model that ranks it, but the protocol is semi-supervised rather than
-   label-free, and the published numbers (macro ROC-AUC 0.832 / PR-AUC 0.849 on a two-epitope
-   TCRvdb screen; 0.718 / 0.685 on a 22-cohort balanced VDJdb benchmark) depend on which rows the
-   fit was anchored on. It is not the recommended score.
+   class over the same three channels, fitted by expectation maximization on the cohort you pass;
+   the fit is unsupervised unless the caller passes ``anchors=``, and the shipped command line
+   never does. The published numbers (macro ROC-AUC 0.832 / PR-AUC 0.849 on a two-epitope
+   TCRvdb screen; 0.718 / 0.685 on a 22-cohort balanced VDJdb benchmark) come from a
+   leave-one-epitope-out *anchored* protocol — no scored structure informed the model that ranked
+   it, but they depend on which rows the fit was anchored on. It is not the recommended score.
 
 **2. Did the generator have a template, and does that matter?**
    It matters enormously, and this is the result the method exists for. Split the VDJdb benchmark

@@ -32,6 +32,7 @@ from .model import (AA, CDR_LOOPS, CLASSES, CROSS_DJ, DBIN, OFFSETS, REGIONS, RO
 from .sample import (ais_log_z, count_free_energy, delta_f_empty, delta_f_threshold, energy,
                      exact_log_z, factorised_log_z, gibbs, mu_star, tilt_mean)
 from .score import (bound_unbound, connected_correlations, contact_map, contact_probabilities,
+                    peptide_free_energy,
                     count_profile, sample_maps, score_sites, score_structure)
 from .sites import GROOVE_REGIONS, MHC_PARTNER, available_pairs, eta, site_codes
 
@@ -45,7 +46,8 @@ __all__ = [
     "gibbs", "ais_log_z", "exact_log_z", "factorised_log_z", "energy",
     "tilt_mean", "mu_star", "count_free_energy", "delta_f_empty", "delta_f_threshold",
     "bound_unbound", "count_profile",
-    "score_sites", "contact_probabilities", "contact_map", "connected_correlations",
+    "score_sites", "contact_probabilities", "contact_map",
+    "peptide_free_energy", "connected_correlations",
     "sample_maps",
     "score_structure",
 ]

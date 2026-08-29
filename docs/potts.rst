@@ -198,8 +198,12 @@ Command line
    tcren potts map -s complex.pdb --by loop     -o map.tsv    # CDR loop x peptide position
    tcren potts map -s complex.pdb --by position -o import.tsv # peptide residue importance
 
-``score`` emits one row per structure: ``energy`` (the Hamiltonian of the observed map, lower is
-more favourable), ``log_z`` and ``log_z0``, ``log_lik`` and ``psi`` (the log-likelihood, and the
+   # the free-energy effect of every substitution at every peptide position
+   tcren potts scan -s complex.pdb -o scan.tsv
+
+``score`` emits one row per structure: ``n_sites`` and ``n_contacts`` (the available pairs and
+how many of them engaged), ``energy`` and ``neg_energy`` (the Hamiltonian of the observed map and
+its negation, lower energy being more favourable), ``log_z`` and ``log_z0``, ``log_lik`` and ``psi`` (the log-likelihood, and the
 same per available pair so it compares across interfaces of different size),
 ``pseudo_log_lik``/``psi_pseudo`` as the MCMC-free cross-check, and ``ais_ess``.
 
@@ -226,10 +230,52 @@ saturated pair returns 1 exactly rather than ``nan``.
 
 These are contact **frequencies** — dimensionless, in :math:`[0, 1]`. They are not free energies and
 carry no :math:`k_\mathrm{B}T`, so they belong to the diagnostic and importance side of the model
-rather than to any energy block; ``score``'s ``neg_energy`` is the quantity with units.
+rather than to any energy block; ``score``'s ``neg_energy`` and :func:`~tcren.potts.peptide_free_energy`'s ``log Z0`` are the quantities with units.
 
 ``score``, ``contacts`` and ``map`` all take ``--workers`` (default: every core). The per-structure
 numbers are functions of ``(seed, pdb.id)`` alone, so splitting the work changes nothing.
+
+Substituting a residue: the free energy, not the frequency
+----------------------------------------------------------
+
+``map`` reads how engaged a position is expected to be *before any residue identity is scored*.
+:func:`~tcren.potts.peptide_free_energy` reads what happens when the identity changes. The partner
+residue enters :math:`\eta` in exactly two places, so for a site :math:`s` and a candidate
+residue :math:`a`
+
+.. math:: \eta_s(a) = r_s + h^{\mathrm{par}}(a) + J(\mathrm{rec}_s, a)
+
+with :math:`r_s` — the intercept, the receptor field, the distance profile, region, role and class
+— independent of :math:`a`. Threading :math:`a` through partner position :math:`i` moves every site
+carrying that position, and the interface free energy moves with it:
+
+.. math::
+
+   \Phi^{\mathrm{Potts}}(x) = \log Z_0\big(\eta(x)\big) = \sum_s \log\!\big(1 + e^{\eta_s(x)}\big),
+   \qquad
+   \Delta F_i(a) = \Phi^{\mathrm{Potts}}(x_{i \to a}) - \tfrac{1}{20}\sum_b \Phi^{\mathrm{Potts}}(x_{i \to b})
+
+Higher is more favourable, and the reference is the **equimolar** one — the mean over the twenty
+residues at that position rather than the residue the structure carries — which is the null a
+positional-scanning library holds its other positions at. ``coupled=True`` takes the linear
+response about the observed sequence, :math:`\Delta \log Z \approx \sum_s p_s\,\Delta\eta_s`, since
+:math:`\partial \log Z/\partial \eta_s = \langle\sigma_s\rangle`: one Gibbs pass, then a dot
+product per cell. Because :math:`\log Z_0` is a sum over independent sites the result is additive
+over positions, so one :math:`L \times 20` table scores a single substitution and any whole partner
+sequence alike. Only ``aa.par`` changes — the backbone, the Cα distances, the receptor residues and
+the partner roles stay the structure's own, the same fixed-backbone approximation every threading
+score in the package makes. A partner position carrying two different residues has no sequence to
+substitute into and is rejected rather than averaged.
+
+Unlike ``map``'s frequencies this **is** an energy: :math:`\log Z_0` carries :math:`k_\mathrm{B}T`.
+
+The two terms it separates are different quantities, and which one a task needs is an empirical
+question. :math:`h^{\mathrm{par}}` is **composition** — how much a residue engages an available
+partner at all, wherever it is put — while :math:`J` is **complementarity**, the pair chemistry, and
+is the block :math:`\beta_\Phi` ties to TCRen2 above.
+
+.. math:: \text{eta} \;=\; \underbrace{h^{\mathrm{rec}} + h^{\mathrm{par}}}_{\text{composition}}
+          \;+\; \underbrace{J}_{\text{complementarity}} \;+\; \underbrace{g}_{\text{geometry}}
 
 API
 ---

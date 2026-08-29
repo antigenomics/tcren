@@ -25,6 +25,25 @@ compared against one.
   These are **frequencies, not energies** — dimensionless and in [0, 1]. They carry no k_B T and
   belong to the diagnostic and importance side of the model; `score`'s `neg_energy` is the quantity
   with units, and it is what `S_free`'s Pi block reads.
+- **`potts.peptide_free_energy` and `tcren potts scan`.** `contact_map --by position` reads how
+  engaged a peptide position is expected to be *before any residue identity is scored*; this reads
+  what happens when the identity changes. The partner residue enters the one-body field twice, so
+  threading a residue through position `i` moves eta at every available pair carrying it and the
+  interface free energy moves with it:
+
+      Phi_Potts(x) = log Z0(eta(x)) = sum_s log(1 + exp(eta_s(x)))
+      dF_i(a)      = Phi_Potts(x_{i->a}) - mean_b Phi_Potts(x_{i->b})
+
+  Exact and closed form for the coupling-free model, no sampling. `coupled=True` takes the linear
+  response about the observed sequence, `d log Z / d eta_s = <sigma_s>`, so one Gibbs pass and a dot
+  product per cell. `log Z0` is a sum over independent sites, so `dF` is additive over positions and
+  one `L x 20` table scores a single substitution and any whole partner sequence alike. The
+  reference is the **equimolar** one, the mean over the twenty residues at a position, which is the
+  null a positional-scanning library holds its other positions at.
+
+  **This one IS an energy**, unlike `contact_map`'s frequencies: `log Z0` carries k_B T and belongs
+  in an energy block. A partner position carrying two different residues has no sequence to
+  substitute into and raises rather than being averaged.
 - `notebooks/potts_contact_map.py`, a marimo app over the released path: the predicted map beside
   the contacts the structure made, and the importance profile under it.
 
@@ -440,7 +459,7 @@ itself is not the one 2.10.0 shipped. Re-run anything you are comparing across t
   produces the shipped TCRen2; the recipe in `data/potentials.json` is unchanged and
   `tests/regression/test_shipped_potentials.py` still reproduces the file bit-for-bit.
 
-## [Unreleased]
+## [2.10.0] — 2026-08-19
 
 ### Added
 - **`scripts/relax_openmm.py`** — full-complex OpenMM minimization (amber14 + GBn2 implicit solvent,

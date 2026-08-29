@@ -1961,3 +1961,43 @@ def potts_map_cmd(
     table.write_csv(out, separator="\t")
     typer.echo(f"wrote {out} ({table.height} rows, --by {by}, over "
                f"{table['pdb.id'].n_unique()} structures)")
+
+
+@potts_app.command("scan")
+def potts_scan_cmd(
+    structures: Path = typer.Option(..., "-s", "--structures", help="structure file, folder or glob"),
+    out: Path = typer.Option("potts_scan.tsv", "-o", "--out"),
+    model: Path | None = typer.Option(None, "-m", "--model", help="model JSON; default: bundled"),
+    partner: str = typer.Option("peptide", "--partner", help="peptide|mhc|both"),
+    coupled: bool = typer.Option(False, "--coupled",
+                                 help="linear response about the observed sequence"),
+    chains: int = typer.Option(64, "--chains", help="parallel Gibbs chains, --coupled only"),
+    burn: int = typer.Option(100, "--burn"),
+    draws: int = typer.Option(100, "--draws"),
+    thin: int = typer.Option(3, "--thin"),
+    seed: int = typer.Option(0, "--seed"),
+    workers: int | None = typer.Option(None, "-w", "--workers", help="processes; default all cores"),
+) -> None:
+    """Free-energy effect of every substitution at every partner position.
+
+    ``map --by position`` reads how engaged a position is expected to be before any residue
+    identity is scored; this reads what happens when the identity changes. The partner residue
+    enters the field through both the partner propensity and the pair term, so threading a residue
+    through position i moves every available pair carrying it, and ``log Z0`` moves with it.
+
+    ``dF`` is the equimolar-referenced effect -- against the mean over the twenty residues at that
+    position, the null a positional-scanning library holds its other positions at -- so it sums to
+    zero down a position and is additive across them. Higher is more favourable. Unlike ``map``'s
+    frequencies this is an energy.
+    """
+    from .potts import PottsModel, contact_probabilities, peptide_free_energy
+
+    m = PottsModel.from_json(model) if model else PottsModel.bundled()
+    pairs, _ = _potts_pairs(structures, partner, radius=m.radius, cutoff=m.cutoff)
+    marg = (contact_probabilities(pairs, m, chains=chains, burn=burn, draws=draws, thin=thin,
+                                  seed=seed, workers=workers) if coupled else None)
+    table = peptide_free_energy(pairs, m, coupled=coupled, marginals=marg)
+    table.write_csv(out, separator="\t")
+    typer.echo(f"wrote {out} ({table.height} rows, "
+               f"{'coupled' if coupled else 'uncoupled'}, over "
+               f"{table['pdb.id'].n_unique()} structures)")

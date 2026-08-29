@@ -279,3 +279,30 @@ def test_potts_map_rejects_an_unknown_grouping(tmp_path):
                                    "-o", str(tmp_path / "x.tsv")])
     assert res.exit_code != 0
     assert "loop|position|pair" in res.output
+
+
+def test_potts_scan_emits_an_equimolar_referenced_energy_per_substitution(tmp_path):
+    """`scan` must cover every position `map --by position` does, twenty residues each.
+
+    The invariant worth asserting at the CLI boundary is the reference: `dF` is taken against the
+    mean over the twenty residues at a position, so it sums to zero down each position. If that
+    ever stops holding the table is referenced against something else and every downstream number
+    carries the offset.
+    """
+    pytest.importorskip("arda")
+    scan = tmp_path / "scan.tsv"
+    run("potts", "scan", "-s", ASSET, "-o", scan)
+    d = pl.read_csv(scan, separator="\t")
+    assert {"pdb.id", "pos.par", "aa.par", "log_z0", "dF", "n_pairs",
+            "is_observed"} <= set(d.columns), d.columns
+
+    pos = tmp_path / "pos.tsv"
+    run("potts", "map", "-s", ASSET, "--by", "position", "-o", pos, "-w", "1")
+    covered = set(pl.read_csv(pos, separator="\t")["pos.par"])
+    assert set(d["pos.par"]) == covered
+    assert d.height == 20 * len(covered)
+
+    per_pos = d.group_by("pdb.id", "pos.par").agg(pl.col("dF").sum().alias("s"),
+                                                  pl.col("is_observed").sum().alias("obs"))
+    assert per_pos["s"].abs().max() < 1e-8
+    assert set(per_pos["obs"].unique()) == {1}

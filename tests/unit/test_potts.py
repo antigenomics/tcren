@@ -15,9 +15,9 @@ import pytest
 
 from tcren.potts import (AA, PottsModel, ais_log_z, centred_potential, colour,
                          coupling_matrix, edges, energy, exact_log_z,
-                         factorised_log_z, fit_potts, gauge, gibbs, irls,
-                         kernel_names, kernel_table, neighbour_counts, score_sites,
-                         site_codes)
+                         eta, factorised_log_z, fit_potts, gauge, gibbs, irls,
+                         kernel_names, kernel_table, neighbour_counts, peptide_free_energy,
+                         score_sites, site_codes)
 
 
 # --------------------------------------------------------------------------- toy lattice
@@ -654,3 +654,95 @@ def test_contact_map_does_not_depend_on_the_number_of_workers():
     kw = dict(by="loop", chains=8, burn=4, draws=8, thin=1, seed=0)
     assert contact_map(sites, model, workers=1, **kw).equals(
         contact_map(sites, model, workers=3, **kw))
+
+
+# --------------------------------------------------------------------------- peptide_free_energy
+#
+# `_synthetic_sites` draws `aa.par` per ROW, so one partner position carries several residues --
+# which no real peptide does, and which `peptide_free_energy` now rejects. These tests give the
+# partner chain one sequence, the way `available_pairs` reads it off a structure.
+
+
+def _sequence_sites(n_struct=1):
+    sites, _ = _map_inputs(n_struct=n_struct)
+    seq = {j: AA[(3 * j + 1) % 20] for j in sites["pos.par"].unique()}
+    sites = sites.with_columns(pl.col("pos.par").replace_strict(seq).alias("aa.par"))
+    return sites, fit_potts(sites, couplings=True)
+
+
+def test_peptide_free_energy_reproduces_score_sites_log_z0_at_the_observed_sequence():
+    """The whole-interface log Z0 is the same number `score_sites` already emits.
+
+    `peptide_free_energy` rebuilds log Z0 as (every site at its own residue) minus (the sites at
+    one position) plus (those sites under the candidate). At the residue the structure carries,
+    that has to collapse back onto the untouched sum -- otherwise the constant is wrong and every
+    reported free energy is offset by it.
+    """
+    pairs, model = _sequence_sites()
+    f = peptide_free_energy(pairs, model)
+    ref = float(score_sites(pairs, model)["log_z0"][0])
+    obs = f.filter(pl.col("is_observed") == 1)
+    assert obs.height == pairs["pos.par"].n_unique()
+    assert np.allclose(obs["log_z0"].to_numpy(), ref, atol=1e-9)
+
+
+def test_peptide_free_energy_is_equimolar_referenced():
+    """dF sums to zero over the twenty residues at every position, by construction."""
+    pairs, model = _sequence_sites()
+    f = peptide_free_energy(pairs, model)
+    per_pos = f.group_by("pos.par").agg(pl.col("dF").sum().alias("s"), pl.len().alias("n"))
+    assert set(per_pos["n"]) == {20}
+    assert np.allclose(per_pos["s"].to_numpy(), 0.0, atol=1e-10)
+
+
+def test_peptide_free_energy_is_additive_over_positions():
+    """log Z0 is a sum over independent sites, so a whole peptide is the sum of its own cells.
+
+    This is what lets one L x 20 table score both a response-matrix cell and a whole library
+    peptide; if it ever stops holding, the library arm is silently scoring something else.
+    """
+    pairs, model = _sequence_sites()
+    f = peptide_free_energy(pairs, model)
+    wide = {(r["pos.par"], r["aa.par"]): r["dF"] for r in f.iter_rows(named=True)}
+    positions = sorted({p for p, _ in wide})
+    # take the observed residue everywhere but one position, and check the two routes agree
+    obs = {r["pos.par"]: r["aa.par"] for r in f.filter(pl.col("is_observed") == 1).iter_rows(named=True)}
+    for a in ("A", "W", "D"):
+        swapped = dict(obs) | {positions[0]: a}
+        direct = sum(wide[(p, swapped[p])] for p in positions)
+        stepwise = sum(wide[(p, obs[p])] for p in positions) - wide[(positions[0], obs[positions[0]])] \
+            + wide[(positions[0], a)]
+        assert direct == pytest.approx(stepwise)
+
+
+def test_peptide_free_energy_coupled_is_the_linear_response_of_the_uncoupled_one():
+    """d(log Z)/d(eta) = <sigma>, so with the UNCOUPLED marginals the coupled arm must agree with
+    a finite difference of `factorised_log_z`. Checked against p_independent rather than p_model,
+    because that is the marginal the closed form actually has."""
+    pairs, model = _sequence_sites()
+    codes, _sizes, _q = site_codes(pairs, model)
+    e = eta(codes, model)
+    marg = pl.DataFrame({"p_model": 1.0 / (1.0 + np.exp(-e))})
+    got = peptide_free_energy(pairs, model, coupled=True, marginals=marg)
+
+    # a small perturbation of one position's residue, scored both ways
+    rng = np.random.default_rng(0)
+    d = 1e-6 * rng.standard_normal(len(e))
+    fd = (factorised_log_z(e + d) - factorised_log_z(e)) / 1e-6
+    lr = float(np.sum((1.0 / (1.0 + np.exp(-e))) * d) / 1e-6)
+    assert fd == pytest.approx(lr, rel=1e-4)
+    assert got.height == 20 * pairs["pos.par"].n_unique()
+
+
+def test_peptide_free_energy_rejects_marginals_of_the_wrong_length():
+    pairs, model = _sequence_sites()
+    with pytest.raises(ValueError, match="one row per site"):
+        peptide_free_energy(pairs, model, coupled=True,
+                            marginals=pl.DataFrame({"p_model": [0.5, 0.5]}))
+
+
+def test_peptide_free_energy_rejects_a_position_carrying_two_residues():
+    """One partner position is one residue. A frame that disagrees has no sequence to thread."""
+    pairs, model = _map_inputs(n_struct=1)          # aa.par drawn per row, so positions clash
+    with pytest.raises(ValueError, match="more than one residue"):
+        peptide_free_energy(pairs, model)

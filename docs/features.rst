@@ -157,8 +157,11 @@ off this table. Two of them come from ``tcren features`` directly, and the third
      - join on ``pdb.id``; it is :math:`-E(\sigma_{\mathrm{obs}})`, the interface energy read
        against the partition function
 
-``tcren diagnose`` reads the same blocks plus ``n_contacts`` from the ``potts`` family, so
-``-i placement,interface,topology,potts`` is its full input; without ``n_contacts`` the
+``tcren diagnose`` reads the same blocks plus ``n_contacts``, which is catalogued under
+``interface`` but written by whichever pass ran last — the footprint's CDR-loop count without
+``potts``, the Potts available-pair count with it. The frozen correction is standardized against
+the Potts population, so ask for ``potts``: ``-i placement,interface,topology,potts`` is
+``diagnose``'s full input. Without ``n_contacts`` the
 contact term drops out and is reported as ``n/a`` rather than imputed.
 
 So ``-i placement,interface,topology,energetics`` is what ``tcren assess`` requires (see
@@ -559,7 +562,8 @@ and ``--features`` turns a feature table into the scores the method proposes.
      - What it discriminates
      - Model
    * - ``P_native``
-     - Binder vs non-binder, and a real interface vs a manufactured one. **The recommended score.**
+     - Binder vs non-binder, and a real interface vs a manufactured one. Cohort-refit, so **not**
+       the recommended score — ``S_free`` is (:doc:`reliability`).
      - :func:`tcren.cohort.p_native`: a latent-class Bayes network per channel, fitted by EM, with
        the channel log-odds added. No binding label enters.
    * - ``G`` / ``T`` / ``E``

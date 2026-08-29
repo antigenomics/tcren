@@ -455,7 +455,8 @@ interfaces of different size.
   ```
 
   `scores.tsv` is `complex.id` + **`Q`** (fit-free interface quality), the three channel posteriors
-  **`G`** / **`T`** / **`E`** (geometry / topology / energetics) and **`P_native`**, and nothing
+  **`G`** / **`T`** / **`E`** (geometry / topology / energetics), **`P_native`**, and **`S_free`**
+  with its calibrated **`p_binder`**, and nothing
   else. `tcren recognize -s <in>` is the *other* mode: it reads structures and writes the
   descriptor table with `p_real`, not `Q`/`P_native`.
 - **Five families, split by invariance** (`tcren.recognition.DESCRIPTORS`, `FAMILIES`); a
@@ -491,9 +492,12 @@ interfaces of different size.
     changes the model family between rounds and the likelihood can fall.
   - A mixture is identified only up to permutation — `orient_by` is what stops the two components
     swapping between runs, and `P_NATIVE_ORIENT` gives the per-channel default. **A leading `-`
-    means lower-is-native**, which the energetics channel needs: Φ is a contact-preference sum in
-    which lower is favourable, so orienting on the raw column labels the wrong component native.
-  - **Anchors are extra rows, never scored rows.** Anchoring a row you then score reads the label
+    means lower-is-native**; no shipped channel needs it, because each orients on a column that
+    already runs binder-upwards (`burial`, `D2_pep24`, `neg_energy` — the last is `-E`, so higher
+    is more favourable). Orienting the energetics channel on a raw Φ column *would* need the `-`.
+  - **Anchors are optional and semi-supervised** — `{row_index: 0|1}` over the caller's own rows,
+    pinned at every E-step; those rows stay in the design matrix and are still scored. The default
+    is `anchors=None`, a fully unsupervised fit. Anchoring a row you then score reads the label
     back out: an early draft did that and reported 0.83 where the honest number is 0.69.
   - Keep the feature count small: the BIC hill climb is quadratic (0.01 s at 18 features on 618
     rows, 1.7 s at 40, **45 s at 89**). `P_NATIVE_FEATURES` is the compact default, keyed by
@@ -602,7 +606,7 @@ actionable one: on the balanced VDJdb panel the **top ipTM decile is 26.2 %** [1
 - **Annotation goes through `_iter_typed`/`iter_annotated_set`** — one mmseqs call per organism for
   the whole set. Do not call `classify_chains` per structure here (that is what `tcren surface`
   does, and it is an order of magnitude slower over a cohort).
-- `footprint_features(s) -> dict` (~33 features), `footprint_batch(paths_or_structures) -> pl.DataFrame`.
+- `footprint_features(s) -> dict` (29 features at the default two radii), `footprint_batch(paths_or_structures) -> pl.DataFrame`.
   For the cohort-standardised shape score use `cohort.p_native(table, channels=("topology",))` (`T`);
   the old `footprint_score` z-sum was removed at 2.12.
 - **Coverage**: cells are the 6 CDR loops × {peptide, MHC} (12) or with the peptide split into
@@ -787,8 +791,8 @@ actionable one: on the balanced VDJdb panel the **top ipTM decile is 26.2 %** [1
   `tcr_only=True`. Frozen recognizers verified **bit-identical** through `_FROZEN_ALIASES`.
 - **`--scores` — LEGACY, v1 reproduction only.** Emits the frozen `p_bind` (`binder.binder_score`)
   and `p_forced` (`recognition.forced_pose_score`). Both are fitted, neither is used anywhere in the
-  TCRen2 manuscript, and `p_forced`'s coefficients are not re-derivable. Use `P_native` for binder
-  ranking and `cohort.strain_z` for forced-pose grading; both are fit-free.
+  TCRen2 manuscript, and `p_forced`'s coefficients are not re-derivable. Use `reliability.s_free`
+  for binder ranking and `cohort.strain_z` for forced-pose grading; both are fit-free.
 - **`-t/--threads` on `tcren scoring` and `tcren recognize` (2026-07-26):** both accept a file, a
   directory, a `.tar.gz`, a quoted glob or a `.txt` manifest; `-t N` runs N concurrent workers (`-t 0`
   = all cores). Cohort-relative scores (`Q`, `P_native`, and the legacy `q_bind`/`s_strain` under
@@ -811,8 +815,10 @@ actionable one: on the balanced VDJdb panel the **top ipTM decile is 26.2 %** [1
 - **`cohort.f_score` — the contact-energy channel (2026-07-24):** `f_score(table)` =
   `z(-(F_tcr_pep+F_tcr_mhc))`, binder-oriented (`cohort.F_TERMS`). F reads contact chemistry but is
   **pose-conditional**: it inverts on forced poses, which is the whole reason the shape channel
-  exists. It enters `P_native` as the `energetics` channel, whose sign EM fits per cohort rather
-  than being told. Do not hand-combine it with Q — that is what `p_native` is for.
+  exists. It **no longer feeds `P_native`**: since 2.17.0 the `energetics` channel draws on the
+  `potts` family (`neg_energy`, `log_z`, `log_lik`), not on `F_TERMS`. Either way EM fits that
+  channel's sign per cohort rather than being told it. Do not hand-combine `f_score` with Q — that
+  is what `p_native` is for.
 
 ## MHC allele reference — `tcren build-mhc-ref`, built on demand
 

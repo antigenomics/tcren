@@ -327,6 +327,120 @@ def contact_map(sites: pl.DataFrame, model: PottsModel, *, by: str = "loop", cha
             .sort(keys))
 
 
+def peptide_free_energy(sites: pl.DataFrame, model: PottsModel, *, coupled: bool = False,
+                        marginals: pl.DataFrame | None = None, chains: int = 64, burn: int = 100,
+                        draws: int = 100, thin: int = 3, seed: int = 0,
+                        workers: int | None = None) -> pl.DataFrame:
+    r"""Free energy of the interface with each residue threaded through each partner position.
+
+    :func:`contact_map` reads how engaged a position is expected to be *before any residue identity
+    is scored*. This reads what happens when the identity changes. The partner residue enters the
+    one-body field twice — through the partner propensity :math:`h^{\mathrm{par}}` and through the
+    pair term :math:`J` — so substituting position :math:`i` shifts :math:`\eta` at every available
+    pair carrying that position, and the interface free energy moves with it:
+
+    .. math::
+
+       \Phi^{\mathrm{Potts}}(x) \;=\; \log Z_0\big(\eta(x)\big)
+       \;=\; \sum_a \log\!\big(1 + e^{\eta_a(x)}\big),
+       \qquad
+       \Delta F_i(a) \;=\; \Phi^{\mathrm{Potts}}(x_{i \to a})
+                          \;-\; \tfrac{1}{20}\sum_b \Phi^{\mathrm{Potts}}(x_{i \to b})
+
+    Higher is more favourable: :math:`\log Z_0` is the interface's capacity to make contacts at all,
+    so a residue that raises it engages more. The reference is the **equimolar** one — the mean over
+    the twenty residues at that position, not the residue the structure happens to carry — which is
+    the null a positional-scanning library actually holds the other positions at.
+
+    Unlike :func:`contact_map`'s frequencies this **is** an energy: :math:`\log Z_0` carries
+    :math:`k_\mathrm{B}T` and belongs in an energy block.
+
+    Two readings, from the same fields:
+
+    ``coupled=False`` (default)
+        :math:`\log Z_0` for the coupling-free model, which is exact and closed form — no sampling.
+    ``coupled=True``
+        linear response about the observed sequence. Since
+        :math:`\partial \log Z / \partial \eta_a = \langle\sigma_a\rangle`, the coupled free energy
+        moves as :math:`\Delta \log Z \approx \sum_a p_a \Delta\eta_a` with :math:`p_a` the marginal
+        of :func:`contact_probabilities` — one Gibbs pass, then a dot product per cell.
+
+    Only ``aa.par`` changes: the backbone, the Cα distances, the receptor residues and the partner
+    roles are the structure's own and are held fixed, which is the same fixed-backbone approximation
+    every threading score in the package makes.
+
+    Args:
+        sites: Rows from :func:`tcren.potts.available_pairs`.
+        model: A fitted :class:`PottsModel`.
+        coupled: Take the linear-response path against the coupled marginals.
+        marginals: A frame from :func:`contact_probabilities` to reuse when ``coupled=True``.
+            ``None`` computes it.
+        chains, burn, draws, thin: Gibbs settings, used only when ``coupled=True``.
+        seed: Seed for the sampler.
+        workers: Processes to split the structures across when ``coupled=True``.
+
+    Returns:
+        One row per (``pdb.id``, ``pos.par``, ``aa.par``) with ``log_z0`` (the whole-interface
+        :math:`\log Z_0` under that substitution), ``dF`` (its equimolar-referenced effect),
+        ``n_pairs`` (available pairs carrying that position) and ``is_observed`` (1 for the residue
+        the structure carries). ``dF`` sums to zero over the twenty residues at every position.
+
+    Example:
+        >>> from tcren.potts import available_pairs, peptide_free_energy, PottsModel  # doctest: +SKIP
+        >>> peptide_free_energy(available_pairs(structure), PottsModel.bundled())  # doctest: +SKIP
+    """
+    if sites.is_empty():
+        return pl.DataFrame(schema={"pdb.id": pl.String, "pos.par": pl.Int64, "aa.par": pl.String,
+                                    "log_z0": pl.Float64, "dF": pl.Float64,
+                                    "n_pairs": pl.Int64, "is_observed": pl.Int64})
+    aa = tuple(model.alphabet)
+    codes, _sizes, q = site_codes(sites, model)
+    # A partner position is one residue of one chain, so every site carrying it must agree on the
+    # identity. Averaging over a disagreement would silently score a sequence that does not exist.
+    clash = (q.group_by("pdb.id", "pos.par").agg(pl.col("aa.par").n_unique().alias("n"))
+             .filter(pl.col("n") > 1))
+    if not clash.is_empty():
+        raise ValueError(f"{clash.height} partner position(s) carry more than one residue, so "
+                         f"there is no sequence to substitute into: {clash.head(3).to_dicts()}")
+    # eta splits into a part the partner residue does not touch and a part it does. Recovering the
+    # first as eta(observed) minus the second keeps ONE definition of eta in the package: any change
+    # to `sites.eta` propagates here rather than being silently re-implemented.
+    J, h_par = model.coupling_array(), np.asarray(model.h_par)
+    rest = eta(codes, model) - h_par[codes[1]] - J[codes[0], codes[1]]
+    # (n_sites, 20): the field at every site under every candidate partner residue
+    eta_all = rest[:, None] + h_par[None, :] + J[codes[0], :]
+
+    if coupled:
+        p = (marginals if marginals is not None else
+             contact_probabilities(sites, model, chains=chains, burn=burn, draws=draws, thin=thin,
+                                   seed=seed, workers=workers))["p_model"].to_numpy()
+        if p.shape != (q.height,):
+            raise ValueError(f"marginals must have one row per site ({q.height}), got {p.shape}")
+        # log Z is linear in eta to first order with slope <sigma>; the constant cancels in dF
+        per_site = p[:, None] * eta_all
+    else:
+        per_site = np.logaddexp(0.0, eta_all)
+
+    # what each site contributes at the residue the structure actually carries there
+    at_observed = per_site[np.arange(q.height), codes[1]]
+
+    out = []
+    for (pid,), g in q.with_row_index("_r").group_by(["pdb.id"], maintain_order=True):
+        whole = float(at_observed[g["_r"].to_numpy()].sum())
+        for pos, gp in g.group_by(["pos.par"], maintain_order=True):
+            rp = gp["_r"].to_numpy()
+            # sites away from this position keep their own residues and contribute the same term
+            # whatever this position carries, so they enter as one constant and drop out of dF
+            here = per_site[rp].sum(axis=0)
+            z = whole - float(at_observed[rp].sum()) + here
+            obs = gp["aa.par"][0]
+            out += [{"pdb.id": pid, "pos.par": int(pos[0]), "aa.par": a,
+                     "log_z0": float(z[k]), "dF": float(here[k] - here.mean()),
+                     "n_pairs": len(rp), "is_observed": int(a == obs)}
+                    for k, a in enumerate(aa)]
+    return pl.DataFrame(out).sort("pdb.id", "pos.par", "aa.par")
+
+
 def bound_unbound(sites: pl.DataFrame, model: PottsModel, *, threshold: int | None = None,
                   chains: int = 64, burn: int = 100, draws: int = 100, thin: int = 3,
                   particles: int = 64, steps: int = 256, seed: int = 0,

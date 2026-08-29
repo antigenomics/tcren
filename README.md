@@ -134,8 +134,8 @@ tcren scoring -s 'models/*.pdb.gz' --delta -o scores.csv
 # interface-quality score (native-crystal calibrated, so it is defined for a single structure).
 tcren scoring -s complex.pdb.gz --delta --geometry -o scores.csv
 
-# Configurable per-interface potential: swap a bundled name (tcren|mj|keskin), a CSV, or
-# None for any interface; default reproduces the built-in per-interface families exactly.
+# Configurable per-interface potential: swap a bundled name (tcren2|karnaukhov2022|mj|keskin),
+# a CSV, or None for any interface; default reproduces the built-in per-interface families exactly.
 tcren scoring -s complex.pdb -o scores.csv --tcr-mhc-potential keskin
 
 # Opt-in TCR framework regions: --regions {all,cdr,cdr+fr} chooses which TCR regions
@@ -193,10 +193,11 @@ tcren cpl -s complex.pdb --position 5                  # every substitution at p
 tcren cpl -s complex.pdb --position 5 --mutation W     # just that one cell
 tcren cpl -s complex.pdb --position 5 --to-mixture     # cost of giving position 5 up to the mixture
 
-# Rank candidate receptors against a fixed pMHC. P_native is the score: a latent class over
-# geometry, footprint topology and contact energetics, fitted by EM with no binding label
-# (TCRvdb macro ROC 0.832 / PR 0.849, against AlphaFold ipTM 0.795 / 0.783). It is
-# cohort-relative -- score the whole candidate set together, not one structure at a time.
+# Rank candidate receptors against a fixed pMHC. S_free is the score to ship -- fit-free, and
+# defined for one structure. P_native comes out of the same call: a latent class over geometry,
+# footprint topology and contact energetics, fitted by EM with no binding label (TCRvdb macro
+# ROC 0.832 / PR 0.849, against AlphaFold ipTM 0.795 / 0.783), but cohort-relative, so score the
+# whole candidate set together rather than one structure at a time.
 tcren features  -s candidates/ -o feats.tsv
 tcren recognize --features feats.tsv -o scores.tsv
 
@@ -509,7 +510,7 @@ tcren features -s structures/ -i topology -o shape.tsv
 from tcren.cohort import p_native
 from tcren.footprint import footprint_batch, footprint_features
 
-row = footprint_features(structure)          # one dict, ~33 features
+row = footprint_features(structure)          # one dict, 29 features at the default two radii
 row["D2_pep24"], row["fp_b0_r7"], row["L_canon"]
 
 table = footprint_batch("structures/")       # polars frame, one row per structure

@@ -197,9 +197,11 @@ Case studies
   specific neoantigen substitutions. Positive ΔΔG = stabilising (the mutant scores lower).
 
 * **Rank candidate TCRs against a fixed pMHC.** ``tcren features`` then ``tcren recognize
-  --features`` gives ``P_native``: a latent class over interface geometry, footprint topology and
-  contact energetics, fitted by expectation-maximization on the cohort you pass, with no binding
-  label anywhere in the fit. It is cohort-relative, so score the whole candidate set together. See
+  --features`` gives ``S_free``, the recommended score — three fit-free blocks, so it is defined
+  for a single structure — alongside ``P_native``: a latent class over interface geometry,
+  footprint topology and contact energetics, fitted by expectation-maximization on the cohort you
+  pass, with no binding label anywhere in the fit. ``P_native`` is cohort-relative, so score the
+  whole candidate set together. See :func:`tcren.reliability.s_free`,
   :func:`tcren.cohort.p_native` and :doc:`kit`.
 
 * **Substitute + refine a pose.** ``tcren refine --substitute`` threads a new equal-length peptide
