@@ -282,9 +282,9 @@ own score up to the fitted scale.
 `Phi = sum softplus(eta)` is an interaction sum weighted by contact probability, and a fixed contact
 map is the `p in {0,1}` case. Hard contact reproduces `reference_delta`; smoothed (`p` free) is for
 a *plastic* interface; saturated (`p` driven to 0/1 by the interface itself) is where a fixed map is
-already exact. The groove is measurably in the saturated limit — over four 100 ns trajectories, 37
-of 39 peptide positions have a maximum groove-pair contact frequency >= 0.98, while the receptor
-side runs 0.00 to 1.00 continuously. See `docs/potts.rst`.
+already exact. The groove is measurably in the saturated limit — over four 100 ns trajectories,
+36 of the 38 engaged peptide positions (94.7%) reach a maximum groove-pair contact frequency above
+0.98, against 14 of 38 (36.8%) on the receptor side. See `docs/potts.rst`.
 
 **Two bundled models**, `PottsModel.bundled("potts_tcr_peptide")` (the default, 64,622 sites /
 7,865 contacts) and `"potts_tcr_mhc"` (239,093 / 15,451 — the TCR makes twice as many contacts with

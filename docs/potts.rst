@@ -222,11 +222,12 @@ selects.
      - a *frozen* interface, where the two above coincide and a fixed map is already exact
 
 Which limit an interface is in is measurable, not a matter of taste. Over four deposited 100 ns
-trajectories, collapsed onto the peptide, **37 of 39 peptide positions have a maximum groove-pair
-contact frequency of 0.98 or above** — a peptide residue is in the groove or it is not, and if it
-is, it is in contact in essentially every frame. The two exceptions are the two residues of the
-MEL8 epitope that lift out of the groove. On the receptor side the same maximum runs the whole
-range from 0.00 to 1.00 continuously.
+trajectories, collapsed onto the peptide and restricted to the pairs inside the availability radius,
+**36 of the 38 engaged peptide positions (94.7%) reach a maximum groove-pair contact frequency above
+0.98, against 14 of 38 (36.8%) on the receptor side** — at the groove a peptide residue is in
+contact in essentially every frame or not at all, while at the receptor loops the same maximum runs
+the whole range from 0.00 to 1.00. Among pairs that touch at all the groove mean is 0.468 against
+0.322, and 28.6% of groove pairs sit above 0.98 against 17.4% of receptor pairs.
 
 That is why the groove takes a fixed map and Miyazawa–Jernigan: it is already in the saturated
 limit, so smoothing it can only add noise. The receptor loops are not, which is what the smoothed

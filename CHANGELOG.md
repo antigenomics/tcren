@@ -22,9 +22,11 @@ by design, which is right for *ranking* potentials against each other and wrong 
   `Φ = Σ softplus(η)` is an interaction sum weighted by contact probability and a fixed contact map
   is the `p ∈ {0,1}` case. Hard contact reproduces `reference_delta`; smoothed (`p` free) fits a
   plastic interface; saturated fits a frozen one, where a fixed map is already exact. Which limit an
-  interface is in is measurable: over four deposited 100 ns trajectories, **37 of 39 peptide
-  positions have a maximum groove-pair contact frequency ≥ 0.98**, while the receptor side runs 0.00
-  to 1.00 continuously.
+  interface is in is measurable: over four deposited 100 ns trajectories, **36 of the 38 engaged
+  peptide positions (94.7%) reach a maximum groove-pair contact frequency above 0.98, against 14 of
+  38 (36.8%) on the receptor side**. (Corrected after release: the figure first published here,
+  "37 of 39", came from the raw fixture rather than from the producer, which restricts to the pairs
+  inside the availability radius. The producer's population is the reproducible one.)
 
 ## [2.22.0] — 2026-08-29
 
