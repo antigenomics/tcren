@@ -6,7 +6,8 @@ import numpy as np
 import polars as pl
 import pytest
 
-from tcren.potential import (derive_tcren, keskin, mj, symmetrize_counts,
+from tcren.potential import (betancourt, derive_tcren, keskin, mj, mj1996,
+                            symmetrize_counts,
                              tcren)
 from tcren.potential.model import AA20
 
@@ -81,6 +82,34 @@ def test_bundled_loaders_distinct():
     assert p_kes.name == "Keskin"
     # Different potentials → different values for at least some pair.
     assert p_mj.value("A", "A") != pytest.approx(p_kes.value("A", "A"))
+
+
+def test_betancourt_is_thr_referenced_and_symmetric():
+    """The B matrix's defining property: Thr is the reference solvent, so its row is zero.
+
+    A transcription slip anywhere in the lower triangle would break one of these three, which is
+    why the bundled file is parsed from the AAindex record rather than typed.
+    """
+    b = betancourt()
+    assert b.name == "BT1999"
+    dense, index = b.as_matrix()
+    dense = np.asarray(dense, float)
+    assert dense.shape == (20, 20)
+    assert np.allclose(dense, dense.T)
+    assert np.all(dense[index["T"], :] == 0.0)
+    assert dense.min() == pytest.approx(-1.34) and dense.max() == pytest.approx(0.66)
+
+
+def test_reference_states_pair_like_with_like():
+    """MJ and BT are pair-contact matrices; Keskin and MJ1996 are raw contact energies.
+
+    Comparing across the two groups compares reference states, not derivations -- the trap the
+    SOURCES entry records. Guarded here so a future matrix swap cannot cross the groups silently.
+    """
+    pair = [np.asarray(f().as_matrix()[0], float) for f in (mj, betancourt)]
+    raw = [np.asarray(f().as_matrix()[0], float) for f in (keskin, mj1996)]
+    assert all(-0.5 < m.mean() < 0.5 and m.max() > 0 for m in pair)
+    assert all(m.mean() < -2.0 and m.max() < 0 for m in raw)
 
 
 def test_value_missing_pair_raises():

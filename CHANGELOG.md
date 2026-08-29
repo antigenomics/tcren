@@ -3,6 +3,27 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
+## [2.24.0] — 2026-08-29
+
+**A second presentation potential, and the reference-state trap that made the first comparison
+unsound.** The bundled `MJ_Keskin_potentials.csv` holds two matrices in *different reference states*
+— `mj()` is mixed-sign with mean −0.079, `keskin()` is negative everywhere with mean −3.547 — so
+swapping one for the other changes the reference state as well as the derivation. The like-for-like
+pairs are `mj` ↔ `betancourt` and `keskin` ↔ `mj1996`.
+
+### Added
+- `potential.betancourt()` — the Betancourt–Thirumalai `B` matrix (RT units), Miyazawa–Jernigan
+  re-referenced with **Thr as the reference solvent**, so every Thr entry is exactly `0.00`. Parsed
+  from AAindex3 accession `BETM990101`, never retyped; the Thr row, symmetry and cell count are
+  asserted at build time and again in `tests/unit/test_potential.py`. Reference: Betancourt MR,
+  Thirumalai D. *Protein Sci.* 1999;8(2):361–369. doi:10.1110/ps.8.2.361.
+- `data/BT1999_contact_energies.csv`, with a `SOURCES` entry carrying the re-fetch URL.
+
+### Changed
+- `keskin()` gains a docstring stating its reference state and its citation; both it and the
+  `SOURCES` entry now name the like-for-like partner, so a future swap cannot cross reference
+  states silently.
+
 ## [2.23.0] — 2026-08-29
 
 **The gauge that lets a pinned model reproduce a referenced score.** `centred_potential` double-centres

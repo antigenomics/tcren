@@ -424,5 +424,41 @@ def mj_partition_energy() -> dict[str, float]:
 
 @lru_cache(maxsize=None)
 def keskin() -> Potential:
-    """Load the bundled Keskin contact potential (cached; treat as read-only)."""
+    """Load the bundled Keskin contact potential (cached; treat as read-only).
+
+    Every entry is negative, from ``-7.23`` to ``-0.50``, so this is a raw contact matrix in
+    the same reference state as :func:`mj1996` and **not** in the pair-contact reference state
+    of the bundled :func:`mj` (mixed sign, mean ``-0.08``). Compare it against ``mj1996``;
+    comparing it against ``mj`` compares two different reference states as well as two
+    different derivations.
+
+    Reference: Keskin O, Bahar I, Badretdinov AY, Ptitsyn OB, Jernigan RL. Empirical
+    solvent-mediated potentials hold for both intra-molecular and inter-molecular
+    inter-residue interactions. Protein Sci. 1998;7(12):2578-2586. doi:10.1002/pro.5560071211.
+    """
     return Potential.from_csv(_bundled("MJ_Keskin_potentials.csv"), name="Keskin")
+
+
+@lru_cache(maxsize=None)
+def betancourt() -> Potential:
+    """Betancourt--Thirumalai contact energies, the ``B`` matrix, in RT units.
+
+    Miyazawa--Jernigan re-referenced with **Thr as the reference solvent**, which is why every
+    Thr entry is exactly ``0.00``; the remaining 190 cross terms and 19 self terms run ``-1.34``
+    (Cys--Cys) to ``+0.66``. Mixed sign with a mean near zero, so it is a pair-contact matrix in
+    the same reference state as the bundled :func:`mj`, and that is the matrix to compare it
+    against. The authors report it gives "hydrophobicities that are in very good agreement with
+    experiment", and it is the potential Schueler-Furman et al. found generalises an
+    MJ-based peptide--MHC groove score across alleles where MJ itself worked only for
+    hydrophobic-pocket alleles.
+
+    Provenance: parsed from AAindex3 accession ``BETM990101`` ("Modified version of the
+    Miyazawa-Jernigan transfer energy"), lower-triangular over ``ARNDCQEGHILKMFPSTWYV``, never
+    retyped. Three properties are asserted at build time: the Thr row is zero, the matrix is
+    symmetric, and all 400 cells are present.
+
+    Reference: Betancourt MR, Thirumalai D. Pair potentials for protein folding: choice of
+    reference states and sensitivity of predicted native states to variations in the interaction
+    schemes. Protein Sci. 1999;8(2):361-369. doi:10.1110/ps.8.2.361.
+    """
+    return Potential.from_csv(_bundled("BT1999_contact_energies.csv"), name="BT1999")

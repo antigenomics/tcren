@@ -41,6 +41,10 @@ Loaded as both `mj()` and `keskin()`. **Every score in the package is built on t
   double-centred pair part either (r = 0.51).
 - Status: left byte-for-byte untouched, since changing it would change every published number. Cite
   it as "the bundled MJ-style contact-pair matrix", **not** as Miyazawa & Jernigan 1996.
+- **The two potentials in this one file are in different reference states** (2026-08-29): the `MJ`
+  side is mixed-sign with mean −0.079, the `Keskin` side is negative everywhere with mean −3.547.
+  Swapping one for the other therefore changes the reference state as well as the derivation. The
+  like-for-like partners are `MJ` ↔ `BT1999` and `Keskin` ↔ `MJ1996`.
 
 ## `MJ1996_contact_energies.csv` — published
 
@@ -68,6 +72,23 @@ Sign convention is opposite to a contact energy: larger is more hydrophobic.
   transcribed from a different source — a transcription error would break that agreement.
 - Reference: Miyazawa S, Jernigan RL. *Macromolecules.* 1985;18:534–552.
 - Loader: `tcren.potential.mj_partition_energy()`.
+
+## `BT1999_contact_energies.csv` — published
+
+Betancourt–Thirumalai contact energies, the `B` matrix (RT units): Miyazawa–Jernigan re-referenced
+with **Thr as the reference solvent**, so every Thr entry is exactly `0.00`.
+
+- Origin: AAindex3 accession `BETM990101` ("Modified version of the Miyazawa-Jernigan transfer
+  energy"), parsed from the raw record rather than retyped — lower-triangular over
+  `ARNDCQEGHILKMFPSTWYV`, mirrored to a symmetric 20x20.
+- Re-fetch: <https://www.genome.jp/dbget-bin/www_bget?aaindex3:BETM990101>
+- Build-time checks: the Thr row is zero (the defining property of the reference state), the matrix
+  is symmetric, all 400 cells present, range −1.34 (Cys–Cys) to +0.66.
+- Reference state: pair-contact, mixed sign, mean −0.057 — the same kind as the bundled `MJ` matrix
+  (mean −0.079) and **not** the same kind as `Keskin`/`MJ1996` (all-negative, mean ≈ −3.3). Compare
+  like with like.
+- Reference: Betancourt MR, Thirumalai D. *Protein Sci.* 1999;8(2):361–369. doi:10.1110/ps.8.2.361
+- Loader: `tcren.potential.betancourt()`.
 
 ## `q_native_reference.csv` — derived
 
