@@ -270,6 +270,22 @@ every fit and the comparison is about **pair structure alone**. Measured on Nati
 scoring `F_tcr_mhc` with MJ and reserving TCRen for TCR:peptide — **do not reuse TCRen2 on the
 groove.**
 
+**`pin_centred=False` is the gauge that reproduces a referenced score.** Double-centring is right
+for *comparing* matrices and wrong for *reproducing* one. `reference_delta` is a difference of
+one-body sums, so a centred pin re-injects `n_i * c(a)` — the position's contact count times the
+potential's partner-residue column mean (s.d. 0.0668 on TCRen2, `n_i` from 1 to 54) — and the
+identity fails. `fit_potts(..., coupling_matrix="tcren2", pin_centred=False)` pins the raw matrix,
+so the coupling **is** the potential and any linear read-out of the field reduces to the potential's
+own score up to the fitted scale.
+
+**The free energy has three limits, and the interface picks one.** `dPhi/d eta_a = p_a`, so
+`Phi = sum softplus(eta)` is an interaction sum weighted by contact probability, and a fixed contact
+map is the `p in {0,1}` case. Hard contact reproduces `reference_delta`; smoothed (`p` free) is for
+a *plastic* interface; saturated (`p` driven to 0/1 by the interface itself) is where a fixed map is
+already exact. The groove is measurably in the saturated limit — over four 100 ns trajectories, 37
+of 39 peptide positions have a maximum groove-pair contact frequency >= 0.98, while the receptor
+side runs 0.00 to 1.00 continuously. See `docs/potts.rst`.
+
 **Two bundled models**, `PottsModel.bundled("potts_tcr_peptide")` (the default, 64,622 sites /
 7,865 contacts) and `"potts_tcr_mhc"` (239,093 / 15,451 — the TCR makes twice as many contacts with
 the MHC as with the peptide). Both carry the alpha-beta HARD RULE, as `derive-potential` does.

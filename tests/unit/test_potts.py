@@ -167,6 +167,36 @@ def test_centred_potential_flips_the_sign_of_the_energy():
     assert M[AA.index("L"), AA.index("L")] == pytest.approx(-float(raw[i, j]))
 
 
+def test_uncentred_pin_is_the_raw_matrix_and_differs_by_one_body_terms_only():
+    """The gauge that lets a pinned model reproduce a referenced contact-map score.
+
+    ``reference_delta`` is a difference of one-body sums, so a double-centred pin re-injects the
+    potential's partner-residue column mean scaled by the position's contact count and the identity
+    fails. Pinned uncentred the coupling IS the potential, so any linear read-out of the field
+    reduces to the potential's own score up to the fitted scale.
+    """
+    from tcren.potential import tcren2
+    M, index = tcren2().as_matrix()
+    raw = centred_potential("tcren2", centre=False)
+    for a in ("L", "K", "W"):
+        assert raw[AA.index(a), AA.index(a)] == pytest.approx(-float(M[index[a], index[a]]))
+
+    # what centring removes is exactly the one-body part, on the cells the potential observes
+    keep = [k for k, a in enumerate(AA)
+            if a in index and np.isfinite(M[index[a]]).any() and np.isfinite(M[:, index[a]]).any()]
+    d = (raw - centred_potential("tcren2", centre=True))[np.ix_(keep, keep)]
+    assert np.abs(d - d.mean(1, keepdims=True) - d.mean(0, keepdims=True) + d.mean()).max() < 1e-12
+    assert d.mean(0).std() > 0.0            # and it is not a constant, so the gauge matters
+
+
+def test_pin_centred_reaches_the_fit():
+    sites = _synthetic_sites(n_struct=12)
+    on = fit_potts(sites, coupling_matrix="tcren2")
+    off = fit_potts(sites, coupling_matrix="tcren2", pin_centred=False)
+    assert on.n_parameters() == off.n_parameters()
+    assert not np.allclose(np.asarray(on.coupling_array()), np.asarray(off.coupling_array()))
+
+
 # --------------------------------------------------------------------------- sites and kernel
 
 

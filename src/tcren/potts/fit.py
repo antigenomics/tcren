@@ -122,6 +122,7 @@ def cluster_se(X, resid: np.ndarray, gid: np.ndarray, n_groups: int, H) -> np.nd
 
 def fit_potts(sites: pl.DataFrame, *, radius: float = 15.0, cutoff: float = 5.0,
               couplings: bool = True, coupling_matrix: str | None = None,
+              pin_centred: bool = True,
               weights: dict[str, float] | None = None, ridge: float = DEFAULT_RIDGE,
               joint: bool | None = None, regions: tuple[str, ...] | None = None,
               notes: str = "") -> PottsModel:
@@ -136,6 +137,10 @@ def fit_potts(sites: pl.DataFrame, *, radius: float = 15.0, cutoff: float = 5.0,
         coupling_matrix: Fix ``J`` to one scale on this bundled potential (``tcren2``, ``mj``, …)
             instead of fitting 400 free cells. Competing matrices fitted this way carry identical
             parameter counts, so their pseudo-log-likelihoods compare directly.
+        pin_centred: Double-centre ``coupling_matrix`` before pinning (default). ``False`` pins the
+            raw matrix, which is what makes the model's peptide-referenced energy reduce to the
+            potential's own; see :func:`tcren.potts.centred_potential` for which setting a task
+            wants. Ignored when ``coupling_matrix`` is ``None``.
         weights: Per-structure weights, e.g. from
             :func:`tcren.potential.balanced_weights`, to down-weight redundancy. Missing ids get 1.
         ridge: ℓ2 penalty on every coefficient but the intercept.
@@ -171,7 +176,8 @@ def fit_potts(sites: pl.DataFrame, *, radius: float = 15.0, cutoff: float = 5.0,
     edge_lists = edges(q, joint=joint) if couplings else []
     counts = (neighbour_counts(edge_lists, sigma, q.height) if edge_lists
               else np.zeros((q.height, 0)))
-    fixed = centred_potential(coupling_matrix) if coupling_matrix else None
+    fixed = (centred_potential(coupling_matrix, centre=pin_centred)
+             if coupling_matrix else None)
     X, slices, k0 = design(codes, sizes, counts, fixed)
     b, H = irls(X, sigma, w, ridge)
     bg, J = gauge(b, slices, fixed is None)

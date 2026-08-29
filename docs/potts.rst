@@ -193,6 +193,60 @@ fitted scale falls 5.4-fold across that move (:math:`\beta` = +1.131 → +0.209)
 changes (+0.803 → +0.974). This is the measurement behind ``tcren``'s long-standing default of
 scoring ``F_tcr_mhc`` with Miyazawa–Jernigan and reserving TCRen for TCR:peptide.
 
+Three limits of one free energy
+-------------------------------
+
+The interface free energy is closed form, :math:`\Phi = \sum_a \operatorname{softplus}(\eta_a)`, and
+its derivative is the contact marginal, :math:`\partial\Phi/\partial\eta_a = p_a`. So :math:`\Phi`
+is an interaction sum weighted by how often each pair is *in* contact, and the fixed contact map
+every other scoring path in ``tcren`` reads is the special case :math:`p_a \in \{0, 1\}`. Three
+limits follow, and they are not competing models — each is the one the interface's own physics
+selects.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 18 34 48
+
+   * - limit
+     - weight on each pair
+     - the interface it fits
+   * - hard contact
+     - :math:`\mathbf{1}[d \le 5\,\text{Å}]`
+     - reproduces :func:`tcren.ddg.reference_delta` exactly, when ``J`` is pinned with
+       ``pin_centred=False``
+   * - smoothed
+     - :math:`p_a \in (0, 1)`
+     - a *plastic* interface, where an ensemble average is a different number from one snapshot
+   * - saturated
+     - :math:`p_a \to \{0, 1\}`
+     - a *frozen* interface, where the two above coincide and a fixed map is already exact
+
+Which limit an interface is in is measurable, not a matter of taste. Over four deposited 100 ns
+trajectories, collapsed onto the peptide, **37 of 39 peptide positions have a maximum groove-pair
+contact frequency of 0.98 or above** — a peptide residue is in the groove or it is not, and if it
+is, it is in contact in essentially every frame. The two exceptions are the two residues of the
+MEL8 epitope that lift out of the groove. On the receptor side the same maximum runs the whole
+range from 0.00 to 1.00 continuously.
+
+That is why the groove takes a fixed map and Miyazawa–Jernigan: it is already in the saturated
+limit, so smoothing it can only add noise. The receptor loops are not, which is what the smoothed
+limit is for.
+
+Reproducing a referenced score
+------------------------------
+
+``centred_potential`` double-centres by default, which is right for *ranking potentials against
+each other* — with the one-body terms removed the comparison is about pair structure alone. It is
+wrong for *reproducing a referenced contact-map score*. The peptide-referenced energy is a
+difference of one-body sums, so double-centring re-injects a burial-scaled composition term
+:math:`n_i\,c(a)`: the position's contact count times the potential's partner-residue column mean.
+On TCRen2 that mean has s.d. 0.0668 and runs −0.212 to +0.027 over the 19 residues the potential
+observes, and :math:`n_i` runs 1 to 54.
+
+Pass ``pin_centred=False`` (or ``centre=False`` to ``centred_potential``) and the coupling *is* the
+potential, so any linear read-out of the field reduces to the potential's own score up to the
+fitted scale :math:`\beta`.
+
 Command line
 ------------
 

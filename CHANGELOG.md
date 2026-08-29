@@ -3,6 +3,29 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
+## [2.23.0] — 2026-08-29
+
+**The gauge that lets a pinned model reproduce a referenced score.** `centred_potential` double-centres
+by design, which is right for *ranking* potentials against each other and wrong for *reproducing* one.
+
+### Added
+
+- **`centred_potential(..., centre=False)` and `fit_potts(..., pin_centred=False)`.** Defaults are
+  unchanged, so no existing fit moves. `reference_delta` is a difference of one-body sums, so a
+  double-centred pin re-injects a burial-scaled composition term `n_i·c(a)` — the position's contact
+  count times the potential's partner-residue column mean — and the referenced-energy identity
+  fails. Measured on TCRen2, that column mean has s.d. 0.0668 and runs −0.212 to +0.027 over the 19
+  residues the potential observes, while `n_i` runs 1 to 54. Pinned uncentred the coupling **is**
+  the potential (max |Δ| = 0 against the raw sign-flipped matrix), so any linear read-out of the
+  field reduces to the potential's own score up to the fitted scale.
+- **`docs/potts.rst` gains "Three limits of one free energy".** `∂Φ/∂η_a = p_a`, so
+  `Φ = Σ softplus(η)` is an interaction sum weighted by contact probability and a fixed contact map
+  is the `p ∈ {0,1}` case. Hard contact reproduces `reference_delta`; smoothed (`p` free) fits a
+  plastic interface; saturated fits a frozen one, where a fixed map is already exact. Which limit an
+  interface is in is measurable: over four deposited 100 ns trajectories, **37 of 39 peptide
+  positions have a maximum groove-pair contact frequency ≥ 0.98**, while the receptor side runs 0.00
+  to 1.00 continuously.
+
 ## [2.22.0] — 2026-08-29
 
 **The presentation interface gets its own Hamiltonian.** `available_pairs` enumerated

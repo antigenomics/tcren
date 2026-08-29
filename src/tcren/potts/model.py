@@ -178,18 +178,30 @@ class PottsModel:
         return cls(**json.loads(text))
 
 
-def centred_potential(name: str, alphabet: tuple[str, ...] = AA) -> np.ndarray:
-    """``-M`` double-centred onto ``alphabet`` — positive means the pair contacts more often.
+def centred_potential(name: str, alphabet: tuple[str, ...] = AA, *,
+                      centre: bool = True) -> np.ndarray:
+    """``-M`` onto ``alphabet``, double-centred by default — positive means more contact.
 
     A :class:`~tcren.potential.Potential` is signed *negative is favourable*; a coupling here is a
-    log-odds where positive is *more likely*, hence the sign flip. Double-centring removes every
-    one-body term, so a matrix used as a fixed coupling contributes **nothing** to the single-residue
-    marginals — the fields carry those, refitted freely, and competing matrices are compared on
-    pair structure alone.
+    log-odds where positive is *more likely*, hence the sign flip.
+
+    The two settings answer two different questions and are not interchangeable.
+
+    ``centre=True`` (default) removes every one-body term, so a matrix used as a fixed coupling
+    contributes **nothing** to the single-residue marginals — the fields carry those, refitted
+    freely, and competing matrices are compared on pair structure alone. This is the setting for
+    *ranking potentials against each other*.
+
+    ``centre=False`` keeps the raw matrix. Use it to *reproduce a referenced contact-map score*: the
+    peptide-referenced energy of :func:`tcren.ddg.reference_delta` is a difference of one-body sums,
+    so double-centring re-injects a burial-scaled composition term ``n_i·c(a)`` — the position's
+    contact count times the potential's partner-residue column mean — and the identity fails. Pinned
+    uncentred, the model's referenced energy equals the potential's own up to the fitted scale.
 
     Args:
         name: One of ``tcren2``, ``tcren``, ``mj``, ``mj1996``, ``keskin``.
         alphabet: Residue order of the returned array.
+        centre: Double-centre the matrix. See above for which setting a task wants.
 
     Returns:
         A ``(len(alphabet), len(alphabet))`` array; cells absent from the potential are ``0``.
@@ -202,7 +214,8 @@ def centred_potential(name: str, alphabet: tuple[str, ...] = AA) -> np.ndarray:
     if loader is None:
         raise ValueError(f"unknown potential {name!r}; expected one of tcren2, tcren, mj, "
                          f"mj1996, keskin")
-    M, index = _double_centred(loader())
+    pot = loader()
+    M, index = _double_centred(pot) if centre else pot.as_matrix()
     out = np.zeros((len(alphabet), len(alphabet)))
     for i, a in enumerate(alphabet):
         for j, b in enumerate(alphabet):
