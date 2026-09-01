@@ -34,7 +34,7 @@ def _native(pid: str) -> Path:
 
 def _oriented(pid):
     from tcren.mhc import annotate_mhc
-    from tcren.orient import canonicalize_structure
+    from tcren.docking import canonicalize_structure
 
     s = parse_structure(_native(pid), pdb_id=pid)
     classify_chains(s, organism="human")

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from tcren.orient.pipeline import _output_target
+from tcren.docking.pipeline import _output_target
 
 
 def test_directory_output_returns_none():

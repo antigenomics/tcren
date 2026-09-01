@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from tcren.orient import check_oriented_complex
+from tcren.docking import check_oriented_complex
 from tcren.structure.model import Atom, Chain, Residue, Structure
 
 

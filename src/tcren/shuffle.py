@@ -11,9 +11,9 @@ real (label 1) vs shuffled (label 0) learns TCR-recognition compatibility from s
 binding-assay labels** — useful as a general, label-free recognition prior and as a supplementary benchmark.
 
 Inputs MUST be **canonically oriented** (all superposed into the common MHC frame): run
-:func:`tcren.orient.run_folder` (``tcren orient``) or :func:`tcren.orient.superimpose` (``tcren superimpose``)
+:func:`tcren.docking.run_folder` (``tcren orient``) or :func:`tcren.docking.superimpose` (``tcren superimpose``)
 first. The graft is then a **direct chain replacement with no per-pair alignment** — deliberately unlike
-:func:`tcren.orient.graft.substitute_tcr`, which superposes the donor MHC onto the *host* MHC pairwise. Because
+:func:`tcren.docking.graft.substitute_tcr`, which superposes the donor MHC onto the *host* MHC pairwise. Because
 every complex already sits in the one canonical frame, dropping in the donor TCR as-is lets it keep its own
 native docking angle relative to the canonical MHC, so the decoy set spans the **real MHC–TCR docking-angle
 variance** across the whole database rather than forcing every TCR onto one host's pose. Chains are typed by
@@ -125,7 +125,7 @@ def _load_annotated(struct_dir: str | Path, organism: str = "human") -> list[Str
     from .annotation import classify_chains
     from .annotation.arda_adapter import _import_arda
     from .mhc import annotate_mhc_batch
-    from .paper.helpers import _batch_annotate
+    from .annotation.batch import _batch_annotate
     from .structure import parse_structure, structure_id_from_path, structure_paths
 
     structs: list[Structure] = []

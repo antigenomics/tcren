@@ -110,9 +110,9 @@ def test_frac_close_favourable_counts_only_the_below_median_contacts():
     assert 0.0 <= d["frac_close_favourable"] <= 1.0
 
 
-def test_sidechain_toward_is_positive_when_cbeta_points_at_the_partner():
-    toward = pose_consistency(_line([("D", 4.0, -1.0)]), potential=_Pot())["sidechain_toward"]
-    away = pose_consistency(_line([("D", 4.0, +1.0)]), potential=_Pot())["sidechain_toward"]
+def test_m_face_tp_is_positive_when_cbeta_points_at_the_partner():
+    toward = pose_consistency(_line([("D", 4.0, -1.0)]), potential=_Pot())["m_face_tp"]
+    away = pose_consistency(_line([("D", 4.0, +1.0)]), potential=_Pot())["m_face_tp"]
     # the peptide Cβ at -1.0 leans back toward the TCR, so Cβ-Cβ closes relative to Cα-Cα
     assert toward > away
 

@@ -52,8 +52,9 @@ from . import __version__
 from .annotation import classify_chains
 from .contactmap import TCR_REGIONS, ContactMap
 from .potential import Potential, derive_tcren, derive_tcren_loo, tcren, tcren2
-from .scoring import score_peptides
+from .energetics.scoring import score_peptides
 from .structure import iter_structures, parse_structure
+from .annotation.batch import iter_typed as _iter_typed
 
 app = typer.Typer(
     add_completion=True,  # `tcren --install-completion` for bash/zsh; --show-completion to print
@@ -102,28 +103,6 @@ def _load_potential(spec: str | None) -> Potential:
     )
 
 
-def _iter_typed(structures: Path, organism: str = "human"):
-    """Yield chain-typed structures, annotating a whole set in one batch.
-
-    ``classify_chains`` per structure spawns one ``mmseqs easy-search`` per structure, each
-    building a temporary database from a handful of query sequences; the process startup dominates
-    and the cost is roughly an order of magnitude. :func:`~tcren.paper.iter_annotated_set` sends
-    every chain of every structure in a single call per organism, which is why anything resolving
-    to more than one structure -- a directory, a glob, a manifest -- goes through it. A single
-    file has nothing to batch and takes the direct path.
-    """
-    from .structure import structure_paths
-    try:
-        many = len(structure_paths(structures)) > 1
-    except Exception:  # .tar.gz and anything structure_paths cannot enumerate
-        many = False
-    if many:
-        from .paper.helpers import iter_annotated_set
-        yield from iter_annotated_set(structures)
-        return
-    for _pid, s in iter_structures(structures, importer=parse_structure):
-        classify_chains(s, organism=organism)
-        yield s
 
 
 def _read_candidates(path: Path) -> list[str]:
@@ -240,7 +219,7 @@ def orient(
     how the bundled ``Canonical2026`` set is produced; use ``superimpose`` to bring a *new*
     structure into an existing canonical database.
     """
-    from .orient import run_folder
+    from .docking import run_folder
 
     run_folder(structures, out, metadata=metadata, organism=organism,
                reference_id=reference_id, force_pca=force_pca, threads=threads,
@@ -290,7 +269,7 @@ def superimpose(
     or — for a single input — a structure file whose extension must match ``--mmCIF``/``--compress``.
     Annotation is one batched mmseqs call; ``-t`` threads the alignment + write.
     """
-    from .orient import run_superimpose
+    from .docking import run_superimpose
 
     try:
         run_superimpose(structures, out, db_dir=db, organism=organism,
@@ -495,7 +474,7 @@ def _score_weights(structure, cm, interface, regions, drop_untyped, position_sch
                                   stacked_pairs(structure))
         w *= type_weights(typed)
     if position_scheme != "uniform":
-        from .scoring import peptide_positions, position_weights
+        from .energetics.scoring import peptide_positions, position_weights
         w *= position_weights(peptide_positions(cm, structure, interface, regions), position_scheme)
     return w
 
@@ -533,7 +512,7 @@ def score(
     """
     if regions not in TCR_REGIONS:
         raise typer.BadParameter("--regions must be one of all|cdr|cdr+fr")
-    from .scoring import POSITION_SCHEMES
+    from .energetics.scoring import POSITION_SCHEMES
     if position_scheme not in POSITION_SCHEMES:
         raise typer.BadParameter(f"--position-weights must be one of {'|'.join(POSITION_SCHEMES)}")
     pot = _load_potential(potential)
@@ -543,7 +522,7 @@ def score(
         cm = ContactMap.from_structure(s, cutoff=cutoff, peptide_internal=bool(intra_weight))
         if soft:
             from .mhc import annotate_mhc
-            from .rotamers import contact_probabilities
+            from .energetics.rotamers import contact_probabilities
             annotate_mhc(s)
             frames.append(_soft_score(s, cands, pot, interface, cutoff, contact_probabilities))
             continue
@@ -595,7 +574,7 @@ def ddg_cmd(
             "--virtual is peptide-side only: truncating a receptor side chain without moving "
             "atoms would leave every contact it made in place"
         )
-    from .ddg import alanine_scan as run_scan, neoantigen_ddg, tcr_alanine_scan
+    from .energetics.mutation import alanine_scan as run_scan, neoantigen_ddg, tcr_alanine_scan
 
     from .mhc import annotate_mhc
 
@@ -791,7 +770,7 @@ def surface(
     ``--complementarity`` builds both faces and reports how well they agree cell for cell — shape,
     charge and hydropathy — over the calibrated window and Z cutoff.
     """
-    from .surface import surface_complementarity, surface_distance, surface_map, surface_table
+    from .topology.surface import surface_complementarity, surface_distance, surface_map, surface_table
 
     try:
         n_y, n_x = (int(v) for v in grid.lower().split("x"))
@@ -1124,7 +1103,7 @@ def mechanics(
     Validated on ATLAS: the tensile stiffness / rupture resistance track the dissociation off-rate
     (koff) far better than the equilibrium ΔG/Kd (Bell–Evans; the TCR is a mechanosensor).
     """
-    from .mechanics import WEIGHTS
+    from .mechanics.springs import WEIGHTS
 
     if weight not in WEIGHTS:
         raise typer.BadParameter(f"--weight must be one of {'|'.join(WEIGHTS)}")
@@ -1153,7 +1132,7 @@ def mechanics(
 
 def _mechanics_one(args) -> dict:
     """One annotated structure -> one mechanics row. Module-level so it pickles to a worker."""
-    from .mechanics import interface_mechanics
+    from .mechanics.springs import interface_mechanics
 
     pid, s, cutoff, weight, direction, break_strain = args
     try:
@@ -1179,7 +1158,7 @@ def _annotate_set(structs, *, organism: str, autodetect_species: bool) -> None:
     from .annotation import classify_chains
     from .annotation.arda_adapter import _import_arda
     from .mhc import annotate_mhc_batch
-    from .paper.helpers import annotate_batch
+    from .annotation.batch import iter_typed, annotate_batch
 
     structs = [s for s in structs if s is not None]
     if not structs:
@@ -1226,7 +1205,7 @@ def refine(
     *has*; it cannot rebuild ones ``--substitute`` stripped.
     """
     from .refine import refine_peptide, substitute_peptide
-    from .rotamers import repack as repack_sidechains
+    from .energetics.rotamers import repack as repack_sidechains
     from .structure.io import import_structure, structure_output_path, write_structure
 
     out.mkdir(parents=True, exist_ok=True)
@@ -1270,7 +1249,7 @@ def substitute_tcr_cmd(
     """
     if by not in ("mhc", "tcr"):
         raise typer.BadParameter("--by must be 'mhc' or 'tcr'")
-    from .orient import substitute_tcr
+    from .docking import substitute_tcr
     from .structure.io import import_structure, write_structure
 
     h = import_structure(host)
@@ -1553,7 +1532,7 @@ def footprint(
 
     Complementary scorer on the same inputs: ``tcren recognize`` (energies + P(real)).
     """
-    from .footprint import footprint_batch
+    from .topology.footprint import footprint_batch
 
     try:
         rr = tuple(float(v) for v in radii.replace(" ", "").split(",") if v)
@@ -1666,7 +1645,7 @@ def _potts_pairs(structures: Path, partner: str, *, radius: float, cutoff: float
             _annotate_set(batch, organism=organism, autodetect_species=True)
         else:
             from .annotation.arda_adapter import _import_arda
-            from .paper.helpers import _batch_annotate
+            from .annotation.batch import _batch_annotate
             recs = _batch_annotate(batch, _import_arda())
             for k, s in enumerate(batch):
                 try:

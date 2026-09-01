@@ -33,7 +33,7 @@
 <title>geometric</title>
 <path fill="#0072b2" stroke="#4d4d4d" stroke-width="0.8" d="M421.25,-278.5C421.25,-278.5 298,-278.5 298,-278.5 292,-278.5 286,-272.5 286,-266.5 286,-266.5 286,-237.5 286,-237.5 286,-231.5 292,-225.5 298,-225.5 298,-225.5 421.25,-225.5 421.25,-225.5 427.25,-225.5 433.25,-231.5 433.25,-237.5 433.25,-237.5 433.25,-266.5 433.25,-266.5 433.25,-272.5 427.25,-278.5 421.25,-278.5"/>
 <text xml:space="preserve" text-anchor="middle" x="359.62" y="-265" font-family="Helvetica,sans-Serif" font-size="10.00" fill="white">geometric</text>
-<text xml:space="preserve" text-anchor="middle" x="359.62" y="-253.75" font-family="Helvetica,sans-Serif" font-size="10.00" fill="white">44 descriptors</text>
+<text xml:space="preserve" text-anchor="middle" x="359.62" y="-253.75" font-family="Helvetica,sans-Serif" font-size="10.00" fill="white">52 descriptors</text>
 <text xml:space="preserve" text-anchor="middle" x="359.62" y="-242.5" font-family="Helvetica,sans-Serif" font-size="10.00" fill="white">preserved by isometry</text>
 <text xml:space="preserve" text-anchor="middle" x="359.62" y="-231.25" font-family="Helvetica,sans-Serif" font-size="10.00" fill="white">a length, area, angle or cosine</text>
 </g>
@@ -64,7 +64,7 @@
 <title>compositional</title>
 <path fill="#009e73" stroke="#4d4d4d" stroke-width="0.8" d="M419.75,-212.5C419.75,-212.5 299.5,-212.5 299.5,-212.5 293.5,-212.5 287.5,-206.5 287.5,-200.5 287.5,-200.5 287.5,-171.5 287.5,-171.5 287.5,-165.5 293.5,-159.5 299.5,-159.5 299.5,-159.5 419.75,-159.5 419.75,-159.5 425.75,-159.5 431.75,-165.5 431.75,-171.5 431.75,-171.5 431.75,-200.5 431.75,-200.5 431.75,-206.5 425.75,-212.5 419.75,-212.5"/>
 <text xml:space="preserve" text-anchor="middle" x="359.62" y="-199" font-family="Helvetica,sans-Serif" font-size="10.00" fill="white">compositional</text>
-<text xml:space="preserve" text-anchor="middle" x="359.62" y="-187.75" font-family="Helvetica,sans-Serif" font-size="10.00" fill="white">50 descriptors</text>
+<text xml:space="preserve" text-anchor="middle" x="359.62" y="-187.75" font-family="Helvetica,sans-Serif" font-size="10.00" fill="white">54 descriptors</text>
 <text xml:space="preserve" text-anchor="middle" x="359.62" y="-176.5" font-family="Helvetica,sans-Serif" font-size="10.00" fill="white">a count over the labelled</text>
 <text xml:space="preserve" text-anchor="middle" x="359.62" y="-165.25" font-family="Helvetica,sans-Serif" font-size="10.00" fill="white">contact set, or a share of one</text>
 </g>
@@ -96,38 +96,38 @@
 <title>topology</title>
 <path fill="#f2f2f2" stroke="#4d4d4d" stroke-width="0.8" d="M128.38,-332.88C128.38,-332.88 74.88,-332.88 74.88,-332.88 68.88,-332.88 62.88,-326.88 62.88,-320.88 62.88,-320.88 62.88,-303.12 62.88,-303.12 62.88,-297.12 68.88,-291.12 74.88,-291.12 74.88,-291.12 128.38,-291.12 128.38,-291.12 134.38,-291.12 140.38,-297.12 140.38,-303.12 140.38,-303.12 140.38,-320.88 140.38,-320.88 140.38,-326.88 134.38,-332.88 128.38,-332.88"/>
 <text xml:space="preserve" text-anchor="middle" x="101.62" y="-319.38" font-family="Helvetica,sans-Serif" font-size="10.00">topology</text>
-<text xml:space="preserve" text-anchor="middle" x="101.62" y="-308.12" font-family="Helvetica,sans-Serif" font-size="10.00">29 descriptors</text>
+<text xml:space="preserve" text-anchor="middle" x="101.62" y="-308.12" font-family="Helvetica,sans-Serif" font-size="10.00">47 descriptors</text>
 <text xml:space="preserve" text-anchor="middle" x="101.62" y="-296.88" font-family="Helvetica,sans-Serif" font-size="10.00">the footprint</text>
 </g>
 <!-- topology&#45;&gt;geometric -->
 <g id="edge7" class="edge">
 <title>topology&#45;&gt;geometric</title>
-<path fill="none" stroke="#0072b2" stroke-width="0.68" d="M140.67,-303.08C176.98,-294.57 232.82,-281.49 278.88,-270.69"/>
-<polygon fill="#0072b2" stroke="#0072b2" stroke-width="0.68" points="279.24,-272.76 284.6,-269.35 278.28,-268.67 279.24,-272.76"/>
-<text xml:space="preserve" text-anchor="middle" x="231.75" y="-283.4" font-family="Helvetica,sans-Serif" font-size="8.00">1</text>
+<path fill="none" stroke="#0072b2" stroke-width="1.35" d="M140.67,-303.08C176.76,-294.62 232.13,-281.65 278.03,-270.89"/>
+<polygon fill="#0072b2" stroke="#0072b2" stroke-width="1.35" points="278.25,-272.99 283.62,-269.58 277.29,-268.91 278.25,-272.99"/>
+<text xml:space="preserve" text-anchor="middle" x="231.75" y="-283.4" font-family="Helvetica,sans-Serif" font-size="8.00">9</text>
 </g>
 <!-- topological -->
 <g id="node8" class="node">
 <title>topological</title>
 <path fill="#d55e00" stroke="#4d4d4d" stroke-width="0.8" d="M431,-344.5C431,-344.5 288.25,-344.5 288.25,-344.5 282.25,-344.5 276.25,-338.5 276.25,-332.5 276.25,-332.5 276.25,-303.5 276.25,-303.5 276.25,-297.5 282.25,-291.5 288.25,-291.5 288.25,-291.5 431,-291.5 431,-291.5 437,-291.5 443,-297.5 443,-303.5 443,-303.5 443,-332.5 443,-332.5 443,-338.5 437,-344.5 431,-344.5"/>
 <text xml:space="preserve" text-anchor="middle" x="359.62" y="-331" font-family="Helvetica,sans-Serif" font-size="10.00" fill="white">topological</text>
-<text xml:space="preserve" text-anchor="middle" x="359.62" y="-319.75" font-family="Helvetica,sans-Serif" font-size="10.00" fill="white">8 descriptors</text>
+<text xml:space="preserve" text-anchor="middle" x="359.62" y="-319.75" font-family="Helvetica,sans-Serif" font-size="10.00" fill="white">14 descriptors</text>
 <text xml:space="preserve" text-anchor="middle" x="359.62" y="-308.5" font-family="Helvetica,sans-Serif" font-size="10.00" fill="white">preserved by homeomorphism</text>
 <text xml:space="preserve" text-anchor="middle" x="359.62" y="-297.25" font-family="Helvetica,sans-Serif" font-size="10.00" fill="white">Betti numbers, Euler characteristic</text>
 </g>
 <!-- topology&#45;&gt;topological -->
 <g id="edge6" class="edge">
 <title>topology&#45;&gt;topological</title>
-<path fill="none" stroke="#d55e00" stroke-width="1.27" d="M140.51,-314.68C165.19,-316.29 198.11,-318.18 227.25,-319 231.25,-319.11 232.25,-319.02 236.25,-319 246.59,-318.96 257.43,-318.9 268.19,-318.82"/>
-<polygon fill="#d55e00" stroke="#d55e00" stroke-width="1.27" points="268.11,-320.92 274.09,-318.78 268.08,-316.72 268.11,-320.92"/>
-<text xml:space="preserve" text-anchor="middle" x="231.75" y="-320.45" font-family="Helvetica,sans-Serif" font-size="8.00">8</text>
+<path fill="none" stroke="#d55e00" stroke-width="1.77" d="M140.51,-314.68C165.19,-316.29 198.11,-318.18 227.25,-319 231.25,-319.11 232.25,-319.02 236.25,-319 246.39,-318.96 257.01,-318.9 267.57,-318.83"/>
+<polygon fill="#d55e00" stroke="#d55e00" stroke-width="1.77" points="267.35,-320.93 273.33,-318.79 267.32,-316.73 267.35,-320.93"/>
+<text xml:space="preserve" text-anchor="middle" x="231.75" y="-320.45" font-family="Helvetica,sans-Serif" font-size="8.00">14</text>
 </g>
 <!-- topology&#45;&gt;compositional -->
 <g id="edge5" class="edge">
 <title>topology&#45;&gt;compositional</title>
-<path fill="none" stroke="#009e73" stroke-width="2.28" d="M140.63,-304.47C157.99,-300.05 178.39,-293.44 195.25,-284 204.73,-278.69 258.93,-224.57 268.25,-219 271.73,-216.92 275.37,-214.94 279.09,-213.05"/>
-<polygon fill="#009e73" stroke="#009e73" stroke-width="2.28" points="279.76,-215.06 284.26,-210.57 277.94,-211.27 279.76,-215.06"/>
-<text xml:space="preserve" text-anchor="middle" x="231.75" y="-256.57" font-family="Helvetica,sans-Serif" font-size="8.00">20</text>
+<path fill="none" stroke="#009e73" stroke-width="2.61" d="M140.63,-304.47C157.99,-300.05 178.39,-293.44 195.25,-284 204.73,-278.69 258.93,-224.57 268.25,-219 271.54,-217.03 274.97,-215.15 278.49,-213.36"/>
+<polygon fill="#009e73" stroke="#009e73" stroke-width="2.61" points="279.32,-215.29 283.81,-210.79 277.5,-211.5 279.32,-215.29"/>
+<text xml:space="preserve" text-anchor="middle" x="231.75" y="-256.57" font-family="Helvetica,sans-Serif" font-size="8.00">24</text>
 </g>
 <!-- energetics -->
 <g id="node4" class="node">

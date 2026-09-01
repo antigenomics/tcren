@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from tcren.orient.tcrdock_geometry import (
+from tcren.docking.tcrdock_geometry import (
     DockingGeometry,
     _dihedral,
     _kabsch,
@@ -102,7 +102,7 @@ def _typed(pdb_id):
 
 
 def test_class_i_core_keeps_all_six_pairs():
-    from tcren.orient.tcrdock_geometry import _mhc_core_ca
+    from tcren.docking.tcrdock_geometry import _mhc_core_ca
 
     pytest.importorskip("arda")
     core = _mhc_core_ca(_typed("1ao7"))
@@ -111,7 +111,7 @@ def test_class_i_core_keeps_all_six_pairs():
 
 @pytest.mark.parametrize("pdb_id", ["4ozg", "6v0y"])
 def test_class_ii_core_pairs_both_chains(pdb_id):
-    from tcren.orient.tcrdock_geometry import _MIN_CORE_PAIRS, _mhc_core_ca
+    from tcren.docking.tcrdock_geometry import _MIN_CORE_PAIRS, _mhc_core_ca
 
     pytest.importorskip("arda")
     core = _mhc_core_ca(_typed(pdb_id))
@@ -122,7 +122,7 @@ def test_class_ii_core_pairs_both_chains(pdb_id):
 @pytest.mark.slow
 @pytest.mark.parametrize("pdb_id", ["1ao7", "4ozg", "6v0y"])
 def test_docking_geometry_runs_on_both_mhc_classes(pdb_id):
-    from tcren.orient.tcrdock_geometry import docking_geometry
+    from tcren.docking.tcrdock_geometry import docking_geometry
 
     pytest.importorskip("arda")
     g = docking_geometry(_typed(pdb_id))
@@ -135,7 +135,7 @@ def test_docking_geometry_runs_on_both_mhc_classes(pdb_id):
 
 @pytest.mark.slow
 def test_class_i_docking_geometry_is_unchanged():
-    from tcren.orient.tcrdock_geometry import docking_geometry
+    from tcren.docking.tcrdock_geometry import docking_geometry
 
     pytest.importorskip("arda")
     g = docking_geometry(_typed("1ao7"))

@@ -15,7 +15,7 @@ two coordinate frames ("stubs"):
 
 Six numbers (:class:`DockingGeometry`) fix the relative pose: ``d`` (frame separation), ``torsion`` (dihedral
 about the MHC–TCR line), and ``tcr_unit_y/z`` + ``mhc_unit_y/z`` (each frame's direction to the other, in the
-other's local axes). For interpretable in-plane / tilt angles use :func:`tcren.orient.docking.docking_angles`
+other's local axes). For interpretable in-plane / tilt angles use :func:`tcren.docking.docking.docking_angles`
 (``crossing_angle`` = the groove-plane "scanning" angle; ``incident_angle`` = the tilt); this module adds the
 full rigid-body pose that those two scalars do not capture.
 

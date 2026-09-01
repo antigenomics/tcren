@@ -13,36 +13,36 @@ from .refine.anchors import native_peptide
 from .cohort import (PHI_TERMS, Q_FEATURES_GEOM, coupling, phi_score, q_coupled, q_score,
                      strain_z, zscore)
 from .clashes import ClashReport, has_clashes, interface_clashes
-from .pose import (
+from .topology.pose import (
     POSE_FEATURES,
     POSE_FEATURES_CONTACT,
     POSE_FEATURES_DEGREE,
     POSE_FEATURES_SHELL,
     pose_consistency,
 )
-from .stability import StabilityReport, contact_stability
+from .mechanics.stability import StabilityReport, contact_stability
 from . import geometry, torsions
 from .contactmap import ContactMap, ModeCentroid, binding_mode, registered_map
 from .geometry import LoopInternalCoords, cdr3_internal_coords
 from .torsions import cdr3_torsions, chain_torsions, residue_torsions
 from .contacts import all_atom_contacts, ca_distance_matrix, peptide_internal_contacts
-from .dynamics import Stability, peptide_stability, stability_table
-from .rotamers import contact_probabilities, repack, soft_energy
+from .mechanics.dynamics import Stability, peptide_stability, stability_table
+from .energetics.rotamers import contact_probabilities, repack, soft_energy
 from .stacking import RING_ATOMS, ring_stacking
-from .surface import (SurfaceMap, surface_distance, surface_map, surface_stats,
+from .topology.surface import (SurfaceMap, surface_distance, surface_map, surface_stats,
                       surface_table, surface_tree)
 from .cpl import (ResponseMatrix, equimolar_effect, mutation_effect, position_scan,
                   response_matrix)
-from .ddg import alanine_scan, ddg, neoantigen_ddg, reference_delta
-from .mechanics import coupling_residues, interface_springs, rupture, stiffness_tensor
+from .energetics.mutation import alanine_scan, ddg, neoantigen_ddg, reference_delta
+from .mechanics.springs import coupling_residues, interface_springs, rupture, stiffness_tensor
 from .oracle import summarize_structure
-from .orient import substitute_tcr
+from .docking import substitute_tcr
 from .pipeline import PipelineResult
 from .pipeline import run as run_pipeline
 from .potential import Potential, derive_tcren, derive_tcren_loo
 from .refine import check_register, fix_register, refine_peptide, substitute_peptide
 from .refine.interface import interface_energy
-from .scoring import (RecognitionMatrix, intra_peptide_energy, recognition_matrix, score_peptides,
+from .energetics.scoring import (RecognitionMatrix, intra_peptide_energy, recognition_matrix, score_peptides,
                       score_structures)
 from .scoring_rank import background_peptides, percentile_rank
 from .structure import Structure, import_structure, parse_structure

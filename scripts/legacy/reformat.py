@@ -111,7 +111,7 @@ def annotate_and_orient(pdbid: str):
     from tcren.structure import parse_structure
     from tcren.annotation import classify_chains
     from tcren.mhc import annotate_mhc
-    from tcren.orient import canonicalize_structure
+    from tcren.docking import canonicalize_structure
     structure = parse_structure(str(_native_path(pdbid)), pdb_id=pdbid)
     classify_chains(structure)
     annotate_mhc(structure)

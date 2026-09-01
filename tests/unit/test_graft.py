@@ -1,4 +1,4 @@
-"""Unit tests for TCR grafting (:func:`tcren.orient.substitute_tcr`).
+"""Unit tests for TCR grafting (:func:`tcren.docking.substitute_tcr`).
 
 Fast synthetic tests build two toy complexes where the donor is a rigid-body rotation of the host,
 so a correct MHC- or TCR-anchored superposition must map the donor's TCR back exactly onto the host
@@ -13,7 +13,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from tcren.orient import substitute_tcr
+from tcren.docking import substitute_tcr
 from tcren.structure.model import Atom, Chain, RegionMarkup, Residue, Structure
 
 # A fixed rotation (90° about z) + translation; the donor is the host under this rigid move.

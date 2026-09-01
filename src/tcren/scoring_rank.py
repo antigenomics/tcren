@@ -15,7 +15,7 @@ from pathlib import Path
 
 from .contactmap import ContactMap, Interface
 from .potential import Potential
-from .scoring import score_peptides
+from .energetics.scoring import score_peptides
 
 #: The 20 standard amino acids, used to draw uniform-random background peptides.
 _AMINO_ACIDS = "ACDEFGHIKLMNPQRSTVWY"

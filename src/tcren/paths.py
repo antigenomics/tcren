@@ -10,10 +10,14 @@ rides in ``tcren/data/`` so an installed ``superimpose`` can describe the databa
 
 from __future__ import annotations
 
+_CIF_SUFFIXES = (".cif", ".mmcif")
+_PDB_SUFFIXES = (".pdb", ".ent")
+STRUCTURE_SUFFIXES = _CIF_SUFFIXES + _PDB_SUFFIXES
+
+
 import os
 from pathlib import Path
 
-from .structure.io import STRUCTURE_SUFFIXES
 
 NATIVE2026 = "Native2026"
 # The canonical reference structures (and full Native2026 set) live in this HF dataset.

@@ -11,7 +11,7 @@ digraph descriptor_families {
     color="#BFBFBF"; style=rounded;
     "placement" [fillcolor="#F2F2F2", label="placement\n31 descriptors\nwhere the receptor sits"];
     "interface" [fillcolor="#F2F2F2", label="interface\n26 descriptors\nhow much contact, of what kind"];
-    "topology" [fillcolor="#F2F2F2", label="topology\n29 descriptors\nthe footprint"];
+    "topology" [fillcolor="#F2F2F2", label="topology\n47 descriptors\nthe footprint"];
     "energetics" [fillcolor="#F2F2F2", label="energetics\n15 descriptors\nreferenced interface energy"];
     "potts" [fillcolor="#F2F2F2", label="potts\n5 descriptors\nenergy against the partition function"];
     "kinetics" [fillcolor="#F2F2F2", label="kinetics\n17 descriptors\nthe interface as springs"];
@@ -21,9 +21,9 @@ digraph descriptor_families {
   subgraph cluster_class {
     label="invariance\nwhat they mean"; fontname="Helvetica-Bold"; fontsize=11;
     color="#BFBFBF"; style=rounded;
-    "geometric" [fillcolor="#0072B2", fontcolor="white", label="geometric\n44 descriptors\npreserved by isometry\na length, area, angle or cosine"];
-    "topological" [fillcolor="#D55E00", fontcolor="white", label="topological\n8 descriptors\npreserved by homeomorphism\nBetti numbers, Euler characteristic"];
-    "compositional" [fillcolor="#009E73", fontcolor="white", label="compositional\n50 descriptors\na count over the labelled\ncontact set, or a share of one"];
+    "geometric" [fillcolor="#0072B2", fontcolor="white", label="geometric\n52 descriptors\npreserved by isometry\na length, area, angle or cosine"];
+    "topological" [fillcolor="#D55E00", fontcolor="white", label="topological\n14 descriptors\npreserved by homeomorphism\nBetti numbers, Euler characteristic"];
+    "compositional" [fillcolor="#009E73", fontcolor="white", label="compositional\n54 descriptors\na count over the labelled\ncontact set, or a share of one"];
     "energetic" [fillcolor="#CC79A7", fontcolor="white", label="energetic\n20 descriptors\na statistical-potential\nor Potts energy"];
     "categorical" [fillcolor="#999999", fontcolor="white", label="categorical\n1 descriptor\nwhich class of MHC\npresents the peptide"];
   }
@@ -32,9 +32,9 @@ digraph descriptor_families {
   "interface" -> "compositional" [label="23", penwidth=2.53, color="#009E73"];
   "interface" -> "geometric" [label="2", penwidth=0.77, color="#0072B2"];
   "interface" -> "categorical" [label="1", penwidth=0.68, color="#999999"];
-  "topology" -> "compositional" [label="20", penwidth=2.28, color="#009E73"];
-  "topology" -> "topological" [label="8", penwidth=1.27, color="#D55E00"];
-  "topology" -> "geometric" [label="1", penwidth=0.68, color="#0072B2"];
+  "topology" -> "compositional" [label="24", penwidth=2.61, color="#009E73"];
+  "topology" -> "topological" [label="14", penwidth=1.77, color="#D55E00"];
+  "topology" -> "geometric" [label="9", penwidth=1.35, color="#0072B2"];
   "energetics" -> "energetic" [label="15", penwidth=1.86, color="#CC79A7"];
   "potts" -> "energetic" [label="5", penwidth=1.02, color="#CC79A7"];
   "kinetics" -> "geometric" [label="10", penwidth=1.44, color="#0072B2"];

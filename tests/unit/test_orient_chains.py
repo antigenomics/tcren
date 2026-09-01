@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from tcren.orient.chains import _has_multiple_copies, rename_chains
+from tcren.docking.chains import _has_multiple_copies, rename_chains
 from tcren.structure.model import Atom, Chain, Residue, Structure
 
 

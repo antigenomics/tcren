@@ -1,34 +1,10 @@
-"""Canonical TCR-pMHC orientation: MHC-frame superposition + chain renaming."""
+"""Deprecated name for :mod:`tcren.docking`; kept so existing imports keep working.
 
-from .chains import CHAIN_RENAME, rename_chains, select_primary_complex
-from .docking import (
-    DockingAngles,
-    TcrPlacement,
-    crossing_incident_from_vector,
-    docking_angles,
-    tcr_placement,
-)
-from .exceptions import detect_reverse_dock
-from .frame import CanonResult, build_canonical_frame, canonical_frame
-from .graft import substitute_tcr
-from .pipeline import (
-    align_to_canonical,
-    canonicalize_structure,
-    check_oriented_complex,
-    run_folder,
-    run_superimpose,
-)
-from .superimpose import superimpose
-from .tcrdock_geometry import DockingGeometry, docking_geometry
+Renamed on 2026-09-01. The package holds a native reimplementation of TCRdock's rigid-body
+parameterisation alongside the crossing and incident angles, the canonical frame and the
+superposition helpers -- it is the docking geometry, and ``orient`` said only that something gets
+moved. ``orient.docking`` is now :mod:`tcren.docking.angles`, because ``docking.docking`` stutters.
+"""
+from __future__ import annotations
 
-__all__ = [
-    "CanonResult", "canonical_frame", "build_canonical_frame",
-    "detect_reverse_dock", "CHAIN_RENAME", "select_primary_complex", "rename_chains",
-    "canonicalize_structure", "align_to_canonical", "check_oriented_complex", "run_folder",
-    "superimpose", "run_superimpose",
-    "DockingAngles",
-    "TcrPlacement",
-    "tcr_placement", "docking_angles", "crossing_incident_from_vector",
-    "DockingGeometry", "docking_geometry",
-    "substitute_tcr",
-]
+from ..docking import *  # noqa: F401,F403

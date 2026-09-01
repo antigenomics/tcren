@@ -1,7 +1,7 @@
 """Canonical TCR-pMHC frame by PCA: z ≈ PC1 (MHC→TCR), y ≈ PC2 (peptide), x ≈ PC3.
 
 Every structure is first superposed onto a per-class native reference by its MHC groove Cα
-(:func:`tcren.orient.align.align_to_native`); a fixed per-class rotation ``R_canon`` then maps
+(:func:`tcren.docking.align.align_to_native`); a fixed per-class rotation ``R_canon`` then maps
 that reference frame into the canonical axes. ``R_canon`` is obtained by centring the reference
 complex's Cα cloud at its centre of mass and taking its principal axes (PCA):
 
