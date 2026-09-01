@@ -1,0 +1,965 @@
+% The TCRen2 descriptor catalogue: hierarchy, classification, formulas, derivations.
+% Hand-written prose; every count and every table row comes from appendix/generated/,
+% emitted by scripts/gen_appendix.py from the catalogue itself.  2026-09-02
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{newtxtext,newtxmath}   % no amssymb: newtxmath provides those symbols and the two clash
+\usepackage[margin=2.4cm]{geometry}
+\usepackage{amsmath}
+\usepackage{array}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{graphicx}
+\usepackage{microtype}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,decorations.pathmorphing,patterns,calc}
+\usepackage[colorlinks,linkcolor=black,citecolor=black,urlcolor=blue!55!black]{hyperref}
+\usepackage[capitalise,noabbrev]{cleveref}
+
+\input{generated/counts}
+
+\newcommand{\dsc}[1]{\texttt{#1}}
+\newcommand{\obj}[1]{\ensuremath{\mathcal{#1}}}
+\setlength{\parskip}{2pt}
+
+\title{\bfseries The TCRen2 descriptor catalogue\\[2pt]
+\large hierarchy, classification, formulas and derivations}
+\author{\normalsize \texttt{tcren} \tcrenVersion\ --- \nDesc\ descriptors in \nFamilies\ families}
+\date{\normalsize 2 September 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+\noindent
+This appendix documents every descriptor \texttt{tcren} computes from a TCR--pMHC structure. It is
+organised around a claim: the \nDesc\ descriptors are not \nDesc\ ideas. They are a small set of
+\emph{operators} applied to a smaller set of \emph{objects}, each object a strict reduction of the
+atomic coordinates. Nine operators and eight objects account for the whole catalogue, and naming
+them makes three things visible that the family listing hides --- which descriptors can be
+redundant with which (only within a reduction step), which are exactly determined by others, and
+which are invariant under what. Nineteen descriptors spread over four families turn out to be one
+formula, the Hill number, applied to seven different probability vectors at three orders. Section
+\ref{sec:classes} treats MHC class I and class II, which condition several formulas and are
+unevenly represented in the corpus. Nothing here is fitted: every descriptor is a deterministic
+function of one structure.
+\end{abstract}
+
+\tableofcontents
+
+% =================================================================================================
+\section{Scope}
+
+A descriptor is a function $f : \mathcal{S} \to \mathbb{R}$ from one annotated TCR--pMHC structure
+to one number. Annotation means chain typing, CDR region markup and, for the MHC-facing columns,
+groove region markup; nothing else is required, and in particular no alignment to a reference and
+no prior canonicalisation of the input orientation. Each $f$ carries a unit, an invariance class
+and, where something is known about its behaviour, a \texttt{STATUS} flag. \Cref{sec:catalogue}
+lists all \nDesc\ with their definitions; \cref{sec:status} lists the \nFlagged\ flagged ones.
+
+Three properties hold catalogue-wide and are assumed everywhere below.
+
+\begin{description}
+\item[No fitted parameter.] No descriptor reads a label, a training set or a coefficient estimated
+  from one. The statistical potentials are derived once from a structural database and shipped; the
+  Potts couplings likewise. A descriptor's value on a structure does not depend on what else was in
+  the batch.
+\item[Rigid-motion invariance.] Every descriptor is invariant under the action of $SE(3)$ on the
+  input coordinates. The frame-referred quantities of \cref{sec:frame} achieve this by refitting
+  their frame from the structure rather than inheriting one, so two copies of a complex in different
+  laboratory orientations give identical rows.
+\item[Undefined is \texttt{NaN}, never zero.] A descriptor with no support returns \texttt{NaN}. A
+  contact order over one contacted residue, a standoff height over a face with no void, a stiffness
+  over two springs: each is undefined, and $0$ would rank as an extreme rather than as a missing
+  value.
+\end{description}
+
+% =================================================================================================
+\section{The hierarchy: a chain of reductions}
+\label{sec:hierarchy}
+
+The six \emph{families} --- placement, interface, topology, energetics, potts, kinetics --- record
+which pass of which command produces a descriptor. That is a fact about the software. The fact
+about the science is which \emph{object} the descriptor reads, and the objects form a chain in
+which each step discards information irreversibly (\cref{fig:reduction}).
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.92\textwidth]{generated/reduction.pdf}
+\caption{The reduction chain. Each arrow discards information; the bold arrow
+$\obj{B} \twoheadrightarrow \obj{T}$ is the one that matters most, because it is a quotient and
+therefore orders the redundancy structure of \cref{sec:quotient}. Dashed lines attach the six
+families to the objects they read; \emph{topology} reads four of them, which is why it is the
+largest family and the least coherent one.}
+\label{fig:reduction}
+\end{figure}
+
+\begin{description}
+\item[\obj{S}, the coordinates.] Around $10^4$ heavy atoms with chain, residue and region markup.
+  Everything derives from here; no descriptor reads it directly.
+\item[\obj{F}, the groove frame.] An orthonormal triple $(\hat u, \hat w, \hat n)$ obtained from the
+  singular value decomposition of the MHC groove-floor C$\alpha$ coordinates, with the signs fixed
+  by the peptide's N$\to$C direction and by which side the receptor sits on. \obj{F} is refit from
+  every structure, which is what makes the placement family comparable across inputs.
+\item[\obj{C}, the contact set.] Ordered pairs $(i,j)$ of residues whose closest heavy atoms lie
+  within $5$~\AA. This is the single free parameter almost everything downstream inherits.
+\item[\obj{D}, the distance maps.] The C$\alpha$ and C$\beta$ matrices between two labelled regions.
+  \obj{D} keeps the metric and forgets the atoms.
+\item[\obj{L}, the labelled contacts.] \obj{C} with residue identity, or with a bond type
+  (salt bridge, hydrogen bond, aromatic, hydrophobic) attached. \obj{L} keeps chemistry and forgets
+  geometry beyond the threshold.
+\item[\obj{B}, the biadjacency matrix.] $B \in \{0,1\}^{m \times n}$ with the engaged CDR-loop
+  residues as rows and the pMHC residues they touch as columns. \obj{B} keeps \emph{who touched
+  whom} and forgets how far apart they were.
+\item[\obj{T}, the cell tally.] Contact counts per cell of a fixed partition --- the twelve cells of
+  six CDR loops $\times$ \{peptide, MHC\}, or the twenty-four that split the peptide into three
+  bands. \obj{T} keeps how many and forgets which.
+\item[\obj{H}, the height fields.] Two rasters $h_{\mathrm{pMHC}}(x,y)$ and $h_{\mathrm{TCR}}(x,y)$
+  on one shared grid in the $\obj{F}$ plane, with per-cell charge and hydropathy painted on.
+\item[$\Sigma$, the network.] \obj{C} with a stiffness or a Potts site attached to each pair: a
+  spring network in the mechanical case, a set of occupiable sites in the Potts case.
+\end{description}
+
+\subsection{The quotient, and what it predicts}
+\label{sec:quotient}
+
+$\obj{B} \twoheadrightarrow \obj{T}$ is a quotient map: the tally is a function of the biadjacency
+matrix, and many biadjacency matrices give the same tally. Every functional of \obj{T} is therefore
+a functional of \obj{B}, and the converse fails. Two consequences follow without any measurement.
+
+\begin{enumerate}
+\item A \obj{T}-descriptor can be exactly determined by \obj{B}-descriptors, but no
+  \obj{B}-descriptor can be exactly determined by \obj{T}-descriptors alone. Redundancy runs
+  \emph{down} the chain, never up it.
+\item The parameter-free replacements are the ones further \emph{up}. \dsc{g\_comp\_frac} counts
+  components of the contact graph itself; \dsc{fp\_b0\_r7} counts components of a C$\alpha$ flag
+  complex at an arbitrary $7$~\AA. The first reads \obj{B} and needs no radius; the second reads
+  \obj{C} again with a second threshold on top of the first. When both survive a redundancy screen
+  they are measuring different things; when only one does, the chain says which to prefer.
+\end{enumerate}
+
+\Cref{fig:quotient} draws the step for a small footprint.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[font=\small, node distance=3mm]
+% --- left: the bipartite graph B
+\node at (-0.2,3.1) {\textbf{\obj{B}} \ \ which residue touched which};
+\foreach \i/\lab in {0/{CDR3$\alpha$},1/{CDR3$\beta$},2/{CDR1$\alpha$}}
+  \node[circle,draw,fill=blue!10,inner sep=1.6pt,minimum size=5mm] (l\i) at (-1.6, 2.3-1.0*\i) {};
+\foreach \i/\lab in {0/{CDR3$\alpha$},1/{CDR3$\beta$},2/{CDR1$\alpha$}}
+  \node[left=1mm of l\i, font=\scriptsize] {\lab};
+\foreach \j in {0,1,2,3}
+  \node[circle,draw,fill=orange!15,inner sep=1.6pt,minimum size=5mm] (r\j) at (1.6, 2.75-0.9*\j) {};
+\foreach \j/\lab in {0/{p4},1/{p5},2/{p7},3/{$\alpha$1-72}}
+  \node[right=1mm of r\j, font=\scriptsize] {\lab};
+\draw (l0)--(r0); \draw (l0)--(r1); \draw (l1)--(r1); \draw (l1)--(r2);
+\draw (l2)--(r3); \draw (l0)--(r2);
+% --- the arrow
+\draw[-{Stealth[length=3mm]},very thick] (2.9,1.4) -- node[above,font=\scriptsize]{forget}
+  node[below,font=\scriptsize]{incidence} (4.6,1.4);
+% --- right: the tally T
+\node at (7.0,3.1) {\textbf{\obj{T}} \ \ how many per cell};
+\foreach \r/\lab in {0/{CDR3$\alpha$},1/{CDR3$\beta$},2/{CDR1$\alpha$}}
+  \node[font=\scriptsize,anchor=east] at (5.9, 2.3-0.62*\r) {\lab};
+\node[font=\scriptsize] at (6.5,2.85) {pep}; \node[font=\scriptsize] at (7.5,2.85) {MHC};
+\foreach \r/\a/\b in {0/3/0, 1/2/0, 2/0/1} {
+  \node[draw,fill=green!8,minimum width=8mm,minimum height=5mm] at (6.5, 2.3-0.62*\r) {\a};
+  \node[draw,fill=green!8,minimum width=8mm,minimum height=5mm] at (7.5, 2.3-0.62*\r) {\b};
+}
+\node[font=\scriptsize,align=left,anchor=north west] at (5.4,0.15)
+  {every graph with these row and column\\sums maps here: the fibre is large};
+\end{tikzpicture}
+\caption{The quotient $\obj{B} \twoheadrightarrow \obj{T}$ on a six-contact footprint. The tally
+retains the row sums of the biadjacency matrix within each target block and discards which pMHC
+residue each contact reached, so \dsc{g\_loop\_overlap} --- do the loops crowd onto the same
+residues --- has no expression in \obj{T} at all.}
+\label{fig:quotient}
+\end{figure}
+
+% =================================================================================================
+\section{The operators}
+\label{sec:operators}
+
+\Cref{tab:operators} is the whole catalogue by what is applied rather than by what produced it.
+Nine operators suffice, and two of them --- counts and frame coordinates --- need no derivation,
+being the raw readings of \obj{L} and \obj{F} respectively. The remaining seven are derived below.
+
+\begin{table}[t]
+\centering
+\input{generated/operators}
+\caption{The \nDesc\ descriptors by operator. Counts and shares dominate because the interface and
+kinetics families are largely tallies; the interesting structure is in the smaller rows.}
+\label{tab:operators}
+\end{table}
+
+% -------------------------------------------------------------------------------------------------
+\subsection{Hill numbers: \nOpHill\ descriptors, one formula}
+\label{sec:hill}
+
+This is the largest unification in the catalogue and the one worth stating first. Let $p$ be a
+probability vector on $k$ categories, $p_i \ge 0$, $\sum_i p_i = 1$. The \emph{Hill number of order
+$q$} \cite{Hill1973,Jost2006} is the effective number of categories,
+%
+\begin{equation}
+D_q(p) \;=\; \Big( \sum_{i \,:\, p_i > 0} p_i^{\,q} \Big)^{1/(1-q)},
+\qquad
+D_1(p) \;=\; \exp\Big( - \sum_i p_i \ln p_i \Big),
+\label{eq:hill}
+\end{equation}
+%
+where $D_1$ is the $q \to 1$ limit. Three orders are used: $D_0$ is the richness, the count of
+occupied categories; $D_1$ is the exponentiated Shannon entropy; $D_2 = 1/\sum_i p_i^2$ is the
+reciprocal of Simpson's concentration, and discounts weakly populated categories. All three are in
+units of \emph{categories}, which is what makes them comparable across partitions of different
+size, and each is bounded by $k$.
+
+Four standard quantities are reparametrisations of \cref{eq:hill}, not separate ideas:
+
+\begin{align}
+\text{normalised Shannon entropy} && H &= \ln D_1 / \ln k, \label{eq:shannon}\\
+\text{Pielou evenness} && J &= \ln D_1 / \ln D_0, \label{eq:pielou}\\
+\text{participation ratio} && \mathrm{PR} &= D_2 / k, \label{eq:pr}\\
+\text{Gini--Simpson index} && G &= 1 - 1/D_2. \label{eq:gini}
+\end{align}
+
+\Cref{eq:pielou} explains the \texttt{STATUS} entry that \dsc{J\_cell} is determined: it is
+$H_{\mathrm{cell}} \ln 12 / \ln S_{\mathrm{cell}}$, a ratio of two shipped columns. \Cref{eq:pr} and
+\cref{eq:gini} are the two that are \emph{not} yet recorded in \texttt{STATUS} and follow from the
+algebra alone.
+
+\Cref{tab:hill} instantiates the formula. Read a row as: take this probability vector, apply
+\cref{eq:hill} at this order, then apply this normalisation.
+
+\begin{table}[t]
+\centering\small
+\begin{tabular}{@{}llcl@{}}
+\toprule
+descriptor & $p$ is over & $q$ & normalisation \\
+\midrule
+\dsc{S\_cell}            & the 12 cells, contact shares                    & 0 & none \\
+\dsc{D1\_cell}           & the 12 cells                                    & 1 & none \\
+\dsc{H\_cell}            & the 12 cells                                    & 1 & $\ln D_1 / \ln 12$ \\
+\dsc{D2\_cell}           & the 12 cells                                    & 2 & none \\
+\dsc{J\_cell}            & the 12 cells                                    & 1 & $\ln D_1 / \ln D_0$ \\
+\addlinespace
+\dsc{H\_loop}            & the 6 CDR loops, contact shares                 & 1 & $\ln D_1 / \ln 6$ \\
+\dsc{D2\_loop}           & the 6 CDR loops                                 & 2 & none \\
+\dsc{D2\_pep24}          & the 24 cells (peptide split in three bands)     & 2 & none \\
+\addlinespace
+\dsc{pep\_cov\_even}     & $L$ peptide positions, accessibility-discounted & 1 & $\ln D_1 / \ln L$ \\
+\dsc{pep\_cov\_d2n}      & the same                                        & 2 & $D_2 / L$ \\
+\addlinespace
+\dsc{g\_even\_tcr}       & degrees of the $m$ engaged TCR residues         & 1 & $\ln D_1 / \ln m$ \\
+\dsc{g\_even\_pmhc}      & degrees of the $n$ engaged pMHC residues        & 1 & $\ln D_1 / \ln n$ \\
+\dsc{g\_loop\_even}      & distinct partners per CDR loop                  & 1 & $\ln D_1 / \ln 6$ \\
+\dsc{degree\_evenness\_tp} & TCR-side degrees, TCR:peptide only            & 2 & $D_2 / m$ \\
+\addlinespace
+\dsc{m\_erank\_tp}       & singular values of $K_{\mathrm{tp}}$, normalised & 2 & $D_2 / \min(L,M)$ \\
+\dsc{m\_erank\_tm}       & singular values of $K_{\mathrm{tm}}$, normalised & 2 & $D_2 / \min(L,M)$ \\
+\dsc{h0\_pers\_ent}      & minimum-spanning-tree edge lengths              & 1 & $\ln D_1 / \ln(n{-}1)$ \\
+\addlinespace
+\dsc{partcoef\_tcr}      & per-residue shares over \{peptide, MHC\}        & 2 & $\mathrm{mean}_i(1 - 1/D_2)$ \\
+\dsc{partcoef\_pmhc}     & per-residue shares over the 6 CDR loops         & 2 & $\mathrm{mean}_i(1 - 1/D_2)$ \\
+\bottomrule
+\end{tabular}
+\caption{\nOpHill\ descriptors across four families as one formula: seven probability vectors,
+three orders, five normalisations. \dsc{S\_cell} through \dsc{D2\_pep24} read \obj{T};
+\dsc{g\_even\_*} through \dsc{partcoef\_*} read \obj{B}; the \dsc{m\_erank\_*} pair reads a spectrum
+of \obj{D}; \dsc{h0\_pers\_ent} reads a barcode of \obj{C}.}
+\label{tab:hill}
+\end{table}
+
+\paragraph{Three identities worth naming.}
+Each follows from \cref{eq:hill} and can be checked in a line.
+
+\begin{enumerate}
+\item \emph{Di Paola's participation coefficient is Gini--Simpson.} The published definition
+  \cite{DiPaola2015} is $P_i = 1 - \sum_s (k_{si}/k_i)^2$ over modules $s$, with $k_{si}$ residue
+  $i$'s edge count into module $s$. Writing $p_s = k_{si}/k_i$ gives $\sum_s p_s^2 = 1/D_2(p)$, so
+  $P_i = 1 - 1/D_2$ exactly --- \cref{eq:gini}. It is a diversity of order 2 on a per-residue
+  module profile, which places it in \cref{tab:hill} rather than beside it.
+\item \emph{Effective rank and cell entropy are the same operator.} \dsc{m\_erank\_tp} applies
+  \cref{eq:hill} to the normalised singular-value spectrum of a proximity kernel;
+  \dsc{D2\_cell} applies it to a contact tally. They are not independent descriptor families and
+  should not be presented as such --- what differs is the input, not the measure.
+\item \emph{The shipped effective rank is order 2, not order 1.} Roy and Vetterli's Definition 1
+  \cite{RoyVetterli2007} is $\mathrm{erank}(A) = \exp\{H(p_1,\dots,p_Q)\}$ with
+  $p_k = \sigma_k / \|\sigma\|_1$, $Q = \min\{M,N\}$ and $H$ the Shannon entropy --- that is
+  exactly $D_1$ of the normalised spectrum.
+  The shipped \dsc{m\_erank\_*} computes $(\sum_a s_a)^2 / \sum_a s_a^2$, which is $D_2$ --- the
+  participation ratio, as the implementing function's own docstring says. Both are legitimate
+  effective ranks and $D_2 \le D_1$ always; the name in the descriptor table points at the
+  literature quantity while the code computes the order-2 sibling. Anyone comparing our column
+  against a published effective rank must use $q = 2$.
+\end{enumerate}
+
+\paragraph{Why several orders ship at once.} $D_1$ and $D_2$ rank differently. $D_1$ weights
+categories by their share; $D_2$ weights by the square, so a footprint with one dominant cell and a
+long tail of singletons scores much lower at $q=2$ than at $q=1$. Keeping both is the deliberate
+choice the library has made since the coverage block was written, and it is why \dsc{D2\_pep24}
+rather than \dsc{H\_cell} carries the shape channel.
+
+% -------------------------------------------------------------------------------------------------
+\subsection{Field moments, and the gap resolved by sign}
+\label{sec:moments}
+
+The second operator takes moments of a scalar field defined on a shared index --- grid cells for the
+surface block, contacting residue pairs for the map block. \nOpMoment\ descriptors, of which nine
+read one field: the gap between the two faces.
+
+\paragraph{The two faces and their difference.} \obj{H} carries two height fields on \emph{one}
+grid: $h_{\mathrm{pMHC}}(x,y)$, the highest pMHC surface point in cell $(x,y)$, and
+$h_{\mathrm{TCR}}(x,y)$, the lowest receptor point in the same cell, both in the groove frame
+$(\hat u, \hat w, \hat n)$ of \cref{sec:frame} with $\hat n$ pointing at the receptor. Because they
+share a grid, the space between them is a subtraction rather than a new geometric construction:
+%
+\begin{equation}
+\mathrm{gap}(x,y) \;=\; h_{\mathrm{TCR}}(x,y) - h_{\mathrm{pMHC}}(x,y) \quad [\text{\AA}].
+\label{eq:gap}
+\end{equation}
+%
+A cell enters the comparison when both faces reach it and $|\mathrm{gap}| \le 10$~\AA, cropped to a
+$\pm 12$~\AA\ window about the groove centre; the retained set is $R$ with $|R| =$ \dsc{sc\_cells}
+and area element $\delta A = 0.977$~\AA$^2$.
+
+\paragraph{The sign is not the one intuition suggests.} A gap is naturally imagined as a void, so
+$\mathrm{gap} > 0$. Measured over the crystal reference set it is predominantly negative: the
+receptor's lowest point in a cell lies \emph{below} the groove's highest point in the same cell,
+because the two faces interdigitate rather than stack. Over 371 of the 374 crystals the mean
+interdigitated fraction is $0.750$ (s.d.\ $0.096$) and the mean gap $-1.14$~\AA. Pooling the two
+signs into one mean therefore cancels the physics, which is why the field is reported three ways
+(\cref{fig:gap}).
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[font=\small,scale=1.0]
+\draw[->] (-0.3,0) -- (9.4,0) node[right,font=\scriptsize] {$x$};
+\draw[->] (-0.3,-1.5) -- (-0.3,1.9) node[above,font=\scriptsize] {$h$ [\AA]};
+% the pMHC face
+\draw[thick,orange!75!black]
+  plot[smooth,domain=0:9,samples=60] (\x, {0.42*sin(\x r*1.15) + 0.18*sin(\x r*3.1)});
+\node[orange!65!black,font=\scriptsize,anchor=west] at (9.05,-0.55) {$h_{\mathrm{pMHC}}$};
+% the TCR face
+\draw[thick,blue!65!black]
+  plot[smooth,domain=0:9,samples=60] (\x, {0.36*sin(\x r*1.15 + 40) - 0.28});
+\node[blue!60!black,font=\scriptsize,anchor=west] at (9.05,0.42) {$h_{\mathrm{TCR}}$};
+% shade: interlock where TCR below pMHC
+\begin{scope}
+\clip plot[smooth,domain=0:9,samples=80] (\x, {0.42*sin(\x r*1.15) + 0.18*sin(\x r*3.1)})
+      -- (9,-2) -- (0,-2) -- cycle;
+\fill[blue!22] plot[smooth,domain=0:9,samples=80] (\x, {0.36*sin(\x r*1.15 + 40) - 0.28})
+      -- (9,2) -- (0,2) -- cycle;
+\end{scope}
+% shade: void where TCR above pMHC
+\begin{scope}
+\clip plot[smooth,domain=0:9,samples=80] (\x, {0.36*sin(\x r*1.15 + 40) - 0.28})
+      -- (9,-2) -- (0,-2) -- cycle;
+\fill[orange!25] plot[smooth,domain=0:9,samples=80]
+      (\x, {0.42*sin(\x r*1.15) + 0.18*sin(\x r*3.1)}) -- (9,2) -- (0,2) -- cycle;
+\end{scope}
+\node[font=\scriptsize,anchor=west] at (0.15,1.55)
+  {\tikz\fill[blue!22](0,0)rectangle(2.6mm,2.6mm); \ \dsc{sc\_interlock} $=\!\int\!\max(0,-\mathrm{gap})\,\mathrm{d}A$};
+\node[font=\scriptsize,anchor=west] at (5.05,1.55)
+  {\tikz\fill[orange!25](0,0)rectangle(2.6mm,2.6mm); \ \dsc{sc\_gap\_vol} $=\!\int\!\max(0,\mathrm{gap})\,\mathrm{d}A$};
+\node[font=\scriptsize,anchor=west] at (0.15,-1.28)
+  {median cell interdigitates: \dsc{sc\_interlock\_frac} $=0.750$ over 371 crystals};
+\end{tikzpicture}
+\caption{The gap field in cross-section. Blue is interdigitated volume, orange is void; the two are
+integrated separately because a mean over the retained cells cancels them against each other. On a
+real interface the blue area is the larger, by roughly $1{,}004$ against $373$~\AA$^3$.}
+\label{fig:gap}
+\end{figure}
+
+The nine gap descriptors are then
+%
+\begin{align}
+\text{pooled} &&
+\dsc{sc\_gap\_mean} &= \frac{1}{|R|}\sum_{R} \mathrm{gap}, &
+\dsc{sc\_gap\_sd} &= \mathrm{sd}_{R}(\mathrm{gap}), \\
+\text{integrated} &&
+\dsc{sc\_gap\_vol} &= \delta A \!\! \sum_{R} \max(0, \mathrm{gap}), &
+\dsc{sc\_interlock} &= \delta A \!\! \sum_{R} \max(0, -\mathrm{gap}), \\
+&& \dsc{sc\_gap\_index} &= \dsc{sc\_gap\_vol} / (|R|\,\delta A), \\
+\text{by sign} &&
+\phi &= \tfrac{1}{|R|}\big|\{\mathrm{gap} < 0\}\big|, &
+\dsc{sc\_gap\_depth} &= -\overline{\mathrm{gap}}\big|_{\mathrm{gap}<0}, \\
+&& \dsc{sc\_gap\_height} &= \overline{\mathrm{gap}}\big|_{\mathrm{gap}>0}, &
+\dsc{sc\_gap\_asym} &= \frac{V_{+} - V_{-}}{V_{+} + V_{-}},
+\end{align}
+%
+with $\phi =$ \dsc{sc\_interlock\_frac}, $V_+ =$ \dsc{sc\_gap\_vol} and $V_- =$ \dsc{sc\_interlock}.
+The decomposition is exact and is asserted by a unit test rather than assumed:
+%
+\begin{equation}
+\dsc{sc\_gap\_mean} \;=\; (1-\phi)\cdot\dsc{sc\_gap\_height} \;-\; \phi \cdot \dsc{sc\_gap\_depth}.
+\label{eq:gapdecomp}
+\end{equation}
+%
+\Cref{eq:gapdecomp} is the reason the pooled mean is kept alongside the sign-resolved triple: it is
+their $\phi$-weighted combination, so it is redundant with them by construction and is retained only
+as the familiar summary.
+
+\paragraph{Attribution.} \dsc{sc\_gap\_index} is the intensive form of the gap channel and takes
+the shape of Jones and Thornton's gap volume index \cite{JonesThornton1996}, but ours divides by the
+retained contact area of the raster rather than by an interface accessible surface area, and the
+underlying field is a raster subtraction rather than a Voronoi gap volume. The channel is theirs;
+the quantity is not, and should not be cited as if it were.
+
+\paragraph{The other field moments.} \dsc{sc\_dh}, \dsc{sc\_dcharge} and \dsc{sc\_dphobic} are mean
+absolute per-cell differences of the height, charge and Kyte--Doolittle fields;
+\dsc{sc\_charge\_prod} and \dsc{sc\_phobic\_prod} their mean per-cell products.
+\dsc{m\_face\_tp} and \dsc{m\_face\_tm} take a moment on a different index --- contacting residue
+pairs rather than grid cells:
+%
+\begin{equation}
+\dsc{m\_face} \;=\; \frac{1}{|C|}\sum_{(i,j) \in C}
+\big( \| \mathrm{C}\alpha_i - \mathrm{C}\alpha_j \| - \| \mathrm{C}\beta_i - \mathrm{C}\beta_j \| \big),
+\label{eq:face}
+\end{equation}
+%
+positive when the side chains lean towards each other and negative when the backbones are the close
+part and the side chains point away. \Cref{eq:face} is the one quantity in the catalogue that
+C$\alpha$ coordinates alone cannot express, which is its reason for existing.
+
+% -------------------------------------------------------------------------------------------------
+\subsection{Correlation over a shared index}
+
+\nOpCorrelation\ descriptors are a correlation coefficient between two vectors indexed by the same
+set. The operator is trivial; what varies is the index and the pair of fields, and the sign
+convention differs between them, which is the only thing a reader has to remember.
+
+\begin{center}\small
+\begin{tabular}{@{}lp{0.24\textwidth}p{0.26\textwidth}l@{}}
+\toprule
+descriptor & index & fields & complementary when \\
+\midrule
+\dsc{sc\_shape}   & retained grid cells & the two height fields    & $r > 0$ \\
+\dsc{sc\_charge}  & retained grid cells & the two charge fields    & $r < 0$ \\
+\dsc{sc\_phobic}  & retained grid cells & the two hydropathy fields& $r > 0$ \\
+\dsc{ca\_cb\_agreement\_tp} & TCR:peptide shell pairs & C$\alpha$ and C$\beta$ maps & $\rho$ high \\
+\dsc{ca\_cb\_agreement\_tm} & TCR:MHC shell pairs     & C$\alpha$ and C$\beta$ maps & $\rho$ high \\
+\dsc{g\_assort}   & the $E$ contacts    & degrees at the two ends  & --- \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\dsc{sc\_charge} inverts because charge complementarity is plus meeting minus, whereas shape and
+apolar complementarity are like meeting like. \dsc{sc\_shape} is Lawrence and Colman's shape
+complementarity idea \cite{LawrenceColman1993} carried onto a raster: their $S_c$ is a median over
+dot-surface points of $(\mathbf{n}_A \!\cdot\! \mathbf{n}'_A)\exp(-w d^2)$ after trimming a
+peripheral band, and ours is a Pearson correlation of two height fields. The construction differs;
+the channel is the same one, and the resemblance should be stated that way rather than as a
+reimplementation.
+
+\dsc{g\_assort} is degree assortativity \cite{Newman2002}, correlating the degrees at the two ends
+of each edge. It is left undefined rather than zero when either side has constant degree: there is
+no correlation to measure, which is not the same as measuring no correlation. Assortativity is
+partly determined by the degree distribution itself \cite{BaglerSinha2007}, so it is not independent
+of \dsc{g\_even\_tcr} and \dsc{g\_even\_pmhc} and should be read beside them.
+
+% -------------------------------------------------------------------------------------------------
+\subsection{Spectral invariants}
+
+\nOpSpectral\ descriptors are eigenvalues or singular values of an operator built from geometry.
+Three constructions.
+
+\paragraph{The normalised Laplacian.} On the largest component of the bipartite contact graph, with
+$A$ the adjacency matrix and $D$ the degree matrix,
+%
+\begin{equation}
+\mathcal{L} \;=\; I - D^{-1/2} A D^{-1/2}, \qquad
+\dsc{g\_alg\_conn} \;=\; \lambda_2(\mathcal{L}) \in [0,2],
+\label{eq:laplacian}
+\end{equation}
+%
+the algebraic connectivity \cite{Fiedler1973}: near zero when the footprint is about to fall into
+two patches, so it is the continuous form of the Betti-0 count of \cref{sec:homology}. The
+normalisation matters. The combinatorial Laplacian's $\lambda_2$ scales with degree and would track
+interface size; \cref{eq:laplacian} is bounded. One caution follows from the same normalisation:
+$\lambda_{\max}(\mathcal{L}) = 2$ identically for \emph{any} bipartite graph, and our contact graph
+is bipartite by construction, so $\lambda_{\max}$ carries no information here and must never be
+added as a descriptor.
+
+\paragraph{The proximity kernel.} For two labelled regions with C$\alpha$ distance map
+$D \in \mathbb{R}^{L \times M}$, the Gaussian proximity kernel and its singular values
+$s_1 \ge s_2 \ge \cdots$ are
+%
+\begin{equation}
+K \;=\; \exp\!\big( -D^{\odot 2} / 2\sigma^2 \big), \qquad \sigma = 5\ \text{\AA},
+\qquad
+\dsc{m\_gap} \;=\; s_2/s_1 .
+\label{eq:kernel}
+\end{equation}
+%
+$\sigma$ is the contact criterion's own $5$~\AA, so the binary contact map is this kernel's
+$\sigma \to 0$ limit rather than an independent parameter. The entries of $D$ cannot be compared
+across a 9-mer and a 15-mer, or across CDR3 loops of different length; its singular values can,
+which is the whole point of the construction. $s_2/s_1$ is near zero when the approach is separable
+--- a rank-one $K$ means a loop profile times a peptide profile, a receptor leaning on a surface
+rather than pairing specific residues with it. The corresponding $D_2$ of the same spectrum is
+\dsc{m\_erank}, \cref{sec:hill}.
+
+\paragraph{The stiffness tensor.} Each inter-body residue contact is a Hookean spring anchored at
+the two C$\alpha$ atoms, with stiffness $k_i$ from heavy-atom-pair multiplicity divided by squared
+distance and unit direction $\hat u_i$. The interface linear-response stiffness is
+%
+\begin{equation}
+K \;=\; \sum_i k_i \, \hat u_i \otimes \hat u_i \in \mathbb{R}^{3\times 3},
+\qquad
+\dsc{S\_tot} = \operatorname{tr} K, \quad
+\dsc{lam\_max}, \dsc{lam\_min} = \lambda_{\max,\min}(K).
+\label{eq:stiffness}
+\end{equation}
+%
+\dsc{K\_tens} is the component along the docking axis, \dsc{K\_shear} $= \operatorname{tr} K -
+\dsc{K\_tens}$ the in-plane remainder and \dsc{aniso} their ratio; the last three are exactly
+determined by the first two and are flagged as such. No potential enters \cref{eq:stiffness} --- it
+is geometry and multiplicity only, which is what makes \dsc{rupture\_work} an off-rate proxy
+independent of the energy channel it is compared against.
+
+% -------------------------------------------------------------------------------------------------
+\subsection{Homology invariants}
+\label{sec:homology}
+
+\nOpHomology\ descriptors count connected components and independent cycles, on two different
+complexes, and the difference between the two complexes is the whole story.
+
+\paragraph{The C$\alpha$ flag complex.} Take the contacted pMHC C$\alpha$ atoms, join any pair
+within $r$, and build the flag (clique) complex. \dsc{fp\_b0\_r7} and \dsc{fp\_b1\_r7} are its Betti
+numbers at $r = 7$~\AA, \dsc{fp\_chi\_r7} $= b_0 - b_1$ the Euler characteristic --- determined, and
+flagged --- and \dsc{fp\_b0\_frac\_r7} is $b_0$ per contacted residue, the size-free form. The same
+four at $r = 8$~\AA.
+
+\paragraph{The contact graph itself.} \dsc{g\_comp\_frac} $= C/V$ and
+%
+\begin{equation}
+\dsc{g\_cyclo\_frac} \;=\; \frac{E - V + C}{E},
+\label{eq:cyclo}
+\end{equation}
+%
+with $E$ contacts, $V = m+n$ residues and $C$ components. The numerator of \cref{eq:cyclo} is the
+cyclomatic number, which for a graph is the first Betti number; dividing by $E$ is what makes it
+size-free, and the footprint module rejects the raw form precisely because with of order thirty
+contacts among of order thirty residues it is dominated by $E$ and simply tracks interface size.
+
+\paragraph{Which to prefer.} The flag-complex pair introduces a \emph{second} threshold on top of
+the $5$~\AA\ contact criterion, and $7$ and $8$~\AA\ are not derived from anything. The contact
+graph pair introduces none. By the ordering of \cref{sec:quotient} the parameter-free form is the
+one to prefer where both are informative --- which is a statement about parsimony, not about
+measured performance; the flag-complex columns carry benchmark numbers and are not being retired
+here.
+
+\paragraph{Persistence entropy.} \dsc{h0\_pers\_ent} belongs to this section by provenance and to
+\cref{sec:hill} by formula. The $H_0$ barcode's death times are exactly the minimum spanning tree's
+edge lengths, so no filtration library is needed: build the tree, normalise the edge lengths to a
+probability vector, take \cref{eq:shannon}. It is scale-free by construction.
+
+% -------------------------------------------------------------------------------------------------
+\subsection{Potential sums}
+\label{sec:potential}
+
+\nOpPotential\ descriptors sum a pair potential over a contact set, or take a difference of two such
+sums. The Hamiltonian is
+%
+\begin{equation}
+\Phi \;=\; c_{\mathrm{TP}}\,\Phi_{\mathrm{TCR:pep}}
+       \;+\; c_{\mathrm{TM}}\,\Phi_{\mathrm{TCR:MHC}}
+       \;+\; c_{\mathrm{PM}}\,\Phi_{\mathrm{pep:MHC}},
+\qquad
+\Phi_I \;=\; \sum_{(i,j) \in C_I} e_I(a_i, a_j),
+\label{eq:phi}
+\end{equation}
+%
+where $C_I$ is interface $I$'s contact set, $a_i$ the amino acid at residue $i$, and $e_I$ that
+interface's potential --- TCRen2 for TCR:peptide, Miyazawa--Jernigan \cite{MiyazawaJernigan1996} for
+the two presentation interfaces. The coefficients exist because the three interfaces are scored with
+\emph{different potentials on different scales}; each term enters divided by that interface energy's
+spread over the crystal reference set, $c_I = 1/\mathrm{sd}(\Phi_I)$. Lower $\Phi$ is more
+favourable throughout.
+
+\paragraph{What cancels.} Because no interface energy carries a within-chain term, varying the
+peptide leaves $\Phi_{\mathrm{TCR:MHC}}$ untouched and varying the TCR leaves
+$\Phi_{\mathrm{pep:MHC}}$ untouched --- exactly, not approximately, since a truncated side chain
+moves no atom of the other two chains. This is why a peptide-ranking task reads
+$\Delta\Phi_{\mathrm{TCR:pep}}$ and a receptor-ranking task does not read
+$\Delta\Phi_{\mathrm{pep:MHC}}$ at all.
+
+\paragraph{The reference difference.} $\Delta\Phi$ (written \dsc{dPhi\_*}) is the difference of
+$\Phi$ against a reference \emph{sequence}, never a derivative:
+$\Delta\Phi = \Phi(\text{sequence}) - \Phi(\text{reference})$. In the hard form the reference is
+poly-alanine, one arbitrary sequence. In the smoothed form it is the free energy of the residue
+\emph{background}, which is a distribution rather than a choice. Since $\Phi$ is a sum of
+independent local fields over the varying positions,
+%
+\begin{equation}
+\varphi_i(a) \;=\; \sum_{I} c_I \!\!\sum_{j \,:\, (i,j) \in C_I} \!\! e_I(a, y_j),
+\label{eq:localfield}
+\end{equation}
+%
+with $y$ the frozen partners, the partition function factorises exactly and the reference free
+energy is available in closed form:
+%
+\begin{equation}
+\Phi_{\mathrm{ref}} \;=\; -\frac{1}{\beta}\sum_i \log \sum_a p(a)\, e^{-\beta \varphi_i(a)},
+\qquad
+\Delta\Phi \;=\; \Phi(\text{observed}) - \Phi_{\mathrm{ref}},
+\label{eq:softref}
+\end{equation}
+%
+$p$ being the background composition over the twenty amino acids. The second cumulant of the same
+log partition function is the variance descriptor,
+%
+\begin{equation}
+\operatorname{Var}\Phi \;=\; \sum_i \operatorname{Var}_\beta[\varphi_i],
+\qquad
+\operatorname{Var}_\beta \ \text{under} \
+\frac{p(a)e^{-\beta\varphi_i(a)}}{\sum_b p(b)e^{-\beta\varphi_i(b)}} .
+\label{eq:varphi}
+\end{equation}
+%
+\Cref{eq:varphi} asks how sharply a position's energy responds to residue identity at all: a
+position whose twenty fields are equal contributes to neither $\Delta\Phi$ nor $\operatorname{Var}
+\Phi$; one with a single strongly preferred residue contributes to both. It is a second cumulant,
+not a difference of differences, and the catalogue carries no $\mathrm{d}\mathrm{d}$ quantity --- the
+only one in the package is $\Delta\Delta G$, the change in binding free energy on mutation, which is
+not a descriptor.
+
+% -------------------------------------------------------------------------------------------------
+\subsection{The Potts family}
+
+Five descriptors read the same interface against a partition function rather than against a
+reference sequence. The configuration is the contact map itself: sites $a$ are the residue pairs
+that \emph{could} have contacted (C$\alpha$ within a radius) and $\sigma_a = 1$ iff a heavy-atom
+contact formed. With one-body fields $\eta$ and couplings $A$ between neighbouring cells of the map,
+%
+\begin{equation}
+E(\sigma) = -\sum_a \eta_a \sigma_a - \tfrac{1}{2}\sum_{a,b} A_{ab}\sigma_a\sigma_b,
+\qquad
+P(\sigma) = e^{-E(\sigma)}/Z .
+\label{eq:potts}
+\end{equation}
+%
+\dsc{neg\_energy} is $-E(\sigma^{\mathrm{obs}})$, \dsc{log\_z} is $\log Z$ over every contact map the
+geometry admits --- the interface's \emph{capacity} --- and \dsc{log\_lik} is $\log P(\sigma^{\mathrm
+{obs}})$, its \emph{typicality}. \dsc{psi} is \dsc{log\_lik} per available site, so interfaces of
+different size compare. The three are not independent:
+%
+\begin{equation}
+\dsc{neg\_energy} \;=\; \dsc{log\_z} + \dsc{log\_lik},
+\label{eq:pottsid}
+\end{equation}
+%
+directly from \cref{eq:potts}, and \cref{eq:pottsid} is the \texttt{STATUS} entry on
+\dsc{neg\_energy}. Fitting is by penalised pseudolikelihood and needs no $Z$; scoring obtains $Z$ by
+annealed importance sampling from the uncoupled model, whose partition function is exact.
+
+% -------------------------------------------------------------------------------------------------
+\subsection{Frame coordinates}
+\label{sec:frame}
+
+The \nOpFrame\ placement descriptors are the rigid-body pose and the two CDR3 loops expressed in the
+groove frame. They are the only family that needs a frame at all, and the frame is refit from every
+structure (\cref{fig:frame}).
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[font=\small,scale=1.05]
+% groove floor
+\draw[fill=gray!12,draw=gray!55] (0,0) ellipse (3.5 and 0.85);
+\node[gray!60!black,font=\scriptsize] at (0,-0.62) {groove floor C$\alpha$ (SVD)};
+% helices
+\draw[very thick,orange!70!black,decorate,decoration={coil,aspect=0,segment length=4.6mm,amplitude=1.1mm}]
+  (-3.0,0.62) -- (3.0,0.62);
+\draw[very thick,orange!70!black,decorate,decoration={coil,aspect=0,segment length=4.6mm,amplitude=1.1mm}]
+  (-3.0,-0.62) -- (3.0,-0.62);
+\node[orange!65!black,font=\scriptsize,anchor=west] at (3.1,0.62) {$\alpha$1 helix};
+\node[orange!65!black,font=\scriptsize,anchor=west] at (3.1,-0.62) {$\alpha$2 ($\beta$1) helix};
+% peptide
+\draw[thick,green!45!black,-{Stealth[length=2.4mm]}] (-2.3,0.06) -- (2.3,0.06);
+\foreach \x in {-2.0,-1.3,-0.6,0.1,0.8,1.5,2.1}
+  \fill[green!45!black] (\x,0.06) circle (1.5pt);
+\node[green!40!black,font=\scriptsize] at (2.55,0.32) {C};
+\node[green!40!black,font=\scriptsize] at (-2.55,0.32) {N};
+% TCR body
+\draw[fill=blue!12,draw=blue!55,rounded corners=3pt] (-1.35,1.55) rectangle (1.35,2.55);
+\node[blue!55!black,font=\scriptsize] at (0,2.05) {V$\alpha$\,/\,V$\beta$};
+\draw[blue!55] (-0.75,1.55) .. controls (-0.5,1.05) and (-0.3,0.75) .. (-0.35,0.42);
+\draw[blue!55] (0.75,1.55) .. controls (0.5,1.05) and (0.3,0.75) .. (0.42,0.42);
+\node[blue!55!black,font=\scriptsize,anchor=west] at (0.55,0.95) {CDR loops};
+% the frame
+\draw[-{Stealth[length=2.6mm]},very thick] (0,0.06) -- (1.5,0.06)
+  node[below right,font=\scriptsize] {$\hat u$ \ groove long axis};
+\draw[-{Stealth[length=2.6mm]},very thick] (0,0.06) -- (-0.62,-0.62)
+  node[below left,font=\scriptsize] {$\hat w$};
+\draw[-{Stealth[length=2.6mm]},very thick] (0,0.06) -- (0,1.35)
+  node[left,font=\scriptsize,pos=0.85] {$\hat n$};
+\fill (0,0.06) circle (1.6pt);
+% height
+\draw[<->,gray!70] (2.75,0.06) -- (2.75,1.9) node[midway,right,font=\scriptsize,black]
+  {\dsc{height}};
+\draw[gray!55,dashed] (0,1.9) -- (2.75,1.9);
+\end{tikzpicture}
+\caption{The groove frame. $\hat u$, $\hat w$ and $\hat n$ come from the singular value
+decomposition of the groove-floor C$\alpha$ coordinates, with signs fixed by the peptide's N$\to$C
+direction and by which side the receptor sits on. Every placement descriptor is a length, an angle
+or a direction cosine in this frame, so all thirty-one are $SE(3)$-invariant despite reading a
+frame.}
+\label{fig:frame}
+\end{figure}
+
+Six of them are the rigid-body pose: \dsc{dock\_d} the stub-to-stub separation, \dsc{dock\_torsion}
+the dihedral of the TCR about the MHC stub, and the four direction cosines \dsc{dock\_tcr\_uy},
+\dsc{dock\_tcr\_uz}, \dsc{dock\_mhc\_uy}, \dsc{dock\_mhc\_uz}. Four more locate the CDR centroid:
+\dsc{height} above the groove plane, \dsc{shift\_u} and \dsc{shift\_w} in plane, and
+\dsc{offset} $= \sqrt{\dsc{shift\_u}^2 + \dsc{shift\_w}^2}$, which is determined by the two and
+flagged. Twenty are the two CDR3 loops, each contributing a reach, three position cosines, three
+axis cosines, an engagement depth and an extension.
+
+\paragraph{The crossing angle, and one banned column.} \dsc{crossing\_signed} is the angle between
+the V$\alpha \to$ V$\beta$ axis projected into the groove plane and the groove long axis, on
+$[-180^\circ, 180^\circ)$; its \emph{sign} is the docking polarity, canonical or reversed, and
+\dsc{crossing} $= |\dsc{crossing\_signed}|$ is determined by it. Polarity and angle are different
+quantities and conflating them is a category error: docking polarity is stereotyped across complexes
+whose crossing angles vary widely \cite{Feng2007}, and reversed-polarity receptors bind but cannot
+signal \cite{Zareie2021} --- a functional discriminator no energy term sees.
+
+\dsc{pitch} is the incident angle out of the groove plane. It is computed, catalogued and
+\textbf{banned as a feature}: it reproduces no clean geometric angle yet out-discriminates every one
+of them, which is contamination by the generator's confidence rather than interface geometry. The
+library raises if a scoring channel names it.
+
+% =================================================================================================
+\section{Classification: three axes and an invariance signature}
+\label{sec:classification}
+
+The catalogue ships one classification --- the five invariance classes, \nInvGeometric\ geometric,
+\nInvCompositional\ compositional, \nInvEnergetic\ energetic, \nInvTopological\ topological and
+\nInvCategorical\ categorical. It is useful and it is coarse. Two descriptors computed by the
+\emph{same operator} can land in different classes because the underlying field differs:
+\dsc{sc\_shape} is a Pearson correlation of two height fields and is called geometric, while
+\dsc{sc\_charge} is a Pearson correlation of two charge fields and is called compositional. Both
+readings are defensible; neither is derivable from the formula alone.
+
+A sharper classification is a \emph{triple}, and it is read off the definition rather than asserted:
+%
+\begin{equation}
+f \;\longmapsto\; \big(\text{object} \in \cref{sec:hierarchy},\ \
+                       \text{operator} \in \cref{sec:operators},\ \
+                       \text{invariance signature}\big).
+\end{equation}
+%
+The signature is a four-bit vector recording which transformations leave $f$ unchanged. Only the
+first is a group action in the usual sense; the others are the practical questions a modeller asks.
+
+\begin{center}\small
+\begin{tabular}{@{}lp{0.30\textwidth}p{0.48\textwidth}@{}}
+\toprule
+bit & holds when & what it decides \\
+\midrule
+\textsc{seq} & substituting residue identities at fixed coordinates leaves $f$ unchanged &
+  separates shape from chemistry. Every \dsc{Phi\_*}, \dsc{sc\_charge}, \dsc{sc\_phobic} and
+  \dsc{ct\_*} column fails it; every placement, homology and gap column passes \\
+\textsc{size} & $f$ is unchanged by scaling the interface up at fixed shape &
+  intensive against extensive. This is the axis the size-confound screen measures, and the one a
+  normalisation is meant to fix \\
+\textsc{ord} & permuting positions within a chain leaves $f$ unchanged &
+  fails for \dsc{co\_pep}, \dsc{co\_mhc}, \dsc{pep\_cov\_centre} and \dsc{pep\_cov\_spread}, which
+  read sequence position; holds for every pure tally \\
+\textsc{met} & $f$ depends on the contact set only, not on distances &
+  holds for the homology and Hill blocks read off \obj{B} or \obj{T}, fails for every moment of
+  \obj{D} or \obj{H} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Two uses. First, the signature predicts redundancy where the shipped class does not: two descriptors
+with the same object, same operator and same signature are near-certain duplicates, and the
+catalogue contains several such pairs by design --- \dsc{H\_cell} and \dsc{D2\_cell} differ only in
+$q$. Second, it makes the \emph{intended} contrasts visible. \dsc{m\_erank\_tp} and
+\dsc{m\_gap\_tm} share an object and an operator but differ sharply in how much peptide length they
+carry, so a model given both can form the contrast that cancels the shared part. Keeping a
+length-coupled column beside a length-free one is deliberate; the \texttt{STATUS} entries of
+\cref{sec:status} say which is which so the choice is the caller's.
+
+\paragraph{What the shipped classes are, then.} The five-class \texttt{INVARIANCE} labelling is the
+projection of the triple onto its most useful single coordinate, and is kept because a one-word
+label is what a table column can hold. \Cref{sec:catalogue} prints it beside the operator so both
+readings are available on the same row.
+
+% =================================================================================================
+\section{MHC class I and class II}
+\label{sec:classes}
+
+Several formulas above are conditioned on which class of MHC presents the peptide, and one
+descriptor --- \dsc{mhc\_class\_bin}, the single categorical column --- exists to carry that
+condition. This section states what differs, what it does to the descriptors, and what the corpus
+actually holds.
+
+\subsection{What differs structurally}
+
+The class I groove is closed at both ends: the peptide's N- and C-termini are pinned in the A and F
+pockets, so a peptide longer than the canonical 8--10 residues cannot extend and must \emph{bulge}
+out of the groove. The class II groove is open at both ends: the peptide runs through in an extended
+polyproline-II-like conformation with overhangs at either end, register set by anchor pockets rather
+than by termini, and length is not constrained the same way. Measured on our own crystal reference
+set, class I peptides have median length 9 (interquartile range 9--10, full range 4--13) and class II
+median 13 (interquartile range 12--15, full range 6--20).
+
+The region vocabulary differs too, and this catches callers out. Class I presents from a single
+heavy chain whose $\alpha1$ and $\alpha2$ domains supply both groove helices
+(\texttt{HELIX\_A1}, \texttt{HELIX\_A2}). Class II presents from \emph{two} chains, $\alpha1$ from
+the $\alpha$ chain and $\beta1$ from the $\beta$ chain (\texttt{HELIX\_A1}, \texttt{HELIX\_B1}).
+That is why the helix vocabulary has three entries rather than two, and why the MHC-facing
+descriptors are computed over a three-region set of which one is always absent.
+
+\subsection{What it does to the descriptors}
+
+\begin{description}
+\item[The 24-cell partition is class I--shaped.] \dsc{D2\_pep24} splits the peptide at fixed
+  positions 3 and 6, which are thirds of a 9-mer and are not thirds of a 15-mer. The descriptor is
+  well defined on class II and means something different there.
+\item[The length-normalised block is what puts the two classes on one scale.] Every
+  \dsc{pep\_cov\_*} column divides by the peptide's own length $L$, which is the reason that block
+  exists: a class I 8-mer, a class I 13-mer and a class II 18-mer become comparable.
+\item[The raster is sized for class II.] The surface grid's default extent is sized for a class II
+  15-mer with overhangs, which is much wider than any receptor footprint; the comparison window is
+  cropped to $\pm 12$~\AA\ for exactly that reason.
+\item[The bulge mechanism is class I--specific.] \dsc{m\_erank\_tp} is peptide-length coupled
+  (Spearman $-0.547$ on 148 class I crystals) because in a closed groove a longer peptide must bulge
+  and a bulged peptide presents more independent approach modes. That mechanism does not apply in an
+  open groove, so the same correlation in class II would have a different cause.
+\item[A coefficient fitted across both classes without the indicator is fitted to a mixture.] This
+  is the reason \dsc{mhc\_class\_bin} is catalogued at all. It is one of the \nNoReceptor\ columns
+  computed without the receptor, so it conditions the other descriptors rather than being scored
+  beside them.
+\end{description}
+
+\subsection{What the corpus holds, and the honest limit}
+
+\Cref{tab:classes} is the measured contrast over the 374-crystal reference set, the only part of the
+corpus that contains class II at all.
+
+\begin{table}[t]
+\centering\small
+\begin{tabular}{@{}lrrl@{}}
+\toprule
+descriptor & class I & class II & reading \\
+\midrule
+peptide length $L$ (median)   & \textbf{9} & \textbf{13} & closed groove against open \\
+\dsc{n\_pep\_contacted}       & 7 & 8 & the receptor reads a near-constant window \\
+\dsc{pep\_cov\_frac}          & 0.700 & 0.600 & so the \emph{share} falls as $L$ rises \\
+\dsc{pep\_cov\_spread}        & 0.330 & 0.423 & contacts spread further along a longer peptide \\
+\dsc{co\_pep}                 & 0.259 & 0.219 & contact order falls with the longer span \\
+\dsc{burial} (\AA$^2$)        & 1842 & 1960 & a larger interface \\
+\addlinespace
+\dsc{sc\_gap\_mean} (\AA)     & $-1.217$ & $-1.313$ & interdigitation holds in both \\
+\dsc{sc\_interlock\_frac}     & 0.769 & 0.762 & and at the same magnitude \\
+\dsc{sc\_coverage}            & 0.953 & 0.937 & the raster covers both \\
+\dsc{m\_erank\_tp}            & 0.328 & 0.305 & \\
+\dsc{g\_loop\_overlap}        & 0.098 & 0.085 & \\
+\bottomrule
+\end{tabular}
+\caption{Medians by MHC class over the 374 crystals of the reference set: 280 class I and 94 class
+II. The first block is where the classes separate and the second is where they do not --- the gap
+channel of \cref{sec:moments} reads the same on both, so the interdigitation result is not a class I
+artefact.}
+\label{tab:classes}
+\end{table}
+
+Two readings are worth drawing out. \dsc{n\_pep\_contacted} moves from 7 to 8 while $L$ moves from 9
+to 13: the receptor reads a roughly constant-size window of peptide whatever the groove class, so an
+un-normalised peptide count reads groove class as much as it reads receptor behaviour, and the
+length-normalised block is not a convenience but a correction. And the gap channel is
+class-invariant to two decimal places, which means the interdigitation finding of
+\cref{sec:moments} is a property of TCR--pMHC interfaces rather than of class I ones.
+
+\paragraph{The limit, stated once.} Class II appears in the corpus \emph{only} among the crystals ---
+94 of 374 structures. Every modelled set is entirely class I, so \dsc{mhc\_class\_bin} is constant
+on all of them, and it is constant on both receptor-ranking benchmarks for the same reason. Any
+class II claim therefore rests on 94 structures and cannot be checked against a modelled set at all.
+
+% =================================================================================================
+\section{The catalogue}
+\label{sec:catalogue}
+
+Generated from \texttt{tcren.recognition} at version \tcrenVersion. Each row carries the shipped
+invariance class, the operator of \cref{sec:operators}, the units and the definition; a dagger marks
+a \texttt{STATUS} flag.
+
+\input{generated/catalogue}
+
+% =================================================================================================
+\section{What is known against each descriptor}
+\label{sec:status}
+
+\nFlagged\ of the \nDesc\ carry a \texttt{STATUS} flag. The catalogue's own rule applies: a name
+absent from here has no known defect, and presence is not a reason to drop the column, only to know
+what it is. \emph{Determined} means an exact identity over other shipped columns, so the column adds
+no information but remains convenient. \emph{No receptor} means the value is computable without the
+TCR present, so it is constant across every structure of one epitope on one allele and a
+receptor-ranking model reading it reaches the cohort label without reading an interface.
+\emph{Length-coupled} records a measured correlation with peptide or CDR3 length together with the
+share of variance that survives removing both.
+
+\input{generated/status}
+
+% =================================================================================================
+\begin{thebibliography}{99}\small
+
+\bibitem{BaglerSinha2007} Bagler G, Sinha S. Assortative mixing in protein contact networks and
+protein folding kinetics. \textit{Bioinformatics} 2007;23:1760--1767.
+\href{https://doi.org/10.1093/bioinformatics/btm257}{doi:10.1093/bioinformatics/btm257}.
+
+\bibitem{DiPaola2015} Di Paola L, Mei G, Di Venere A, Giuliani A. Exploring the stability of
+dimers through protein structure topology. \textit{Front Bioeng Biotechnol} 2015;3:170.
+\href{https://doi.org/10.3389/fbioe.2015.00170}{doi:10.3389/fbioe.2015.00170}.
+
+\bibitem{Feng2007} Feng D, Bond CJ, Ely LK, Maynard J, Garcia KC. Structural evidence for a
+germline-encoded T cell receptor--major histocompatibility complex interaction `codon'.
+\textit{Nat Immunol} 2007;8:975--983.
+\href{https://doi.org/10.1038/ni1502}{doi:10.1038/ni1502}.
+
+\bibitem{Fiedler1973} Fiedler M. Algebraic connectivity of graphs.
+\textit{Czechoslovak Mathematical Journal} 1973;23:298--305.
+\href{https://doi.org/10.21136/CMJ.1973.101168}{doi:10.21136/CMJ.1973.101168}.
+
+\bibitem{Hill1973} Hill MO. Diversity and evenness: a unifying notation and its consequences.
+\textit{Ecology} 1973;54:427--432.
+\href{https://doi.org/10.2307/1934352}{doi:10.2307/1934352}.
+
+\bibitem{JonesThornton1996} Jones S, Thornton JM. Principles of protein--protein interactions.
+\textit{Proc Natl Acad Sci USA} 1996;93:13--20.
+\href{https://doi.org/10.1073/pnas.93.1.13}{doi:10.1073/pnas.93.1.13}.
+
+\bibitem{Jost2006} Jost L. Entropy and diversity. \textit{Oikos} 2006;113:363--375.
+\href{https://doi.org/10.1111/j.2006.0030-1299.14714.x}{doi:10.1111/j.2006.0030-1299.14714.x}.
+
+\bibitem{LawrenceColman1993} Lawrence MC, Colman PM. Shape complementarity at protein/protein
+interfaces. \textit{J Mol Biol} 1993;234:946--950.
+\href{https://doi.org/10.1006/jmbi.1993.1648}{doi:10.1006/jmbi.1993.1648}.
+
+\bibitem{MiyazawaJernigan1996} Miyazawa S, Jernigan RL. Residue--residue potentials with a
+favorable contact pair term and an unfavorable high packing density term, for simulation and
+threading. \textit{J Mol Biol} 1996;256:623--644.
+\href{https://doi.org/10.1006/jmbi.1996.0114}{doi:10.1006/jmbi.1996.0114}.
+
+\bibitem{Newman2002} Newman MEJ. Assortative mixing in networks.
+\textit{Phys Rev Lett} 2002;89:208701.
+\href{https://doi.org/10.1103/PhysRevLett.89.208701}{doi:10.1103/PhysRevLett.89.208701}.
+
+\bibitem{RoyVetterli2007} Roy O, Vetterli M. The effective rank: a measure of effective
+dimensionality. \textit{Proc.\ 15th European Signal Processing Conference (EUSIPCO)},
+Pozna\'{n}, Poland, 2007;606--610.
+\href{https://www.eurasip.org/Proceedings/Eusipco/Eusipco2007/Papers/a5p-h05.pdf}{EURASIP
+proceedings}.
+
+\bibitem{Zareie2021} Zareie P, Szeto C, Farenc C, et al. Canonical T cell receptor docking on
+peptide--MHC is essential for T cell signaling. \textit{Science} 2021;372:eabe9124.
+\href{https://doi.org/10.1126/science.abe9124}{doi:10.1126/science.abe9124}.
+
+\end{thebibliography}
+
+\end{document}

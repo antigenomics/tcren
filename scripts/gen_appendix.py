@@ -1,0 +1,310 @@
+#!/usr/bin/env python3
+"""Emit the appendix whitepaper's generated layer, from the catalogue itself.  2026-09-02
+
+The prose, the derivations and the figures in ``appendix/descriptors.tex`` are written by hand.
+Everything that is a *fact about the catalogue* -- how many descriptors there are, what each one's
+units and invariance class are, which carry a STATUS flag -- is emitted here, so a descriptor added
+to ``recognition.DESCRIPTORS`` reaches the whitepaper by re-running this rather than by being
+remembered.
+
+    python scripts/gen_appendix.py            # rewrite appendix/generated/*
+    python scripts/gen_appendix.py --check    # exit 1 if anything would change
+"""
+
+from __future__ import annotations
+
+import argparse
+import re
+import shutil
+import subprocess
+import sys
+from collections import Counter
+from pathlib import Path
+
+from tcren import __version__
+from tcren.recognition import DESCRIPTORS, DETAIL, FAMILIES, INVARIANCE, STATUS, descriptors
+
+OUT = Path(__file__).resolve().parents[1] / "appendix" / "generated"
+
+#: What produces the family, in one clause -- the caption line above each generated table.
+FAMILY_LEAD = {
+    "placement": "The rigid-body pose and the two CDR3 loops, read in the groove frame.",
+    "interface": "How much contact there is, and of what chemical kind.",
+    "topology": "The footprint: the contact graph, the cell tally, the two height fields, "
+                "and the length-agnostic invariants of the C$\\alpha$/C$\\beta$ maps.",
+    "energetics": "Sums of a pair potential over a contact set, and differences of them.",
+    "potts": "The same interface read against the partition function of the coupled contact model.",
+    "kinetics": "The contact map as a network of breakable springs. No potential enters.",
+}
+
+#: Which operator of section 3 produces the descriptor. A descriptor absent from here is a count,
+#: a share or a raw geometric coordinate -- the two operators that need no derivation.
+OPERATOR = {
+    "hill": ("H_cell", "D1_cell", "D2_cell", "S_cell", "J_cell", "H_loop", "D2_loop", "D2_pep24",
+             "pep_cov_even", "pep_cov_d2n", "h0_pers_ent", "g_even_tcr", "g_even_pmhc",
+             "g_loop_even", "degree_evenness_tp", "m_erank_tp", "m_erank_tm",
+             "partcoef_tcr", "partcoef_pmhc"),
+    "moment": ("sc_gap_mean", "sc_gap_sd", "sc_gap_vol", "sc_interlock", "sc_gap_index",
+               "sc_interlock_frac", "sc_gap_depth", "sc_gap_height", "sc_gap_asym",
+               "sc_dh", "sc_dcharge", "sc_dphobic", "sc_charge_prod", "sc_phobic_prod",
+               "m_face_tp", "m_face_tm", "mean_margin", "clash_score", "exp_lost"),
+    "correlation": ("sc_shape", "sc_charge", "sc_phobic",
+                    "ca_cb_agreement_tp", "ca_cb_agreement_tm", "g_assort"),
+    "spectral": ("g_alg_conn", "m_gap_tp", "m_gap_tm",
+                 "K_tens", "K_shear", "S_tot", "aniso", "lam_max", "lam_min"),
+    "homology": ("fp_b0_r7", "fp_b1_r7", "fp_chi_r7", "fp_b0_frac_r7",
+                 "fp_b0_r8", "fp_b1_r8", "fp_chi_r8", "fp_b0_frac_r8",
+                 "g_comp_frac", "g_cyclo_frac"),
+    "potential": ("Phi_tcr_pep", "Phi_tcr_mhc", "Phi_cdr12", "Phi_cdr3a", "Phi_cdr3b",
+                  "dPhi_tcr_pep", "dPhi_pep_soft", "varPhi_pep_soft", "dPhi_tcr_soft",
+                  "varPhi_tcr_soft", "dPhi_tra_soft", "dPhi_trb_soft",
+                  "Phi_pep_mhc", "dPhi_pep_mhc", "Phi_pep_int",
+                  "neg_energy", "log_z", "log_lik", "psi"),
+    "frame": tuple(descriptors("placement")),
+    "work": ("rupture_force", "rupture_work"),
+}
+
+#: The object each operator reads, keyed to the reduction chain of section 2.
+OPERATOR_OBJECT = {
+    "hill": r"$\mathcal{T}$, $\mathcal{B}$, spectra",
+    "moment": r"$\mathcal{H}$, $\mathcal{D}$",
+    "correlation": r"$\mathcal{H}$, $\mathcal{D}$, $\mathcal{B}$",
+    "spectral": r"$\mathcal{B}$, $\mathcal{D}$, $\Sigma$",
+    "homology": r"$\mathcal{B}$, $\mathcal{C}$",
+    "potential": r"$\mathcal{L}$",
+    "frame": r"$\mathcal{F}$",
+    "work": r"$\Sigma$",
+    "count": r"$\mathcal{C}$, $\mathcal{L}$",
+}
+OPERATOR_NAME = {
+    "hill": "Hill number", "moment": "field moment", "correlation": "correlation",
+    "spectral": "spectral invariant", "homology": "homology invariant",
+    "potential": "potential sum", "frame": "frame coordinate", "work": "mechanical work",
+    "count": "count or share",
+}
+
+
+def _op(name: str) -> str:
+    for op, names in OPERATOR.items():
+        if name in names:
+            return op
+    return "count"
+
+
+def _tex(s: str) -> str:
+    """LaTeX-escape a catalogue string, and lift the ASCII conventions the DETAIL text uses.
+
+    The symbol pass is a **single** regex alternation, not a chain of ``str.replace``: chaining
+    rescans its own output, so ``Calpha`` becomes ``C$\\alpha$`` and then the bare ``alpha`` rule
+    fires again inside it and yields ``C$\\$\\alpha$$``, which is a math-mode error a hundred rows
+    later. Longest keys first, so ``Calpha`` wins over ``alpha``.
+    """
+    for a, b in (("\\", r"\textbackslash{}"), ("&", r"\&"), ("%", r"\%"), ("$", r"\$"),
+                 ("#", r"\#"), ("_", r"\_"), ("{", r"\{"), ("}", r"\}"),
+                 ("~", r"\textasciitilde{}"), ("^", r"\textasciicircum{}")):
+        s = s.replace(a, b)
+    sym = {
+        "Calpha": r"C$\alpha$", "Cbeta": r"C$\beta$",
+        "A\\textasciicircum{}2": r"\AA$^2$", "A\\textasciicircum{}3": r"\AA$^3$",
+        "log-odds\\textasciicircum{}2": r"log-odds$^2$",
+        "alpha": r"$\alpha$", "beta": r"$\beta$", "Phi": r"$\Phi$", "chi": r"$\chi$",
+    }
+    pattern = "|".join(re.escape(k) for k in sorted(sym, key=len, reverse=True))
+    s = re.sub(pattern, lambda m: sym[m.group(0)], s)
+    if s in ("A", "deg", "rad"):
+        s = {"A": r"\AA", "deg": r"$^\circ$", "rad": "rad"}[s]
+    return s
+
+
+def _name(n: str) -> str:
+    """A descriptor name in \\texttt, with a break opportunity after each underscore.
+
+    Without it, ``frac_well_coordinated_tp`` is one unbreakable box wider than the column and
+    every such row is an overfull hbox.
+    """
+    return "\\texttt{" + n.replace("_", "\\_\\allowbreak{}") + "}"
+
+
+def counts() -> str:
+    """The macro file: every count the prose quotes, so no number is typed by hand."""
+    fam = Counter({f: len(descriptors(f)) for f in FAMILIES})
+    inv = Counter(INVARIANCE[d] for d in descriptors())
+    ops = Counter(_op(d) for d in descriptors())
+    rec = sum(1 for d in descriptors() if not DESCRIPTORS[d][1])
+    lines = [
+        "% GENERATED by scripts/gen_appendix.py -- do not edit.",
+        f"\\newcommand{{\\tcrenVersion}}{{{__version__}}}",
+        f"\\newcommand{{\\nDesc}}{{{len(descriptors())}}}",
+        f"\\newcommand{{\\nFamilies}}{{{len(FAMILIES)}}}",
+        f"\\newcommand{{\\nNoReceptor}}{{{rec}}}",
+        f"\\newcommand{{\\nFlagged}}{{{len(STATUS)}}}",
+    ]
+    for f, n in fam.items():
+        lines.append(f"\\newcommand{{\\nFam{f.capitalize()}}}{{{n}}}")
+    for c, n in inv.items():
+        lines.append(f"\\newcommand{{\\nInv{c.capitalize()}}}{{{n}}}")
+    for o, n in ops.items():
+        lines.append(f"\\newcommand{{\\nOp{o.capitalize()}}}{{{n}}}")
+    return "\n".join(lines) + "\n"
+
+
+def catalogue() -> str:
+    """One longtable per family: name, invariance class, operator, units, definition."""
+    out = ["% GENERATED by scripts/gen_appendix.py -- do not edit.", ""]
+    for fam in FAMILIES:
+        names = descriptors(fam)
+        out += [
+            f"\\subsection{{The {fam} family ({len(names)} descriptors)}}",
+            f"\\noindent {FAMILY_LEAD[fam]}",
+            "",
+            "\\small",
+            "\\begin{longtable}{@{}>{\\raggedright\\arraybackslash}p{0.19\\textwidth}"
+            "p{0.14\\textwidth}p{0.12\\textwidth}"
+            "p{0.08\\textwidth}p{0.34\\textwidth}@{}}",
+            "\\toprule",
+            "descriptor & class & operator & units & definition \\\\",
+            "\\midrule\\endfirsthead",
+            "\\toprule descriptor & class & operator & units & definition \\\\"
+            "\\midrule\\endhead",
+        ]
+        for n in names:
+            units, definition = DETAIL[n]
+            flag = "$^{\\dagger}$" if n in STATUS else ""
+            out.append(
+                f"{_name(n)}{flag} & {INVARIANCE[n]} & {OPERATOR_NAME[_op(n)]} & "
+                f"{_tex(units)} & {_tex(definition)} \\\\")
+        out += ["\\bottomrule", "\\end{longtable}", ""]
+    out += ["\\noindent $^{\\dagger}$ carries a \\texttt{STATUS} flag; see \\cref{sec:status}.", ""]
+    return "\n".join(out)
+
+
+def operators() -> str:
+    """The operator x object cross-tab: how many descriptors each operator produces."""
+    ops = Counter(_op(d) for d in descriptors())
+    rows = sorted(ops.items(), key=lambda kv: -kv[1])
+    out = [
+        "% GENERATED by scripts/gen_appendix.py -- do not edit.",
+        "\\begin{tabular}{@{}llr@{}}", "\\toprule",
+        "operator & object read & descriptors \\\\", "\\midrule",
+    ]
+    top = max(n for _, n in rows)
+    for op, n in rows:
+        cell = f"\\textbf{{{n}}}" if n == top else str(n)
+        out.append(f"{OPERATOR_NAME[op]} & {OPERATOR_OBJECT[op]} & {cell} \\\\")
+    out += ["\\midrule", f"total & & {sum(ops.values())} \\\\", "\\bottomrule", "\\end{tabular}"]
+    return "\n".join(out) + "\n"
+
+
+def status_table() -> str:
+    """The STATUS flags, verbatim from the catalogue, grouped by kind."""
+    out = ["% GENERATED by scripts/gen_appendix.py -- do not edit.", ""]
+    kinds = sorted({v[0] for v in STATUS.values()})
+    for kind in kinds:
+        names = [n for n, v in STATUS.items() if v[0] == kind]
+        out += [
+            f"\\paragraph{{\\textit{{{kind}}} ({len(names)}).}}",
+            "\\small",
+            "\\begin{longtable}{@{}>{\\raggedright\\arraybackslash}p{0.22\\textwidth}"
+            "p{0.68\\textwidth}@{}}",
+            "\\toprule descriptor & what is known \\\\ \\midrule\\endfirsthead",
+            "\\toprule descriptor & what is known \\\\ \\midrule\\endhead",
+        ]
+        for n in names:
+            out.append(f"{_name(n)} & {_tex(STATUS[n][1])} \\\\")
+        out += ["\\bottomrule", "\\end{longtable}", ""]
+    return "\n".join(out)
+
+
+def hierarchy_dot() -> str:
+    """The reduction chain of section 2: which object each family reads, and what each step loses."""
+    return """// GENERATED by scripts/gen_appendix.py -- do not edit.
+digraph reduction {
+  rankdir=TB; splines=spline; bgcolor="transparent";
+  node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=10,
+        color="#444444", penwidth=0.8];
+  edge [fontname="Helvetica", fontsize=8, color="#666666", arrowsize=0.7];
+
+  S [label="S  atomic coordinates\\n~10^4 atoms", fillcolor="#FFFFFF"];
+
+  F [label="F  groove frame\\nu, w, n from the groove-floor SVD", fillcolor="#D6E9F8"];
+  C [label="C  contact set\\npairs within 5 A, heavy atom", fillcolor="#FDE3D0"];
+  H [label="H  height fields\\nh_pMHC, h_TCR on one raster", fillcolor="#D6E9F8"];
+  Sg [label="Sigma  spring / Potts network\\ncontacts with geometry and multiplicity",
+      fillcolor="#F4D9E6"];
+
+  D [label="D  distance maps\\nCa and Cb, region by region", fillcolor="#FDE3D0"];
+  L [label="L  labelled contacts\\ncontact + residue identity or bond type", fillcolor="#F4D9E6"];
+  B [label="B  biadjacency matrix\\nwhich residue touched which", fillcolor="#D7EFE4"];
+  T [label="T  cell tally\\ncounts per cell of a fixed partition", fillcolor="#D7EFE4"];
+
+  S -> F  [label="  fix a frame"];
+  S -> C  [label="  threshold distances"];
+  S -> H  [label="  rasterise both faces"];
+  C -> Sg [label="  attach stiffness"];
+  C -> D  [label="  keep the metric"];
+  C -> L  [label="  attach identity"];
+  C -> B  [label="  forget distances"];
+  B -> T  [label="  forget incidence", style=bold];
+
+  {rank=same; F; C; H;}
+  {rank=same; D; L; B; Sg;}
+
+  f_pl [shape=plaintext, fillcolor="transparent", label="placement (31)"];
+  f_if [shape=plaintext, fillcolor="transparent", label="interface (26)"];
+  f_tp [shape=plaintext, fillcolor="transparent", label="topology (70)"];
+  f_en [shape=plaintext, fillcolor="transparent", label="energetics (15) + potts (5)"];
+  f_kn [shape=plaintext, fillcolor="transparent", label="kinetics (17)"];
+
+  F -> f_pl [style=dashed, arrowhead=none];
+  L -> f_if [style=dashed, arrowhead=none];
+  T -> f_tp [style=dashed, arrowhead=none];
+  B -> f_tp [style=dashed, arrowhead=none];
+  H -> f_tp [style=dashed, arrowhead=none];
+  D -> f_tp [style=dashed, arrowhead=none];
+  L -> f_en [style=dashed, arrowhead=none];
+  Sg -> f_kn [style=dashed, arrowhead=none];
+}
+"""
+
+
+FILES = {
+    "counts.tex": counts,
+    "catalogue.tex": catalogue,
+    "operators.tex": operators,
+    "status.tex": status_table,
+    "reduction.dot": hierarchy_dot,
+}
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--check", action="store_true", help="exit 1 if any file would change")
+    args = ap.parse_args()
+
+    OUT.mkdir(parents=True, exist_ok=True)
+    stale = []
+    for name, fn in FILES.items():
+        text, path = fn(), OUT / name
+        if args.check:
+            if not path.exists() or path.read_text() != text:
+                stale.append(name)
+        else:
+            path.write_text(text)
+    if args.check:
+        if stale:
+            print("stale, re-run scripts/gen_appendix.py: " + ", ".join(stale), file=sys.stderr)
+            return 1
+        print(f"appendix/generated: up to date ({len(FILES)} files)")
+        return 0
+
+    dot = shutil.which("dot")
+    if dot:
+        subprocess.run([dot, "-Tpdf", "-o", str(OUT / "reduction.pdf"), str(OUT / "reduction.dot")],
+                       check=True)
+    print(f"appendix/generated: {len(FILES)} files"
+          + ("" if dot else "  (graphviz absent; reduction.pdf not built)"))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

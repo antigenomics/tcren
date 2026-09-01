@@ -346,8 +346,14 @@ scripts/legacy/*.sav
 .claude/settings.local.json
 .DS_Store
 
-# The technical appendix (LaTeX derivation + the PyMC/BN model fits) moved to the manuscript repo
-# on 2026-07-28: ~/vcs/manuscripts/2026-tcren/archive/tcren-appendix/, with a dated tarball beside
-# it. It was 2.4 MB of the sdist and belongs with the manuscript, not with the library. Git history
-# here still has every file if it is ever needed back.
-/appendix/
+# /appendix was ignored wholesale from 2026-07-28, when the OLD technical appendix (LaTeX
+# derivation + PyMC/BN model fits, 2.4 MB) moved to the manuscript repo. It now holds the
+# descriptor whitepaper, which is about the library and belongs with it, so the directory is
+# tracked again. The sdist is unaffected: `sdist.exclude` in pyproject.toml already names
+# /appendix, which is where the leanness guarantee actually lives.
+appendix/*.aux
+appendix/*.fdb_latexmk
+appendix/*.fls
+appendix/*.log
+appendix/*.out
+appendix/*.toc
