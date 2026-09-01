@@ -529,22 +529,53 @@ interfaces of different size.
   H-bearing depositions (5jhd: +7 of 28 contacts, −58.5% F_tcr_pep) and breaks legacy-oracle parity
   on 5jhd/7qpj, recorded as a subset relation in the regression test.
 
-## Feature families — `tcren features` (descriptors) vs `tcren recognize` (scores)
+## Feature families — `tcren features` (descriptors) vs `tcren assess` (scores)
 
 - **Two commands, two jobs.** `tcren features` reads structures and writes descriptors;
-  `tcren recognize` turns a descriptor table into scores. The feature pass is the expensive half,
-  so run it once and re-score for free:
+  `tcren assess` turns a descriptor table into the score set. The feature pass is the expensive
+  half, so run it once and re-score for free:
 
   ```bash
-  tcren features  -s <in> -i placement,interface,topology,energetics -o feats.tsv
-  tcren recognize --features feats.tsv -o scores.tsv
+  tcren features -s <in> -i placement,interface,topology,energetics -o feats.tsv
+  tcren assess --features feats.tsv -o scores.tsv
   ```
 
-  `scores.tsv` is `complex.id` + **`Q`** (fit-free interface quality), the three channel posteriors
-  **`G`** / **`T`** / **`E`** (geometry / topology / energetics), **`P_native`**, and **`S_free`**
-  with its calibrated **`p_binder`**, and nothing
-  else. `tcren recognize -s <in>` is the *other* mode: it reads structures and writes the
-  descriptor table with `p_real`, not `Q`/`P_native`.
+- **The score set (3.0.0), and every one of them is defined for a SINGLE structure.** The
+  transform, the class means and the covariance are all frozen on a hold-out that ships with the
+  package, so nothing is estimated from the rows being scored. Higher is better throughout.
+
+  | column | tier | what it answers |
+  |---|---|---|
+  | `pose_score` | 1 | is this the kind of interface real complexes make? No negative, no label. **The bad-pose channel.** |
+  | `binder_score` | 2 | log-odds that the complex is a genuine recognition interface |
+  | `channel_*` | 2 | the same log-odds marginalized to one family — **which part of the structure says so** |
+  | `peptide_score` | 0 | the poly-alanine-referenced energy. Nothing fitted. Ranks PEPTIDES for a fixed receptor |
+  | `confidence_residual` | 1 | reported ipTM minus what the coordinates say it should have been |
+  | `binder_iptm` | 2 | `binder_score + logit(ipTM)`; two log-odds added, no coefficient. The recommended read when a confidence exists |
+
+  Five channels, named in physics and geometry terms: `placement` (where the receptor sits),
+  `interface` (how much it makes, of what chemistry), `shape` (the footprint free of its size),
+  `energetics` (contact chemistry in kT), `mechanics` (breakable springs). A marginal of a
+  Gaussian is a sub-block of Sigma — exact, no re-fit — so a channel costs an index. **A channel
+  beats the whole model where the whole model dilutes it**: on template-free cohorts
+  `channel_shape` reads 0.637 against the full posterior's 0.615.
+
+- **Pass `--peptide` when the PEPTIDE is what varies** (a combinatorial library, a mutational
+  scan). Otherwise the five descriptors computed without the receptor are marginalized out,
+  because they are constant across every structure of one epitope on one allele and a model
+  reading them reaches the cohort's name without reading an interface.
+
+- **The fit-free predecessor tier is still shipped**, and `tcren recognize --features feats.tsv`
+  emits it: `complex.id` + **`Q`** (interface quality), **`T`** (the shape block) and **`S`**
+  (their composition with the energy block). `S` leads the functionally validated receptor screen
+  on its own and **composes** with `binder_score` rather than being replaced by it. `P_native`,
+  `p_binder`, `G`/`E`/`S_free` and every other fitted composite were removed at 2.26.0 and do not
+  return.
+
+- **`tcren fit-holdout` reproduces the frozen model bit for bit** from the shipped manifest plus a
+  descriptor table you regenerate with `tcren features`. The 19 MB descriptor table does not ship;
+  the 8,292-row manifest does. This is the contract that `P_native` could not offer.
+
 - **Five families, split by invariance** (`tcren.recognition.DESCRIPTORS`, `FAMILIES`); a
   *family* is a slice of the descriptor table, a *channel* is one of the three networks `P_native`
   sums, and `P_NATIVE_POOL` is the map between them:

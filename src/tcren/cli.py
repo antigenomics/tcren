@@ -895,6 +895,48 @@ def recognize(
     typer.echo(f"wrote {out} ({len(rows)} rows)")
 
 
+@app.command("fit-holdout", rich_help_panel=_P_DATA)
+def fit_holdout_cmd(
+    features_table: Path = typer.Option(..., "--features", help="descriptors for the hold-out structures, from `tcren features`"),
+    manifest_file: Path = typer.Option(None, "--manifest", help="id, y, epitope (and optionally iptm) for those structures; defaults to the manifest shipped in the package"),
+    out: Path = typer.Option("holdout_model.npz", "-o", "--out", help="where to write the frozen model"),
+) -> None:
+    """Refit the frozen model behind `tcren score` from its hold-out, and write it out.
+
+    The earlier fitted read-out in this project was withdrawn because its coefficients were frozen
+    against a training set nobody could reconstruct. These are frozen against one that is named:
+    the manifest ships inside the wheel, and every structure it names is deposited. Descriptors are
+    not shipped -- 8,292 rows by 147 columns is 19 MB -- so the reproduction is three commands:
+
+    \b
+        tcren fetch-data                                  # the structure sets the manifest names
+        tcren features -s <those structures> -o hold.tsv  # the descriptors
+        tcren fit-holdout --features hold.tsv -o refit.npz
+
+    and ``refit.npz`` matches the shipped model bit for bit. Pass your own ``--manifest`` to fit a
+    different hold-out, then read it back with ``tcren score --model``.
+    """
+    from .score import MANIFEST_FILE, holdout_manifest
+    from .score.fit import fit_holdout
+
+    if not features_table.exists():
+        raise typer.BadParameter(f"{features_table} is not present")
+    if manifest_file is not None and not manifest_file.exists():
+        raise typer.BadParameter(f"{manifest_file} is not present")
+    man = (pl.read_csv(manifest_file, infer_schema_length=None) if manifest_file
+           else holdout_manifest())
+    sep = "," if str(features_table).lower().endswith(".csv") else "\t"
+    meta = fit_holdout(pl.read_csv(features_table, separator=sep, infer_schema_length=None),
+                       man, out=out)
+    typer.echo(f"wrote {out} ({out.stat().st_size / 1024:.0f} kB)")
+    typer.echo(f"  {len(meta['coordinates'])} coordinates "
+               f"({len(meta['receptor_coordinates'])} receptor-safe), "
+               f"{meta['n_pos']} binders / {meta['n_neg']} non-binders, "
+               f"{meta['n_epitopes']} epitopes")
+    typer.echo(f"  shrinkage {meta['alpha'][1]:.4f} / {meta['alpha'][0]:.4f}, "
+               f"catalogue {meta['catalogue_digest'][:12]}")
+
+
 @app.command(rich_help_panel=_P_SCORE)
 def scoring(
     structures: list[str] = typer.Option(..., "-s", "--structures", help="structure file(s), directory, .tar.gz, glob, or a .txt manifest of paths; repeatable and comma-separable"),
@@ -1329,28 +1371,76 @@ def _score_feature_table(path: Path, out: Path) -> None:
 def assess(
     features_table: Path = typer.Option(..., "--features", "-f", help="a `tcren features` table (TSV/CSV)"),
     out: Path = typer.Option("assess.tsv", "-o", "--out", help="per-structure assessment (TSV)"),
+    peptide: bool = typer.Option(False, "--peptide", help="the peptide varies across these structures (a combinatorial library or a mutational scan), so the presentation descriptors are signal rather than the cohort's name"),
+    model_file: Path = typer.Option(None, "--model", help="an alternative frozen model, e.g. one you refitted with `tcren fit-holdout`"),
+    iptm_column: str = typer.Option("iptm", "--iptm-column", help="column holding the generator's interface confidence, if the table carries one"),
     band: str = typer.Option("binder_bm|ipTM", "--band", help="frozen AlphaFold band table for the diagnostic"),
     budget: float = typer.Option(0.5, "--budget", help="recall budget for the expected-precision column"),
     list_bands: bool = typer.Option(False, "--list-bands", help="print the frozen band tables, then exit"),
 ) -> None:
-    """Assess a set of modelled complexes: reliability, ranking, and what the generator is missing.
+    """Assess modelled complexes: is the pose real, is it a binder, and which channel says so.
 
-    Three blocks, one table:
+    The one command to run on a folder of AlphaFold models. Four blocks, one table.
 
-    * **reliability** — `S`, defined for a single structure and fitted against nothing.
-    * **ranking** — rank and percentile within the set, for triage when only the order matters.
-    * **generator diagnostic** — when the table carries ipTM, `p_nonbinder_af` reads the frozen band
-      table: how often a model this confident is a non-binder, and what `S` still separates
-      inside that band.
+    \b
+    THE SCORE SET -- every one defined for a SINGLE structure, because the transform, the class
+    means and the covariance are all frozen on a hold-out that ships with the package. Nothing is
+    estimated from the rows you pass, so a score does not move depending on what was scored beside
+    it. Higher is better throughout.
 
-    This is `tcren recognize` narrowed to the shipped, single-structure-defined score and widened
-    with the two things a caller actually decides on. `recognize` remains the full read-out.
+    \b
+      pose_score           is this the kind of interface real complexes make? A one-class distance
+                           to the manifold hold-out binders occupy, reading NO binder label at
+                           all. This is the bad-pose channel.
+      binder_score         log-odds that the complex is a genuine recognition interface.
+      channel_*            the same log-odds marginalized to one descriptor family, so a number
+                           can be attributed: placement (where the receptor sits), interface (how
+                           much it makes, of what chemistry), shape (the footprint free of its
+                           size), energetics (the contact chemistry in kT), mechanics (the
+                           interface as breakable springs).
+      peptide_score        the poly-alanine-referenced recognition energy, with nothing fitted in
+                           it. This ranks PEPTIDES for a fixed receptor and reads below chance on
+                           a receptor benchmark -- a property of the reference frame, not a fault.
+      confidence_residual  reported ipTM minus what the coordinates say it should have been. A
+                           large positive residual is a model the generator is more certain of
+                           than its own geometry and chemistry warrant.
+      binder_iptm          binder_score + logit(ipTM): two log-odds added, no coefficient to fit.
+                           The recommended read when a confidence is available.
+
+    \b
+    THE PREDECESSOR TIER -- `S`, the fit-free composition of interface quality, footprint shape
+    and contact energy in native-sd units. It leads the functionally validated receptor screen on
+    its own and COMPOSES with binder_score rather than being replaced by it, so it is reported
+    beside it rather than dropped.
+
+    \b
+    TRIAGE -- rank and percentile within the set on the recommended score, for when only the order
+    matters, plus the expected mean score if you keep the top --budget fraction.
+
+    \b
+    GENERATOR DIAGNOSTIC -- with an ipTM column, `p_nonbinder_af` reads the frozen band table: how
+    often a model this confident is a non-binder, and what `S` still separates inside that band.
+
+    Pass ``--peptide`` when the peptide is what varies across the structures being compared.
+    Otherwise the five descriptors computed without the receptor are marginalized out, because
+    they are constant across every structure of one epitope on one allele and a model reading them
+    reaches the cohort's name without reading an interface.
+
+    Not to be confused with ``tcren score``, which is the other direction entirely: it threads
+    candidate epitopes onto one template structure and ranks them by contact energy.
+
+    Examples::
+
+        tcren features -s models/ -o feats.tsv
+        tcren assess --features feats.tsv -o assessed.tsv
+        tcren assess --features cpl_feats.tsv --peptide -o cpl.tsv
     """
     import numpy as np
 
-    from .reliability import (af_band, available_bands, inversion_flag, screening_yield,
-                              PI_FROZEN, T_FEATURES_TOPO, s_score)
     from .cohort import Q_FEATURES_GEOM
+    from .reliability import (PI_FROZEN, T_FEATURES_TOPO, af_band, available_bands,
+                              inversion_flag, s_score, screening_yield)
+    from .score import holdout_model, score_table
 
     if list_bands:
         typer.echo("band tables:")
@@ -1358,35 +1448,54 @@ def assess(
             typer.echo(f"  {k}")
         return
 
+    from .provenance import StaleTableError, check
+    try:
+        check(features_table)
+    except StaleTableError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+
     sep = "," if features_table.suffix.lower() == ".csv" else "\t"
     t = pl.read_csv(features_table, separator=sep, infer_schema_length=None)
-    if "complex.id" not in t.columns:
-        raise typer.BadParameter(f"--features needs a 'complex.id' column; got {list(t.columns)[:6]}")
+    ip = t[iptm_column].to_numpy() if iptm_column in t.columns else None
+
+    m = holdout_model(str(model_file) if model_file else None)
+    try:
+        o = score_table(t, receptor=not peptide, iptm=ip, model=m)
+    except KeyError as exc:
+        raise typer.BadParameter(str(exc.args[0])) from exc
+    n = o.height
+    typer.echo(f"{n} structures; model tcren {m.tcren_version}, {m.n_pos} binders / "
+               f"{m.n_neg} non-binders over {m.n_epitopes} hold-out epitopes")
+    scored = int(np.isfinite(o["binder_score"].to_numpy()).sum())
+    if scored < n:
+        typer.echo(f"  {n - scored} row(s) missing a descriptor the model reads; a covariance "
+                   f"cannot impute one, so they are NaN rather than filled in")
+
+    # --- the fit-free predecessor tier, on the same rows ---------------------------------
     absent = [c for c in (*Q_FEATURES_GEOM, *T_FEATURES_TOPO) if c not in t.columns]
     if absent:
-        raise typer.BadParameter(
-            f"missing {', '.join(absent)} — rerun `tcren features -i placement,interface,topology`")
+        typer.echo(f"  S skipped: missing {', '.join(absent)}")
+    else:
+        e = t[PI_FROZEN].to_numpy() if PI_FROZEN in t.columns else None
+        o = o.with_columns(pl.Series("S", s_score(t, energy=e)))
+        if e is not None:
+            o = o.with_columns(pl.Series("inversion_flag", inversion_flag(t, energy=e)))
 
-    e = t[PI_FROZEN].to_numpy() if PI_FROZEN in t.columns else None
-    v = s_score(t, energy=e)
+    # --- triage on the recommended score -------------------------------------------------
+    lead = "binder_iptm" if "binder_iptm" in o.columns else "binder_score"
+    v = o[lead].to_numpy()
     order = np.argsort(np.argsort(-np.where(np.isfinite(v), v, -np.inf)))
-    n = len(v)
-    o = pl.DataFrame({"complex.id": t["complex.id"], "S": v,
-                      "rank": order + 1, "percentile": 100.0 * (1 - order / max(n - 1, 1))})
-    if e is not None:
-        o = o.with_columns(pl.Series("inversion_flag", inversion_flag(t, energy=e)))
-
-    # expected precision if you keep the top `budget` fraction -- the triage number
+    o = o.with_columns(pl.Series("rank", order + 1),
+                       pl.Series("percentile", 100.0 * (1 - order / max(n - 1, 1))))
     y = screening_yield(v, budget=budget)
     k = y["n_tested"]
     keep = np.argsort(-np.where(np.isfinite(v), v, -np.inf))[:k]
-    typer.echo(f"{n} structures; S = Q + T{' + ' + PI_FROZEN if e is not None else ''} "
-               f"in native-sd units, {int(np.isfinite(v).sum())} finite")
-    typer.echo(f"  top {budget:.0%} of the set ({k} structures): "
-               f"mean S {np.nanmean(v[keep]):.3f} against {np.nanmean(v):.3f} overall")
+    typer.echo(f"  ranked on {lead}; top {budget:.0%} ({k} structures) mean "
+               f"{np.nanmean(v[keep]):.3f} against {np.nanmean(v):.3f} overall")
 
-    if "iptm" in t.columns:
-        bands = af_band(t["iptm"].to_numpy(), reference=band)
+    # --- generator diagnostic -------------------------------------------------------------
+    if ip is not None:
+        bands = af_band(ip, reference=band)
         o = o.with_columns(
             pl.Series("af_band", [b.get("band") for b in bands], dtype=pl.Int64),
             pl.Series("p_nonbinder_af", [b.get("p_nonbinder") for b in bands]),
@@ -1399,8 +1508,8 @@ def assess(
                        f"NON-binders and S still reads "
                        f"{top[0]['s_roc_in_band']:.3f} ROC-AUC")
     else:
-        typer.echo("  no ipTM column: the generator diagnostic is skipped "
-                   "(join a metadata.tsv, or pass --metadata to `tcren features`)")
+        typer.echo(f"  no '{iptm_column}' column: confidence_residual, binder_iptm and the "
+                   f"generator diagnostic are skipped")
 
     o.write_csv(str(out), separator="\t")
     typer.echo(f"wrote {out} ({o.height} rows, {len(o.columns) - 1} columns)")

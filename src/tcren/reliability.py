@@ -259,3 +259,56 @@ def screening_yield(score, budget: float = 0.1, prevalence: float | None = None)
     return out
 
 
+
+
+# ---------------------------------------------------------------------------------------------
+# The artefact test: which directions belong to the generator rather than to the interface.
+# ---------------------------------------------------------------------------------------------
+
+#: A binder direction tighter than this (residual s.d., transformed reference units) is where the
+#: crystal test finds the generator's own regularity rather than interface physics. Measured
+#: 2026-09-03: real crystals break the sub-0.05 directions 4.55x their binder spread against
+#: decoys' 3.18x, and that band scores 0.504 over 16 template-free cohorts -- a coin -- where the
+#: directions above 0.15 read 0.606. Ledoit-Wolf shrinkage floors the shipped model's smallest
+#: direction at 0.0797, so `tcren.score.pose_score` cannot read this band at all.
+ARTEFACT_SD = 0.05
+
+
+def artefact_directions(binder_coords, crystal_coords, *, tolerance: float = ARTEFACT_SD) -> dict:
+    """Which directions of a binder manifold are the generator's regularity, not the interface's.
+
+    **No binding label enters this.** The argument is that a direction real complexes are free to
+    vary along, while modelled binders are pinned to it, is a property of the model that produced
+    them. A physical constraint holds on a crystal at least as tightly as on a prediction of one;
+    a generator's habit does not.
+
+    Args:
+        binder_coords: ``(n, p)`` transformed coordinates for modelled binders -- the population
+            whose covariance defines the directions.
+        crystal_coords: ``(m, p)`` the same coordinates for experimentally solved complexes.
+        tolerance: the residual s.d. below which a direction counts as tight.
+
+    Returns:
+        ``{"index", "sd_binder", "sd_crystal", "ratio", "is_artefact"}``, one entry per direction,
+        ordered stiffest first. ``is_artefact`` is a tight direction that crystals break harder
+        than binders do.
+
+    Reading it: a large ``ratio`` on a tight direction means the constraint is the generator's.
+    Drop those coordinates, or use a covariance estimator that suppresses them -- shrinkage does it
+    for free, which is why the shipped model does not need this call to be safe.
+    """
+    import numpy as np
+
+    B = np.asarray(binder_coords, float)
+    C = np.asarray(crystal_coords, float)
+    if B.ndim != 2 or C.ndim != 2 or B.shape[1] != C.shape[1]:
+        raise ValueError(f"coordinate shapes disagree: {B.shape} against {C.shape}")
+    mu = B.mean(0)
+    lam, U = np.linalg.eigh(np.cov(B - mu, rowvar=False))
+    lam, U = np.maximum(lam, 1e-12), U
+    sd_b = np.sqrt(lam)
+    sd_c = ((C - mu) @ U).std(0, ddof=1)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        ratio = sd_c / sd_b
+    return {"index": np.arange(len(lam)), "sd_binder": sd_b, "sd_crystal": sd_c,
+            "ratio": ratio, "is_artefact": (sd_b < tolerance) & (ratio > 1.0)}

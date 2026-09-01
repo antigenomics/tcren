@@ -78,6 +78,7 @@ What tcren does
    potts
    features
    descriptor_table
+   assess
    reliability
    gallery
    kit

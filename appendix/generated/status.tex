@@ -9,7 +9,7 @@
 \bottomrule
 \end{longtable}
 
-\paragraph{\textit{suspicious} (28).}
+\paragraph{\textit{suspicious} (32).}
 \small
 \begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.22\textwidth}p{0.68\textwidth}@{}}
 \toprule descriptor & what is known \\ \midrule\endfirsthead
@@ -26,6 +26,10 @@
 \texttt{aniso} & determined by K\_tens and K\_shear. \\
 \texttt{couple\_\allowbreak{}total} & determined: couple\_pep + couple\_mhc + couple\_tcr. \\
 \texttt{crossing} & determined: abs(crossing\_signed). \\
+\texttt{sc\_\allowbreak{}gap\_\allowbreak{}index} & determined: (sc\_dh + sc\_gap\_mean) / 2. \\
+\texttt{dPhi\_\allowbreak{}tcr\_\allowbreak{}soft} & determined: dPhi\_tra\_soft + dPhi\_trb\_soft. \\
+\texttt{n\_\allowbreak{}contacts\_\allowbreak{}tm} & determined: the sum of the five ct\_tm\_* contact-type tallies. \\
+\texttt{n\_\allowbreak{}contacts\_\allowbreak{}tp} & determined: ct\_tp\_salt\_bridge + ct\_tp\_aromatic + ct\_tp\_hydrophobic + ct\_tp\_other + n\_hbond. \\
 \texttt{Phi\_\allowbreak{}pep\_\allowbreak{}mhc} & no receptor: constant across every structure of one epitope on one allele, so a receptor-ranking model reading it reaches the cohort label without reading an interface. \\
 \texttt{dPhi\_\allowbreak{}pep\_\allowbreak{}mhc} & no receptor; see $\Phi$\_pep\_mhc. \\
 \texttt{Phi\_\allowbreak{}pep\_\allowbreak{}int} & no receptor; see $\Phi$\_pep\_mhc. \\

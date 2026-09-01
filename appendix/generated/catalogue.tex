@@ -55,8 +55,8 @@ descriptor & class & operator & units & definition \\
 \texttt{burial} & geometric & count or share & \AA$^2$ & Interface buried surface, SASA(TCR) + SASA(pMHC) - SASA(complex), by Shrake-Rupley. \\
 \texttt{extent} & compositional & count or share & count & Distinct TCR residues contacting the pMHC over both receptor interfaces. \\
 \texttt{chain\_\allowbreak{}balance} & compositional & count or share & fraction & min(a,b)/(a+b) over TCR:peptide contacts by chain; 0.5 when both chains engage equally, 0 when only one does. \\
-\texttt{n\_\allowbreak{}contacts\_\allowbreak{}tp} & compositional & count or share & count & TCR-peptide residue-residue contacts. \\
-\texttt{n\_\allowbreak{}contacts\_\allowbreak{}tm} & compositional & count or share & count & TCR-MHC residue-residue contacts. \\
+\texttt{n\_\allowbreak{}contacts\_\allowbreak{}tp}$^{\dagger}$ & compositional & count or share & count & TCR-peptide residue-residue contacts. \\
+\texttt{n\_\allowbreak{}contacts\_\allowbreak{}tm}$^{\dagger}$ & compositional & count or share & count & TCR-MHC residue-residue contacts. \\
 \texttt{n\_\allowbreak{}pep\_\allowbreak{}contacted} & compositional & count or share & count & Distinct peptide residues the TCR contacts. \\
 \texttt{n\_\allowbreak{}hbond} & compositional & count or share & count & Polar N/O atom pairs within 3.5 A across TCR:peptide. \\
 \texttt{ct\_\allowbreak{}tp\_\allowbreak{}salt\_\allowbreak{}bridge}$^{\dagger}$ & compositional & count or share & count & Cationic-N / anionic-O pairs within 4 A across TCR:peptide. \\
@@ -146,7 +146,7 @@ descriptor & class & operator & units & definition \\
 \texttt{sc\_\allowbreak{}gap\_\allowbreak{}sd} & geometric & field moment & \AA & Spread of the same gap. High when the receptor rests on a few high points rather than meshing. \\
 \texttt{sc\_\allowbreak{}gap\_\allowbreak{}vol} & geometric & field moment & \AA$^3$ & Void volume, the gap integrated over the contact plane where it is positive. \\
 \texttt{sc\_\allowbreak{}interlock} & geometric & field moment & \AA$^3$ & Interdigitated volume, the gap integrated where it is negative. The larger of the two on a real interface. \\
-\texttt{sc\_\allowbreak{}gap\_\allowbreak{}index} & geometric & field moment & \AA & Void volume over retained contact area; the intensive form of the gap-volume channel. \\
+\texttt{sc\_\allowbreak{}gap\_\allowbreak{}index}$^{\dagger}$ & geometric & field moment & \AA & Void volume over retained contact area; the intensive form of the gap-volume channel. \\
 \texttt{sc\_\allowbreak{}interlock\_\allowbreak{}frac} & geometric & field moment & fraction & Share of retained cells whose gap is negative; the per-structure form of the corpus 71\% interdigitation. \\
 \texttt{sc\_\allowbreak{}gap\_\allowbreak{}depth}$^{\dagger}$ & geometric & field moment & \AA & Mean depth over the interlocked cells alone: how far the receptor reaches in where it does. \\
 \texttt{sc\_\allowbreak{}gap\_\allowbreak{}height} & geometric & field moment & \AA & Mean standoff over the void cells alone: how high it stands where it does not mesh. \\
@@ -180,7 +180,7 @@ descriptor & class & operator & units & definition \\
 \texttt{dPhi\_\allowbreak{}tcr\_\allowbreak{}pep} & energetic & potential sum & log-odds & Poly-alanine reference delta of the TCR:peptide energy; the pose-geometry baseline removed. \\
 \texttt{dPhi\_\allowbreak{}pep\_\allowbreak{}soft} & energetic & potential sum & log-odds & Smoothed reference delta, peptide direction: the peptide's energy minus the free energy of the residue background at each peptide position, receptor frozen. \\
 \texttt{varPhi\_\allowbreak{}pep\_\allowbreak{}soft} & energetic & potential sum & log-odds$^2$ & Variance of the local field under the background, peptide direction: how sharply each peptide position's energy responds to residue identity, summed over positions. NOT a ddG -- it is a second cumulant, not a difference of differences. \\
-\texttt{dPhi\_\allowbreak{}tcr\_\allowbreak{}soft} & energetic & potential sum & log-odds & Smoothed reference delta, receptor direction: the receptor's energy minus the free energy of the residue background at each contacted TCR position, peptide frozen. \\
+\texttt{dPhi\_\allowbreak{}tcr\_\allowbreak{}soft}$^{\dagger}$ & energetic & potential sum & log-odds & Smoothed reference delta, receptor direction: the receptor's energy minus the free energy of the residue background at each contacted TCR position, peptide frozen. \\
 \texttt{varPhi\_\allowbreak{}tcr\_\allowbreak{}soft} & energetic & potential sum & log-odds$^2$ & Variance of the local field under the background, receptor direction, summed over contacted TCR positions. \\
 \texttt{dPhi\_\allowbreak{}tra\_\allowbreak{}soft} & energetic & potential sum & log-odds & The $\alpha$-chain part of the receptor-direction smoothed reference delta. \\
 \texttt{dPhi\_\allowbreak{}trb\_\allowbreak{}soft} & energetic & potential sum & log-odds & The $\beta$-chain part of the receptor-direction smoothed reference delta. \\

@@ -923,7 +923,7 @@ The contact map as a network of breakable springs. No potential enters: these ar
      - yes
      - Interface residue count; the size denominator for the coupling counts.
 
-flagged descriptors (29)
+flagged descriptors (33)
 ------------------------
 
 Descriptors that need a second look before they are used, from ``tcren.recognition.STATUS``.
@@ -976,6 +976,18 @@ does not move on the corpus.
    * - ``crossing``
      - suspicious
      - determined: abs(crossing_signed).
+   * - ``sc_gap_index``
+     - suspicious
+     - determined: (sc_dh + sc_gap_mean) / 2.
+   * - ``dPhi_tcr_soft``
+     - suspicious
+     - determined: dPhi_tra_soft + dPhi_trb_soft.
+   * - ``n_contacts_tm``
+     - suspicious
+     - determined: the sum of the five ct_tm_* contact-type tallies.
+   * - ``n_contacts_tp``
+     - suspicious
+     - determined: ct_tp_salt_bridge + ct_tp_aromatic + ct_tp_hydrophobic + ct_tp_other + n_hbond.
    * - ``Phi_pep_mhc``
      - suspicious
      - no receptor: constant across every structure of one epitope on one allele, so a receptor-ranking model reading it reaches the cohort label without reading an interface.

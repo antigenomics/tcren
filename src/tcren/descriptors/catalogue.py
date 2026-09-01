@@ -630,6 +630,14 @@ STATUS: dict[str, tuple[str, str]] = {
     "aniso": ("suspicious", "determined by K_tens and K_shear."),
     "couple_total": ("suspicious", "determined: couple_pep + couple_mhc + couple_tcr."),
     "crossing": ("suspicious", "determined: abs(crossing_signed)."),
+    # Four more, found by a rank-revealing search over the whole 21,939-row corpus on 2026-09-03
+    # and verified to machine precision. With all fifteen removed the catalogue is full rank, so
+    # this list is now closed rather than partial.
+    "sc_gap_index": ("suspicious", "determined: (sc_dh + sc_gap_mean) / 2."),
+    "dPhi_tcr_soft": ("suspicious", "determined: dPhi_tra_soft + dPhi_trb_soft."),
+    "n_contacts_tm": ("suspicious", "determined: the sum of the five ct_tm_* contact-type tallies."),
+    "n_contacts_tp": ("suspicious", "determined: ct_tp_salt_bridge + ct_tp_aromatic + "
+                                    "ct_tp_hydrophobic + ct_tp_other + n_hbond."),
     # computed without the receptor: constant within an epitope-allele cohort
     "Phi_pep_mhc": ("suspicious", "no receptor: constant across every structure of one epitope on "
                                   "one allele, so a receptor-ranking model reading it reaches the "
@@ -736,3 +744,50 @@ def descriptors(family: str | None = None, *, tcr_only: bool = False,
                  if fam in keep
                  and (tcr or not tcr_only)
                  and (invariance is None or INVARIANCE[n] == invariance))
+
+
+#: Which operator of section 3 produces the descriptor. A descriptor absent from here is a count,
+#: a share or a raw geometric coordinate -- the two operators that need no derivation.
+OPERATOR = {
+    "hill": ("H_cell", "D1_cell", "D2_cell", "S_cell", "J_cell", "H_loop", "D2_loop", "D2_pep24",
+             "pep_cov_even", "pep_cov_d2n", "h0_pers_ent", "g_even_tcr", "g_even_pmhc",
+             "g_loop_even", "degree_evenness_tp", "m_erank_tp", "m_erank_tm",
+             "partcoef_tcr", "partcoef_pmhc"),
+    "moment": ("sc_gap_mean", "sc_gap_sd", "sc_gap_vol", "sc_interlock", "sc_gap_index",
+               "sc_interlock_frac", "sc_gap_depth", "sc_gap_height", "sc_gap_asym",
+               "sc_dh", "sc_dcharge", "sc_dphobic", "sc_charge_prod", "sc_phobic_prod",
+               "m_face_tp", "m_face_tm", "mean_margin", "clash_score", "exp_lost"),
+    "correlation": ("sc_shape", "sc_charge", "sc_phobic",
+                    "ca_cb_agreement_tp", "ca_cb_agreement_tm", "g_assort"),
+    "spectral": ("g_alg_conn", "m_gap_tp", "m_gap_tm",
+                 "K_tens", "K_shear", "S_tot", "aniso", "lam_max", "lam_min"),
+    "homology": ("fp_b0_r7", "fp_b1_r7", "fp_chi_r7", "fp_b0_frac_r7",
+                 "fp_b0_r8", "fp_b1_r8", "fp_chi_r8", "fp_b0_frac_r8",
+                 "g_comp_frac", "g_cyclo_frac"),
+    "potential": ("Phi_tcr_pep", "Phi_tcr_mhc", "Phi_cdr12", "Phi_cdr3a", "Phi_cdr3b",
+                  "dPhi_tcr_pep", "dPhi_pep_soft", "varPhi_pep_soft", "dPhi_tcr_soft",
+                  "varPhi_tcr_soft", "dPhi_tra_soft", "dPhi_trb_soft",
+                  "Phi_pep_mhc", "dPhi_pep_mhc", "Phi_pep_int",
+                  "neg_energy", "log_z", "log_lik", "psi"),
+    "frame": tuple(descriptors("placement")),
+    "work": ("rupture_force", "rupture_work"),
+}
+
+#: The object each operator reads, keyed to the reduction chain of section 2.
+OPERATOR_OBJECT = {
+    "hill": r"$\mathcal{T}$, $\mathcal{B}$, spectra",
+    "moment": r"$\mathcal{H}$, $\mathcal{D}$",
+    "correlation": r"$\mathcal{H}$, $\mathcal{D}$, $\mathcal{B}$",
+    "spectral": r"$\mathcal{B}$, $\mathcal{D}$, $\Sigma$",
+    "homology": r"$\mathcal{B}$, $\mathcal{C}$",
+    "potential": r"$\mathcal{L}$",
+    "frame": r"$\mathcal{F}$",
+    "work": r"$\Sigma$",
+    "count": r"$\mathcal{C}$, $\mathcal{L}$",
+}
+OPERATOR_NAME = {
+    "hill": "Hill number", "moment": "field moment", "correlation": "correlation",
+    "spectral": "spectral invariant", "homology": "homology invariant",
+    "potential": "potential sum", "frame": "frame coordinate", "work": "mechanical work",
+    "count": "count or share",
+}

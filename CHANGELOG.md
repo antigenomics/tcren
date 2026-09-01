@@ -3,6 +3,75 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
+## [3.0.0] — 2026-09-03
+
+**The score layer is rebuilt. One frozen object — a transform and a Gaussian per class over the
+transformed descriptor coordinates — and five named read-outs that are all projections of it, with
+no further fitting. Every one is defined for a single structure, so a user holding one AlphaFold
+model can run the whole set on it.**
+
+The major version is for the new public surface and the new package data, not for a removal: every
+2.30.0 entry point still works and returns what it returned.
+
+### Added
+- **`tcren.score`**, the score set, with semantic names in the API and in the CLI:
+
+  | name | tier | what is estimated |
+  |---|---|---|
+  | `peptide_score` | 0 | nothing; the direction is fixed by the potential |
+  | `pose_score` | 1 | a covariance over hold-out binders — no negative, no label |
+  | `confidence_residual` | 1 | the same covariance, read as a conditional mean |
+  | `binder_score` | 2 | class means and covariances, from hold-out binder labels |
+  | `channel_scores` | 2 | the same object, marginalized to one descriptor family |
+
+- **The five channels, and they are what makes a number explainable.** A marginal of a Gaussian is
+  a sub-block of its covariance — exact, closed form, no re-fit — so asking *which part of the
+  structure says this complex is real* costs an index and nothing else: `placement` (where the
+  receptor sits in the groove frame), `interface` (how much interface it makes, of what chemistry),
+  `shape` (the footprint free of its size), `energetics` (the contact chemistry in kT), `mechanics`
+  (the interface as a network of breakable springs). Those are the same subsets the fit-free `Q`,
+  `T` and the energy block were built on by hand.
+- **`tcren assess`** — every read-out for a `tcren features` table, one row per structure.
+  `--peptide` when the peptide is what varies, which restores the presentation descriptors the
+  receptor read-out marginalizes out.
+- **`tcren fit-holdout`** — refit the frozen model from its manifest and a descriptor table, and
+  get the shipped arrays back bit for bit. This is the answer to why `P_native` was withdrawn: its
+  coefficients were frozen against a training set nobody could reconstruct, and these are frozen
+  against one that is named, deposited and shipped.
+- **Package data**: `holdout_model.npz` (315 kB — the transform parameters, the class moments and
+  the confidence coordinate) and `holdout_manifest.csv.gz` (329 kB — the 8,292 structures the fit
+  used, with dataset, epitope, label and ipTM). The 19 MB descriptor table deliberately does **not**
+  ship; `tcren fetch-data` plus `tcren features` regenerates it from the ids the manifest names.
+- **`tcren.score.transform`** — nine transform classes keyed on a descriptor's unit and operator.
+  Monotone and variance-stabilising throughout, and **never rank-based**, which is measured rather
+  than argued: mapping each marginal onto a uniform took the per-cohort median ROC-AUC from 0.630
+  to 0.543 on six template-covered cohorts and from 0.613 to 0.507 on sixteen template-free ones.
+  The signal *is* the marginal scale, and flattening a distribution deletes it.
+- **`reliability.artefact_directions`** — a label-free test for which directions of a binder
+  manifold belong to the structure generator rather than to the interface. A direction real
+  crystals break harder than modelled binders do is the generator's own regularity: measured, the
+  tightest band breaks 4.55x on crystals against 3.18x on decoys and scores 0.504 over sixteen
+  template-free cohorts, a coin, where the loose band reads 0.606. Nothing in it reads a binder
+  label. Ledoit-Wolf shrinkage floors the shipped model's smallest direction at s.d. 0.0797, above
+  that band, so `pose_score` cannot read it.
+- **`OPERATOR`, `OPERATOR_NAME` and `OPERATOR_OBJECT` move into `tcren.descriptors.catalogue`**,
+  which is where catalogue data belongs; `scripts/gen_appendix.py` imports them from there.
+
+### Changed
+- **`recognition.STATUS` gains four exact identities** — `sc_gap_index` = (`sc_dh` +
+  `sc_gap_mean`)/2, `dPhi_tcr_soft` = `dPhi_tra_soft` + `dPhi_trb_soft`, and `n_contacts_tm` /
+  `n_contacts_tp` as the sums of their contact-type tallies. Found by a rank-revealing search over
+  21,939 corpus structures and verified to machine precision. **With all fifteen removed the
+  catalogue is full rank**, so this list is now closed rather than partial. `STATUS` only: the
+  registry digest does not move and no recompute follows.
+- `Joint.fit` takes `shrink=False`, which the artefact test needs and nothing else should use.
+
+### Not removed
+- `cohort.q_score`, `reliability.t_score` and `reliability.s_score` stay, documented as the
+  fit-free predecessor tier. `S` leads the functionally validated receptor screen on its own
+  (0.818 against ipTM's 0.795) and **composes** with `binder_score` rather than being replaced by
+  it — together they read 0.783 on the template-covered stratum against 0.665 and 0.682 alone.
+
 ## [2.30.0] — 2026-09-02
 
 **Twenty-three descriptors, 141 -> 164: the published interface literature, measured on the

@@ -22,6 +22,8 @@ from collections import Counter
 from pathlib import Path
 
 from tcren import __version__
+from tcren.descriptors.catalogue import (  # noqa: F401
+    OPERATOR, OPERATOR_NAME, OPERATOR_OBJECT)
 from tcren.recognition import DESCRIPTORS, DETAIL, FAMILIES, INVARIANCE, STATUS, descriptors
 
 OUT = Path(__file__).resolve().parents[1] / "appendix" / "generated"
@@ -36,53 +38,6 @@ FAMILY_LEAD = {
     "potts": "The same interface read against the partition function of the coupled contact model.",
     "kinetics": "The contact map as a network of breakable springs. No potential enters.",
 }
-
-#: Which operator of section 3 produces the descriptor. A descriptor absent from here is a count,
-#: a share or a raw geometric coordinate -- the two operators that need no derivation.
-OPERATOR = {
-    "hill": ("H_cell", "D1_cell", "D2_cell", "S_cell", "J_cell", "H_loop", "D2_loop", "D2_pep24",
-             "pep_cov_even", "pep_cov_d2n", "h0_pers_ent", "g_even_tcr", "g_even_pmhc",
-             "g_loop_even", "degree_evenness_tp", "m_erank_tp", "m_erank_tm",
-             "partcoef_tcr", "partcoef_pmhc"),
-    "moment": ("sc_gap_mean", "sc_gap_sd", "sc_gap_vol", "sc_interlock", "sc_gap_index",
-               "sc_interlock_frac", "sc_gap_depth", "sc_gap_height", "sc_gap_asym",
-               "sc_dh", "sc_dcharge", "sc_dphobic", "sc_charge_prod", "sc_phobic_prod",
-               "m_face_tp", "m_face_tm", "mean_margin", "clash_score", "exp_lost"),
-    "correlation": ("sc_shape", "sc_charge", "sc_phobic",
-                    "ca_cb_agreement_tp", "ca_cb_agreement_tm", "g_assort"),
-    "spectral": ("g_alg_conn", "m_gap_tp", "m_gap_tm",
-                 "K_tens", "K_shear", "S_tot", "aniso", "lam_max", "lam_min"),
-    "homology": ("fp_b0_r7", "fp_b1_r7", "fp_chi_r7", "fp_b0_frac_r7",
-                 "fp_b0_r8", "fp_b1_r8", "fp_chi_r8", "fp_b0_frac_r8",
-                 "g_comp_frac", "g_cyclo_frac"),
-    "potential": ("Phi_tcr_pep", "Phi_tcr_mhc", "Phi_cdr12", "Phi_cdr3a", "Phi_cdr3b",
-                  "dPhi_tcr_pep", "dPhi_pep_soft", "varPhi_pep_soft", "dPhi_tcr_soft",
-                  "varPhi_tcr_soft", "dPhi_tra_soft", "dPhi_trb_soft",
-                  "Phi_pep_mhc", "dPhi_pep_mhc", "Phi_pep_int",
-                  "neg_energy", "log_z", "log_lik", "psi"),
-    "frame": tuple(descriptors("placement")),
-    "work": ("rupture_force", "rupture_work"),
-}
-
-#: The object each operator reads, keyed to the reduction chain of section 2.
-OPERATOR_OBJECT = {
-    "hill": r"$\mathcal{T}$, $\mathcal{B}$, spectra",
-    "moment": r"$\mathcal{H}$, $\mathcal{D}$",
-    "correlation": r"$\mathcal{H}$, $\mathcal{D}$, $\mathcal{B}$",
-    "spectral": r"$\mathcal{B}$, $\mathcal{D}$, $\Sigma$",
-    "homology": r"$\mathcal{B}$, $\mathcal{C}$",
-    "potential": r"$\mathcal{L}$",
-    "frame": r"$\mathcal{F}$",
-    "work": r"$\Sigma$",
-    "count": r"$\mathcal{C}$, $\mathcal{L}$",
-}
-OPERATOR_NAME = {
-    "hill": "Hill number", "moment": "field moment", "correlation": "correlation",
-    "spectral": "spectral invariant", "homology": "homology invariant",
-    "potential": "potential sum", "frame": "frame coordinate", "work": "mechanical work",
-    "count": "count or share",
-}
-
 
 def _op(name: str) -> str:
     for op, names in OPERATOR.items():
