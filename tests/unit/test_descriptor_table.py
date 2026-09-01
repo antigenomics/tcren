@@ -51,3 +51,16 @@ def test_the_generated_family_graph_is_current():
         capture_output=True, text=True,
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_the_generated_appendix_layer_is_current():
+    """`python scripts/gen_appendix.py` brings it back into line.
+
+    The whitepaper's tables are the catalogue; without this a descriptor can be added and the
+    appendix keeps claiming the old count until someone reads it closely.
+    """
+    result = subprocess.run(
+        [sys.executable, str(REPO / "scripts" / "gen_appendix.py"), "--check"],
+        capture_output=True, text=True,
+    )
+    assert result.returncode == 0, result.stderr
