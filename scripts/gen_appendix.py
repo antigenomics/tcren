@@ -109,8 +109,11 @@ def _tex(s: str) -> str:
         "log-odds\\textasciicircum{}2": r"log-odds$^2$",
         "alpha": r"$\alpha$", "beta": r"$\beta$", "Phi": r"$\Phi$", "chi": r"$\chi$",
     }
+    # Guarded on both sides against a lowercase letter, or `chi` fires inside "reaching" and
+    # renders "rea$\\chi$ng". The guard is not \\b: `CDR3alpha` and `Calpha` must still match, and
+    # both are preceded by a non-lowercase character, while `alphabet` is followed by one.
     pattern = "|".join(re.escape(k) for k in sorted(sym, key=len, reverse=True))
-    s = re.sub(pattern, lambda m: sym[m.group(0)], s)
+    s = re.sub(f"(?<![a-z])(?:{pattern})(?![a-z])", lambda m: sym[m.group(0)], s)
     if s in ("A", "deg", "rad"):
         s = {"A": r"\AA", "deg": r"$^\circ$", "rad": "rad"}[s]
     return s

@@ -64,3 +64,19 @@ def test_the_generated_appendix_layer_is_current():
         capture_output=True, text=True,
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_the_appendix_escaper_does_not_mangle_ordinary_words():
+    """`chi` inside "reaching" rendered as "rea$\\chi$ng" in four catalogue rows.
+
+    The symbol substitution is guarded against a lowercase letter on either side, which has to
+    admit `Calpha` and `CDR3alpha` while rejecting `reaching` and `alphabet`.
+    """
+    sys.path.insert(0, str(REPO / "scripts"))
+    from gen_appendix import _tex
+
+    assert _tex("reaching") == "reaching"
+    assert _tex("alphabetical") == "alphabetical"
+    assert _tex("Calpha") == r"C$\alpha$"
+    assert _tex("CDR3alpha") == r"CDR3$\alpha$"
+    assert _tex("chi = b0 - b1") == r"$\chi$ = b0 - b1"
