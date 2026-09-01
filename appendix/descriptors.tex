@@ -90,8 +90,8 @@ which each step discards information irreversibly (\cref{fig:reduction}).
 \includegraphics[width=0.92\textwidth]{generated/reduction.pdf}
 \caption{The reduction chain. Each arrow discards information; the bold arrow
 $\obj{B} \twoheadrightarrow \obj{T}$ is the one that matters most, because it is a quotient and
-therefore orders the redundancy structure of \cref{sec:quotient}. Dashed lines attach the six
-families to the objects they read; \emph{topology} reads four of them, which is why it is the
+therefore orders the redundancy structure of \cref{sec:quotient}. The italic line in each node
+names the family that reads that object; \emph{topology} appears in four, which is why it is the
 largest family and the least coherent one.}
 \label{fig:reduction}
 \end{figure}
@@ -335,37 +335,35 @@ signs into one mean therefore cancels the physics, which is why the field is rep
 
 \begin{figure}[t]
 \centering
-\begin{tikzpicture}[font=\small,scale=1.0]
-\draw[->] (-0.3,0) -- (9.4,0) node[right,font=\scriptsize] {$x$};
-\draw[->] (-0.3,-1.5) -- (-0.3,1.9) node[above,font=\scriptsize] {$h$ [\AA]};
-% the pMHC face
-\draw[thick,orange!75!black]
-  plot[smooth,domain=0:9,samples=60] (\x, {0.42*sin(\x r*1.15) + 0.18*sin(\x r*3.1)});
-\node[orange!65!black,font=\scriptsize,anchor=west] at (9.05,-0.55) {$h_{\mathrm{pMHC}}$};
-% the TCR face
-\draw[thick,blue!65!black]
-  plot[smooth,domain=0:9,samples=60] (\x, {0.36*sin(\x r*1.15 + 40) - 0.28});
-\node[blue!60!black,font=\scriptsize,anchor=west] at (9.05,0.42) {$h_{\mathrm{TCR}}$};
-% shade: interlock where TCR below pMHC
+\begin{tikzpicture}[font=\small,xscale=1.02,yscale=1.55]
+% h_pMHC = 0.55 sin(1.2x) + 0.30 sin(2.7x + 1);  h_TCR = 0.40 sin(1.2x + pi/2) - 0.25.
+% Chosen so the interdigitated share is 0.715 -- close to the measured 0.750 -- with the void
+% patches deep enough to see. A drawing where the receptor never rises above the groove would
+% claim 1.0 and misstate the result.
+\def\hpmhc{0.55*sin(68.755*\x) + 0.30*sin(154.70*\x + 57.3)}
+\def\htcr{0.40*sin(68.755*\x + 90) - 0.25}
+% shade: interlock, TCR below pMHC
 \begin{scope}
-\clip plot[smooth,domain=0:9,samples=80] (\x, {0.42*sin(\x r*1.15) + 0.18*sin(\x r*3.1)})
-      -- (9,-2) -- (0,-2) -- cycle;
-\fill[blue!22] plot[smooth,domain=0:9,samples=80] (\x, {0.36*sin(\x r*1.15 + 40) - 0.28})
-      -- (9,2) -- (0,2) -- cycle;
+\clip plot[smooth,domain=0:9,samples=200] (\x, {\hpmhc}) -- (9,-2) -- (0,-2) -- cycle;
+\fill[blue!24] plot[smooth,domain=0:9,samples=200] (\x, {\htcr}) -- (9,2) -- (0,2) -- cycle;
 \end{scope}
-% shade: void where TCR above pMHC
+% shade: void, TCR above pMHC
 \begin{scope}
-\clip plot[smooth,domain=0:9,samples=80] (\x, {0.36*sin(\x r*1.15 + 40) - 0.28})
-      -- (9,-2) -- (0,-2) -- cycle;
-\fill[orange!25] plot[smooth,domain=0:9,samples=80]
-      (\x, {0.42*sin(\x r*1.15) + 0.18*sin(\x r*3.1)}) -- (9,2) -- (0,2) -- cycle;
+\clip plot[smooth,domain=0:9,samples=200] (\x, {\htcr}) -- (9,-2) -- (0,-2) -- cycle;
+\fill[orange!45] plot[smooth,domain=0:9,samples=200] (\x, {\hpmhc}) -- (9,2) -- (0,2) -- cycle;
 \end{scope}
-\node[font=\scriptsize,anchor=west] at (0.15,1.55)
-  {\tikz\fill[blue!22](0,0)rectangle(2.6mm,2.6mm); \ \dsc{sc\_interlock} $=\!\int\!\max(0,-\mathrm{gap})\,\mathrm{d}A$};
-\node[font=\scriptsize,anchor=west] at (5.05,1.55)
-  {\tikz\fill[orange!25](0,0)rectangle(2.6mm,2.6mm); \ \dsc{sc\_gap\_vol} $=\!\int\!\max(0,\mathrm{gap})\,\mathrm{d}A$};
-\node[font=\scriptsize,anchor=west] at (0.15,-1.28)
-  {median cell interdigitates: \dsc{sc\_interlock\_frac} $=0.750$ over 371 crystals};
+\draw[->] (-0.15,-1.35) -- (-0.15,1.15) node[above,font=\scriptsize] {$h$ [\AA]};
+\draw[->] (0,0) -- (9.5,0) node[right,font=\scriptsize] {$x$};
+\draw[thick,orange!72!black] plot[smooth,domain=0:9,samples=200] (\x, {\hpmhc});
+\draw[thick,blue!62!black]   plot[smooth,domain=0:9,samples=200] (\x, {\htcr});
+\node[orange!62!black,font=\scriptsize,anchor=west] at (9.05,0.65) {$h_{\mathrm{pMHC}}$};
+\node[blue!58!black,font=\scriptsize,anchor=west]   at (9.05,0.15) {$h_{\mathrm{TCR}}$};
+\node[font=\scriptsize,anchor=west] at (0.05,1.02)
+  {\tikz\fill[blue!24](0,0)rectangle(2.6mm,2.6mm);\ \dsc{sc\_interlock} $=\!\int\!\max(0,-\mathrm{gap})\,\mathrm{d}A$};
+\node[font=\scriptsize,anchor=west] at (4.75,1.02)
+  {\tikz\fill[orange!45](0,0)rectangle(2.6mm,2.6mm);\ \dsc{sc\_gap\_vol} $=\!\int\!\max(0,\mathrm{gap})\,\mathrm{d}A$};
+\node[font=\scriptsize,anchor=west] at (0.05,-1.20)
+  {the median cell interdigitates: \dsc{sc\_interlock\_frac} $= 0.750$ over 371 crystals};
 \end{tikzpicture}
 \caption{The gap field in cross-section. Blue is interdigitated volume, orange is void; the two are
 integrated separately because a mean over the retained cells cancels them against each other. On a
@@ -666,41 +664,42 @@ structure (\cref{fig:frame}).
 
 \begin{figure}[t]
 \centering
-\begin{tikzpicture}[font=\small,scale=1.05]
-% groove floor
-\draw[fill=gray!12,draw=gray!55] (0,0) ellipse (3.5 and 0.85);
-\node[gray!60!black,font=\scriptsize] at (0,-0.62) {groove floor C$\alpha$ (SVD)};
+\begin{tikzpicture}[font=\small,scale=1.08]
+% groove floor, and its label BELOW the ellipse -- the short-axis arrow used to strike through it
+\draw[fill=gray!12,draw=gray!55] (0,0) ellipse (3.4 and 0.8);
+\node[gray!55!black,font=\scriptsize,anchor=north] at (1.5,-1.02)
+  {groove-floor C$\alpha$, whose SVD gives the frame};
 % helices
-\draw[very thick,orange!70!black,decorate,decoration={coil,aspect=0,segment length=4.6mm,amplitude=1.1mm}]
-  (-3.0,0.62) -- (3.0,0.62);
-\draw[very thick,orange!70!black,decorate,decoration={coil,aspect=0,segment length=4.6mm,amplitude=1.1mm}]
-  (-3.0,-0.62) -- (3.0,-0.62);
-\node[orange!65!black,font=\scriptsize,anchor=west] at (3.1,0.62) {$\alpha$1 helix};
-\node[orange!65!black,font=\scriptsize,anchor=west] at (3.1,-0.62) {$\alpha$2 ($\beta$1) helix};
-% peptide
-\draw[thick,green!45!black,-{Stealth[length=2.4mm]}] (-2.3,0.06) -- (2.3,0.06);
-\foreach \x in {-2.0,-1.3,-0.6,0.1,0.8,1.5,2.1}
-  \fill[green!45!black] (\x,0.06) circle (1.5pt);
-\node[green!40!black,font=\scriptsize] at (2.55,0.32) {C};
-\node[green!40!black,font=\scriptsize] at (-2.55,0.32) {N};
-% TCR body
-\draw[fill=blue!12,draw=blue!55,rounded corners=3pt] (-1.35,1.55) rectangle (1.35,2.55);
-\node[blue!55!black,font=\scriptsize] at (0,2.05) {V$\alpha$\,/\,V$\beta$};
-\draw[blue!55] (-0.75,1.55) .. controls (-0.5,1.05) and (-0.3,0.75) .. (-0.35,0.42);
-\draw[blue!55] (0.75,1.55) .. controls (0.5,1.05) and (0.3,0.75) .. (0.42,0.42);
-\node[blue!55!black,font=\scriptsize,anchor=west] at (0.55,0.95) {CDR loops};
-% the frame
-\draw[-{Stealth[length=2.6mm]},very thick] (0,0.06) -- (1.5,0.06)
-  node[below right,font=\scriptsize] {$\hat u$ \ groove long axis};
-\draw[-{Stealth[length=2.6mm]},very thick] (0,0.06) -- (-0.62,-0.62)
-  node[below left,font=\scriptsize] {$\hat w$};
-\draw[-{Stealth[length=2.6mm]},very thick] (0,0.06) -- (0,1.35)
-  node[left,font=\scriptsize,pos=0.85] {$\hat n$};
-\fill (0,0.06) circle (1.6pt);
-% height
-\draw[<->,gray!70] (2.75,0.06) -- (2.75,1.9) node[midway,right,font=\scriptsize,black]
-  {\dsc{height}};
-\draw[gray!55,dashed] (0,1.9) -- (2.75,1.9);
+\draw[very thick,orange!70!black,decorate,
+      decoration={coil,aspect=0,segment length=4.6mm,amplitude=1.1mm}] (-2.9,0.58) -- (2.9,0.58);
+\draw[very thick,orange!70!black,decorate,
+      decoration={coil,aspect=0,segment length=4.6mm,amplitude=1.1mm}] (-2.9,-0.58) -- (2.9,-0.58);
+\node[orange!65!black,font=\scriptsize,anchor=west] at (3.0,0.58) {$\alpha$1 helix};
+\node[orange!65!black,font=\scriptsize,anchor=west] at (3.0,-0.58) {$\alpha$2 ($\beta$1) helix};
+% peptide, N to C
+\draw[thick,green!45!black,-{Stealth[length=2.2mm]}] (-2.2,0.04) -- (2.2,0.04);
+\foreach \x in {-1.9,-1.25,-0.6,0.05,0.7,1.35,1.95} \fill[green!45!black] (\x,0.04) circle (1.4pt);
+\node[green!40!black,font=\scriptsize] at (-2.35,-0.24) {N};
+\node[green!40!black,font=\scriptsize] at (2.35,-0.24) {C};
+% TCR body and the loops reaching down
+\draw[fill=blue!12,draw=blue!55,rounded corners=3pt] (-1.25,1.75) rectangle (1.25,2.6);
+\node[blue!55!black,font=\scriptsize] at (0,2.18) {V$\alpha$\,/\,V$\beta$};
+\draw[blue!50] (-0.7,1.75) .. controls (-0.55,1.25) and (-0.5,0.85) .. (-0.55,0.40);
+\draw[blue!50] (0.7,1.75)  .. controls (0.55,1.25) and (0.5,0.85)  .. (0.6,0.40);
+\node[blue!55!black,font=\scriptsize,anchor=west] at (0.72,1.18) {CDR loops};
+% the frame: u in plane, n up, w foreshortened down-LEFT into free space
+\draw[-{Stealth[length=2.4mm]},very thick] (0,0.04) -- (1.35,0.04);
+\node[font=\scriptsize,anchor=north west] at (1.15,-0.08) {$\hat u$};
+\draw[-{Stealth[length=2.4mm]},very thick] (0,0.04) -- (0,1.30);
+\node[font=\scriptsize,anchor=east] at (-0.06,1.18) {$\hat n$};
+\draw[-{Stealth[length=2.4mm]},very thick] (0,0.04) -- (-1.00,-0.72);
+\node[font=\scriptsize,anchor=north east] at (-0.95,-0.70) {$\hat w$};
+\fill (0,0.04) circle (1.5pt);
+% height, measured on the left where nothing else is
+\draw[gray!55,dashed] (-1.25,2.18) -- (-2.55,2.18);
+\draw[gray!55,dashed] (0,0.04) -- (-2.55,0.04);
+\draw[<->,gray!70] (-2.45,0.04) -- (-2.45,2.18);
+\node[font=\scriptsize,anchor=east] at (-2.52,1.12) {\dsc{height}};
 \end{tikzpicture}
 \caption{The groove frame. $\hat u$, $\hat w$ and $\hat n$ come from the singular value
 decomposition of the groove-floor C$\alpha$ coordinates, with signs fixed by the peptide's N$\to$C
