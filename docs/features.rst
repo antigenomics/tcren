@@ -688,8 +688,9 @@ of them is fit-free and defined for a single structure.
      - Footprint shape, free of footprint size — the channel that holds up when the generator had
        no template to copy.
      - Fit-free :func:`tcren.reliability.t_score`, directional against the same crystals.
-   * - ``s_strain``
-     - Crystal-natural vs generated-forced pose.
+   * - ``strain_z``
+     - Crystal-natural against generated-forced pose. Not a column: 2.26.0 removed the
+       ``s_strain`` output with every other frozen-coefficient composite, and the function stayed.
      - Fit-free :func:`tcren.cohort.strain_z`: signed z of the strain terms, grading
        crystal < generated-real < generated-decoy.
 

@@ -6,13 +6,13 @@ Scoring & prediction
     * ``tcren score`` — end-to-end candidate-epitope scoring (drop-in for ``run_TCRen.R``).
     * ``tcren rank`` — percentile-rank a peptide's energy against a random pMHC background.
     * ``tcren ddg`` — ΔΔG of peptide mutations (fast virtual-matrix path; alanine scan / neoantigens).
-    * ``tcren binder`` — TCR binder vs non-binder from AF-orthogonal interface geometry.
+    * ``tcren assess`` — the score set on a folder of models: pose, binder, the five channels.
     * ``tcren energy`` — DOPE atom-level interface interaction energy (the ΔΔG ``e_native`` scorer).
     * ``tcren mechanics`` — interface mechanics (stiffness / rupture / coupling) — the koff proxies.
     * ``tcren scoring`` — per-interface contact energies Φ (``--delta`` for ΔΦ, ``--geometry`` for Q).
     * ``tcren surface`` — pMHC surface topology: height/hydropathy/charge maps + epitope comparison.
     * ``tcren cpl`` — combinatorial-peptide-library response matrix from one template structure.
-    * ``tcren recognize`` — every interface descriptor + joint P(real), one row per structure.
+    * ``tcren recognize`` — every interface descriptor, and Q/T/S from a feature table.
 
 Annotation & contacts
     * ``tcren annotate`` — chain typing + region markup (TCR CDR/FR, MHC groove, peptide; ``--pseudo``).
@@ -842,22 +842,23 @@ def recognize(
     threads: int = typer.Option(1, "-t", "--threads", help="concurrent annotation batches for a multi-structure run (0 = all cores)"),
     autodetect_species: bool = typer.Option(True, "--autodetect-species/--no-autodetect-species", help="also search mouse to catch a mis-declared organism; --no- halves the annotation cost"),
 ) -> None:
-    """Full interface descriptor table + joint P(real) for each TCR-pMHC complex (one TSV row per PDB).
+    """Full interface descriptor table for each TCR-pMHC complex (one TSV row per PDB).
 
     One row per structure with the complete recognition feature set
     (``tcren.recognition.RECOGNITION_FEATURES``): docking geometry (pitch, crossing, the 6
     TCRdock rigid-body params), per-interface energies ``Phi_{tcr_pep,tcr_mhc,pep_mhc}`` and
     poly-alanine ``dPhi``, CDR-loop energies ``Phi_{cdr12,cdr3a,cdr3b}``, contact-type tallies, ΔSASA ``burial`` and the MHC-class
-    indicator — plus ``p_real`` (the distribution-aware Bayesian logistic) and ``p_real_bn`` (the
-    Gaussian BN): the joint probability the complex is a genuine recognition interface rather than a
-    wrong-TCR shuffle. ``--full`` also emits the 18 CDR3-local frame descriptors (the FramePose strain
-    layer) and the intra-peptide term ``Phi_pep_int``/``n_pep_int`` — the peptide's contact energy with
-    **itself**, which the three interface energies omit. ``--scores`` is kept for v1 reproduction:
-    it adds the fit-free ``q_bind`` (binder-ID; the directional-decorrelated interface-quality
-    score, calibrated on the native crystal reference so it is defined per structure and
-    transfers) and ``s_strain`` (forced-pose), alongside the fitted ``p_bind`` / ``p_forced``. The
-    recommended scores are ``Q``, ``T`` and ``S``, which come from ``--features``.
-    ``--features-only`` skips the models. Output is TSV.
+    indicator. ``--full`` also emits the 18 CDR3-local frame descriptors (the FramePose strain
+    layer) and the intra-peptide term ``Phi_pep_int``/``n_pep_int`` — the peptide's contact energy
+    with **itself**, which the three interface energies omit.
+
+    This command emits **no fitted composite**. ``p_real``, ``p_real_bn``, ``p_bind``, ``p_forced``,
+    ``q_bind`` and ``s_strain`` were removed in 2.26.0, and the reason was reproducibility rather
+    than performance: their coefficients were frozen against training sets nobody could
+    reconstruct, which made them the one part of the package a reader could not regenerate. What
+    ``--features`` returns instead is ``Q``, ``T`` and ``S``, none of which fits anything at call
+    time; the two-class read-outs are ``tcren assess``, whose frozen model refits from a manifest
+    that ships in the wheel. Output is TSV.
 
     ``--mechanics`` appends the koff proxies ``tcren mechanics`` reports — stiffness tensor, steered
     rupture, coupling residues — to these same rows. Prefer it to running the two commands: they
@@ -872,7 +873,7 @@ def recognize(
 
         tcren features  -s models/ -o feats.tsv                      # the descriptor pass, once
         tcren recognize --features feats.tsv -o scores.tsv           # Q, T, S
-        tcren recognize -s models/ -o out.tsv                        # descriptors + p_real, no feature file
+        tcren recognize -s models/ -o out.tsv                        # descriptors only, no feature file
         tcren recognize -s models/ --mechanics -t 0 -o out.tsv       # + the spring-network terms
     """
     from .recognition import recognition_table
