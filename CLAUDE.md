@@ -54,8 +54,34 @@ ones, and the pooled number is a Simpson artefact.
 - **`pitch_angle` is generator-confidence leakage, never interface geometry.** `cohort.P_NATIVE_BANNED`
   makes naming it in a channel raise rather than silently fit.
 
+## The descriptor whitepaper — `appendix/` (2026-09-02)
+
+`appendix/descriptors.pdf` is the reference for what the catalogue *is*: the reduction chain, the
+nine operators, every formula and its derivation, MHC class I/II, and all 164 rows with units and
+`STATUS`. `make` in that directory rebuilds it. Three things not to relearn:
+
+- **The hierarchy is a chain of quotients**, $S \to C \to B \to T$, and $B \twoheadrightarrow T$ is
+  the load-bearing step. Every functional of the cell tally is a functional of the biadjacency
+  matrix and not the reverse, so **redundancy runs down the chain and never up it**. That orders a
+  redundancy screen's output before it is run, and it is why the parameter-free `g_*` forms are the
+  ones to prefer over the radius-tagged `fp_*` ones on parsimony grounds.
+- **Nineteen descriptors are one formula.** The Hill number $D_q$ generates the whole `*_cell` /
+  `*_loop` / `pep_cov_*` / `g_even_*` / `m_erank_*` / `partcoef_*` set. Two identities not in
+  `STATUS`: the participation coefficient is Gini--Simpson $1 - 1/D_2$, and the participation ratio
+  is $D_2/k$. **`m_erank_*` is order 2, not Roy \& Vetterli's order 1** — the code is correct and
+  its docstring says so, but the literature name points at $D_1$, so any comparison against a
+  published effective rank must use $q = 2$.
+- **Class II lives only in the crystals** — 94 of 374, and every modelled set is entirely class I.
+  `mhc_class_bin` is therefore constant on both receptor benchmarks, and no class II claim is
+  checkable against a model. The gap channel is class-invariant (`sc_interlock_frac` 0.769 against
+  0.762), so interdigitation is not a class I artefact.
+
+`scripts/gen_appendix.py` emits everything factual about the catalogue; `--check` fails when it is
+stale, as for `gen_descriptor_table` and `gen_family_graph`. Never edit `appendix/generated/*`.
+
 ## Working here
 
 `./setup.sh` creates the venv and installs editable; `./setup.sh --test` runs the suite. Docs build
 with `-W`, so a warning is a failure. Update `skills/tcren/SKILL.md` and `docs/` in the same change
-as any new public capability, and `CHANGELOG.md` before any release.
+as any new public capability, and `CHANGELOG.md` before any release. A new descriptor also needs
+`python scripts/gen_appendix.py` — the whitepaper's tables come from the catalogue, not from prose.
