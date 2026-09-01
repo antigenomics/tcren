@@ -38,7 +38,7 @@ Sign convention: every term is oriented so that **higher = more binder-like** fo
    The hand-written combination rules this module once exposed were removed in 2.12.0, and the
    fitted cohort posterior that replaced them was itself discarded in 2.26.0. Use
    :func:`q_score` for the single-structure interface-quality score, and
-   :func:`tcren.reliability.s_free` for the composition.
+   :func:`tcren.reliability.s_score` for the composition.
 """
 
 from __future__ import annotations

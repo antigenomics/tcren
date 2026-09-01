@@ -1,11 +1,11 @@
-r"""Single-structure reliability: ``S_free``, its calibration, and the generator diagnostic.
+r"""Single-structure reliability: ``S``, its calibration, and the generator diagnostic.
 
 The cohort-fitted posterior this module replaced refitted a latent-class model per call and raised
 when a cohort had fewer rows than features, so it was undefined for one structure and its numbers
-depended on which rows the fit was anchored on. It was discarded in 2.26.0. ``S_free`` has neither
+depended on which rows the fit was anchored on. It was discarded in 2.26.0. ``S`` has neither
 property:
 
-.. math::  S_{\mathrm{free}} \;=\; \frac{Q}{\sigma_Q} \;+\; \frac{T}{\sigma_T}
+.. math::  S \;=\; \frac{Q}{\sigma_Q} \;+\; \frac{T}{\sigma_T}
            \;+\; \frac{\Pi - \mu_\Pi}{\sigma_\Pi}
 
 Three blocks, each a fit-free directional score :math:`z(x)^\top C^{-1} s` over the **Native2026
@@ -41,7 +41,7 @@ T_FEATURES_TOPO = ("D2_pep24", "fp_b0_frac_r7", "H_cell", "L_canon", "ab_imb")
 #: Its orientation. Every term rises towards a native interface except the footprint's
 #: connected-component fraction at 7 A, which falls.
 T_SIGNS = (1.0, -1.0, 1.0, 1.0, 1.0)
-#: The partition-function-referenced energy S_free spends. See the module docstring.
+#: The partition-function-referenced energy S spends. See the module docstring.
 PI_FROZEN = "neg_energy"
 
 #: Columns only the ``potts`` family emits. A feature table carrying ``n_contacts`` alongside none
@@ -105,7 +105,7 @@ def moments() -> dict:
 
     Four keys. ``blocks`` carries the native mean and spread of each block, keyed by ``Q``, ``T``
     and the :math:`\\Pi` column named in ``pi_frozen``; those spreads are the divisors in
-    :func:`s_free`. ``calibration`` carries the frozen Platt links :func:`p_binder` selects with
+    :func:`s_score`. ``calibration`` carries the frozen Platt links :func:`p_binder` selects with
     ``link=``, and ``af_bands`` the confidence-band tables :func:`af_band` reads. Every one was
     fitted out of fold on the benchmark and is shipped rather than refitted, so a score computed
     today means what it meant when the paper was written.
@@ -129,8 +129,8 @@ def t_score(table, reference=None) -> np.ndarray:
                    features=T_FEATURES_TOPO, signs=T_SIGNS)
 
 
-def s_free(table, reference=None, energy=None) -> np.ndarray:
-    """``S_free``, the recommended single-structure binder score. Higher = more native-like.
+def s_score(table, reference=None, energy=None) -> np.ndarray:
+    """``S``, the recommended single-structure binder score. Higher = more native-like.
 
     Args:
         table: a ``tcren features`` table (dict / pandas / polars) carrying the four geometry and
@@ -153,7 +153,7 @@ def s_free(table, reference=None, energy=None) -> np.ndarray:
     return q + t + (e - m[PI_FROZEN]["mean"]) / m[PI_FROZEN]["sd"]
 
 
-def p_binder(score, link: str = "binder_bm|S_nat") -> np.ndarray:
+def p_binder(score, link: str = "binder_bm|S") -> np.ndarray:
     """Map a score onto a probability through a frozen Platt link.
 
     The links were fitted OUT OF FOLD on the benchmarks — leave-one-epitope-out on the 22-cohort
@@ -180,9 +180,9 @@ def af_band(iptm, reference: str = "binder_bm|ipTM") -> list[dict]:
     """Look each confidence up in the frozen band table: how often is a model this confident wrong?
 
     The bands are deciles of the benchmark's own confidence distribution, never scanned for an
-    effect. Each entry carries ``p_nonbinder`` with a Wilson interval and ``s_free_roc_in_band`` —
-    what ``S_free`` still separates INSIDE that band, which is the actionable half: on the balanced
-    VDJdb panel the top ipTM decile is 26% non-binders and is also where ``S_free`` reads highest.
+    effect. Each entry carries ``p_nonbinder`` with a Wilson interval and ``s_roc_in_band`` —
+    what ``S`` still separates INSIDE that band, which is the actionable half: on the balanced
+    VDJdb panel the top ipTM decile is 26% non-binders and is also where ``S`` reads highest.
 
     Values outside the reference range clamp to the end bands rather than extrapolating.
     """
@@ -222,7 +222,7 @@ def inversion_flag(table, reference=None, energy=None) -> np.ndarray:
     easily than it can fake a well-formed footprint.
 
     Args:
-        table: a ``tcren features`` table, as for :func:`s_free`.
+        table: a ``tcren features`` table, as for :func:`s_score`.
         reference: overrides :func:`reliability_reference`.
         energy: :math:`\\Pi` per row, from :func:`tcren.potts.score_sites`' ``neg_energy``.
             Required — with no energy term there is nothing to invert, and the flag is NaN.
@@ -295,15 +295,15 @@ def correct_confidence(table, confidence, reference: str = "tcrvdb|ipTM",
     its confidence is not a probability that the complex is real. This reads the confidence
     *together with* the coordinates:
 
-    .. math:: \\mathrm{logit}\\,P(\\mathrm{binder}) = b_0 + b_c\\,z(c) + b_S\\,S_{\\mathrm{free}}
+    .. math:: \\mathrm{logit}\\,P(\\mathrm{binder}) = b_0 + b_c\\,z(c) + b_S\\,S
               + b_N\\,N
 
-    where :math:`c` is the generator's confidence, :math:`S_{\\mathrm{free}}` the single-structure
+    where :math:`c` is the generator's confidence, :math:`S` the single-structure
     binder score and :math:`N` the observed contact count, both in native-sd units. The
     coefficients are frozen, fitted out of fold on the benchmarks and rounded to one decimal --
     rounding costs under 0.003 macro ROC-AUC, well inside the fold-to-fold spread.
 
-    **This is the one shipped read-out that is not fit-free.** ``s_free`` takes no label anywhere;
+    **This is the one shipped read-out that is not fit-free.** ``s_score`` takes no label anywhere;
     this learns four numbers from labels, exactly as :func:`p_binder`'s Platt links do. Say so when
     reporting it.
 
@@ -316,11 +316,11 @@ def correct_confidence(table, confidence, reference: str = "tcrvdb|ipTM",
     precedent, and read the template covariate beside it.
 
     Args:
-        table: a ``tcren features`` table, as for :func:`s_free`.
+        table: a ``tcren features`` table, as for :func:`s_score`.
         confidence: the generator's confidence per row -- ipTM or pLDDT, matching ``reference``.
         reference: which frozen correction, ``<benchmark>|<confidence>``;
             :func:`available_corrections` lists them.
-        energy: :math:`\\Pi` per row, from :mod:`tcren.potts`. Without it ``S_free`` is the
+        energy: :math:`\\Pi` per row, from :mod:`tcren.potts`. Without it ``S`` is the
             two-block form and the correction is weaker, not wrong.
         contacts: the observed contact count per row, from :mod:`tcren.potts` — the available
             pairs that engaged, **not** the footprint's CDR-loop tally, which is a different
@@ -332,7 +332,7 @@ def correct_confidence(table, confidence, reference: str = "tcrvdb|ipTM",
         A dict of arrays, all the same length as ``table``: ``p_corrected`` (the number to
         threshold on), ``p_confidence`` (the confidence alone through the same link, so the two are
         comparable), ``delta_logit`` (what the structure added, in nats -- positive means the
-        coordinates argue *for* the complex), ``s_free`` and ``n_contacts`` as used.
+        coordinates argue *for* the complex), ``s_score`` and ``n_contacts`` as used.
     """
     cor = moments().get("corrections", {})
     if reference not in cor:
@@ -344,7 +344,7 @@ def correct_confidence(table, confidence, reference: str = "tcrvdb|ipTM",
 
     v = np.atleast_1d(np.asarray(confidence, float))
     z = (v - c["conf_mean"]) / c["conf_sd"]
-    s = np.asarray(s_free(table, energy=energy), float)
+    s = np.asarray(s_score(table, energy=energy), float)
     if contacts is None:
         n = np.full(np.shape(s), np.nan)
         n_term = np.zeros(np.shape(s))
@@ -352,11 +352,11 @@ def correct_confidence(table, confidence, reference: str = "tcrvdb|ipTM",
         n = (np.asarray(contacts, float) - m["n_contacts"]["mean"]) / m["n_contacts"]["sd"]
         n_term = c["b_n_contacts"] * n
 
-    delta = c["b_s_free"] * s + n_term
+    delta = c["b_s"] * s + n_term
     lo_conf = c["b0"] + c["b_conf"] * z
     return {"p_corrected": 1.0 / (1.0 + np.exp(-(lo_conf + delta))),
             "p_confidence": 1.0 / (1.0 + np.exp(-lo_conf)),
-            "delta_logit": delta, "s_free": s, "n_contacts": n}
+            "delta_logit": delta, "s_score": s, "n_contacts": n}
 
 
 def available_corrections() -> list[str]:

@@ -18,7 +18,7 @@ repeated for nothing.
 
 ``tcren recognize -s structures/`` reads the structures itself and writes the descriptor table
 (``--full`` for the CDR3-frame layer, ``--mechanics`` for the kinetics terms). The scores ``Q``,
-``T`` and ``S_free`` come from ``--features``, which is the two-command route above.
+``T`` and ``S`` come from ``--features``, which is the two-command route above.
 
 Output is **TSV**. The first column ``complex.id`` is the structure-file stem (the SHA-256 ``TCR_hash``
 for the modelled sets), which is the join key to labels and AlphaFold confidences. ``--features-only``
@@ -124,7 +124,7 @@ Options
      - append the ``kinetics`` terms in the same pass, with no second annotation
 
 ``--features`` and ``-s`` are the two ways in. With ``--features`` the output is the score table
-alone — ``complex.id``, ``Q``, ``T``, and ``S_free`` with its calibrated ``p_binder``; with ``-s``
+alone — ``complex.id``, ``Q``, ``T``, and ``S`` with its calibrated ``p_binder``; with ``-s``
 it is the descriptor table.
 
 A table read through ``--features`` is checked against the installed descriptor catalogue before it
@@ -138,7 +138,7 @@ catalogue, so a stale table cannot quietly produce a number that a fresh run wou
 Columns the reliability score reads
 ------------------------------------
 
-:func:`tcren.reliability.s_free` is the recommended single-structure score and reads three blocks
+:func:`tcren.reliability.s_score` is the recommended single-structure score and reads three blocks
 off this table. Two of them come from ``tcren features`` directly, and the third has to be joined:
 
 .. list-table::
@@ -638,10 +638,10 @@ of them is fit-free and defined for a single structure.
    * - Column
      - What it discriminates
      - Model
-   * - ``S_free``
+   * - ``S``
      - Binder vs non-binder, and a real interface vs a manufactured one. **The recommended score**
        (:doc:`reliability`).
-     - :func:`tcren.reliability.s_free`: three directional blocks against the Native2026 crystals,
+     - :func:`tcren.reliability.s_score`: three directional blocks against the Native2026 crystals,
        each divided by that block's native spread, added. No cohort, no EM, no label.
    * - ``Q``
      - Interface quality for a **single** structure, against the shipped crystal reference.
@@ -652,7 +652,7 @@ of them is fit-free and defined for a single structure.
        no template to copy.
      - Fit-free :func:`tcren.reliability.t_score`, directional against the same crystals.
    * - ``p_binder``
-     - ``S_free`` on a probability scale.
+     - ``S`` on a probability scale.
      - :func:`tcren.reliability.p_binder`: a frozen out-of-fold Platt link, leave-one-epitope-out.
    * - ``s_strain``
      - Crystal-natural vs generated-forced pose.

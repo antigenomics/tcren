@@ -520,7 +520,7 @@ def test_eta_is_the_one_body_log_odds_of_the_site_table():
 
 
 def test_score_sites_emits_the_energy_block_reliability_consumes():
-    """`neg_energy` is `s_free`'s Pi block. 2.15.0 emitted only `energy`, the opposite sign, so the
+    """`neg_energy` is `s_score`'s Pi block. 2.15.0 emitted only `energy`, the opposite sign, so the
     three-block score was unreachable from the package."""
     sites = _synthetic_sites(n_struct=3)
     m = fit_potts(sites, couplings=False)

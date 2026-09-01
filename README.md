@@ -66,11 +66,11 @@ From one TCR–peptide–MHC structure (crystal or model), each task is one comm
 | Percentile-rank a peptide vs background | `tcren rank` | `percentile_rank` |
 | ΔΔG of mutations (alanine scan / neoantigen) | `tcren ddg` | `alanine_scan`, `neoantigen_ddg` |
 | **Predict a CPL response matrix from a template** | `tcren cpl` | `response_matrix`, `mutation_effect`, `position_scan`, `equimolar_effect` |
-| Binder vs non-binder for a TCR model | `tcren features` + `tcren recognize --features` | `reliability.s_free`, `cohort.q_score` |
+| Binder vs non-binder for a TCR model | `tcren features` + `tcren recognize --features` | `reliability.s_score`, `cohort.q_score` |
 | **Every interface descriptor, in five families (four by default)** | `tcren features` | `recognition_table(include=...)`, `descriptors` |
 | **All interface descriptors, one row per structure** | `tcren recognize` | `recognition_features` |
-| **`S_free`** — geometry, footprint shape and energy in native-sd units | `tcren recognize --features` | `reliability.s_free` |
-| **Is *this* model worth believing?** — `S_free`, a calibrated `p_binder`, and the generator diagnostic | `tcren assess` | `reliability.s_free`, `p_binder`, `af_band` |
+| **`S`** — geometry, footprint shape and energy in native-sd units | `tcren recognize --features` | `reliability.s_score` |
+| **Is *this* model worth believing?** — `S`, a calibrated `p_binder`, and the generator diagnostic | `tcren assess` | `reliability.s_score`, `p_binder`, `af_band` |
 | **The contact map as a probability model** — energy, partition function, per-pair contact probability | `tcren potts fit` / `score` / `contacts` | `potts.fit_potts`, `score_sites`, `contact_probabilities` |
 | Three-interface energy Φ, poly-Ala ΔΦ, interface geometry | `tcren scoring` | `run_pipeline` |
 | Annotate chains + region markup | `tcren annotate` | `classify_chains`, `annotate_mhc` |
@@ -212,7 +212,7 @@ tcren cpl -s complex.pdb --position 5                  # every substitution at p
 tcren cpl -s complex.pdb --position 5 --mutation W     # just that one cell
 tcren cpl -s complex.pdb --position 5 --to-mixture     # cost of giving position 5 up to the mixture
 
-# Rank candidate receptors against a fixed pMHC. S_free is the score to ship -- three fit-free
+# Rank candidate receptors against a fixed pMHC. S is the score to ship -- three fit-free
 # directional blocks (geometry, footprint shape, interface energy) against the Native2026 crystals,
 # each divided by its own native spread, so it is defined for ONE structure and its value does not
 # depend on what else was scored alongside it.
@@ -279,7 +279,7 @@ runs once and the scoring pass can be repeated for nothing.
 ```bash
 tcren features  -s my_pdbs/ -o feats.tsv                   # the four default families (--all adds kinetics)
 tcren features  -s my_pdbs/ -o shape.tsv -i topology       # one family -- and only it is computed
-tcren recognize --features feats.tsv -o scores.tsv         # Q, T, S_free, p_binder
+tcren recognize --features feats.tsv -o scores.tsv         # Q, T, S, p_binder
 ```
 
 Descriptors are catalogued in five **families**, four of them computed by default (`kinetics` is
@@ -306,7 +306,7 @@ tcren recognize -s my_pdbs/ -o scored.tsv --mechanics      # + the spring-networ
 | **(a) energy** — `Phi` per interface (TCRen on TCR:peptide, MJ on presentation) + references `dPhi` + loop parts | `Phi_tcr_pep`, `Phi_tcr_mhc`, `Phi_pep_mhc`, `dPhi_tcr_pep`, `dPhi_pep_mhc`, `Phi_cdr12`, `Phi_cdr3a`, `Phi_cdr3b`, `dPhi_{pep,tcr,tra,trb}_soft`, `varPhi_{pep,tcr}_soft` |
 | **(a′) intra-peptide** (`--full`) — the peptide's contacts with *itself*, which every interface sum omits | `Phi_pep_int`, `n_pep_int` |
 | **(b) geometry** — every docking + interface descriptor | `pitch`, `crossing`, `crossing_signed`, `dock_d`, `dock_torsion`, `dock_{tcr,mhc}_u{y,z}`, `extent`, `chain_balance`, `burial`, `n_contacts_{tp,tm}`, `n_pep_contacted`, `ct_{tp,tm}_*` |
-| **(c) scores** — no training set, no binding label; written by `tcren recognize --features`, not by `-s` | `Q` — interface quality; `T` — footprint shape; `S_free` — the blocks combined, and its calibrated `p_binder`. See [`tcren.cohort`](src/tcren/cohort.py), [`tcren.reliability`](src/tcren/reliability.py) |
+| **(c) scores** — no training set, no binding label; written by `tcren recognize --features`, not by `-s` | `Q` — interface quality; `T` — footprint shape; `S` — the blocks combined, and its calibrated `p_binder`. See [`tcren.cohort`](src/tcren/cohort.py), [`tcren.reliability`](src/tcren/reliability.py) |
 
 ### Is *this* model worth believing? — `tcren assess`
 
@@ -320,16 +320,16 @@ tcren potts   score -s models/ -o potts.tsv            # writes neg_energy, the 
 tcren assess --features joined.tsv -o assessed.tsv
 ```
 
-- **Reliability** — `S_free` = `Q/sd_Q + T/sd_T + (Pi - mu)/sd_Pi`, three fit-free directional
+- **Reliability** — `S` = `Q/sd_Q + T/sd_T + (Pi - mu)/sd_Pi`, three fit-free directional
   blocks each divided by its own native spread, so they carry equal weight in native-sd units.
   Nothing is fitted at score time, so **it is defined for a single structure**. `p_binder` turns it
   into a probability through a frozen out-of-fold Platt link.
 - **Ranking** — the structure's rank and percentile inside the set, and the expected precision at a
   recall budget.
 - **The generator diagnostic** — which AlphaFold confidence band the model falls in, how often
-  models in that band turned out to be non-binders, and what `S_free` still separates *inside* it.
+  models in that band turned out to be non-binders, and what `S` still separates *inside* it.
   On a balanced 22-cohort VDJdb panel the top ipTM decile is 26.2% [18.7, 35.5] non-binders, and is
-  also the band where `S_free` reads highest.
+  also the band where `S` reads highest.
 
 Without the joined `neg_energy` column `assess` emits the two-block `Q + T` form and says so in its
 report rather than imputing the missing block.
@@ -354,10 +354,10 @@ columns, not Kd/ΔG/kon.) From Python:
 
 ```python
 from tcren.recognition import recognition_features
-from tcren.reliability import s_free
+from tcren.reliability import s_score
 
 feats = recognition_features("complex.pdb")    # dict of the 40 descriptors (RECOGNITION_FEATURES)
-score = s_free({k: [v] for k, v in feats.items()})[0]     # one structure is enough
+score = s_score({k: [v] for k, v in feats.items()})[0]     # one structure is enough
 ```
 
 ## Library

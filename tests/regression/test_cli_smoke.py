@@ -180,11 +180,11 @@ def test_a_missing_structure_is_one_line_not_a_traceback(monkeypatch, capsys, tm
 
 
 @arda
-def test_potts_score_emits_the_energy_block_that_s_free_consumes(tmp_path):
-    """The column `reliability.s_free` names as its Pi block has to be the column this writes.
+def test_potts_score_emits_the_energy_block_that_s_score_consumes(tmp_path):
+    """The column `reliability.s_score` names as its Pi block has to be the column this writes.
 
     It was not: 2.15.0 emitted only `energy = E(sigma)`, the opposite sign, so the three-block
-    `S_free` was unreachable from the shipped package and every caller silently fell back to two
+    `S` was unreachable from the shipped package and every caller silently fell back to two
     blocks. The contract is a sign, so assert the sign.
     """
     pytest.importorskip("arda")
@@ -206,7 +206,7 @@ def test_assess_writes_the_three_blocks_a_caller_decides_on(tmp_path):
     run("assess", "--features", feats, "-o", out)
     df = pl.read_csv(out, separator="\t")
     assert df.height == 1 and df["complex.id"][0] == "1ao7"
-    assert {"S_free", "p_binder", "rank", "percentile"} <= set(df.columns), df.columns
+    assert {"S", "p_binder", "rank", "percentile"} <= set(df.columns), df.columns
     assert 0.0 < df["p_binder"][0] < 1.0
 
 
@@ -224,7 +224,7 @@ def test_diagnose_corrects_the_generator_confidence_and_shows_its_parts(tmp_path
     run("diagnose", "--features", feats, "--confidence", "iptm", "-o", out)
     df = pl.read_csv(out, separator="\t")
     assert df.height == 1 and df["complex.id"][0] == "1ao7"
-    assert {"p_confidence", "delta_logit", "p_corrected", "S_free"} <= set(df.columns), df.columns
+    assert {"p_confidence", "delta_logit", "p_corrected", "S"} <= set(df.columns), df.columns
     assert 0.0 < df["p_corrected"][0] < 1.0
     # the decomposition is the point: the two probabilities differ by exactly delta_logit
     lo = lambda p: float(np.log(p / (1 - p)))  # noqa: E731

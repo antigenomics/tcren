@@ -8,10 +8,10 @@ ipTM's **top decile** are still **26.2 %** [18.7, 35.5] non-binders — and that
 where the coordinates carry the most information the confidence does not read. This module is the
 read-out for one structure at a time.
 
-``S_free``: three blocks, one divide
+``S``: three blocks, one divide
 ------------------------------------
 
-.. math::  S_{\mathrm{free}} \;=\; \frac{Q}{\sigma_Q} \;+\; \frac{T}{\sigma_T}
+.. math::  S \;=\; \frac{Q}{\sigma_Q} \;+\; \frac{T}{\sigma_T}
            \;+\; \frac{\Pi - \mu_\Pi}{\sigma_\Pi}
 
 Each block is a fit-free directional score :math:`z(x)^\top C^{-1} s` standardized against the
@@ -31,7 +31,7 @@ Why this and not a cohort-refit posterior
 The latent-class posterior this module replaced refitted on every call and **raised when a cohort
 had fewer rows than features** — so it was undefined for a single structure, and its value depended
 on what else was scored alongside it. Neither property survives contact with a user holding one
-model. It was discarded in 2.26.0. ``S_free`` fits nothing at call time.
+model. It was discarded in 2.26.0. ``S`` fits nothing at call time.
 
 Calibration, and what a probability costs
 ------------------------------------------
@@ -41,14 +41,14 @@ the 22-cohort panel, within-epitope 5-fold on TCRvdb, coefficients the fold mean
 a stronger claim than a rank, so read the expected calibration error beside it: the composed score
 reaches ECE 0.020 on the panel where ipTM alone reads 0.065.
 
-Each link's name is the score it expects. Passing a raw ``S_free`` to a ``min rank%(...)`` link is a
+Each link's name is the score it expects. Passing a raw ``S`` to a ``min rank%(...)`` link is a
 category error, not a rescaling; :func:`available_links` lists what is shipped.
 
 The generator diagnostic
 -------------------------
 
 :func:`af_band` looks a confidence up in a frozen band table: how often a model *this* confident is
-a non-binder, with a Wilson interval, and ``s_free_roc_in_band`` — what ``S_free`` still separates
+a non-binder, with a Wilson interval, and ``s_roc_in_band`` — what ``S`` still separates
 inside that band. Bands are deciles of the benchmark's own confidence distribution, never scanned
 for an effect. Values outside the range clamp to the end bands.
 
@@ -59,13 +59,13 @@ From the command line
 
    $ tcren features -s models/ -i placement,interface,topology,energetics -o feats.tsv
    $ tcren assess --features feats.tsv -o assessed.tsv \
-       --link 'tcrvdb|S_nat' --band 'tcrvdb|ipTM'
+       --link 'tcrvdb|S' --band 'tcrvdb|ipTM'
 
-   618 structures; S_free = Q + T in native-sd units, 618 finite
-     p_binder via 'tcrvdb|S_nat'; mean 0.562
+   618 structures; S = Q + T in native-sd units, 618 finite
+     p_binder via 'tcrvdb|S'; mean 0.562
      top 50% of the set (309 structures): mean p_binder 0.737 against 0.562 overall
      generator diagnostic (tcrvdb|ipTM): 60 of 618 structures sit in the top confidence decile,
-     where 15.3% [8.2%, 26.5%] of benchmark models are NON-binders and S_free still reads 0.773
+     where 15.3% [8.2%, 26.5%] of benchmark models are NON-binders and S still reads 0.773
      ROC-AUC
 
 Add the energy term by joining ``tcren potts score``'s ``neg_energy``; without it ``assess`` emits
@@ -78,9 +78,9 @@ Correcting the generator's confidence
 :func:`correct_confidence` does, by reading the confidence together with the coordinates:
 
 .. math:: \mathrm{logit}\,P(\mathrm{binder}) = b_0 + b_c\,z(c)
-          + b_S\,S_{\mathrm{free}} + b_N\,N
+          + b_S\,S + b_N\,N
 
-with :math:`c` the generator's confidence, :math:`S_{\mathrm{free}}` the single-structure binder
+with :math:`c` the generator's confidence, :math:`S` the single-structure binder
 score and :math:`N` the observed contact count, both in native-sd units. It returns the corrected
 probability **and its parts**, so a caller can see whether a number moved because of the generator
 or because of the structure:
@@ -113,7 +113,7 @@ ROC-AUC.
 API
 ---
 
-.. autofunction:: s_free
+.. autofunction:: s_score
 .. autofunction:: t_score
 .. autofunction:: p_binder
 .. autofunction:: af_band

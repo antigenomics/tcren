@@ -178,7 +178,7 @@ def score_sites(sites: pl.DataFrame, model: PottsModel, *, particles: int = 64,
         ``E(sigma_obs)``, the Hamiltonian of the observed contact map, and its negation. Lower
         ``energy`` is more favourable, so ``neg_energy`` is the one that runs the same way as
         every other score here: higher is more native-like. It is the :math:`\\Pi` block of
-        :func:`tcren.reliability.s_free`.
+        :func:`tcren.reliability.s_score`.
     ``log_z`` / ``log_z0``
         the coupled partition function by AIS, and the factorised one in closed form. ``log_z0``
         is the free energy of the available set *before* any contact is observed.
@@ -456,7 +456,7 @@ def bound_unbound(sites: pl.DataFrame, model: PottsModel, *, threshold: int | No
 
     ``neg_energy``
         :math:`-E(\\sigma_{\\mathrm{obs}})`, higher is more native-like. The :math:`\\Pi` block of
-        :func:`tcren.reliability.s_free`, emitted here so one call supplies both the free-energy
+        :func:`tcren.reliability.s_score`, emitted here so one call supplies both the free-energy
         readings and the energy term the reliability score needs.
     ``df_empty``
         ``log[P(N >= 1) / P(N = 0)] = log(Z - 1)``, exact, from the AIS ``log Z``. ``E(empty) = 0``,

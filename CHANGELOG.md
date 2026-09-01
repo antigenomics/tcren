@@ -3,6 +3,33 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
+## [2.27.0] — 2026-09-01
+
+**The composite score is `S`.** It had accumulated three names for one quantity: `S_free` in the
+code and the emitted column, `S_nat` in the frozen calibration keys, and `S_{\mathrm{free}}` in the
+rendered maths. The `free` qualifier only ever meant *not `P_native`*, and `P_native` was discarded
+in 2.26.0, so the qualifier now distinguishes the score from nothing.
+
+The three blocks keep their symbols. `Q` (placement and interface), `T` (topology) and `\Pi` (the
+partition-function-referenced energy) are unchanged, as is the construction: each is a fit-free
+directional score over the 374 Native2026 crystals, divided by that block's native spread.
+
+### Changed
+- `reliability.s_free` → **`reliability.s_score`**, parallel to `cohort.q_score` and
+  `reliability.t_score`, which are the same construction over other descriptors.
+- The `tcren recognize` output column `S_free` → **`S`**.
+- Frozen calibration link names: `<set>|S_nat` → **`<set>|S`**, and likewise inside the composite
+  link names `z(ipTM)+z(pLDDT)+z(S)` and `min rank%(ipTM, S)`. The coefficients are untouched; only
+  the keys are renamed, and `data/reliability_moments.json` is renamed in place.
+- `correct_confidence`'s returned coefficient `b_s_free` → **`b_s`**, and `af_band`'s
+  `s_free_roc_in_band` → **`s_roc_in_band`**.
+
+### Removed
+- **The old names, outright — there is no alias and no deprecation shim.** A caller on `s_free` or
+  a table carrying an `S_free` column fails loudly rather than reading a renamed quantity by
+  accident. The retired names, what each was, and the results each produced are recorded in the
+  manuscript repository's `LEGACY.md`.
+
 ## [2.26.0] — 2026-09-01
 
 **Every fitted composite is gone, `F` is `Phi`, and a generated table now says which catalogue

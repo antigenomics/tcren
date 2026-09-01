@@ -24,15 +24,15 @@ What tcren does
 * **Interface descriptors** — ``features``: one flat per-structure table, in five invariance
   families, four of them computed by default (see :doc:`features`).
 * **Recognition scores** — ``recognize``: ``Q`` (interface geometry), ``T`` (footprint shape) and
-  ``S_free`` with its calibrated ``p_binder``, from a feature table or straight from structures
+  ``S`` with its calibrated ``p_binder``, from a feature table or straight from structures
   (see :doc:`kit`). Every one of them is fit-free and defined for a single structure.
 * **Correcting the generator** — ``diagnose``: it says it is confident, what should you
   believe instead? Reads the confidence together with the coordinates and returns a
   corrected probability plus the parts it is made of (see :doc:`reliability`).
 * **Single-structure reliability** — ``assess``: is *this* generated model worth believing?
-  ``S_free`` and a calibrated ``p_binder``, the structure's rank inside the set, and the generator
+  ``S`` and a calibrated ``p_binder``, the structure's rank inside the set, and the generator
   diagnostic — which AlphaFold confidence band it falls in, how often models in that band are
-  non-binders, and what ``S_free`` still separates inside it (see :doc:`reliability`).
+  non-binders, and what ``S`` still separates inside it (see :doc:`reliability`).
 * **Annotation & contacts** — ``annotate`` / ``contacts``: TCR CDR/FR, MHC groove helices/floor and
   peptide markup; multi-layer (5/8/12 Å) contact tables.
 * **Canonical orientation** — ``orient`` / ``superimpose``: one common MHC frame, docking angles,
@@ -54,7 +54,7 @@ What tcren does
   with non-redundancy filtering) from a structure set.
 * **Contact-map Potts model** — ``potts fit`` / ``score`` / ``contacts``: a Boltzmann distribution
   over the contact map itself, whose sites are the residue pairs that *could* have contacted. Gives
-  a structure's map an energy (``neg_energy``, the term ``S_free`` reads), a partition function and
+  a structure's map an energy (``neg_energy``, the term ``S`` reads), a partition function and
   a likelihood, and every residue pair a contact probability (:mod:`tcren.potts`, see :doc:`potts`).
 * **QC, mechanics & maps** — steric-clash and register checks, an interface spring-network /
   rupture model, and 2D complementarity maps + 3D pocket/CDR views.

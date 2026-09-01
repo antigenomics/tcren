@@ -901,7 +901,7 @@ def recognition_table(items, *, organism: str = "human", full: bool = False,
     search (:func:`tcren.mhc.annotate_mhc_batch`) — the dataset-scale path that avoids the per-structure
     annotation cost — then :func:`recognition_features` (``full=``) is extracted for each. This emits
     **descriptors only**: the fitted composites and cohort-relative scores that used to ride along
-    here were removed in 2.26.0, and scoring is :func:`tcren.reliability.s_free` on the table.
+    here were removed in 2.26.0, and scoring is :func:`tcren.reliability.s_score` on the table.
     ``full`` also appends the
     intra-peptide columns :data:`PEPTIDE_INTERNAL_FEATURES` (``Phi_pep_int``, ``n_pep_int``) — the
     peptide's contact energy with itself, which the interface energies omit. Returns one row dict per

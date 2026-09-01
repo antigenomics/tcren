@@ -92,4 +92,4 @@ def test_tcr_only_drops_the_cohort_identity_columns():
 
 def test_scores_are_excluded_from_every_family_by_default():
     for f in FAMILIES:
-        assert not set(descriptors(f)) & {"S_free", "Q", "T", "p_binder"}
+        assert not set(descriptors(f)) & {"S", "Q", "T", "p_binder"}

@@ -17,7 +17,7 @@ The expensive pass — parse, annotate, contact map, descriptors — runs once:
    tcren features   -s models/ -i placement,interface,topology,energetics -o feats.tsv
    tcren recognize  --features feats.tsv -o scores.tsv
 
-``scores.tsv`` carries ``Q`` (interface geometry), ``T`` (footprint shape), and ``S_free`` with its
+``scores.tsv`` carries ``Q`` (interface geometry), ``T`` (footprint shape), and ``S`` with its
 calibrated ``p_binder``. Join your generator's ``iptm`` /
 ``plddt`` on the structure-file stem if you want to compose with them; they are not structural
 quantities, so tcren does not compute them.
@@ -29,7 +29,7 @@ The three questions the kit answers
 -----------------------------------
 
 **1. Does this receptor bind this epitope?**
-   ``S_free`` (:func:`tcren.reliability.s_free`) is the recommended answer: three fit-free
+   ``S`` (:func:`tcren.reliability.s_score`) is the recommended answer: three fit-free
    directional blocks — geometry ``Q``, footprint topology ``T``, and the interface energy read
    against the partition function — each divided by its own native spread, so they carry equal
    weight in native-sd units. Nothing is fitted at score time, so it is **defined for a single

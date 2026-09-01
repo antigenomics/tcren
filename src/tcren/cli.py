@@ -855,7 +855,7 @@ def surface(
 @app.command(rich_help_panel=_P_SCORE)
 def recognize(
     structures: str = typer.Option(None, "-s", "--structures", help="TCR-pMHC structure file, directory, .tar.gz, or glob"),
-    features_table: Path = typer.Option(None, "--features", help="score a table already written by `tcren features` instead of re-reading the structures; emits Q, T, S_free and p_binder"),
+    features_table: Path = typer.Option(None, "--features", help="score a table already written by `tcren features` instead of re-reading the structures; emits Q, T, S and p_binder"),
     out: Path = typer.Option("recognize.tsv", "-o", "--out", help="per-structure descriptor + score table (TSV)"),
     organism: str = typer.Option("human", "--organism"),
     full: bool = typer.Option(False, "--full", help="add the 18 CDR3-local frame descriptors (the FramePose strain layer) and the intra-peptide term Phi_pep_int/n_pep_int"),
@@ -877,7 +877,7 @@ def recognize(
     it adds the fit-free ``q_bind`` (binder-ID; the directional-decorrelated interface-quality
     score, calibrated on the native crystal reference so it is defined per structure and
     transfers) and ``s_strain`` (forced-pose), alongside the fitted ``p_bind`` / ``p_forced``. The
-    recommended scores are ``Q``, ``T`` and ``S_free``, which come from ``--features``.
+    recommended scores are ``Q``, ``T`` and ``S``, which come from ``--features``.
     ``--features-only`` skips the models. Output is TSV.
 
     ``--mechanics`` appends the koff proxies ``tcren mechanics`` reports — stiffness tensor, steered
@@ -892,7 +892,7 @@ def recognize(
     Examples::
 
         tcren features  -s models/ -o feats.tsv                      # the descriptor pass, once
-        tcren recognize --features feats.tsv -o scores.tsv           # Q, T, S_free, p_binder
+        tcren recognize --features feats.tsv -o scores.tsv           # Q, T, S, p_binder
         tcren recognize -s models/ -o out.tsv                        # descriptors + p_real, no feature file
         tcren recognize -s models/ --mechanics -t 0 -o out.tsv       # + the spring-network terms
     """
@@ -1322,22 +1322,22 @@ def _score_feature_table(path: Path, out: Path) -> None:
     except KeyError as exc:
         typer.echo(f"  T skipped: {exc.args[0].split(';')[0]}")
 
-    # S_free: the recommended single-structure score. It fits nothing at call time, so it is
+    # S: the recommended single-structure score. It fits nothing at call time, so it is
     # defined for one row and its value does not depend on what else was scored alongside it. The energy term needs `tcren potts score`, so a features-only table gets the
     # two-block form and the message says which was emitted.
-    from .reliability import PI_FROZEN, T_FEATURES_TOPO, s_free
+    from .reliability import PI_FROZEN, T_FEATURES_TOPO, s_score
     need = (*Q_FEATURES_GEOM, *T_FEATURES_TOPO)
     absent = [c for c in need if c not in t.columns]
     if absent:
-        typer.echo(f"  S_free skipped: missing {', '.join(absent)}")
+        typer.echo(f"  S skipped: missing {', '.join(absent)}")
     else:
         e = t[PI_FROZEN].to_numpy() if PI_FROZEN in t.columns else None
-        v = s_free(t, energy=e)
-        scores = scores.with_columns(pl.Series("S_free", v))
+        v = s_score(t, energy=e)
+        scores = scores.with_columns(pl.Series("S", v))
         from .reliability import p_binder
-        link = "binder_bm|S_nat"
+        link = "binder_bm|S"
         scores = scores.with_columns(pl.Series("p_binder", p_binder(v, link=link)))
-        typer.echo(f"  S_free: Q + T{' + ' + PI_FROZEN if e is not None else ''} in native-sd "
+        typer.echo(f"  S: Q + T{' + ' + PI_FROZEN if e is not None else ''} in native-sd "
                    f"units, {int(np.isfinite(v).sum())} of {len(v)} finite"
                    + ("" if e is not None else f"  (no {PI_FROZEN} column: run `tcren potts score`"
                       " and join it to get the energy term)"))
@@ -1354,7 +1354,7 @@ def _score_feature_table(path: Path, out: Path) -> None:
 def assess(
     features_table: Path = typer.Option(..., "--features", "-f", help="a `tcren features` table (TSV/CSV)"),
     out: Path = typer.Option("assess.tsv", "-o", "--out", help="per-structure assessment (TSV)"),
-    link: str = typer.Option("binder_bm|S_nat", "--link", help="frozen calibration link; `--list-links` to see them"),
+    link: str = typer.Option("binder_bm|S", "--link", help="frozen calibration link; `--list-links` to see them"),
     band: str = typer.Option("binder_bm|ipTM", "--band", help="frozen AlphaFold band table for the diagnostic"),
     budget: float = typer.Option(0.5, "--budget", help="recall budget for the expected-precision column"),
     list_links: bool = typer.Option(False, "--list-links", help="print the frozen links and band tables, then exit"),
@@ -1363,10 +1363,10 @@ def assess(
 
     Three blocks, one table:
 
-    * **reliability** — `S_free` and the calibrated `p_binder`, both defined for a single structure.
+    * **reliability** — `S` and the calibrated `p_binder`, both defined for a single structure.
     * **ranking** — rank and percentile within the set, for triage when only the order matters.
     * **generator diagnostic** — when the table carries ipTM, `p_nonbinder_af` reads the frozen band
-      table: how often a model this confident is a non-binder, and what `S_free` still separates
+      table: how often a model this confident is a non-binder, and what `S` still separates
       inside that band.
 
     This is `tcren recognize` narrowed to the shipped, single-structure-defined score and widened
@@ -1376,7 +1376,7 @@ def assess(
 
     from .reliability import (af_band, available_bands, available_links, inversion_flag,
                               p_binder, screening_yield,
-                              PI_FROZEN, T_FEATURES_TOPO, s_free)
+                              PI_FROZEN, T_FEATURES_TOPO, s_score)
     from .cohort import Q_FEATURES_GEOM
 
     if list_links:
@@ -1398,11 +1398,11 @@ def assess(
             f"missing {', '.join(absent)} — rerun `tcren features -i placement,interface,topology`")
 
     e = t[PI_FROZEN].to_numpy() if PI_FROZEN in t.columns else None
-    v = s_free(t, energy=e)
+    v = s_score(t, energy=e)
     pb = p_binder(v, link=link)
     order = np.argsort(np.argsort(-np.where(np.isfinite(v), v, -np.inf)))
     n = len(v)
-    o = pl.DataFrame({"complex.id": t["complex.id"], "S_free": v, "p_binder": pb,
+    o = pl.DataFrame({"complex.id": t["complex.id"], "S": v, "p_binder": pb,
                       "rank": order + 1, "percentile": 100.0 * (1 - order / max(n - 1, 1))})
     if e is not None:
         o = o.with_columns(pl.Series("inversion_flag", inversion_flag(t, energy=e)))
@@ -1411,7 +1411,7 @@ def assess(
     y = screening_yield(v, budget=budget)
     k = y["n_tested"]
     keep = np.argsort(-np.where(np.isfinite(v), v, -np.inf))[:k]
-    typer.echo(f"{n} structures; S_free = Q + T{' + ' + PI_FROZEN if e is not None else ''} "
+    typer.echo(f"{n} structures; S = Q + T{' + ' + PI_FROZEN if e is not None else ''} "
                f"in native-sd units, {int(np.isfinite(v).sum())} finite")
     typer.echo(f"  p_binder via {link!r}; mean {np.nanmean(pb):.3f}")
     typer.echo(f"  top {budget:.0%} of the set ({k} structures): "
@@ -1422,14 +1422,14 @@ def assess(
         o = o.with_columns(
             pl.Series("af_band", [b.get("band") for b in bands], dtype=pl.Int64),
             pl.Series("p_nonbinder_af", [b.get("p_nonbinder") for b in bands]),
-            pl.Series("s_free_roc_in_band", [b.get("s_free_roc_in_band") for b in bands]))
+            pl.Series("s_roc_in_band", [b.get("s_roc_in_band") for b in bands]))
         top = [b for b in bands if b.get("band") == 9]
         if top:
             typer.echo(f"  generator diagnostic ({band}): {len(top)} of {n} structures sit in the "
                        f"top confidence decile, where {top[0]['p_nonbinder']:.1%} "
                        f"[{top[0]['ci_lo']:.1%}, {top[0]['ci_hi']:.1%}] of benchmark models are "
-                       f"NON-binders and S_free still reads "
-                       f"{top[0]['s_free_roc_in_band']:.3f} ROC-AUC")
+                       f"NON-binders and S still reads "
+                       f"{top[0]['s_roc_in_band']:.3f} ROC-AUC")
     else:
         typer.echo("  no ipTM column: the generator diagnostic is skipped "
                    "(join a metadata.tsv, or pass --metadata to `tcren features`)")
@@ -1464,7 +1464,7 @@ def diagnose(
     and subtracts about 0.04 where no receptor has been co-crystallized with the peptide. Read the
     template covariate beside it.
 
-    Unlike `S_free`, this read-out is NOT fit-free: four coefficients are fitted on labels and
+    Unlike `S`, this read-out is NOT fit-free: four coefficients are fitted on labels and
     frozen. `assess` is the fit-free triage; this is the confidence correction.
     """
     import numpy as np
@@ -1507,7 +1507,7 @@ def diagnose(
     r = correct_confidence(t, conf, reference=reference, energy=e, contacts=n)
 
     o = pl.DataFrame({"complex.id": t["complex.id"], confidence: conf,
-                      "S_free": r["s_free"], "n_contacts": r["n_contacts"],
+                      "S": r["s_score"], "n_contacts": r["n_contacts"],
                       "p_confidence": r["p_confidence"], "delta_logit": r["delta_logit"],
                       "p_corrected": r["p_corrected"]})
     if e is not None:
@@ -1517,7 +1517,7 @@ def diagnose(
     fin = np.isfinite(d)
     down = int((d < 0).sum())
     typer.echo(f"{t.height} structures corrected against {reference!r}"
-               f"{'' if e is not None else '; no energy column, S_free is the two-block form'}"
+               f"{'' if e is not None else '; no energy column, S is the two-block form'}"
                f"{no_n}")
     typer.echo(f"  the structure argues AGAINST {down} of {int(fin.sum())} "
                f"({down / max(int(fin.sum()), 1):.0%}); mean shift "

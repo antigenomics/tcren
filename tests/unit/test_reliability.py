@@ -1,4 +1,4 @@
-"""S_free and the frozen calibration: the n=1 guarantee and the reload path. 2026-08-28"""
+"""S and the frozen calibration: the n=1 guarantee and the reload path. 2026-08-28"""
 import json
 from importlib import resources
 
@@ -23,13 +23,13 @@ def test_reference_is_complete_in_every_block_descriptor(ref):
         assert np.isfinite(ref[c]).all(), f"{c} carries a non-finite value"
 
 
-def test_s_free_is_defined_for_a_single_structure(ref):
+def test_s_score_is_defined_for_a_single_structure(ref):
     """The property the discarded cohort posterior could not have: it refit per call and raised when rows <=
     features, so it is undefined for one row."""
     one = {k: v[:1] for k, v in ref.items()}
-    s = rel.s_free(one, energy=one["neg_energy"])
+    s = rel.s_score(one, energy=one["neg_energy"])
     assert s.shape == (1,) and np.isfinite(s[0])
-    assert np.isfinite(rel.s_free(one)[0])          # and without the energy term
+    assert np.isfinite(rel.s_score(one)[0])          # and without the energy term
 
 
 def test_block_native_mean_is_zero_and_sd_is_not_one(ref):
@@ -67,7 +67,7 @@ def test_frozen_calibration_reloads_exactly():
 
 
 def test_p_binder_is_a_probability(ref):
-    p = rel.p_binder(rel.s_free(ref, energy=ref["neg_energy"]))
+    p = rel.p_binder(rel.s_score(ref, energy=ref["neg_energy"]))
     ok = np.isfinite(p)
     assert ok.sum() > 300 and ((p[ok] >= 0) & (p[ok] <= 1)).all()
 
@@ -86,7 +86,7 @@ def test_catalogues_are_non_empty():
 
 
 def test_t_score_wires_its_own_default_reference(ref):
-    """`t_score` is reached transitively through `s_free`, so its own features/signs wiring was
+    """`t_score` is reached transitively through `s_score`, so its own features/signs wiring was
     never exercised: pointing it at the wrong descriptors would only show up as a value drift."""
     direct = rel.t_score(ref)
     hand = q_score(ref, reference=ref, features=rel.T_FEATURES_TOPO, signs=rel.T_SIGNS)
@@ -103,7 +103,7 @@ def test_pi_frozen_matches_the_shipped_moments():
 
 
 def test_pi_frozen_is_the_column_potts_emits():
-    """The blocker of 2.15.0: `s_free`'s energy block named a column no tcren function wrote.
+    """The blocker of 2.15.0: `s_score`'s energy block named a column no tcren function wrote.
 
     Asserted against the columns the scorers actually return, not against their source text: the
     literal moved out of `score_sites` when the per-structure loop was parallelised in 2.17.0, and
@@ -183,7 +183,7 @@ def test_a_better_structure_is_corrected_upwards_at_the_same_confidence():
     ref, e, n = _corr_inputs()
     conf = np.full(len(e), 0.85)
     r = rel.correct_confidence(ref, conf, energy=e, contacts=n)
-    s = r["s_free"]
+    s = r["s_score"]
     ok = np.isfinite(s) & np.isfinite(r["p_corrected"])
     good, bad = s[ok] >= np.nanpercentile(s[ok], 75), s[ok] <= np.nanpercentile(s[ok], 25)
     assert r["p_corrected"][ok][good].mean() > r["p_corrected"][ok][bad].mean()
