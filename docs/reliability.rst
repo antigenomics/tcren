@@ -33,17 +33,6 @@ had fewer rows than features** — so it was undefined for a single structure, a
 on what else was scored alongside it. Neither property survives contact with a user holding one
 model. It was discarded in 2.26.0. ``S`` fits nothing at call time.
 
-Calibration, and what a probability costs
-------------------------------------------
-
-:func:`p_binder` maps a score through a **frozen out-of-fold Platt link** — leave-one-epitope-out on
-the 22-cohort panel, within-epitope 5-fold on TCRvdb, coefficients the fold means. A probability is
-a stronger claim than a rank, so read the expected calibration error beside it: the composed score
-reaches ECE 0.020 on the panel where ipTM alone reads 0.065.
-
-Each link's name is the score it expects. Passing a raw ``S`` to a ``min rank%(...)`` link is a
-category error, not a rescaling; :func:`available_links` lists what is shipped.
-
 The generator diagnostic
 -------------------------
 
@@ -62,8 +51,7 @@ From the command line
        --link 'tcrvdb|S' --band 'tcrvdb|ipTM'
 
    618 structures; S = Q + T in native-sd units, 618 finite
-     p_binder via 'tcrvdb|S'; mean 0.562
-     top 50% of the set (309 structures): mean p_binder 0.737 against 0.562 overall
+     top 50% of the set (309 structures): mean S 0.737 against 0.562 overall
      generator diagnostic (tcrvdb|ipTM): 60 of 618 structures sit in the top confidence decile,
      where 15.3% [8.2%, 26.5%] of benchmark models are NON-binders and S still reads 0.773
      ROC-AUC
@@ -71,61 +59,27 @@ From the command line
 Add the energy term by joining ``tcren potts score``'s ``neg_energy``; without it ``assess`` emits
 the two-block form and says so rather than imputing.
 
-Correcting the generator's confidence
--------------------------------------
-
-``af_band`` says how often a confidence band is wrong. It does not say what to believe instead.
-:func:`correct_confidence` does, by reading the confidence together with the coordinates:
-
-.. math:: \mathrm{logit}\,P(\mathrm{binder}) = b_0 + b_c\,z(c)
-          + b_S\,S + b_N\,N
-
-with :math:`c` the generator's confidence, :math:`S` the single-structure binder
-score and :math:`N` the observed contact count, both in native-sd units. It returns the corrected
-probability **and its parts**, so a caller can see whether a number moved because of the generator
-or because of the structure:
-
-.. code-block:: text
-
-   $ tcren diagnose --features feats.tsv --confidence iptm -o diagnosed.tsv
-   618 structures corrected against 'tcrvdb|ipTM'
-     the structure argues AGAINST 267 of 590 (45%); mean shift -0.048 nats, range [-4.31, +2.07]
-     the five the generator is most confident about:
-       67c6026f...  iptm 0.931  p_conf 0.792 -> p_corrected 0.935  (+1.33 nats)
-       d3bcd432...  iptm 0.921  p_conf 0.777 -> p_corrected 0.765  (-0.07 nats)
-       52f8a2cb...  iptm 0.919  p_conf 0.772 -> p_corrected 0.681  (-0.46 nats)
-
-Two properties to state when reporting it.
-
-**It is not fit-free.** Every other score in this module takes no label anywhere;
-:func:`correct_confidence` learns four coefficients from labels and freezes them, exactly as
-:func:`p_binder`'s Platt links do. The structural terms it reads are themselves fit-free, but the
-weighting is not.
-
-**It is validated where the epitope has structural precedent.** Leave-one-epitope-out on the
-balanced VDJdb panel, the correction adds **+0.051** macro ROC-AUC to ipTM and **+0.068** to pLDDT
-over the 6 cohorts whose epitope has a solved complex (n = 284), and *subtracts* about 0.04 over
-the 16 that do not (n = 743). That is the template covariate everything in this framework divides
-under: where no receptor has been co-crystallized with the peptide, nothing works, the generator's
-own confidence included. Coefficients are rounded to one decimal, which costs under 0.003 macro
-ROC-AUC.
-
 API
 ---
 
 .. autofunction:: s_score
 .. autofunction:: t_score
-.. autofunction:: p_binder
 .. autofunction:: af_band
-.. autofunction:: correct_confidence
 .. autofunction:: reliability_reference
-.. autofunction:: available_links
 .. autofunction:: available_bands
-.. autofunction:: available_corrections
 .. autofunction:: moments
 .. autofunction:: inversion_flag
 .. autofunction:: screening_yield
 .. autodata:: T_FEATURES_TOPO
 .. autodata:: T_SIGNS
 .. autodata:: PI_FROZEN
-.. autodata:: CORRECTION_VALIDATED_ON
+
+Nothing here is fitted against a binding label
+----------------------------------------------
+
+Version 2.28.0 removed the last read-outs that were: the frozen Platt links behind ``p_binder`` and
+the four-coefficient confidence correction behind ``tcren diagnose``, both of which were fitted
+out of fold on the benchmarks. Every quantity this module now returns is a directional score or an
+empirical band table, so a value computed today depends on the structure it was computed from and
+on the 374 Native2026 crystals, and on nothing else. The removed read-outs and the numbers they
+produced are recorded in the manuscript repository's ``LEGACY.md``.

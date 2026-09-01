@@ -24,13 +24,13 @@ What tcren does
 * **Interface descriptors** — ``features``: one flat per-structure table, in five invariance
   families, four of them computed by default (see :doc:`features`).
 * **Recognition scores** — ``recognize``: ``Q`` (interface geometry), ``T`` (footprint shape) and
-  ``S`` with its calibrated ``p_binder``, from a feature table or straight from structures
+  ``S``, from a feature table or straight from structures
   (see :doc:`kit`). Every one of them is fit-free and defined for a single structure.
 * **Correcting the generator** — ``diagnose``: it says it is confident, what should you
   believe instead? Reads the confidence together with the coordinates and returns a
   corrected probability plus the parts it is made of (see :doc:`reliability`).
 * **Single-structure reliability** — ``assess``: is *this* generated model worth believing?
-  ``S`` and a calibrated ``p_binder``, the structure's rank inside the set, and the generator
+  ``S``, the structure's rank inside the set, and the generator
   diagnostic — which AlphaFold confidence band it falls in, how often models in that band are
   non-binders, and what ``S`` still separates inside it (see :doc:`reliability`).
 * **Annotation & contacts** — ``annotate`` / ``contacts``: TCR CDR/FR, MHC groove helices/floor and

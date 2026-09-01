@@ -3,6 +3,34 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
+## [2.28.0] — 2026-09-01
+
+**Every out-of-fold-fitted read-out is removed.** The author's ruling: leave-one-epitope-out
+fitting was the mechanism behind the defects in the discarded `P_native`, the current
+implementations are not trusted, and the analysis will be rewritten rather than patched. Nothing
+tcren returns is now fitted against a binding label.
+
+### Removed
+- **`reliability.p_binder` and `reliability.available_links`**, with the `calibration` section of
+  `data/reliability_moments.json`. The Platt links were fitted out of fold — leave-one-epitope-out
+  on the 22-cohort VDJdb panel, within-epitope 5-fold on TCRvdb — and shipped as fold means.
+- **`reliability.correct_confidence` and `reliability.available_corrections`**, with the
+  `corrections` section of the same file and `CORRECTION_VALIDATED_ON`. This was the one shipped
+  read-out that read a label: four coefficients, fitted out of fold and frozen.
+- **The `tcren diagnose` command**, which existed only to run that correction.
+- The `p_binder` column from `tcren recognize` and `tcren assess`, and `assess`'s `--link` /
+  `--list-links` options. `assess` keeps `--list-bands`.
+
+### Unchanged
+`Q`, `T`, `\Pi` and `S` are untouched, as are `inversion_flag`, `screening_yield` and `af_band`.
+The `blocks` and `phi` moments are native-crystal spreads, not fits, and `af_bands` is a quantile
+binning of the generator's confidence carrying the observed non-binder fraction with a Wilson
+interval — a measurement of the benchmark, not a model of it. `moments()` now asserts in its own
+test that `calibration` and `corrections` are absent, so neither can return quietly.
+
+The removed read-outs and the numbers they produced are recorded in the manuscript repository's
+`LEGACY.md`.
+
 ## [2.27.0] — 2026-09-01
 
 **The composite score is `S`.** It had accumulated three names for one quantity: `S_free` in the

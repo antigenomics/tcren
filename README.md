@@ -43,7 +43,7 @@ way it does.
 | **A functionally validated repertoire screen** | which receptors read this epitope? | `tcren features`, `tcren recognize` |
 | **A balanced epitope panel, template-stratified** | the same, where no related complex has been solved | as above, with template availability reported rather than inferred |
 | **Molecular dynamics with measured kinetics** | may a single static structure be scored at all, and what does its energy reach? | the three interface energies, `tcren.potts` contact marginals |
-| **Model-confidence diagnostics** | which confidently modelled complexes are not real, and can ipTM/pLDDT be corrected? | `tcren diagnose`, `tcren.reliability.correct_confidence` |
+| **Model-confidence diagnostics** | which confidently modelled complexes are not real? | `tcren assess`, `tcren.reliability.af_band` |
 
 The last is the one most users reach for first: you already have an AlphaFold model and want to know
 whether to trust it. It is also the only read-out here that is fitted — it takes the generator's
@@ -70,7 +70,7 @@ From one TCR–peptide–MHC structure (crystal or model), each task is one comm
 | **Every interface descriptor, in five families (four by default)** | `tcren features` | `recognition_table(include=...)`, `descriptors` |
 | **All interface descriptors, one row per structure** | `tcren recognize` | `recognition_features` |
 | **`S`** — geometry, footprint shape and energy in native-sd units | `tcren recognize --features` | `reliability.s_score` |
-| **Is *this* model worth believing?** — `S`, a calibrated `p_binder`, and the generator diagnostic | `tcren assess` | `reliability.s_score`, `p_binder`, `af_band` |
+| **Is *this* model worth believing?** — `S` and the generator diagnostic | `tcren assess` | `reliability.s_score`, `af_band` |
 | **The contact map as a probability model** — energy, partition function, per-pair contact probability | `tcren potts fit` / `score` / `contacts` | `potts.fit_potts`, `score_sites`, `contact_probabilities` |
 | Three-interface energy Φ, poly-Ala ΔΦ, interface geometry | `tcren scoring` | `run_pipeline` |
 | Annotate chains + region markup | `tcren annotate` | `classify_chains`, `annotate_mhc` |
@@ -279,7 +279,7 @@ runs once and the scoring pass can be repeated for nothing.
 ```bash
 tcren features  -s my_pdbs/ -o feats.tsv                   # the four default families (--all adds kinetics)
 tcren features  -s my_pdbs/ -o shape.tsv -i topology       # one family -- and only it is computed
-tcren recognize --features feats.tsv -o scores.tsv         # Q, T, S, p_binder
+tcren recognize --features feats.tsv -o scores.tsv         # Q, T, S
 ```
 
 Descriptors are catalogued in five **families**, four of them computed by default (`kinetics` is
@@ -306,7 +306,7 @@ tcren recognize -s my_pdbs/ -o scored.tsv --mechanics      # + the spring-networ
 | **(a) energy** — `Phi` per interface (TCRen on TCR:peptide, MJ on presentation) + references `dPhi` + loop parts | `Phi_tcr_pep`, `Phi_tcr_mhc`, `Phi_pep_mhc`, `dPhi_tcr_pep`, `dPhi_pep_mhc`, `Phi_cdr12`, `Phi_cdr3a`, `Phi_cdr3b`, `dPhi_{pep,tcr,tra,trb}_soft`, `varPhi_{pep,tcr}_soft` |
 | **(a′) intra-peptide** (`--full`) — the peptide's contacts with *itself*, which every interface sum omits | `Phi_pep_int`, `n_pep_int` |
 | **(b) geometry** — every docking + interface descriptor | `pitch`, `crossing`, `crossing_signed`, `dock_d`, `dock_torsion`, `dock_{tcr,mhc}_u{y,z}`, `extent`, `chain_balance`, `burial`, `n_contacts_{tp,tm}`, `n_pep_contacted`, `ct_{tp,tm}_*` |
-| **(c) scores** — no training set, no binding label; written by `tcren recognize --features`, not by `-s` | `Q` — interface quality; `T` — footprint shape; `S` — the blocks combined, and its calibrated `p_binder`. See [`tcren.cohort`](src/tcren/cohort.py), [`tcren.reliability`](src/tcren/reliability.py) |
+| **(c) scores** — no training set, no binding label; written by `tcren recognize --features`, not by `-s` | `Q` — interface quality; `T` — footprint shape; `S` — the blocks combined. See [`tcren.cohort`](src/tcren/cohort.py), [`tcren.reliability`](src/tcren/reliability.py) |
 
 ### Is *this* model worth believing? — `tcren assess`
 
@@ -322,8 +322,8 @@ tcren assess --features joined.tsv -o assessed.tsv
 
 - **Reliability** — `S` = `Q/sd_Q + T/sd_T + (Pi - mu)/sd_Pi`, three fit-free directional
   blocks each divided by its own native spread, so they carry equal weight in native-sd units.
-  Nothing is fitted at score time, so **it is defined for a single structure**. `p_binder` turns it
-  into a probability through a frozen out-of-fold Platt link.
+  Nothing is fitted at score time, so **it is defined for a single structure**. The package ships
+  no probability to threshold on: every out-of-fold-fitted read-out was removed in 2.28.0.
 - **Ranking** — the structure's rank and percentile inside the set, and the expected precision at a
   recall budget.
 - **The generator diagnostic** — which AlphaFold confidence band the model falls in, how often

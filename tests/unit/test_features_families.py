@@ -66,7 +66,7 @@ def test_the_engaged_pair_count_belongs_to_potts_and_to_no_other_family():
 
     Regression, 2026-08-29: the footprint wrote its CDR-loop tally under the same name, so
     `-i placement,interface,topology` emitted one quantity and `-i ...,potts` the other, silently,
-    under one column. `tcren diagnose` standardizes it against the Potts moments either way.
+    under one column. The Potts moments are what any energy term must be standardized against.
     """
     assert DESCRIPTORS["n_contacts"] == ("potts", True)
     assert "n_contacts" in descriptors("potts")
@@ -92,4 +92,4 @@ def test_tcr_only_drops_the_cohort_identity_columns():
 
 def test_scores_are_excluded_from_every_family_by_default():
     for f in FAMILIES:
-        assert not set(descriptors(f)) & {"S", "Q", "T", "p_binder"}
+        assert not set(descriptors(f)) & {"S", "Q", "T"}

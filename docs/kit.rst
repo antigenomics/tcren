@@ -18,7 +18,7 @@ The expensive pass — parse, annotate, contact map, descriptors — runs once:
    tcren recognize  --features feats.tsv -o scores.tsv
 
 ``scores.tsv`` carries ``Q`` (interface geometry), ``T`` (footprint shape), and ``S`` with its
-calibrated ``p_binder``. Join your generator's ``iptm`` /
+``S``. Join your generator's ``iptm`` /
 ``plddt`` on the structure-file stem if you want to compose with them; they are not structural
 quantities, so tcren does not compute them.
 
@@ -34,8 +34,6 @@ The three questions the kit answers
    against the partition function — each divided by its own native spread, so they carry equal
    weight in native-sd units. Nothing is fitted at score time, so it is **defined for a single
    structure** and its value does not depend on what else you scored alongside it.
-   :func:`tcren.reliability.p_binder` turns it into a probability through a frozen out-of-fold
-   Platt link.
 
    The cohort-refit posterior that used to sit beside it was discarded in 2.26.0. It refitted a
    latent class per call, so it was undefined for one structure and its numbers depended on which

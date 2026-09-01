@@ -1,4 +1,4 @@
-r"""Single-structure reliability: ``S``, its calibration, and the generator diagnostic.
+r"""Single-structure reliability: ``S`` and the generator diagnostic.
 
 The cohort-fitted posterior this module replaced refitted a latent-class model per call and raised
 when a cohort had fewer rows than features, so it was undefined for one structure and its numbers
@@ -61,10 +61,10 @@ def _column_names(table) -> set[str]:
 def _check_potts_contacts(table) -> None:
     """Raise unless a table's ``n_contacts`` came from :mod:`tcren.potts`.
 
-    The contact term of :func:`correct_confidence` is standardized against the Potts engaged-pair
-    population, and the two counts differ by a factor of two to four on real structures (1ao7: 66
-    footprint contacts against 29 Potts ones), so feeding the wrong one shifts that term by several
-    native sd and moves the corrected probability with no error and no NaN. A table with no
+A ``n_contacts`` read from the footprint rather than from the Potts model differs by a factor of
+    two to four on real structures (1ao7: 66 footprint contacts against 29 Potts ones), so any term
+    standardized against the Potts population would shift by several native sd with no error and no
+    NaN. A table with no
     ``n_contacts`` column at all is fine — the caller joined the count from somewhere this cannot
     see, which is the documented path.
     """
@@ -103,12 +103,15 @@ def reliability_reference() -> dict:
 def moments() -> dict:
     """Every frozen constant this module reads, from ``data/reliability_moments.json``.
 
-    Four keys. ``blocks`` carries the native mean and spread of each block, keyed by ``Q``, ``T``
-    and the :math:`\\Pi` column named in ``pi_frozen``; those spreads are the divisors in
-    :func:`s_score`. ``calibration`` carries the frozen Platt links :func:`p_binder` selects with
-    ``link=``, and ``af_bands`` the confidence-band tables :func:`af_band` reads. Every one was
-    fitted out of fold on the benchmark and is shipped rather than refitted, so a score computed
-    today means what it meant when the paper was written.
+Four keys, and **none of them is a fit against a binding label.** ``blocks`` carries the native
+    mean and spread of each block, keyed by ``Q``, ``T`` and the :math:`\\Pi` column named in
+    ``pi_frozen``; those spreads are the divisors in :func:`s_score` and are measured on the
+    Native2026 crystals. ``af_bands`` carries the confidence-band tables :func:`af_band` reads,
+    which are quantile bins of the generator's confidence with the observed non-binder fraction and
+    its Wilson interval in each. ``phi`` carries the per-interface energy spreads.
+
+    The out-of-fold-fitted sections that used to sit here — the Platt links and the confidence
+    correction — were removed in 2.28.0; see the manuscript repository's ``LEGACY.md``.
 
     Returns:
         The parsed JSON. Cached, so callers may treat it as read-only.
@@ -151,31 +154,6 @@ def s_score(table, reference=None, energy=None) -> np.ndarray:
         return q + t
     e = np.asarray(energy, float)
     return q + t + (e - m[PI_FROZEN]["mean"]) / m[PI_FROZEN]["sd"]
-
-
-def p_binder(score, link: str = "binder_bm|S") -> np.ndarray:
-    """Map a score onto a probability through a frozen Platt link.
-
-    The links were fitted OUT OF FOLD on the benchmarks — leave-one-epitope-out on the 22-cohort
-    VDJdb panel, within-epitope 5-fold on TCRvdb — and the coefficients are the fold means. Names
-    are ``<benchmark>|<score>``; :func:`available_links` lists them.
-
-    A probability is a stronger claim than a rank, so read the expected calibration error beside it:
-    the composed score reaches ECE 0.020 on the panel where ipTM alone reads 0.065.
-    """
-    cal = moments()["calibration"]
-    if link not in cal:
-        raise KeyError(f"no frozen link {link!r}; have {sorted(cal)}")
-    c = cal[link]
-    z = c["slope"] * np.asarray(score, float) + c["intercept"]
-    return 1.0 / (1.0 + np.exp(-z))
-
-
-def available_links() -> list[str]:
-    """The frozen calibration links, ``<benchmark>|<score>``."""
-    return sorted(moments()["calibration"])
-
-
 def af_band(iptm, reference: str = "binder_bm|ipTM") -> list[dict]:
     """Look each confidence up in the frozen band table: how often is a model this confident wrong?
 
@@ -230,8 +208,8 @@ def inversion_flag(table, reference=None, energy=None) -> np.ndarray:
     Returns:
         One value per row: the energy block's native-sd score minus the mean of the geometry and
         topology blocks'. Large positive means the energy is vouching for a structure the shape
-        does not, which is the pattern to distrust. It is a diagnostic to rank and inspect by, not
-        a calibrated probability; ``p_binder`` is the calibrated read-out.
+        does not, which is the pattern to distrust. It is a diagnostic to rank and inspect by, and
+        the package ships no probability to threshold on.
     """
     ref = reliability_reference() if reference is None else reference
     m = moments()["blocks"]
@@ -281,84 +259,3 @@ def screening_yield(score, budget: float = 0.1, prevalence: float | None = None)
     return out
 
 
-#: Where the correction is validated. Measured 2026-08-29, leave-one-epitope-out on the 22-cohort
-#: VDJdb panel: it adds where the epitope has a solved complex to template on and subtracts where
-#: it does not, which is the same template covariate the receptor-ranking benchmarks divide under.
-CORRECTION_VALIDATED_ON = "epitopes with a solved TCR:pMHC complex"
-
-
-def correct_confidence(table, confidence, reference: str = "tcrvdb|ipTM",
-                       energy=None, contacts=None) -> dict:
-    """Correct a generator's confidence with the structure it produced. Higher = more believable.
-
-    A co-folding model returns a confident complex for any receptor--pMHC pair, binding or not, so
-    its confidence is not a probability that the complex is real. This reads the confidence
-    *together with* the coordinates:
-
-    .. math:: \\mathrm{logit}\\,P(\\mathrm{binder}) = b_0 + b_c\\,z(c) + b_S\\,S
-              + b_N\\,N
-
-    where :math:`c` is the generator's confidence, :math:`S` the single-structure
-    binder score and :math:`N` the observed contact count, both in native-sd units. The
-    coefficients are frozen, fitted out of fold on the benchmarks and rounded to one decimal --
-    rounding costs under 0.003 macro ROC-AUC, well inside the fold-to-fold spread.
-
-    **This is the one shipped read-out that is not fit-free.** ``s_score`` takes no label anywhere;
-    this learns four numbers from labels, exactly as :func:`p_binder`'s Platt links do. Say so when
-    reporting it.
-
-    **Where it is validated.** On the balanced VDJdb panel, leave-one-epitope-out, the correction
-    adds **+0.051** macro ROC-AUC to ipTM and **+0.068** to pLDDT over the 6 cohorts whose epitope
-    has a solved complex (n = 284), and *subtracts* about 0.04 over the 16 that do not (n = 743).
-    That is the same template covariate everything else in this framework divides under: where no
-    receptor has been co-crystallized with the peptide, nothing works, the generator's own
-    confidence included. Read the correction as an improvement for epitopes with structural
-    precedent, and read the template covariate beside it.
-
-    Args:
-        table: a ``tcren features`` table, as for :func:`s_score`.
-        confidence: the generator's confidence per row -- ipTM or pLDDT, matching ``reference``.
-        reference: which frozen correction, ``<benchmark>|<confidence>``;
-            :func:`available_corrections` lists them.
-        energy: :math:`\\Pi` per row, from :mod:`tcren.potts`. Without it ``S`` is the
-            two-block form and the correction is weaker, not wrong.
-        contacts: the observed contact count per row, from :mod:`tcren.potts` — the available
-            pairs that engaged, **not** the footprint's CDR-loop tally, which is a different
-            quantity under a different name (``n_loop_contacts``). Passing it against a ``table``
-            whose ``n_contacts`` has no Potts provenance raises rather than standardizing the wrong
-            population; without it the term drops out and ``n_contacts`` is reported as NaN.
-
-    Returns:
-        A dict of arrays, all the same length as ``table``: ``p_corrected`` (the number to
-        threshold on), ``p_confidence`` (the confidence alone through the same link, so the two are
-        comparable), ``delta_logit`` (what the structure added, in nats -- positive means the
-        coordinates argue *for* the complex), ``s_score`` and ``n_contacts`` as used.
-    """
-    cor = moments().get("corrections", {})
-    if reference not in cor:
-        raise KeyError(f"no frozen correction {reference!r}; have {sorted(cor)}")
-    if contacts is not None:
-        _check_potts_contacts(table)
-    c = cor[reference]
-    m = moments()["blocks"]
-
-    v = np.atleast_1d(np.asarray(confidence, float))
-    z = (v - c["conf_mean"]) / c["conf_sd"]
-    s = np.asarray(s_score(table, energy=energy), float)
-    if contacts is None:
-        n = np.full(np.shape(s), np.nan)
-        n_term = np.zeros(np.shape(s))
-    else:
-        n = (np.asarray(contacts, float) - m["n_contacts"]["mean"]) / m["n_contacts"]["sd"]
-        n_term = c["b_n_contacts"] * n
-
-    delta = c["b_s"] * s + n_term
-    lo_conf = c["b0"] + c["b_conf"] * z
-    return {"p_corrected": 1.0 / (1.0 + np.exp(-(lo_conf + delta))),
-            "p_confidence": 1.0 / (1.0 + np.exp(-lo_conf)),
-            "delta_logit": delta, "s_score": s, "n_contacts": n}
-
-
-def available_corrections() -> list[str]:
-    """The frozen confidence corrections, ``<benchmark>|<confidence>``."""
-    return sorted(moments().get("corrections", {}))

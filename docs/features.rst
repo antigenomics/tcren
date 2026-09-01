@@ -124,7 +124,7 @@ Options
      - append the ``kinetics`` terms in the same pass, with no second annotation
 
 ``--features`` and ``-s`` are the two ways in. With ``--features`` the output is the score table
-alone — ``complex.id``, ``Q``, ``T``, and ``S`` with its calibrated ``p_binder``; with ``-s``
+alone — ``complex.id``, ``Q``, ``T`` and ``S``; with ``-s``
 it is the descriptor table.
 
 A table read through ``--features`` is checked against the installed descriptor catalogue before it
@@ -159,13 +159,13 @@ off this table. Two of them come from ``tcren features`` directly, and the third
      - join on ``pdb.id``; it is :math:`-E(\sigma_{\mathrm{obs}})`, the interface energy read
        against the partition function
 
-``tcren diagnose`` reads the same blocks plus ``n_contacts``, the Potts count of available pairs
+The energy block reads ``n_contacts``, the Potts count of available pairs
 that engaged, so its full input is ``-i placement,interface,topology,potts``. The column belongs to
 the ``potts`` family and to no other: through 2.19.0 the footprint wrote its CDR-loop tally under
 the same name — a different quantity on the same structure, 66 against 29 on 1ao7 — and since the
 topology pass runs before the Potts one, the emitted column meant whichever family the caller
 happened to ask for. That tally is ``n_loop_contacts`` now, and a table that still carries the old
-name is **refused** by :func:`~tcren.reliability.correct_confidence` rather than standardized
+name is **refused** rather than standardized
 against the wrong population. Without ``n_contacts`` the contact term drops out and is reported as
 ``n/a`` rather than imputed.
 
@@ -651,9 +651,6 @@ of them is fit-free and defined for a single structure.
      - Footprint shape, free of footprint size — the channel that holds up when the generator had
        no template to copy.
      - Fit-free :func:`tcren.reliability.t_score`, directional against the same crystals.
-   * - ``p_binder``
-     - ``S`` on a probability scale.
-     - :func:`tcren.reliability.p_binder`: a frozen out-of-fold Platt link, leave-one-epitope-out.
    * - ``s_strain``
      - Crystal-natural vs generated-forced pose.
      - Fit-free :func:`tcren.cohort.strain_z`: signed z of the strain terms, grading

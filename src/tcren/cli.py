@@ -855,7 +855,7 @@ def surface(
 @app.command(rich_help_panel=_P_SCORE)
 def recognize(
     structures: str = typer.Option(None, "-s", "--structures", help="TCR-pMHC structure file, directory, .tar.gz, or glob"),
-    features_table: Path = typer.Option(None, "--features", help="score a table already written by `tcren features` instead of re-reading the structures; emits Q, T, S and p_binder"),
+    features_table: Path = typer.Option(None, "--features", help="score a table already written by `tcren features` instead of re-reading the structures; emits Q, T and S"),
     out: Path = typer.Option("recognize.tsv", "-o", "--out", help="per-structure descriptor + score table (TSV)"),
     organism: str = typer.Option("human", "--organism"),
     full: bool = typer.Option(False, "--full", help="add the 18 CDR3-local frame descriptors (the FramePose strain layer) and the intra-peptide term Phi_pep_int/n_pep_int"),
@@ -892,7 +892,7 @@ def recognize(
     Examples::
 
         tcren features  -s models/ -o feats.tsv                      # the descriptor pass, once
-        tcren recognize --features feats.tsv -o scores.tsv           # Q, T, S, p_binder
+        tcren recognize --features feats.tsv -o scores.tsv           # Q, T, S
         tcren recognize -s models/ -o out.tsv                        # descriptors + p_real, no feature file
         tcren recognize -s models/ --mechanics -t 0 -o out.tsv       # + the spring-network terms
     """
@@ -1334,14 +1334,10 @@ def _score_feature_table(path: Path, out: Path) -> None:
         e = t[PI_FROZEN].to_numpy() if PI_FROZEN in t.columns else None
         v = s_score(t, energy=e)
         scores = scores.with_columns(pl.Series("S", v))
-        from .reliability import p_binder
-        link = "binder_bm|S"
-        scores = scores.with_columns(pl.Series("p_binder", p_binder(v, link=link)))
         typer.echo(f"  S: Q + T{' + ' + PI_FROZEN if e is not None else ''} in native-sd "
                    f"units, {int(np.isfinite(v).sum())} of {len(v)} finite"
                    + ("" if e is not None else f"  (no {PI_FROZEN} column: run `tcren potts score`"
                       " and join it to get the energy term)"))
-        typer.echo(f"  p_binder: frozen out-of-fold Platt link {link!r}")
 
     scores.write_csv(str(out), separator="\t")
     from .provenance import stamp
@@ -1354,16 +1350,15 @@ def _score_feature_table(path: Path, out: Path) -> None:
 def assess(
     features_table: Path = typer.Option(..., "--features", "-f", help="a `tcren features` table (TSV/CSV)"),
     out: Path = typer.Option("assess.tsv", "-o", "--out", help="per-structure assessment (TSV)"),
-    link: str = typer.Option("binder_bm|S", "--link", help="frozen calibration link; `--list-links` to see them"),
     band: str = typer.Option("binder_bm|ipTM", "--band", help="frozen AlphaFold band table for the diagnostic"),
     budget: float = typer.Option(0.5, "--budget", help="recall budget for the expected-precision column"),
-    list_links: bool = typer.Option(False, "--list-links", help="print the frozen links and band tables, then exit"),
+    list_bands: bool = typer.Option(False, "--list-bands", help="print the frozen band tables, then exit"),
 ) -> None:
     """Assess a set of modelled complexes: reliability, ranking, and what the generator is missing.
 
     Three blocks, one table:
 
-    * **reliability** — `S` and the calibrated `p_binder`, both defined for a single structure.
+    * **reliability** — `S`, defined for a single structure and fitted against nothing.
     * **ranking** — rank and percentile within the set, for triage when only the order matters.
     * **generator diagnostic** — when the table carries ipTM, `p_nonbinder_af` reads the frozen band
       table: how often a model this confident is a non-binder, and what `S` still separates
@@ -1374,15 +1369,11 @@ def assess(
     """
     import numpy as np
 
-    from .reliability import (af_band, available_bands, available_links, inversion_flag,
-                              p_binder, screening_yield,
+    from .reliability import (af_band, available_bands, inversion_flag, screening_yield,
                               PI_FROZEN, T_FEATURES_TOPO, s_score)
     from .cohort import Q_FEATURES_GEOM
 
-    if list_links:
-        typer.echo("calibration links:")
-        for k in available_links():
-            typer.echo(f"  {k}")
+    if list_bands:
         typer.echo("band tables:")
         for k in available_bands():
             typer.echo(f"  {k}")
@@ -1399,10 +1390,9 @@ def assess(
 
     e = t[PI_FROZEN].to_numpy() if PI_FROZEN in t.columns else None
     v = s_score(t, energy=e)
-    pb = p_binder(v, link=link)
     order = np.argsort(np.argsort(-np.where(np.isfinite(v), v, -np.inf)))
     n = len(v)
-    o = pl.DataFrame({"complex.id": t["complex.id"], "S": v, "p_binder": pb,
+    o = pl.DataFrame({"complex.id": t["complex.id"], "S": v,
                       "rank": order + 1, "percentile": 100.0 * (1 - order / max(n - 1, 1))})
     if e is not None:
         o = o.with_columns(pl.Series("inversion_flag", inversion_flag(t, energy=e)))
@@ -1413,9 +1403,8 @@ def assess(
     keep = np.argsort(-np.where(np.isfinite(v), v, -np.inf))[:k]
     typer.echo(f"{n} structures; S = Q + T{' + ' + PI_FROZEN if e is not None else ''} "
                f"in native-sd units, {int(np.isfinite(v).sum())} finite")
-    typer.echo(f"  p_binder via {link!r}; mean {np.nanmean(pb):.3f}")
     typer.echo(f"  top {budget:.0%} of the set ({k} structures): "
-               f"mean p_binder {np.nanmean(pb[keep]):.3f} against {np.nanmean(pb):.3f} overall")
+               f"mean S {np.nanmean(v[keep]):.3f} against {np.nanmean(v):.3f} overall")
 
     if "iptm" in t.columns:
         bands = af_band(t["iptm"].to_numpy(), reference=band)
@@ -1433,103 +1422,6 @@ def assess(
     else:
         typer.echo("  no ipTM column: the generator diagnostic is skipped "
                    "(join a metadata.tsv, or pass --metadata to `tcren features`)")
-
-    o.write_csv(str(out), separator="\t")
-    typer.echo(f"wrote {out} ({o.height} rows, {len(o.columns) - 1} columns)")
-
-
-@app.command(rich_help_panel=_P_SCORE)
-def diagnose(
-    features_table: Path = typer.Option(None, "--features", "-f", help="a `tcren features` table (TSV/CSV)"),
-    out: Path = typer.Option("diagnose.tsv", "-o", "--out", help="per-structure diagnosis (TSV)"),
-    confidence: str = typer.Option("iptm", "--confidence", help="the generator confidence column: `iptm` or `plddt`"),
-    reference: str = typer.Option("tcrvdb|ipTM", "--reference", help="frozen correction; `--list-references` to see them"),
-    list_references: bool = typer.Option(False, "--list-references", help="print the frozen corrections, then exit"),
-) -> None:
-    """The generator says it is confident. What should you believe instead?
-
-    A co-folding model builds a confident complex for any receptor-pMHC pair, binding or not, so
-    its confidence is not a probability that the complex is real. This reads the confidence
-    together with the coordinates it produced and returns a corrected probability, plus the parts
-    it is made of:
-
-    * `p_confidence` - the generator's own confidence through the frozen link, alone.
-    * `delta_logit` - what the structure adds, in nats. Positive means the coordinates argue FOR
-      the complex; negative means they argue against one the generator is confident about, which
-      is the case worth acting on.
-    * `p_corrected` - the number to threshold on.
-
-    Validated where the epitope has a solved complex to template on: leave-one-epitope-out on the
-    balanced VDJdb panel it adds 0.051 macro ROC-AUC to ipTM and 0.068 to pLDDT over those cohorts,
-    and subtracts about 0.04 where no receptor has been co-crystallized with the peptide. Read the
-    template covariate beside it.
-
-    Unlike `S`, this read-out is NOT fit-free: four coefficients are fitted on labels and
-    frozen. `assess` is the fit-free triage; this is the confidence correction.
-    """
-    import numpy as np
-
-    from .cohort import Q_FEATURES_GEOM
-    from .reliability import (PI_FROZEN, T_FEATURES_TOPO, _check_potts_contacts,
-                              available_corrections, correct_confidence, inversion_flag)
-
-    if list_references:
-        typer.echo("frozen confidence corrections:")
-        for k in available_corrections():
-            typer.echo(f"  {k}")
-        return
-    if features_table is None:
-        raise typer.BadParameter("--features is required (or pass --list-references)")
-
-    sep = "," if features_table.suffix.lower() == ".csv" else "\t"
-    t = pl.read_csv(features_table, separator=sep, infer_schema_length=None)
-    if "complex.id" not in t.columns:
-        raise typer.BadParameter(f"--features needs a 'complex.id' column; got {list(t.columns)[:6]}")
-    absent = [c for c in (*Q_FEATURES_GEOM, *T_FEATURES_TOPO) if c not in t.columns]
-    if absent:
-        raise typer.BadParameter(
-            f"missing {', '.join(absent)} - rerun "
-            f"`tcren features -i placement,interface,topology,potts`")
-    if confidence not in t.columns:
-        raise typer.BadParameter(
-            f"no {confidence!r} column: the correction needs the generator's own confidence. "
-            f"Join the model's metadata, or pass --confidence with the column you have "
-            f"(one of {[c for c in ('iptm', 'plddt') if c in t.columns]!r} here).")
-
-    e = t[PI_FROZEN].to_numpy() if PI_FROZEN in t.columns else None
-    try:  # `n_contacts` is the potts family's engaged-pair count and nothing else, 2026-08-29
-        _check_potts_contacts(t)
-    except ValueError as exc:
-        raise typer.BadParameter(str(exc)) from exc
-    n = t["n_contacts"].to_numpy() if "n_contacts" in t.columns else None
-    no_n = "" if n is not None else "; no n_contacts column (add -i potts), that term drops out"
-    conf = t[confidence].to_numpy()
-    r = correct_confidence(t, conf, reference=reference, energy=e, contacts=n)
-
-    o = pl.DataFrame({"complex.id": t["complex.id"], confidence: conf,
-                      "S": r["s_score"], "n_contacts": r["n_contacts"],
-                      "p_confidence": r["p_confidence"], "delta_logit": r["delta_logit"],
-                      "p_corrected": r["p_corrected"]})
-    if e is not None:
-        o = o.with_columns(pl.Series("inversion_flag", inversion_flag(t, energy=e)))
-
-    d = np.asarray(r["delta_logit"], float)
-    fin = np.isfinite(d)
-    down = int((d < 0).sum())
-    typer.echo(f"{t.height} structures corrected against {reference!r}"
-               f"{'' if e is not None else '; no energy column, S is the two-block form'}"
-               f"{no_n}")
-    typer.echo(f"  the structure argues AGAINST {down} of {int(fin.sum())} "
-               f"({down / max(int(fin.sum()), 1):.0%}); mean shift "
-               f"{np.nanmean(d):+.3f} nats, range [{np.nanmin(d):+.2f}, {np.nanmax(d):+.2f}]")
-    top = np.argsort(-np.where(np.isfinite(conf.astype(float)), conf.astype(float), -np.inf))[:5]
-    typer.echo("  the five the generator is most confident about:")
-    for i in top:
-        typer.echo(f"    {t['complex.id'][int(i)]:<28} {confidence} {float(conf[i]):.3f}  "
-                   f"p_conf {r['p_confidence'][i]:.3f} -> p_corrected {r['p_corrected'][i]:.3f}"
-                   f"  ({r['delta_logit'][i]:+.2f} nats)")
-    typer.echo("  validated where the epitope has a solved complex; where none exists nothing "
-               "works, the generator's confidence included.")
 
     o.write_csv(str(out), separator="\t")
     typer.echo(f"wrote {out} ({o.height} rows, {len(o.columns) - 1} columns)")
