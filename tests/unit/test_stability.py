@@ -55,7 +55,9 @@ def test_cutoff_and_delta_are_tunable():
 
 
 def test_native_matches_numpy_reference(monkeypatch):
-    import tcren.stability as stability
+    # the module that defines `_geom`; `tcren.stability` is the deprecated re-export shim and
+    # patching an attribute there would not reach the function that reads it.
+    import tcren.mechanics.stability as stability
 
     pep = [[_atom("CA", "C", [d, 0, 0]), _atom("CB", "C", [d, 1.0, 0])] for d in (3.0, 3.8, 4.6)]
     tcr = [[_atom("CA", "C", [0, 0, 0])], [_atom("CA", "C", [0, 2.0, 0])]]

@@ -566,3 +566,24 @@ def betancourt() -> Potential:
     schemes. Protein Sci. 1999;8(2):361-369. doi:10.1110/ps.8.2.361.
     """
     return Potential.from_csv(_bundled("BT1999_contact_energies.csv"), name="BT1999")
+
+
+def _double_centred(potential):
+    """``(J, index)`` --- the pair-specific part of a potential, one-body terms removed.
+
+    ``J(a,b) = e(a,b) - rowmean(a) - colmean(b) + grandmean`` over the residue axes, so every row and
+    column of ``J`` sums to zero and what remains depends on the *pair*, not on either residue alone.
+    Unlike :meth:`tcren.Potential.decompose` this does not require a symmetric matrix, which matters
+    because the shipped TCRen2 is directional. Never-observed cells are ``nan`` and are ignored by
+    the means (and stay ``nan`` in ``J``, so they drop out of every descriptor).
+    """
+    import warnings
+
+    m, index = potential.as_matrix()
+    with warnings.catch_warnings():
+        # An alphabet entry with no observed contact at all (e.g. the gap symbol) is an all-nan
+        # row: its mean is genuinely undefined, J stays nan there, and those pairs drop out.
+        warnings.simplefilter("ignore", RuntimeWarning)
+        row = np.nanmean(m, axis=1, keepdims=True)
+        col = np.nanmean(m, axis=0, keepdims=True)
+        return m - row - col + np.nanmean(m), index

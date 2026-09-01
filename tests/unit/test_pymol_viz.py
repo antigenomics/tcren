@@ -38,7 +38,7 @@ _STRIDE = _CYLINDER_LEN + _CONE_LEN
 # --- the axis frame ---------------------------------------------------------------------------
 
 def test_canonical_axes_name_the_frame_in_orient():
-    """The labels must stay tied to what tcren.orient.frame actually does."""
+    """The labels must stay tied to what tcren.docking.frame actually does."""
     x, y, z = CANONICAL_AXES
     assert (x.letter, y.letter, z.letter) == ("x", "y", "z")
     assert "PC3" in x.definition and "PC2" in y.definition and "PC1" in z.definition

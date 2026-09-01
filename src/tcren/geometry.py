@@ -132,7 +132,7 @@ def cdr3_internal_coords(structure, loop: str = "cdr3b") -> LoopInternalCoords |
         torsion needs 4 points).
     """
     from .contactmap import _cdr3_ca
-    from .orient.tcrdock_geometry import _dihedral
+    from .docking.tcrdock_geometry import _dihedral
 
     ctype = {"cdr3a": "TRA", "cdr3b": "TRB"}.get(loop)
     if ctype is None:

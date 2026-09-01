@@ -26,6 +26,7 @@ from .contactmap import ContactMap
 from .contacts.table import residue_annotation
 from .mhc import MhcCall, annotate_mhc
 from .potential import Potential, keskin, mj, tcren, tcren2
+from .energetics.scoring import _contact_weights, _interface_energy, _phi_scale
 from .structure.io import import_structure
 from .structure.model import PEPTIDE_TYPE, Structure
 
@@ -85,18 +86,6 @@ def _resolve_potentials(
     return resolved
 
 
-def _phi_scale(interface: str, potential: Potential) -> float:
-    """The scale that makes one interface energy commensurate with the other two.
-
-    The Native2026 standard deviation of that interface's energy under that potential, read from
-    the frozen moments; :meth:`Potential.scale` (the sd of the potential's own matrix) when the
-    pair is not tabulated, which is what an unbundled potential or a non-default assignment gets.
-    """
-    from .reliability import moments
-
-    key = f"{interface}|{potential.name}"
-    entry = moments().get("phi", {}).get(key)
-    return float(entry["sd"]) if entry else potential.scale()
 
 
 @dataclass(slots=True)
@@ -121,72 +110,8 @@ class PipelineResult:
     extra: dict = field(default_factory=dict)
 
 
-def _contact_weights(contacts: pl.DataFrame, contact_weight: str = "residue",
-                     weights: "np.ndarray | None" = None) -> np.ndarray:
-    """Per-contact multiplier for an energy sum.
-
-    Every score in the package is ``sum_ij w_ij * e(a_i, b_j)``; this is the only place ``w``
-    comes from, so a rotamer-averaged contact probability
-    (:func:`tcren.rotamers.contact_probabilities`), a position weight
-    (:func:`tcren.scoring.position_weights`) or a contact-type filter all enter the same way.
-
-    Args:
-        contacts: the interface frame the energy is summed over.
-        contact_weight: ``"residue"`` (unit weight per contacting residue pair) or ``"atomic"``
-            (its ``n_atom_contacts`` heavy-atom-pair count).
-        weights: an explicit per-row multiplier, applied **on top of** ``contact_weight``. Must
-            be one value per row.
-
-    Raises:
-        ValueError: for an unknown ``contact_weight``, a missing ``n_atom_contacts`` column, or a
-            ``weights`` array of the wrong length.
-    """
-    if contact_weight not in ("residue", "atomic"):
-        raise ValueError(f"contact_weight must be 'residue' or 'atomic', got {contact_weight!r}")
-    if contact_weight == "atomic":
-        if "n_atom_contacts" not in contacts.columns:
-            raise ValueError(
-                "contact_weight='atomic' needs the n_atom_contacts column; build the "
-                "contact map with count_atoms=True"
-            )
-        out = np.asarray(contacts["n_atom_contacts"].to_list(), dtype=np.float64)
-    else:
-        out = np.ones(contacts.height, dtype=np.float64)
-    if weights is not None:
-        weights = np.asarray(weights, dtype=np.float64)
-        if weights.shape != (contacts.height,):
-            raise ValueError(f"weights must have one value per contact "
-                             f"({contacts.height}), got {weights.shape}")
-        out = out * weights
-    return out
 
 
-def _interface_energy(
-    contacts: pl.DataFrame, potential: Potential, contact_weight: str = "residue",
-    weights: "np.ndarray | None" = None,
-) -> float:
-    """Sum the residue-pair ``potential`` over an interface's contacts (unknown residues skipped).
-
-    With ``contact_weight="residue"`` (default, legacy) each contacting residue pair adds
-    ``potential[a, b]``. With ``contact_weight="atomic"`` each pair is multiplied by its
-    ``n_atom_contacts`` heavy-atom-pair count (which the contacts table must carry). ``weights``
-    multiplies on top — see :func:`_contact_weights`.
-    """
-    if contacts.is_empty():
-        return 0.0
-    weights = _contact_weights(contacts, contact_weight, weights)
-    # Vectorized gather off the dense matrix instead of a per-row polars filter
-    # (Potential.value): O(contacts) lookups, not O(contacts × potential_rows). Pairs whose
-    # residue is outside the alphabet, or absent from the matrix (nan), are dropped — exactly
-    # as the per-row path skipped KeyError/IndexError.
-    matrix, index = potential.as_matrix()
-    rows_idx = np.array([index.get(a, -1) for a in contacts["residue.aa.from"].to_list()],
-                        dtype=np.int64)
-    cols_idx = np.array([index.get(b, -1) for b in contacts["residue.aa.to"].to_list()],
-                        dtype=np.int64)
-    valid = (rows_idx >= 0) & (cols_idx >= 0)
-    vals = matrix[rows_idx[valid], cols_idx[valid]] * weights[valid]
-    return float(np.nansum(vals))
 
 
 def run(
@@ -254,7 +179,7 @@ def run(
 
     oriented = rmsd = None
     if superimpose:
-        from .orient import superimpose as _superimpose
+        from .docking import superimpose as _superimpose
 
         oriented, info = _superimpose(s, db_dir=db_dir, organism=organism)
         rmsd = info.rmsd
@@ -286,7 +211,7 @@ def run(
     if intra_weight:
         # The peptide's contacts with itself: reported raw, folded into the total at its weight,
         # so the term and the weight given to it stay separable in the output.
-        from .scoring import intra_peptide_energy
+        from .energetics.scoring import intra_peptide_energy
 
         scores["peptide_internal"] = intra_peptide_energy(
             cm, resolved["peptide_internal"], contact_weight=contact_weight
@@ -298,7 +223,7 @@ def run(
         # contact map. On a fixed map it is F minus a constant and changes no ranking; it only
         # bites across candidates that each carry their own pose (see ddg.reference_delta).
         # ΔF_tcr_mhc is identically 0 — the peptide is not in that interface.
-        from .ddg import reference_delta
+        from .energetics.mutation import reference_delta
 
         peptide = next((c.sequence() for c in s.chains if c.chain_type == PEPTIDE_TYPE), None)
         if peptide is None:
@@ -319,7 +244,7 @@ def run(
     real_interface = None
     if superimpose:
         from .binder.noise import is_real_interface
-        from .orient.docking import docking_angles
+        from .docking.angles import docking_angles
 
         try:
             angles = docking_angles(s)

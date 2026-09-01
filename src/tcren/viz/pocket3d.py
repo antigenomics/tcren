@@ -9,7 +9,7 @@ package has no hard 3D dependency.
 from __future__ import annotations
 
 
-from ..orient.align import align_to_native
+from ..docking.align import align_to_native
 from ..structure.model import Structure
 from .palette import REGION_COLOR
 

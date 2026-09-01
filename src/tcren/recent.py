@@ -68,7 +68,7 @@ def _validate_complete(paths: list[Path], organism: str = "human") -> dict[str, 
     from .annotation import classify_chains
     from .annotation.arda_adapter import _import_arda
     from .mhc import annotate_mhc_batch
-    from .paper.helpers import _batch_annotate
+    from .annotation.batch import _batch_annotate
     from .structure import import_structure, structure_id_from_path
 
     structs = []

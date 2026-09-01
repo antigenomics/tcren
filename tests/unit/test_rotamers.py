@@ -256,8 +256,8 @@ def test_repack_agrees_with_the_python_enumeration(annotated):
 def test_repack_recovers_a_wrong_rotamer(annotated):
     """The claim the packer exists for: a discrete re-sample crosses the torsional barrier a local
     minimiser cannot. Measured on five crystals, side-chain RMSD 4.13 A -> 2.36 A."""
-    from tcren.orient._transform import apply_rigid, kabsch
-    from tcren.orient.align import _matched_anchors
+    from tcren.docking._transform import apply_rigid, kabsch
+    from tcren.docking.align import _matched_anchors
     from tcren.rotamers import repack
     from tcren.structure.model import Atom, Chain, Residue, Structure
 

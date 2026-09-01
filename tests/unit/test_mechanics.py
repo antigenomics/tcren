@@ -66,7 +66,9 @@ def test_stiffness_tensor_z_springs_are_tensile_dominant():
 
 def test_stiffness_tensor_under_three_springs_is_nan(monkeypatch):
     """< 3 springs cannot define the tensor; every descriptor is nan, n_spring is exact."""
-    import tcren.mechanics as mech
+    # patch the module that DEFINES the name, not the package that re-exports it: `stiffness_tensor`
+    # resolves `interface_springs` in its own namespace, so a patch on the package would not take.
+    import tcren.mechanics.springs as mech
 
     two = _springs([[0, 0, 0], [1, 0, 0]], [[0, 0, 5], [1, 0, 5]], [1, 1])
     monkeypatch.setattr(mech, "interface_springs", lambda *a, **k: two)

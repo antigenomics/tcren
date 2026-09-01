@@ -8,8 +8,8 @@ import json
 import polars as pl
 import pytest
 
-from tcren.orient.pipeline import _write_metadata
-from tcren.orient.superimpose import _matching_ids, _metadata_path
+from tcren.docking.pipeline import _write_metadata
+from tcren.docking.superimpose import _matching_ids, _metadata_path
 
 
 def test_orient_metadata_json_is_what_superimpose_reads(tmp_path):

@@ -550,7 +550,19 @@ interfaces of different size.
   sums, and `P_NATIVE_POOL` is the map between them:
   `placement` (groove-frame pose — angles, TCRdock params, ride height/shift/offset, CDR3 frames;
   frame-**dependent**), `interface` (contact size + chemistry), `topology` (the *shape* of the
-  contact set, size-free), `energetics` (Φ and ΔΦ), `kinetics` (spring network; off by default).
+  contact set, size-free), `energetics` (Φ and ΔΦ), `potts`, `kinetics` (spring network; off by
+  default). **164 descriptors as of 2.30.0**, of which `topology` is 70 — the largest, since it
+  absorbed the contact-graph, matrix and surface blocks.
+- **The gap is in `topology`, and it is the one channel that measures space rather than incidence.**
+  `tcren.topology.surface.surface_map(s, side=...)` rasterises each face as a height field on one
+  shared groove-frame grid, so `gap = h_tcr - h_pmhc` cell by cell. The sign is counter-intuitive
+  and is the point: the median gap is **-1.7 Å** and **71 % of cells interdigitate**, the faces
+  interlocking rather than stacking. Reported pooled (`sc_gap_mean`, `sc_gap_sd`), integrated with
+  the signs apart (`sc_gap_vol` void vs `sc_interlock`, both Å³) and resolved by sign
+  (`sc_interlock_frac`, `sc_gap_depth`, `sc_gap_height`, `sc_gap_asym`). Measured on 4,907 labelled
+  benchmark structures, `sc_gap_mean`/`sc_gap_sd` carry the largest binder contrasts of any
+  published interface descriptor tested (Cohen's *d* -0.651 / -0.681) at R² 0.131 / 0.255 on all
+  141 pre-2.30 descriptors.
 - `placement` + `interface` were one `geometry` family and `energetics` was `physics` until
   2026-08-24. Both retired names still resolve in `descriptors()`; the split is what lets the
   independence claim be stated — measured on VDJdb, topology ⟂ interface at |ρ| = 0.023 while

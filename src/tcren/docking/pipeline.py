@@ -162,7 +162,7 @@ def run_folder(
     from ..annotation import classify_chains
     from ..annotation.arda_adapter import _import_arda
     from ..mhc import annotate_mhc_batch
-    from ..paper.helpers import _batch_annotate
+    from ..annotation.batch import _batch_annotate
     from ..structure.io import import_structure
 
     from ..structure.io import structure_paths
@@ -269,7 +269,7 @@ def run_superimpose(
     directory, or — for a single input — a structure file whose extension must match
     ``mmcif``/``compress``. Annotation is BATCHED (one mmseqs pass over all inputs); only the
     mmseqs-free ensemble alignment + write runs on the thread pool (``threads`` workers, default
-    all cores). See :func:`tcren.orient.superimpose` for the MHC-ensemble method.
+    all cores). See :func:`tcren.docking.superimpose` for the MHC-ensemble method.
     """
     import os
     from concurrent.futures import ThreadPoolExecutor
@@ -277,8 +277,8 @@ def run_superimpose(
     from ..annotation import classify_chains
     from ..annotation.arda_adapter import _import_arda
     from ..mhc import annotate_mhc_batch
-    from ..orient.superimpose import superimpose
-    from ..paper.helpers import _batch_annotate
+    from ..docking.superimpose import superimpose
+    from ..annotation.batch import _batch_annotate
     from ..structure.io import structure_output_path, write_structure
 
     parsed = _resolve_inputs(structures)

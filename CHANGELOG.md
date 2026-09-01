@@ -3,6 +3,125 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
+## [2.30.0] — 2026-09-02
+
+**Twenty-three descriptors, 141 -> 164: the published interface literature, measured on the
+19,213-structure benchmark corpus before being adopted. The gap between the two faces is the find,
+and it was already computable — `topology.surface.surface_complementarity` had shipped twelve
+quantities and not one of them was catalogued.**
+
+### Added
+- **`tcren.topology.literature`**, and with it 23 catalogued descriptors in the `topology` family.
+  Every one was measured on the whole corpus first: the R^2 of an OLS of it on **all 141 incumbent
+  descriptors** decides whether it is a channel this package could already reach.
+- **Nineteen surface descriptors, `sc_*`.** Both faces are rasterised as height fields on one
+  shared groove-frame grid, so the gap is their difference cell by cell, `h_tcr - h_pmhc`, and no
+  new geometry is computed — `surface_map(s, side="pmhc")` and `side="tcr"` already existed.
+  `sc_gap_mean` and `sc_gap_sd` carry the largest binder/non-binder contrasts of any published
+  descriptor tested (Cohen's *d* -0.651 and -0.681 out-of-panel, 4,907 labelled structures) at
+  R^2 **0.131** and **0.255** on the incumbents. `sc_shape` — Lawrence & Colman's Sc on a raster
+  rather than a dot surface — is the more familiar and the *less* novel: R^2 0.445, nearest
+  incumbent `m_erank_tm` at rho 0.414.
+- **The gap integrated over the contact plane, with the two signs kept apart**, because they mean
+  opposite things and a mean cancels them. `sc_gap_vol` is the void, `sc_interlock` the
+  interdigitated volume, both in A^3; `sc_gap_index` is the void over the retained contact area,
+  the intensive form. On 1AO7 interlock is 1,089 A^3 against a 315 A^3 void.
+- **Four more reading the same field by sign**: `sc_interlock_frac` (share of cells with a negative
+  gap — 0.771 on 1AO7, against the 0.71 this module's own 60-crystal calibration reports),
+  `sc_gap_depth` (how far in, over those cells alone), `sc_gap_height` (how far off, over the void
+  cells alone) and `sc_gap_asym` (the balance of the two volumes, in [-1, 1]). `sc_gap_mean` is
+  `interlock_frac` weighting the two, so these are the three numbers it collapses into one.
+- **`co_pep` / `co_mhc`** — contact order (Plaxco 1998), the package's first sequence-separation
+  descriptor. New on the MHC helices (R^2 0.275); **not** new on the peptide (R^2 0.519), because
+  our peptides are overwhelmingly 9-mers so the length normalisation has almost no range: 619
+  distinct values over 12,662 structures.
+- **`partcoef_tcr` / `partcoef_pmhc`** — Di Paola's participation coefficient
+  `P_i = 1 - sum_s (k_si/k_i)^2`, their most discriminative descriptor. Adopted with its verdict
+  recorded rather than hidden: on this corpus it is **redundant**, R^2 0.730 and 0.720 on the
+  incumbents, the pMHC side's nearest neighbour being `g_loop_overlap` from the same bipartite
+  object. It costs nothing over the contact map already built.
+
+### Changed
+- `surface_complementarity` returns seven more keys (`gap_vol`, `interlock`, `gap_index`,
+  `interlock_frac`, `gap_depth`, `gap_height`, `gap_asym`). Existing keys are unchanged.
+- `descriptors("topology")` is 70 columns, 34 compositional / 22 geometric / 14 topological. The
+  family is no longer identical to `footprint_topology_features()`; `test_features_families` now
+  asserts the union rather than an equality that only forbade the family from growing.
+- Units gain `A^3`. The vocabulary is closed by test, so a genuinely new physical unit is added
+  there deliberately.
+
+### Notes
+- **Two corrections the audit proposed are falsified on this corpus and were NOT applied.** "Any
+  sum-over-contacts potential is extensive in interface size" is false for ours — every `Phi_*` has
+  R^2 <= 0.044 on interface size, `Phi_tcr_pep` 0.006 — so per-BSA normalisation solves a problem
+  this package does not have. And "`S_cell` is interface size wearing a hat" does not hold: R^2
+  0.303, *lower* than `D2_pep24`'s 0.441.
+- The gap is the **channel** Jones & Thornton 1996 named, not their gap volume index, which divides
+  a Voronoi gap volume by interface ASA. Ours is a raster height-field gap and the catalogue says
+  so rather than citing their formula.
+
+## [2.29.0] — 2026-09-01
+
+**Eighteen descriptors, 123 -> 141: the footprint's evenness re-derived from the contact graph
+itself, length-agnostic readings of the Calpha/Cbeta maps, and five quantities the package already
+computed but never catalogued. Plus the package is laid out in named layers.**
+
+### Added
+- **Eight contact-graph descriptors** (`tcren.topology.graph`). The existing coverage measures bin
+  contacts into a fixed 12/24-cell partition and the existing topology measures build a flag complex
+  at an arbitrary 7/8 A radius; these read the 5 A bipartite incidence directly, so neither a
+  partition nor a radius is chosen. `g_comp_frac` is the parameter-free counterpart of
+  `fp_b0_frac_r7`, and `g_cyclo_frac` the size-free cyclomatic number the footprint docstring has
+  said since 2.12 that the raw form is not. `g_loop_overlap` is new in kind: the mean Jaccard overlap
+  of the six loops' partner sets, which reads a footprint collapsed onto a few residues.
+- **Four spectral and two Cbeta descriptors of the interface distance maps.** `m_erank_*`/`m_gap_*`
+  are functionals of the singular spectrum of `exp(-D^2 / 2 sigma^2)` at sigma = 5 A; `m_face_*` is
+  the mean `d_Calpha - d_Cbeta` over contacting pairs, positive when side chains lean towards each
+  other and negative when the backbones are close and the side chains are not.
+- **Five descriptors promoted out of `tcren.topology.pose` into the catalogue**: `m_face_tp`
+  (previously `sidechain_toward`), `ca_cb_agreement_tp`, `ca_cb_agreement_tm`, `degree_evenness_tp`
+  and `frac_well_coordinated_tp`. All five were computed and returned since the pose layer was
+  written and named in no registry, so `tcren features` could not emit them.
+- **`scripts/audit_architecture.py`** — the import graph against the intended layering. `--check`
+  exits non-zero on any module-level cycle, which is what a CI gate would use.
+
+### Changed
+- **`recognition.py` is three modules.** It had grown to 1,151 lines holding the catalogue,
+  computing the interface block and dispatching batches, so a caller that only wanted to know what a
+  column means imported all of it. Now `descriptors.catalogue` (data and selection, no arithmetic),
+  `descriptors.compute` and `descriptors.table`. `tcren.recognition` re-exports all three and no
+  existing import changes.
+- **The flat middle of the package is four named sub-packages**: `docking` (renamed from `orient`,
+  which said only that something gets moved -- it holds a native reimplementation of TCRdock's
+  rigid-body parameterisation), `topology`, `energetics` and `mechanics`. Every old top-level name
+  is a transparent re-export.
+- `_iter_typed` moved out of `cli` and the batched-annotation helpers out of `paper.helpers`, both
+  into `annotation.batch`. Six modules had been importing upwards into the app layer for them.
+- The interface energy sum (`_interface_energy`, `_contact_weights`, `_phi_scale`) moved from
+  `pipeline` to `energetics.scoring`, where four modules had been reaching up for it.
+- `energetics.ddg` is `energetics.mutation`: as a submodule it shadowed the `ddg` function of the
+  same name on the package.
+- `pose.sidechain_toward` -> **`m_face_tp`**. One name for one number; it is identical to the
+  catalogued column to 4.4e-16 over 196 crystals, and shipping both would recreate the duplicate the
+  2026-07-28 audit removed.
+
+### Note on length
+Nine of the 141 carry a new `STATUS` entry recording a measured coupling to peptide or CDR3 length,
+on 143 class I Native2026 crystals over both axes. This is not a deprecation: every one keeps most
+of its variance after both lengths are regressed out (58 per cent in the worst case), and a
+length-coupled column is useful beside a length-free one because a model can form the contrast that
+cancels the shared part. What the entries buy is knowing which is which. The mechanism on the
+peptide axis is the class I groove: closed at both ends, so a longer peptide must bulge, and a
+bulged peptide sits closer to the receptor.
+
+### Unchanged
+`Q`, `T`, `Pi` and `S`, and every coefficient in `data/reliability_moments.json`. The blocks are
+`Q_FEATURES_GEOM` and `T_FEATURES_TOPO`, neither of which gains a term.
+
+### Note for anyone holding a feature table
+`provenance.registry_digest()` changes, so `tcren recognize --features <table>` raises on any table
+written by 2.28.0 or earlier. Recompute with `tcren features`.
+
 ## [2.28.0] — 2026-09-01
 
 **Every out-of-fold-fitted read-out is removed.** The author's ruling: leave-one-epitope-out

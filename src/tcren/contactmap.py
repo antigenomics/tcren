@@ -227,11 +227,11 @@ def _cdr3_peptide_dmaps(structure):
     """``{"cdr3a": (L_a x M) dist, "cdr3b": (L_b x M) dist}`` Cα maps against the peptide, via markup.
 
     Uses the region markup (``classify_chains``) for CDR3 spans — cleaner than substring matching —
-    and :func:`tcren.orient.docking._chain_ca` for the peptide. Missing loops are omitted.
+    and :func:`tcren.docking.docking._chain_ca` for the peptide. Missing loops are omitted.
     """
     import numpy as np
 
-    from .orient.docking import _chain_ca
+    from .contacts.geometry import _chain_ca
     pep = _chain_ca(structure, (PEPTIDE_TYPE,))
     out: dict[str, np.ndarray] = {}
     if pep is None or len(pep) < 2:

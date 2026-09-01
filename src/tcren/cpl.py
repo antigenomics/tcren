@@ -73,7 +73,7 @@ import polars as pl
 from .contactmap import ContactMap
 from .potential import Potential, mj
 from .potential import tcren as _tcren_potential  # noqa: F401  (name clashes with the package)
-from .scoring import _PEPTIDE_SIDE, score_peptides
+from .energetics.scoring import _PEPTIDE_SIDE, score_peptides
 
 #: Column order of every matrix this module returns.
 AA20: tuple[str, ...] = tuple("ACDEFGHIKLMNPQRSTVWY")

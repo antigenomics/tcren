@@ -34,7 +34,7 @@ def test_pdb_and_mmcif_roundtrip(tmp_path):
 
 
 def test_average_transform_is_orthonormal_and_exact_on_constant():
-    from tcren.orient.superimpose import _average_transform
+    from tcren.docking.superimpose import _average_transform
 
     rng = np.random.default_rng(0)
     q, _ = np.linalg.qr(rng.standard_normal((3, 3)))

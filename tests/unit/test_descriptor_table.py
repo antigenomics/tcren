@@ -23,7 +23,7 @@ def test_every_descriptor_carries_units_and_a_definition():
 def test_units_come_from_a_closed_vocabulary():
     """Units are what a transform has to respect, so they are a fixed set, not free text."""
     allowed = {
-        "A", "A^2", "deg", "rad", "cosine", "kT", "kT/site", "N", "N/m", "J",
+        "A", "A^2", "A^3", "deg", "rad", "cosine", "kT", "kT/site", "N", "N/m", "J",
         "count", "fraction", "signed fraction", "ratio", "log-odds", "log-odds^2",
         "class I / II",
     }

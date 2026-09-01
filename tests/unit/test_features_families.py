@@ -11,6 +11,7 @@ from __future__ import annotations
 import pytest
 
 from tcren.footprint import FOOTPRINT_SIZE_FEATURES, footprint_topology_features
+from tcren.topology.literature import LITERATURE_FEATURES
 from tcren.recognition import (
     _FAMILY_ALIASES,
     DESCRIPTORS,
@@ -58,7 +59,10 @@ def test_contact_counts_are_interface_size_not_topology():
     topo = set(descriptors("topology"))
     assert not topo & set(FOOTPRINT_SIZE_FEATURES)
     assert set(FOOTPRINT_SIZE_FEATURES) <= set(descriptors("interface"))
-    assert set(footprint_topology_features()) == topo
+    # Topology is footprint plus the published descriptors `tcren.topology.literature` adds. It was
+    # equal to the footprint set until 2026-09-02; asserting equality again would only forbid the
+    # family from growing, and the claim this test exists for is the size/shape separation above.
+    assert topo == set(footprint_topology_features()) | set(LITERATURE_FEATURES)
 
 
 def test_the_engaged_pair_count_belongs_to_potts_and_to_no_other_family():
@@ -93,3 +97,30 @@ def test_tcr_only_drops_the_cohort_identity_columns():
 def test_scores_are_excluded_from_every_family_by_default():
     for f in FAMILIES:
         assert not set(descriptors(f)) & {"S", "Q", "T"}
+
+
+def test_every_family_dispatches_and_emits_its_columns():
+    """`tcren features -i <family>` must actually reach each family's producer.
+
+    Regression, 2026-09-01. Splitting `recognition.py` into catalogue / compute / table left
+    `_footprint_columns` out of the dispatch module's imports, so `-i topology` raised `NameError`
+    for every structure and the run wrote a table of `complex.id` and `error` -- 374 rows, one
+    "descriptor", exit status 0. Nothing in the suite covered `_featurise_families`, because every
+    other test reaches the descriptors through `recognition_features`, which takes a different path.
+    """
+    import numpy as np
+
+    from test_footprint import _full_complex          # the annotated synthetic complex
+    from tcren.descriptors.table import _featurise_families
+    from tcren.recognition import DESCRIPTORS, FAMILIES
+
+    s = _full_complex()
+    for family in FAMILIES:
+        row = _featurise_families("probe", s, "human", [family], (7.0, 8.0))
+        assert "error" not in row, (family, row.get("error"))
+        want = {n for n, (fam, _) in DESCRIPTORS.items() if fam == family}
+        got = set(row) - {"complex.id"}
+        assert got, f"{family} emitted nothing"
+        assert got <= want | {f"fp_{k}_r{r:g}" for r in (7.0, 8.0)
+                              for k in ("b0", "b1", "chi", "b0_frac")}, family
+        assert any(np.isfinite(v) for v in row.values() if isinstance(v, float)), family

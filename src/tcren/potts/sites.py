@@ -39,7 +39,7 @@ def _sided(structure: Structure, partner: tuple[str, ...],
            receptor: tuple[str, ...] | None = None) -> pl.DataFrame | None:
     """``pose._interface_layers`` plus the normalised partner key and both annotation joins."""
     from ..contacts.table import residue_annotation
-    from ..pose import _interface_layers
+    from ..contacts.definitions import _interface_layers
 
     w = _interface_layers(structure, 5.0, partner=partner, receptor=receptor)
     if w.is_empty() or "d3" not in w.columns:

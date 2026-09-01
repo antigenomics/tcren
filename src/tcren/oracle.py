@@ -22,7 +22,7 @@ import polars as pl
 
 from .refine.anchors import native_peptide
 from .contactmap import ContactMap
-from .ddg import alanine_scan
+from .energetics.mutation import alanine_scan
 from .pipeline import run
 from .potential import Potential
 from .scoring_rank import percentile_rank

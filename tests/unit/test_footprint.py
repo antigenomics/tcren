@@ -20,7 +20,11 @@ _THREE = {"L": "LEU", "D": "ASP", "K": "LYS", "W": "TRP"}
 
 
 def _chain(cid, ctype, n, origin, aas, loops, rng):
-    """A chain of `n` residues scattered about `origin`, optionally marked up with CDR1/2/3."""
+    """A chain of `n` residues scattered about `origin`, optionally marked up with regions.
+
+    `loops` is `True` for the CDR triple, a sequence of region names for anything else (the MHC
+    groove helices, which the Calpha-map descriptors select by markup), or falsy for no markup.
+    """
     res = []
     for i in range(n):
         x, y, z = np.asarray(origin, float) + rng.normal(scale=1.8, size=3)
@@ -29,12 +33,13 @@ def _chain(cid, ctype, n, origin, aas, loops, rng):
                            (Atom("CA", "C", np.array([x, y, z])),
                             Atom("CB", "C", np.array([x + 0.7, y, z])))))
     c = Chain(cid, res, chain_type=ctype)
-    if loops:
-        span = n // 3
+    names = ("CDR1", "CDR2", "CDR3") if loops is True else tuple(loops or ())
+    if names:
+        span = n // len(names)
         c.regions = [RegionMarkup(r, i * span, (i + 1) * span - 1,
                                   "".join(x.aa for x in res[i * span:(i + 1) * span]),
                                   res[i * span:(i + 1) * span])
-                     for i, r in enumerate(("CDR1", "CDR2", "CDR3"))]
+                     for i, r in enumerate(names)]
     return c
 
 
@@ -45,7 +50,7 @@ def _full_complex():
         _chain("C", PEPTIDE_TYPE, 9, [0.0, 0.0, 0.0], "DKW", False, rng),
         _chain("D", "TRA", 18, [-2.0, 0.0, 4.0], "LDK", True, rng),
         _chain("B", "TRB", 18, [2.0, 0.0, 4.0], "LDW", True, rng),
-        _chain("A", "MHCa", 24, [0.0, 0.0, -4.0], "LDW", False, rng)])
+        _chain("A", "MHCa", 24, [0.0, 0.0, -4.0], "LDW", ("HELIX_A1", "HELIX_A2"), rng)])
 
 
 def test_selfcheck_passes():
@@ -206,6 +211,11 @@ def test_every_feature_is_invariant_under_rigid_motion():
     a, b = footprint_features(s), footprint_features(moved)
     assert set(a) == set(b)
     for k in a:
+        # NaN is a value here, not a failure: a column the structure does not support must be
+        # unsupported in both frames. `approx` reads nan != nan, so test the pair explicitly.
+        if np.isnan(a[k]) or np.isnan(b[k]):
+            assert np.isnan(a[k]) and np.isnan(b[k]), (k, a[k], b[k])
+            continue
         assert a[k] == pytest.approx(b[k], rel=1e-9, abs=1e-9), (k, a[k], b[k])
 
 

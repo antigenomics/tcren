@@ -1,6 +1,6 @@
 """Superimpose query structures onto a canonical database by MHC.
 
-Unlike :func:`tcren.orient.run_folder` (which *builds* a canonical set from native complexes
+Unlike :func:`tcren.docking.run_folder` (which *builds* a canonical set from native complexes
 using the per-class derived frame), :func:`superimpose` brings a **new** structure into the
 canonical frame defined by an existing database (``data/Canonical2026`` by default).
 
@@ -47,7 +47,7 @@ def _metadata_path(db_dir: Path) -> Path:
             return packaged
     raise FileNotFoundError(
         f"no orient_metadata.json for canonical database {db_dir}; build one with "
-        f"`tcren orient -s <natives> -o {db_dir}` or tcren.orient.run_folder(<natives>, "
+        f"`tcren orient -s <natives> -o {db_dir}` or tcren.docking.run_folder(<natives>, "
         f"{str(db_dir)!r}), which writes <out>/orient_metadata.json")
 
 
@@ -70,7 +70,7 @@ def _canonical_references(db_dir: Path, mhc_class: str, species: str,
     from ..annotation import classify_chains
     from ..annotation.arda_adapter import _import_arda
     from ..mhc import annotate_mhc_batch
-    from ..paper.helpers import _batch_annotate
+    from ..annotation.batch import _batch_annotate
     from ..structure.io import structure_paths
 
     by_id = {p.name.split(".")[0]: p for p in structure_paths(db_dir)}
@@ -117,7 +117,7 @@ def superimpose(
     threaded batch driver, which annotates the whole input set in one mmseqs pass first). The
     ensemble alignment itself is mmseqs-free, so it is the part safe to run on a thread pool.
     ``db_dir`` defaults to ``data/Canonical2026``. Returns the oriented, A–E renamed structure
-    and the consensus :class:`~tcren.orient.align.OrientationResult` (averaged over the ensemble).
+    and the consensus :class:`~tcren.docking.align.OrientationResult` (averaged over the ensemble).
     """
     from ._transform import kabsch
 

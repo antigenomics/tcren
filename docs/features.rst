@@ -200,10 +200,10 @@ also the axis along which they carry independent evidence:
      - ``burial``, ``extent``, ``n_contacts_tp/tm``, ``n_hbond``, ``ct_*``, ``n_clashes``,
        ``n_loop_contacts``
    * - ``topology``
-     - the *shape* of the contact set, free of its size. SE(3)-invariant, so these need no
-       canonical orientation.
+     - the *shape* of the contact set, free of its size, plus the two faces read as height fields.
+       SE(3)-invariant, so these need no canonical orientation.
      - ``H_cell``, ``D2_cell``, ``D2_pep24``, ``fp_b0_*``, ``fp_b1_*``, ``h0_pers_ent``,
-       ``L_canon``, ``ab_imb``
+       ``L_canon``, ``ab_imb``, ``g_*``, ``m_*``, ``sc_*``, ``co_pep/mhc``, ``partcoef_*``
    * - ``energetics``
      - statistical-potential interface energies and their poly-alanine references.
      - ``Phi_tcr_pep``, ``Phi_tcr_mhc``, ``Phi_cdr12/3a/3b``, ``dPhi_tcr_pep``
@@ -222,6 +222,42 @@ poly-alanine interface *in the same pose*, which is right when every candidate c
 which is right when the pose is shared and what varies is capacity — ranking receptors for a fixed
 epitope. Each is at or near chance on the other's task.
 
+The gap between the two faces
+-----------------------------
+
+:func:`tcren.topology.surface.surface_map` rasterises a face as a **height field** on a grid in a
+groove frame refit from the structure -- ``x`` groove width, ``y`` peptide N->C, ``z`` toward the
+TCR. Build it twice, once per side, and the two share a grid, so the space between them is a
+subtraction rather than new geometry::
+
+    gap(x, y) = h_tcr(x, y) - h_pmhc(x, y)          # Angstrom, per cell
+
+The sign is the whole point, and it is not the one intuition suggests. Over 60 Native2026 crystals
+the **median gap is -1.7 A and 71 % of cells are interdigitated**: the receptor's lowest point in a
+cell lies below the groove's highest point in the same cell. The faces interlock rather than stack.
+A gap that grows is a receptor riding on a few high points.
+
+Because the two signs mean opposite things, pooling them loses the distinction, so the field is
+reported three ways:
+
+``sc_gap_mean``, ``sc_gap_sd``
+    the pooled moments, in Angstrom.
+``sc_gap_vol``, ``sc_interlock``
+    the field **integrated over the contact plane** with the signs apart, in Angstrom^3 -- the void
+    and the interdigitated volume. On 1AO7 these are 315 and 1,089.
+``sc_interlock_frac``, ``sc_gap_depth``, ``sc_gap_height``, ``sc_gap_asym``
+    the field read **by sign**: what share of cells interlock (0.771 on 1AO7), how far in over
+    those alone, how far off over the rest alone, and the balance of the two volumes in [-1, 1].
+    ``sc_gap_mean`` is ``interlock_frac`` weighting the middle two, so these are the three numbers
+    it collapses into one.
+
+Measured over 4,907 labelled benchmark structures, ``sc_gap_mean`` and ``sc_gap_sd`` carry the
+largest binder/non-binder contrasts of any published interface descriptor tested (Cohen's *d*
+-0.651 and -0.681) at an R^2 on **all 141 pre-2.30 descriptors** of 0.131 and 0.255 -- a channel
+nothing else in the catalogue reaches. ``sc_shape``, which is Lawrence & Colman's Sc on a raster
+instead of a dot surface, is the more familiar quantity and the less novel: R^2 0.445, nearest
+neighbour ``m_erank_tm`` at rho 0.414.
+
 Two views of the same descriptors
 ---------------------------------
 
@@ -238,10 +274,11 @@ mean, and the two do not line up.
 
 Read the thick edges. ``placement`` is geometric throughout -- 31 of 31 -- and it is the only
 family that describes the **docking** in the sense of a quantity preserved by distance-preserving
-transformations. The ``topology`` family is **mostly compositional**: 20 of its 29 columns are
-diversity or coverage measures over labelled cells and positions, and only 8 are invariants of the
-**interface surface** under continuous deformation. ``interface`` contributes 23 counts and two
-continuous quantities.
+transformations. The ``topology`` family is the largest at 70 and **mostly compositional**: 34 of
+its columns are diversity, coverage or labelling measures over cells, positions and chemistry, 22
+are geometric (every surface height-field quantity is built from Angstroms on a metric grid) and
+14 are invariants of the **interface surface** under continuous deformation. ``interface``
+contributes 23 counts, two continuous quantities and one categorical.
 
 That matters when a block is built from a family rather than from a class. ``Q`` is named for
 interface geometry and carries one continuous quantity of four -- ``burial``, an area -- with no
@@ -251,10 +288,10 @@ different names read the same evidence.
 
 :data:`tcren.recognition.descriptors` filters on either axis, and they compose::
 
-    descriptors("topology", invariance="topological")   # the interface surface, 8 columns
+    descriptors("topology", invariance="topological")   # the interface surface, 14 columns
     descriptors(invariance="geometric", tcr_only=True)  # the docking
 
-.. seealso:: :doc:`descriptor_table` lists all 117 with their units and definitions.
+.. seealso:: :doc:`descriptor_table` lists all 164 with their units and definitions.
 
 The alanine scan, on both sides
 -------------------------------

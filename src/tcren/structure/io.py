@@ -26,9 +26,10 @@ _THREE_TO_ONE = dict(protein_letters_3to1_extended)
 _WATER = {"HOH", "WAT", "DOD"}
 
 # Recognised structure extensions (mmCIF first). A file also matches with a trailing ``.gz``.
-_CIF_SUFFIXES = (".cif", ".mmcif")
-_PDB_SUFFIXES = (".pdb", ".ent")
-STRUCTURE_SUFFIXES = _CIF_SUFFIXES + _PDB_SUFFIXES
+# The recognised structure-file extensions live in `tcren.paths`, which is the foundation layer:
+# knowing what a structure file is called is filesystem knowledge, and `paths` needed it
+# badly enough to import upwards into this module for it.
+from ..paths import _CIF_SUFFIXES, _PDB_SUFFIXES, STRUCTURE_SUFFIXES  # noqa: F401
 _TAR_SUFFIXES = (".tar", ".tar.gz", ".tgz")
 #: a plain-text list of structure paths, one per line (see structure_paths)
 _MANIFEST_SUFFIXES = (".txt", ".list", ".lst")

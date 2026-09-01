@@ -97,7 +97,7 @@ def render_surface_map(
     Raises:
         KeyError: if ``channel`` is not one of the map's channels.
     """
-    from ..surface import SOURCE_NAMES
+    from ..topology.surface import SOURCE_NAMES
 
     grid = smap.channels[channel]
     n_y, n_x = smap.grid

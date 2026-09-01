@@ -3,7 +3,7 @@
 Every descriptor, with its units
 ================================
 
-All 123 descriptors ``tcren features --all`` emits, in catalogue order, with what each is
+All 164 descriptors ``tcren features --all`` emits, in catalogue order, with what each is
 invariant under and what it is measured in. The *receptor* column says whether the TCR enters the
 definition: a column marked **no** is computed from the peptide and its allele alone, so every
 structure of one epitope on one allele shares its value whatever the receptor, and it carries cohort
@@ -328,7 +328,7 @@ How much contact there is and of what chemical kind. Two continuous quantities -
      - **no**
      - Intra-peptide residue contacts, at 5 A with a sequence separation of at least three.
 
-topology (29)
+topology (70)
 -------------
 
 The footprint: its connectivity, its composition over labelled cells, and how the receptor's contacts spread along the peptide.
@@ -447,6 +447,96 @@ The footprint: its connectivity, its composition over labelled cells, and how th
      - fraction
      - yes
      - Normalized entropy of the H0 barcode of the contacted pMHC Calpha cloud. The bar lengths are the minimum spanning tree's edges, so no filtration is chosen.
+   * - ``g_even_tcr``
+     - topological
+     - fraction
+     - yes
+     - Pielou evenness of the contact degrees of the engaged CDR-loop residues, base the engaged count. 1 when every engaged residue carries the same number of partners.
+   * - ``g_even_pmhc``
+     - topological
+     - fraction
+     - yes
+     - Pielou evenness of the contact degrees of the engaged pMHC residues, base the engaged count.
+   * - ``g_comp_frac``
+     - topological
+     - fraction
+     - yes
+     - Connected components of the bipartite contact graph per node; the parameter-free form of the footprint patch count, needing no Calpha radius.
+   * - ``g_alg_conn``
+     - topological
+     - ratio
+     - yes
+     - Second-smallest eigenvalue of the normalised Laplacian on the largest contact-graph component, in [0, 2]. Near 0 when the footprint is about to fall into two patches.
+   * - ``g_cyclo_frac``
+     - topological
+     - fraction
+     - yes
+     - Contacts beyond a spanning forest over all contacts, (E - V + C) / E, which is the contact graph's first Betti number made size-free. High when the footprint is interlocked.
+   * - ``g_loop_even``
+     - compositional
+     - fraction
+     - yes
+     - Pielou evenness over the six CDR loops of the number of distinct pMHC residues each reaches, base 6. Counts partners rather than contacts, so it does not track residue size.
+   * - ``g_loop_overlap``
+     - compositional
+     - fraction
+     - yes
+     - Mean pairwise Jaccard overlap of the engaged CDR loops' pMHC partner sets. High when the loops crowd onto the same residues instead of partitioning the surface.
+   * - ``g_assort``
+     - topological
+     - ratio
+     - yes
+     - Degree assortativity of the contact graph: the correlation, over contacts, between the degrees of the two residues involved.
+   * - ``degree_evenness_tp``
+     - compositional
+     - fraction
+     - yes
+     - Participation ratio of the receptor-side contact degrees across TCR:peptide, in [0, 1]. Low when a few over-reaching side chains hoard the contact budget.
+   * - ``frac_well_coordinated_tp``
+     - compositional
+     - fraction
+     - yes
+     - Share of contacting receptor residues reaching no more than three peptide residues, the count a crystal side chain typically makes.
+   * - ``m_erank_tp``
+     - geometric
+     - fraction
+     - yes
+     - Effective rank of the CDR-loop x peptide Calpha proximity kernel over its maximum: how many independent approach modes the interface has. Peptide-length coupled (Spearman -0.547 on 148 class I crystals) because a longer class I peptide bulges.
+   * - ``m_gap_tp``
+     - geometric
+     - ratio
+     - yes
+     - Second over first singular value of that kernel. Near 0 when the approach is separable into a loop profile times a peptide profile rather than pairing specific residues.
+   * - ``m_erank_tm``
+     - geometric
+     - fraction
+     - yes
+     - Effective rank fraction of the CDR-loop x MHC-helix kernel. CDR3-length coupled (Spearman -0.437), so it reads how much loop there is to spread over the helices.
+   * - ``m_gap_tm``
+     - geometric
+     - ratio
+     - yes
+     - Second over first singular value of the CDR-loop x MHC-helix kernel. The least length-coupled column in the catalogue: -0.012 against CDR3 length, +0.027 against peptide length, 99.9 per cent of its variance surviving both.
+   * - ``m_face_tp``
+     - geometric
+     - A
+     - yes
+     - Mean Calpha-Calpha minus Cbeta-Cbeta distance over the contacting TCR:peptide residue pairs. Positive when side chains lean towards each other, negative when the backbones are the close part and the side chains point away.
+   * - ``m_face_tm``
+     - geometric
+     - A
+     - yes
+     - Mean Calpha-Calpha minus Cbeta-Cbeta distance over the contacting TCR:MHC residue pairs.
+   * - ``ca_cb_agreement_tp``
+     - geometric
+     - ratio
+     - yes
+     - Spearman correlation between the Calpha and Cbeta distance maps over the TCR:peptide approach shell. High when the side chains track the backbone, as they do in a crystal.
+   * - ``ca_cb_agreement_tm``
+     - geometric
+     - ratio
+     - yes
+     - The same rank correlation across the TCR:MHC approach shell.
    * - ``fp_b0_r7``
      - topological
      - count
@@ -487,6 +577,121 @@ The footprint: its connectivity, its composition over labelled cells, and how th
      - fraction
      - yes
      - Patches per contacted residue at 8 A; the size-free form of Betti-0.
+   * - ``sc_shape``
+     - geometric
+     - ratio
+     - yes
+     - Pearson r between the pMHC and TCR height fields over the shared grid; positive is complementary, the receptor riding up where the groove rises. Lawrence & Colman's Sc is the same idea on a dot surface.
+   * - ``sc_charge``
+     - compositional
+     - ratio
+     - yes
+     - Pearson r between the two charge fields; NEGATIVE is complementary, plus meeting minus.
+   * - ``sc_phobic``
+     - compositional
+     - ratio
+     - yes
+     - Pearson r between the two Kyte-Doolittle fields; positive is complementary, apolar meeting apolar.
+   * - ``sc_charge_prod``
+     - compositional
+     - ratio
+     - yes
+     - Mean per-cell product of the two charge fields.
+   * - ``sc_phobic_prod``
+     - compositional
+     - ratio
+     - yes
+     - Mean per-cell product of the two hydropathy fields.
+   * - ``sc_gap_mean``
+     - geometric
+     - A
+     - yes
+     - Mean of h(TCR) - h(pMHC) over retained cells. Negative on a real interface: the median cell interdigitates.
+   * - ``sc_gap_sd``
+     - geometric
+     - A
+     - yes
+     - Spread of the same gap. High when the receptor rests on a few high points rather than meshing.
+   * - ``sc_gap_vol``
+     - geometric
+     - A^3
+     - yes
+     - Void volume, the gap integrated over the contact plane where it is positive.
+   * - ``sc_interlock``
+     - geometric
+     - A^3
+     - yes
+     - Interdigitated volume, the gap integrated where it is negative. The larger of the two on a real interface.
+   * - ``sc_gap_index``
+     - geometric
+     - A
+     - yes
+     - Void volume over retained contact area; the intensive form of the gap-volume channel.
+   * - ``sc_interlock_frac``
+     - geometric
+     - fraction
+     - yes
+     - Share of retained cells whose gap is negative; the per-structure form of the corpus 71% interdigitation.
+   * - ``sc_gap_depth``
+     - geometric
+     - A
+     - yes
+     - Mean depth over the interlocked cells alone: how far the receptor reaches in where it does.
+   * - ``sc_gap_height``
+     - geometric
+     - A
+     - yes
+     - Mean standoff over the void cells alone: how high it stands where it does not mesh.
+   * - ``sc_gap_asym``
+     - geometric
+     - signed fraction
+     - yes
+     - (void - interlock) / (void + interlock); -1 for a face that only interlocks, +1 for one that only stands off.
+   * - ``sc_dh``
+     - geometric
+     - A
+     - yes
+     - Mean absolute per-cell height difference between the two faces.
+   * - ``sc_dcharge``
+     - compositional
+     - ratio
+     - yes
+     - Mean absolute per-cell charge difference between the two faces.
+   * - ``sc_dphobic``
+     - compositional
+     - ratio
+     - yes
+     - Mean absolute per-cell hydropathy difference between the two faces.
+   * - ``sc_cells``
+     - geometric
+     - count
+     - yes
+     - Grid cells entering the comparison; bookkeeping, so a low complementarity can be told from a thin one.
+   * - ``sc_coverage``
+     - geometric
+     - fraction
+     - yes
+     - Retained cells as a share of the occupied pMHC cells in the window; bookkeeping.
+   * - ``co_pep``
+     - compositional
+     - ratio
+     - yes
+     - Contact order on the peptide: mean sequence separation of the peptide residues one CDR loop reaches, averaged over loops and divided by the peptide's span.
+   * - ``co_mhc``
+     - compositional
+     - ratio
+     - yes
+     - Contact order on the MHC helices, by the same construction.
+   * - ``partcoef_tcr``
+     - compositional
+     - fraction
+     - yes
+     - Mean over engaged TCR residues of 1 - sum_s (k_s/k)^2 with the modules peptide and MHC; 0 when every residue reads one target only.
+   * - ``partcoef_pmhc``
+     - compositional
+     - fraction
+     - yes
+     - The same over engaged pMHC residues with the six CDR loops as modules.
 
 energetics (15)
 ---------------
@@ -718,7 +923,7 @@ The contact map as a network of breakable springs. No potential enters: these ar
      - yes
      - Interface residue count; the size denominator for the coupling counts.
 
-flagged descriptors (18)
+flagged descriptors (27)
 ------------------------
 
 Descriptors that need a second look before they are used, from ``tcren.recognition.STATUS``.
@@ -786,6 +991,33 @@ does not move on the corpus.
    * - ``mhc_class_bin``
      - suspicious
      - no receptor: it is the MHC class, I or II. It is also constant on any single-class cohort -- both receptor benchmarks are class I -- so it contributes nothing there and separates the classes everywhere else.
+   * - ``m_erank_tp``
+     - suspicious
+     - peptide-length coupled: -0.547 / -0.105, 58.3 per cent of variance beyond both lengths. It reads the class I bulge.
+   * - ``m_erank_tm``
+     - suspicious
+     - CDR3-length coupled: -0.186 / -0.437, 69.4 per cent beyond both. It reads how much loop there is to spread over the helices.
+   * - ``m_gap_tp``
+     - suspicious
+     - peptide-length coupled: -0.322 / +0.041, 90.8 per cent beyond both.
+   * - ``ca_cb_agreement_tm``
+     - suspicious
+     - coupled to both lengths: -0.349 / -0.334, 70.5 per cent beyond them -- the most length-loaded column here.
+   * - ``degree_evenness_tp``
+     - suspicious
+     - peptide-length coupled: -0.450 / -0.006, 88.7 per cent beyond both. It reads the class I bulge.
+   * - ``frac_well_coordinated_tp``
+     - suspicious
+     - peptide-length coupled: -0.440 / -0.064, 83.4 per cent beyond both; see degree_evenness_tp.
+   * - ``g_even_tcr``
+     - suspicious
+     - peptide-length coupled: -0.368 / -0.061, 91.0 per cent beyond both.
+   * - ``g_loop_even``
+     - suspicious
+     - CDR3-length coupled: -0.186 / -0.350, 87.7 per cent beyond both.
+   * - ``g_comp_frac``
+     - suspicious
+     - CDR3-length coupled: -0.032 / +0.280, 92.7 per cent beyond both.
    * - ``ct_tp_salt_bridge``
      - stalled
      - only 3 distinct values over 1,707 modelled complexes: a salt bridge across the TCR:peptide interface is rare enough that the count is almost always 0. The TCR:MHC counterpart ct_tm_salt_bridge does move.

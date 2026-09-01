@@ -4,7 +4,7 @@ A render of an oriented structure is only interpretable if the reader can tell w
 canonical frame points, so the centrepiece here is the **axis gizmo** — a thin, arrow-headed triad
 in a corner of the image, turning with the camera, naming what each direction means.
 
-**The frame it draws.** :mod:`tcren.orient.frame` puts every structure into one frame by PCA of the
+**The frame it draws.** :mod:`tcren.docking.frame` puts every structure into one frame by PCA of the
 reference complex, and :data:`CANONICAL_AXES` is that frame written out in words:
 
 =====  =========================  ================  ============================
@@ -16,7 +16,7 @@ axis   definition in code         figure label      equivalent in the literature
 =====  =========================  ================  ============================
 
 The principal-component *numbers* differ from the docking-geometry literature (SwiftTCR, TCR3d)
-because those fit the MHC groove alone while :mod:`tcren.orient.frame` fits the whole complex, in
+because those fit the MHC groove alone while :mod:`tcren.docking.frame` fits the whole complex, in
 which the MHC→TCR direction carries the most variance. The three directions are the same three;
 only their ranking differs. Naming them for what they are is the point — ``pMHC→TCR`` is readable
 in a figure, ``z`` is not.
@@ -63,7 +63,7 @@ class Axis:
     definition: str
 
 
-#: The canonical frame of :mod:`tcren.orient.frame`, in figure-ready words. ``short`` is for the
+#: The canonical frame of :mod:`tcren.docking.frame`, in figure-ready words. ``short`` is for the
 #: corner gizmo, where anything longer than a few characters collides with the arrows.
 CANONICAL_AXES: tuple[Axis, Axis, Axis] = (
     Axis("x", "groove width", "width",

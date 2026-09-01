@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from tcren.orient import crossing_incident_from_vector
+from tcren.docking import crossing_incident_from_vector
 
 
 @pytest.mark.parametrize(
@@ -33,8 +33,8 @@ def test_crossing_undefined_when_normal_to_plane():
 
 # --- TCR placement (translations, not rotations) ---------------------------------------------
 
-from tcren.orient import tcr_placement  # noqa: E402
-from tcren.orient.docking import _groove_frame  # noqa: E402
+from tcren.docking import tcr_placement  # noqa: E402
+from tcren.docking.angles import _groove_frame  # noqa: E402
 from tcren.structure.model import Atom, Chain, RegionMarkup, Residue, Structure  # noqa: E402
 
 
@@ -87,7 +87,7 @@ def test_whole_tcr_centroid_would_have_no_lateral_component_by_construction():
     # perpendicular to the peptide->TCR-centroid vector, so that vector's w component is 0 exactly.
     s = _placement_complex([3.0, 4.0, 12.0])
     u, w, n = _groove_frame(s)
-    from tcren.orient.docking import _TCR_TYPES, _chain_ca
+    from tcren.docking.angles import _TCR_TYPES, _chain_ca
     pep, tcr = _chain_ca(s, ("PEPTIDE",)), _chain_ca(s, _TCR_TYPES)
     d = tcr.mean(axis=0) - pep.mean(axis=0)
     assert float(np.dot(d, w)) == pytest.approx(0.0, abs=1e-9)

@@ -21,8 +21,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .contactmap import ContactMap
-from .structure.model import PEPTIDE_TYPE, RECEPTOR_TYPES, Structure
+from ..contactmap import ContactMap
+from ..structure.model import PEPTIDE_TYPE, RECEPTOR_TYPES, Structure
 
 #: Spring-stiffness models for an interface contact. ``"unit"`` = 1 per contact (pure topology);
 #: ``"count"`` = heavy-atom-pair multiplicity; ``"invdist2"`` = multiplicity / dist² (Hookean-ish, the

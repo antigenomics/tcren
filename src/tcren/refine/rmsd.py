@@ -2,7 +2,7 @@
 
 The benchmark question is "how close is a re-modelled peptide to its native crystal pose?" We answer it
 the way the rest of the codebase measures geometry: superpose the two complexes on the conserved MHC
-groove Cα (:func:`tcren.orient.align._matched_anchors` + Biopython's ``SVDSuperimposer``), then compute
+groove Cα (:func:`tcren.docking.align._matched_anchors` + Biopython's ``SVDSuperimposer``), then compute
 the peptide backbone RMSD in that common MHC frame. Superposing on the MHC — not on the peptide —
 means the peptide RMSD reflects how well the pose sits in the groove, which is the quantity that
 matters for downstream TCR-contact scoring.
@@ -55,8 +55,8 @@ def peptide_rmsd(
     by their shared groove Cα; the peptide RMSDs are then computed over atoms (and residues) present
     in both. ``anchors`` are 0-based peptide residue indices for the anchor-Cα RMSD.
     """
-    from ..orient._transform import apply_rigid, kabsch
-    from ..orient.align import _matched_anchors
+    from ..docking._transform import apply_rigid, kabsch
+    from ..docking.align import _matched_anchors
 
     mob_pts, ref_pts = _matched_anchors(model, reference)
     if len(mob_pts) < 3:
