@@ -21,6 +21,8 @@ Glycine has no Cβ to keep, so mutating a glycine to anything else needs one bui
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 import numpy as np
 
 from ..structure.model import PEPTIDE_TYPE, Atom, Chain, RegionMarkup, Residue, Structure
@@ -46,6 +48,97 @@ def virtual_cb(n: np.ndarray, ca: np.ndarray, c: np.ndarray) -> np.ndarray:
     b, cc = ca - n, c - ca
     a = np.cross(b, cc)
     return -0.58273431 * a + 0.56802827 * b - 0.54067466 * cc + ca
+
+
+def _rewrite_residue(res: Residue, aa: str) -> Residue:
+    """One residue re-typed to ``aa``, truncated to backbone + Cβ.
+
+    Alanine's heavy atoms are exactly N, Cα, C, O and Cβ, so for an alanine target this *is* the
+    mutant: no rotamer, no relaxation, no choice. Mutating to glycine drops the Cβ; mutating away
+    from glycine builds one by ideal geometry, because a residue with no Cβ reaches no further
+    than its backbone and the contact map would under-count it.
+    """
+    resname = _ONE_TO_THREE.get(aa)
+    if resname is None:
+        raise ValueError(f"non-standard amino acid {aa!r}")
+    keep = _KEEP - ({"CB"} if aa == "G" else set())
+    atoms = tuple(a for a in res.atoms if a.name in keep)
+    if aa != "G" and not any(a.name == "CB" for a in atoms):
+        bb = {a.name: a.coord for a in res.atoms}
+        if {"N", "CA", "C"} <= bb.keys():
+            atoms += (Atom(name="CB", element="C",
+                           coord=virtual_cb(bb["N"], bb["CA"], bb["C"])),)
+    return Residue(res.seq_index, res.pdb_index, res.insertion_code, aa, resname, atoms)
+
+
+def _rebuild_chain(chain: Chain, new_residues: list[Residue]) -> Chain:
+    """A chain carrying ``new_residues``, with its region markup re-pointed at them.
+
+    Without the re-point the contact map has null ``pos.from``/``pos.to`` and every downstream
+    scorer fails.
+    """
+    by_index = {r.seq_index: r for r in new_residues}
+    return Chain(chain_id=chain.chain_id, residues=new_residues,
+                 chain_type=chain.chain_type, chain_supertype=chain.chain_supertype,
+                 allele_info=chain.allele_info,
+                 regions=[RegionMarkup(
+                     region_type=reg.region_type, start_seq_index=reg.start_seq_index,
+                     end_seq_index=reg.end_seq_index,
+                     sequence="".join(by_index[r.seq_index].aa for r in reg.residues),
+                     residues=[by_index[r.seq_index] for r in reg.residues],
+                 ) for reg in chain.regions])
+
+
+def substitute_residues(
+    structure: Structure, mutations: "Mapping[tuple[str, int], str]"
+) -> Structure:
+    """Return a copy of ``structure`` with the named residues re-typed, in 3D.
+
+    The general primitive behind every structural substitution: it moves no backbone, drops
+    side-chain atoms past Cβ on the residues it touches, and leaves every other residue and every
+    other chain byte-identical. **Any chain may be targeted** — this is what makes a receptor-side
+    alanine scan possible, where :func:`substitute_peptide` threads the peptide chain alone.
+
+    Args:
+        structure: The structure to mutate.
+        mutations: ``(chain_id, residue.seq_index) -> one-letter target``. An empty mapping
+            returns the structure unchanged.
+
+    Returns:
+        A new :class:`~tcren.structure.model.Structure`. Region markup on every touched chain is
+        re-pointed at the rewritten residues, so the result goes straight into a contact map.
+
+    Raises:
+        ValueError: if a chain id or residue index is absent, or a code is non-standard.
+    """
+    if not mutations:
+        return structure
+    by_chain: dict[str, dict[int, str]] = {}
+    for (chain_id, seq_index), aa in mutations.items():
+        by_chain.setdefault(chain_id, {})[seq_index] = aa.upper()
+
+    chains = []
+    for chain in structure.chains:
+        want = by_chain.pop(chain.chain_id, None)
+        if not want:
+            chains.append(chain)
+            continue
+        present = {r.seq_index for r in chain.residues}
+        missing = sorted(set(want) - present)
+        if missing:
+            raise ValueError(
+                f"chain {chain.chain_id!r} has no residue at seq_index {missing} "
+                f"(it runs {min(present)}..{max(present)})"
+            )
+        chains.append(_rebuild_chain(
+            chain,
+            [_rewrite_residue(r, want[r.seq_index]) if r.seq_index in want else r
+             for r in chain.residues],
+        ))
+    if by_chain:
+        raise ValueError(f"no such chain(s) in {structure.pdb_id!r}: {sorted(by_chain)}")
+    return Structure(pdb_id=structure.pdb_id, chains=chains,
+                     complex_species=structure.complex_species, cell_type=structure.cell_type)
 
 
 def substitute_peptide(structure: Structure, new_peptide: str,
@@ -74,35 +167,9 @@ def substitute_peptide(structure: Structure, new_peptide: str,
             f"length mismatch: peptide has {len(pep.residues)} residues, got {len(new_peptide)}"
         )
 
-    new_residues: list[Residue] = []
-    for res, aa in zip(pep.residues, new_peptide):
-        resname = _ONE_TO_THREE.get(aa)
-        if resname is None:
-            raise ValueError(f"non-standard amino acid {aa!r} in peptide")
-        keep = _KEEP - ({"CB"} if aa == "G" else set())
-        atoms = tuple(a for a in res.atoms if a.name in keep)
-        if aa != "G" and not any(a.name == "CB" for a in atoms):
-            # Mutating away from glycine: there is no Cβ to keep, so build one. Without it the
-            # residue reaches no further than its backbone and the contact map under-counts.
-            bb = {a.name: a.coord for a in res.atoms}
-            if {"N", "CA", "C"} <= bb.keys():
-                atoms += (Atom(name="CB", element="C",
-                               coord=virtual_cb(bb["N"], bb["CA"], bb["C"])),)
-        new_residues.append(Residue(res.seq_index, res.pdb_index, res.insertion_code,
-                                    aa, resname, atoms))
+    new_residues = [_rewrite_residue(res, aa) for res, aa in zip(pep.residues, new_peptide)]
 
-    by_index = {r.seq_index: r for r in new_residues}
-    new_pep = Chain(chain_id=pep.chain_id, residues=new_residues,
-                    chain_type=pep.chain_type, chain_supertype=pep.chain_supertype,
-                    allele_info=pep.allele_info,
-                    # region markup is re-pointed at the new residues: without it the contact map
-                    # has null pos.from/pos.to and every downstream scorer fails.
-                    regions=[RegionMarkup(
-                        region_type=reg.region_type, start_seq_index=reg.start_seq_index,
-                        end_seq_index=reg.end_seq_index,
-                        sequence="".join(by_index[r.seq_index].aa for r in reg.residues),
-                        residues=[by_index[r.seq_index] for r in reg.residues],
-                    ) for reg in pep.regions])
+    new_pep = _rebuild_chain(pep, new_residues)
     chains = [new_pep if c is pep else c for c in structure.chains]
     return Structure(pdb_id=structure.pdb_id, chains=chains,
                      complex_species=structure.complex_species, cell_type=structure.cell_type)

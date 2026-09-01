@@ -152,11 +152,43 @@ QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses ar
   FlexPepDock-functional path; needs the `_refine`/`_fold` kernel). Equal peptide length required.
   Template-free re-docking (CCD to canonical anchor targets) is the future extension.
 
+## 3D alanine scan, both sides — `tcren.ddg.alanine_scan` / `tcr_alanine_scan` (2.25.0)
+
+- **Both sides now scan in 3D.** One residue at a time is truncated to alanine through
+  `tcren.refine.substitute.substitute_residues`, the contact map is recomputed and the interface
+  rescored. Alanine needs no rotamer: its heavy atoms are exactly backbone + Cβ, so truncating at
+  Cβ *is* the alanine.
+- `alanine_scan(cm, native, pot, structure=s)` — the **peptide**, one row per position
+  (`pos`, `wt_aa`, `ddG`). Without `structure=` it takes the virtual path (no atoms move).
+- `tcr_alanine_scan(cm, s, pot, tcr_regions="cdr")` — the **receptor**, one row per *contacted*
+  CDR residue (`chain.id`, `chain.type`, `region.type`, `residue.index`, `pos`, `wt_aa`, `ddG`).
+  There is no virtual path: truncating a receptor side chain without moving atoms would leave every
+  contact it made in place, which is the failure this exists to fix. Scored over `tcr_peptide`
+  alone, since a receptor substitution cannot change the peptide:MHC energy.
+- `tcr_alanine_reference(scan) -> dict` — `dPhi_ala_cdr12`, `dPhi_ala_cdr3a`, `dPhi_ala_cdr3b`,
+  `dPhi_ala_tcr`. Each is the **sum of per-residue** ΔΔGs of that loop, so the three partition the
+  total exactly.
+- CLI: `tcren ddg -s <in> --native <PEPTIDE> --alanine-scan --side peptide|tcr|both`, plus
+  `--virtual` for the fast peptide path.
+- `ddG = E(native) − E(Ala@residue)` throughout: **positive = the residue was earning its place**.
+- ⚠ **The pre-2.25.0 structural path was wrong.** It threaded the whole peptide through
+  `substitute_peptide`, which truncates *every* residue to backbone + Cβ, so each position was read
+  against a poly-stub baseline. On 1ao7 the native sequence threaded back through it keeps **14 of
+  29** TCR:peptide contacts, and that offset appeared at every position — including positions with
+  no contacts, which must read exactly 0. `substitute_peptide` stays correct for the poly-alanine
+  *reference*, where every residue genuinely is mutated.
+- `substitute_residues(structure, {(chain_id, seq_index): aa})` is the general primitive: any chain,
+  any residues, everything else byte-identical. An empty mapping is the identity, which is the
+  baseline every ΔΔG rests on.
+
 ## Poly-alanine reference score — `tcren.ddg.reference_delta` (geometry-normalized TCRen)
 
 - `reference_delta(cm, peptide, pot, interface="tcr_peptide", reference_aa="A") -> float` = ΔΦ = Φ(peptide)
-  − Φ(all-`reference_aa` peptide). It is the **full-peptide alanine scan** (== sum of `alanine_scan().ddG`)
-  and subtracts the pose's identity-independent geometry baseline Φ(polyAla).
+  − Φ(all-`reference_aa` peptide), subtracting the pose's identity-independent geometry baseline
+  Φ(polyAla). It equals the sum of `alanine_scan().ddG` **on the virtual path only**: with a fixed
+  contact map the energy is additive over contacts, so the parts sum to the whole. Once atoms move
+  they do not — truncating every side chain at once loses contacts each residue alone retains — so
+  the 3D scan and the 3D reference are two different measurements. Both are correct; say which.
 - **`interface="complex"` sums both peptide-bearing interfaces** (TCR:peptide with `potential`,
   peptide:MHC with `mhc_potential=`, default MJ), matching `cpl.response_matrix`'s cell convention.
   `ddg`, `neoantigen_ddg` and `reference_delta` all take it; CLI is `tcren ddg --interface complex`.

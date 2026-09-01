@@ -47,7 +47,7 @@ import numpy as np
 import polars as pl
 
 from .contactmap import ContactMap
-from .structure.model import Structure
+from .structure.model import PEPTIDE_TYPE, Structure
 
 __all__ = [
     "CELL_LOOPS",
@@ -92,7 +92,15 @@ FOOTPRINT_FEATURES: tuple[str, ...] = (
     "H_loop", "D2_loop", "D2_pep24",
     "ab_imb", "ab_imb_pep", "ab_imb_mhc",
     "L_canon", "p_germ_mhc", "p_cdr3_pep",
+    "pep_free_frac",
+    "pep_cov_frac", "pep_cov_even", "pep_cov_d2n", "pep_cov_centre", "pep_cov_spread",
     "h0_pers_ent",
+)
+
+#: The peptide-coverage block, normalized by peptide length so class I and class II compare.
+PEPTIDE_COVERAGE_FEATURES: tuple[str, ...] = (
+    "pep_free_frac",
+    "pep_cov_frac", "pep_cov_even", "pep_cov_d2n", "pep_cov_centre", "pep_cov_spread",
 )
 
 
@@ -169,6 +177,104 @@ def _diversity(n: np.ndarray, k: int) -> dict[str, float]:
     s = float(len(p))
     return {"H": h / np.log(k), "D1": float(np.exp(h)), "D2": float(1.0 / (p ** 2).sum()),
             "S": s, "J": h / np.log(s) if s > 1 else float("nan")}
+
+
+def _peptide_coverage(structure: Structure, cutoff: float) -> dict[str, float]:
+    """How the TCR's contacts spread over the peptide, normalized by peptide length.
+
+    ``n_pep_contacted`` is a raw count and ``D2_pep24`` splits the peptide into three fixed bands,
+    so both are length-confounded: three contacted positions mean something different on a class I
+    9-mer and a class II 15-mer, and a fixed third of a 9-mer is not a fixed third of a 15-mer.
+    Every column here divides by the peptide's own length ``L``, so a class I 8-mer, a class I
+    13-mer and a class II 18-mer are on one scale.
+
+    Let ``c_i`` be the TCR contacts made to peptide position ``i`` and ``p_i = c_i / sum(c)``.
+
+    ``pep_cov_frac``
+        Contacted positions over ``L`` -- the share of the peptide the receptor touches at all.
+    ``pep_free_frac``
+        The share of the peptide the groove leaves for the receptor, ``L_eff / L``, where
+        ``L_eff = sum_i a_i`` and ``a_i = n_TCR_i / (n_TCR_i + n_MHC_i)`` is position ``i``'s
+        **accessibility**: its share of contacts that face the receptor rather than the groove.
+        This is the threshold-free reading of "peptide without its MHC anchors" -- a P2 or
+        C-terminal anchor buried in the groove has ``a_i`` near 0 and a solvent-exposed bulge near
+        1, with no position index, no band and no cutoff anywhere in the definition. A binary
+        anchor test cannot do this job: at a 5 A heavy-atom criterion **every** residue of a class
+        I nonamer contacts the MHC, so the non-anchor set comes out empty.
+    ``pep_cov_even``
+        Pielou evenness ``H / ln L`` of ``q``, the TCR contact distribution **discounted by
+        accessibility**: ``q_i`` is proportional to ``n_TCR_i * a_i``, so an anchor contributes
+        almost nothing however many of its atoms sit within the cutoff of a CDR loop. The base is
+        the peptide's own length, not the occupied-position count -- a receptor spread evenly over
+        three of nine positions must score below one spread evenly over all nine, and normalising
+        by the occupied count would make them equal. In ``[0, 1]`` for every peptide length.
+    ``pep_cov_d2n``
+        Hill number of order 2 of ``q`` over ``L`` -- the effective *share* of the peptide engaged,
+        discounting positions carrying a single contact.
+    ``pep_cov_centre``
+        Contact-weighted mean position on ``[0, 1]`` from N- to C-terminus: where along the
+        peptide the receptor sits. ``0.5`` is centred, which is the canonical diagonal docking.
+    ``pep_cov_spread``
+        Contact-weighted standard deviation of that position, doubled so a receptor reaching both
+        termini approaches 1.
+
+    Returns ``nan`` for every column on a peptide of one residue or with no TCR contact.
+    """
+    nan = dict.fromkeys(PEPTIDE_COVERAGE_FEATURES, float("nan"))
+    pep = next((c for c in structure.chains if c.chain_type == PEPTIDE_TYPE), None)
+    if pep is None or len(pep.residues) < 2:
+        return nan
+    length = len(pep.residues)
+
+    cm = ContactMap.from_structure(structure, cutoff=cutoff)
+
+    def per_position(frame: pl.DataFrame, side: str) -> np.ndarray:
+        """Contacts per peptide position, on whichever side of the frame the peptide sits."""
+        out = np.zeros(length, dtype=float)
+        if frame.height == 0:
+            return out
+        # `pos.*` is the peptide position when the map carries it and null on a structure whose
+        # peptide chain has no markup; the residue's own chain index is the same 0-based count and
+        # is always present, so coalesce rather than dropping every contact -- the same fallback
+        # `cell_counts` takes.
+        tally = (frame.select(pl.coalesce(pl.col(f"pos.{side}"),
+                                          pl.col(f"residue.index.{side}")).alias("pos"))
+                 .drop_nulls("pos").group_by("pos").len())
+        for pos, n in zip(tally["pos"].to_list(), tally["len"].to_list()):
+            if pos is not None and 0 <= pos < length:
+                out[int(pos)] = float(n)
+        return out
+
+    # The peptide is the `to` side against the TCR and the `from` side against the MHC.
+    n_tcr = per_position(cm.interface("tcr_peptide"), "to")
+    n_mhc = per_position(cm.interface("peptide_mhc"), "from")
+    total = n_tcr.sum()
+    if total <= 0:
+        return nan
+
+    both = n_tcr + n_mhc
+    access = np.divide(n_tcr, both, out=np.zeros(length), where=both > 0)
+    length_eff = float(access.sum())
+
+    # The receptor-facing contact distribution: each position's TCR contacts discounted by how
+    # much of it the groove holds. An anchor contributes almost nothing however many atoms of it
+    # sit within 5 A of a CDR loop.
+    weighted = n_tcr * access
+    axis = np.arange(length, dtype=float) / (length - 1)
+    if weighted.sum() <= 0:                       # every contacted position is fully buried
+        return nan
+    q = weighted / weighted.sum()
+    nz = q[q > 0]
+    h = float(-(nz * np.log(nz)).sum())
+    centre = float((q * axis).sum())
+    return {
+        "pep_free_frac": length_eff / length,
+        "pep_cov_frac": float((n_tcr > 0).sum()) / length,
+        "pep_cov_even": h / float(np.log(length)),
+        "pep_cov_d2n": float(1.0 / (q ** 2).sum()) / length,
+        "pep_cov_centre": centre,
+        "pep_cov_spread": 2.0 * float(np.sqrt((q * (axis - centre) ** 2).sum())),
+    }
 
 
 def _imbalance(a: float, b: float) -> float:
@@ -301,6 +407,7 @@ def footprint_features(structure: Structure, *, cutoff: float = 5.0,
             for stat, v in _diversity(frame["n"].to_numpy(), k).items():
                 row[f"{stat}_{tag}"] = v
         row["D2_pep24"] = _diversity(cell24["n"].to_numpy(), 24)["D2"]
+        row.update(_peptide_coverage(structure, cutoff))
 
         chain = pl.col("loop").str.slice(0, 3)
         side = lambda expr: {  # noqa: E731

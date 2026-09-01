@@ -68,11 +68,39 @@ def _score_one(
 
 
 def _mutant_map(structure: Structure, mutant: str, cutoff: float, sidechain: bool) -> ContactMap:
-    """The mutant's own contact map, from rebuilt coordinates."""
+    """The mutant's own contact map, from rebuilt coordinates.
+
+    Threads the whole peptide, so every position is truncated to backbone + Cβ. That is right when
+    every position is genuinely mutated -- the poly-alanine reference -- and wrong for a single
+    substitution, which must leave its neighbours' side chains alone
+    (:func:`_point_mutant_map`).
+    """
     from .refine.substitute import substitute_peptide
 
     return ContactMap.from_structure(
         substitute_peptide(structure, mutant), cutoff=cutoff, sidechain=sidechain
+    )
+
+
+def _peptide_sites(structure: Structure) -> tuple[str, list[int]]:
+    """The peptide chain's id and its residues' ``seq_index`` values, in sequence order."""
+    from .structure.model import PEPTIDE_TYPE
+
+    pep = next((c for c in structure.chains if c.chain_type == PEPTIDE_TYPE), None)
+    if pep is None:
+        raise ValueError(f"no peptide chain in structure {structure.pdb_id!r}")
+    return pep.chain_id, [r.seq_index for r in pep.residues]
+
+
+def _point_mutant_map(
+    structure: Structure, chain_id: str, seq_index: int, aa: str, cutoff: float, sidechain: bool
+) -> ContactMap:
+    """Contact map with exactly one residue re-typed in 3D; every other side chain untouched."""
+    from .refine.substitute import substitute_residues
+
+    return ContactMap.from_structure(
+        substitute_residues(structure, {(chain_id, seq_index): aa}),
+        cutoff=cutoff, sidechain=sidechain,
     )
 
 
@@ -178,10 +206,18 @@ def alanine_scan(
     Mutates each position of ``native`` to alanine in turn and reports the ΔΔG of
     that single substitution. One row per peptide position.
 
-    With ``structure`` the mutant at each position is **built** and its contact map recomputed, so
-    a position whose side chain was the only thing reaching the TCR loses those contacts, as it
-    physically must. This is the case the structural path gets exactly right (see the module
-    docstring), and it costs one contact-map rebuild per position.
+    With ``structure`` **only that position** is truncated to alanine in 3D and the contact map
+    recomputed, so a position whose side chain was the only thing reaching the TCR loses those
+    contacts as it physically must, while its neighbours keep theirs. This is the case the
+    structural path gets exactly right (see the module docstring), and it costs one contact-map
+    rebuild per position.
+
+    Before 2.25.0 this path threaded the whole peptide through
+    :func:`~tcren.refine.substitute.substitute_peptide`, which truncates *every* residue to
+    backbone + Cβ. The scan therefore measured each position against a poly-stub baseline rather
+    than the native: on 1ao7 the native sequence threaded back through it kept 14 of 29
+    TCR:peptide contacts, and the resulting offset appeared in every position, including
+    positions with no contacts at all.
 
     Args:
         contact_map: The structure's contact map.
@@ -202,6 +238,11 @@ def alanine_scan(
         ``"tcr_mhc"``) every position yields ``ddG == 0.0``.
     """
     peptide_iface = interface in _PEPTIDE_INTERFACES
+    chain_id, seq_indices = _peptide_sites(structure) if structure is not None else ("", [])
+    if structure is not None and len(seq_indices) != len(native):
+        raise ValueError(
+            f"peptide chain has {len(seq_indices)} residues, native sequence has {len(native)}"
+        )
     e_native = (
         _score_one(contact_map, native, potential, interface, tcr_regions, contact_weight)
         if peptide_iface
@@ -211,8 +252,12 @@ def alanine_scan(
     for pos, wt in enumerate(native):
         if peptide_iface:
             mutant = native[:pos] + "A" + native[pos + 1 :]
-            mutant_map = (contact_map if structure is None
-                          else _mutant_map(structure, mutant, cutoff, sidechain))
+            mutant_map = (
+                contact_map if structure is None
+                else _point_mutant_map(
+                    structure, chain_id, seq_indices[pos], "A", cutoff, sidechain
+                )
+            )
             e_mut = _score_one(
                 mutant_map, mutant, potential, interface, tcr_regions, contact_weight
             )
@@ -221,6 +266,132 @@ def alanine_scan(
             ddg_val = 0.0
         rows.append({"pos": pos, "wt_aa": wt, "ddG": ddg_val})
     return pl.DataFrame(rows, schema={"pos": pl.Int64, "wt_aa": pl.Utf8, "ddG": pl.Float64})
+
+
+#: TCR loops the receptor-side scan walks, and the per-loop aggregates it reports.
+_CDR_LOOPS: tuple[str, ...] = ("CDR1", "CDR2", "CDR3")
+
+
+def _tcr_mutant_map(
+    structure: Structure, chain_id: str, seq_index: int, cutoff: float, sidechain: bool
+) -> ContactMap:
+    """The contact map of the structure with one receptor residue truncated to alanine, in 3D."""
+    from .refine.substitute import substitute_residues
+
+    return ContactMap.from_structure(
+        substitute_residues(structure, {(chain_id, seq_index): "A"}),
+        cutoff=cutoff, sidechain=sidechain,
+    )
+
+
+def _peptide_sequence(structure: Structure) -> str:
+    from .structure.model import PEPTIDE_TYPE
+
+    pep = next((c for c in structure.chains if c.chain_type == PEPTIDE_TYPE), None)
+    if pep is None:
+        raise ValueError(f"no peptide chain in structure {structure.pdb_id!r}")
+    return "".join(r.aa for r in pep.residues)
+
+
+def tcr_alanine_scan(
+    contact_map: ContactMap,
+    structure: Structure,
+    potential: Potential,
+    *,
+    peptide: str | None = None,
+    tcr_regions: str = "cdr",
+    contact_weight: str = "residue",
+    cutoff: float = 5.0,
+    sidechain: bool = False,
+) -> pl.DataFrame:
+    """Alanine scan of the **receptor** side, on rebuilt coordinates.
+
+    The mirror of :func:`alanine_scan`. Each contacted TCR residue is truncated to alanine **in
+    3D** by :func:`tcren.refine.substitute.substitute_residues`, the contact map is recomputed and
+    the interface rescored, so a loop residue whose side chain was the only thing bridging to the
+    peptide loses those contacts exactly as it physically must. One rebuild per contacted residue.
+
+    Only residues that actually contact the peptide are walked, because a residue with no contact
+    has ``ddG == 0`` by construction and rebuilding it would cost a contact map for nothing.
+
+    Scored over ``"tcr_peptide"`` alone: a receptor substitution cannot change the peptide:MHC
+    energy, so the complex sum would only add a constant.
+
+    Args:
+        contact_map: The native structure's contact map.
+        structure: The annotated structure the map came from. Required — there is no virtual
+            path here, because truncating a receptor side chain without moving atoms would leave
+            every contact it made in place, which is the failure mode this function exists to fix.
+        potential: Pairwise potential to score with.
+        peptide: Peptide sequence; taken from the structure's peptide chain when omitted.
+        tcr_regions: Which TCR regions to walk — ``"cdr"`` (default), ``"cdr+fr"`` or ``"all"``.
+        contact_weight: ``"residue"`` (default) or ``"atomic"``.
+        cutoff: Contact threshold for the rebuilt maps (Å).
+        sidechain: Passed to the rebuilt maps.
+
+    Returns:
+        One row per contacted receptor residue, with ``chain.id``, ``chain.type`` (TRA/TRB),
+        ``region.type``, ``residue.index``, ``pos`` (0-based within its region), ``wt_aa`` and
+        ``ddG`` = ``E(native) - E(Ala@residue)``. A **positive** ``ddG`` marks a stabilising
+        residue: removing it costs energy, so it was earning its place.
+    """
+    peptide = peptide if peptide is not None else _peptide_sequence(structure)
+    iface = contact_map.interface("tcr_peptide", tcr_regions=tcr_regions)
+    sites = (
+        iface.select("chain.id.from", "chain.type.from", "region.type.from",
+                     "residue.index.from", "residue.aa.from", "pos.from")
+        .unique()
+        .sort("chain.type.from", "residue.index.from")
+    )
+    schema = {"chain.id": pl.Utf8, "chain.type": pl.Utf8, "region.type": pl.Utf8,
+              "residue.index": pl.Int64, "pos": pl.Int64, "wt_aa": pl.Utf8, "ddG": pl.Float64}
+    if sites.height == 0:
+        return pl.DataFrame(schema=schema)
+
+    e_native = _score_one(
+        contact_map, peptide, potential, "tcr_peptide", tcr_regions, contact_weight
+    )
+    rows = []
+    for chain_id, chain_type, region, index, wt, pos in sites.iter_rows():
+        mutant_map = _tcr_mutant_map(structure, chain_id, index, cutoff, sidechain)
+        e_mut = _score_one(
+            mutant_map, peptide, potential, "tcr_peptide", tcr_regions, contact_weight
+        )
+        rows.append({"chain.id": chain_id, "chain.type": chain_type, "region.type": region,
+                     "residue.index": index, "pos": pos, "wt_aa": wt,
+                     "ddG": e_native - e_mut})
+    return pl.DataFrame(rows, schema=schema)
+
+
+def tcr_alanine_reference(scan: pl.DataFrame) -> dict[str, float]:
+    """Per-loop poly-alanine references, summed from a :func:`tcr_alanine_scan`.
+
+    Four numbers per structure: the germline loops together, each CDR3 on its own, and their
+    total. Each is the **sum of the per-residue 3D ΔΔGs** of that loop, which is the additive
+    reading and is defined whether or not a loop is engaged (an unengaged loop contributes 0).
+
+    It is deliberately *not* the energy of mutating a whole loop to poly-alanine in one pass.
+    Those differ once atoms move: truncating every side chain at once loses contacts that each
+    residue alone retains, so the one-pass value is not the sum of the parts. The additive form
+    is the one that says how much each residue earns.
+
+    Args:
+        scan: The frame returned by :func:`tcr_alanine_scan`.
+
+    Returns:
+        ``dPhi_ala_cdr12``, ``dPhi_ala_cdr3a``, ``dPhi_ala_cdr3b`` and ``dPhi_ala_tcr``.
+    """
+    def total(pred: pl.Expr) -> float:
+        sel = scan.filter(pred)
+        return float(sel["ddG"].sum()) if sel.height else 0.0
+
+    region, chain = pl.col("region.type"), pl.col("chain.type")
+    return {
+        "dPhi_ala_cdr12": total(region.is_in(["CDR1", "CDR2"])),
+        "dPhi_ala_cdr3a": total((region == "CDR3") & (chain == "TRA")),
+        "dPhi_ala_cdr3b": total((region == "CDR3") & (chain == "TRB")),
+        "dPhi_ala_tcr": float(scan["ddG"].sum()) if scan.height else 0.0,
+    }
 
 
 def neoantigen_ddg(

@@ -3,6 +3,93 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
+## [2.25.0] — 2026-09-01
+
+**The alanine scan moves atoms, on both sides of the interface.** `tcren ddg --alanine-scan` had
+always taken the virtual path — the CLI never passed a structure — and the structural path it could
+have taken was measuring against the wrong baseline.
+
+### Added
+- **`ddg.tcr_alanine_scan`** — the receptor-side scan, one row per *contacted* CDR residue, each
+  truncated to alanine in 3D and rescored on the rebuilt contact map. There is no virtual variant:
+  truncating a receptor side chain without moving atoms would leave every contact it made in place,
+  which is the failure the function exists to fix. Scored over `tcr_peptide` alone, because a
+  receptor substitution cannot change the peptide:MHC energy.
+- **`ddg.tcr_alanine_reference`** — the per-loop aggregates `dPhi_ala_cdr12`, `dPhi_ala_cdr3a`,
+  `dPhi_ala_cdr3b` and their total `dPhi_ala_tcr`. Each is the **sum of per-residue** ΔΔGs of that
+  loop, which partitions the total exactly. Deliberately not the energy of mutating a whole loop in
+  one pass: those differ once atoms move, because truncating every side chain at once loses contacts
+  each residue alone retains.
+- **`refine.substitute.substitute_residues`** — the general 3D primitive. Any chain, any set of
+  residues, keyed `(chain_id, seq_index) -> one-letter`; every other residue and chain comes back
+  byte-identical, and an empty mapping is the identity. `substitute_peptide` now shares its residue
+  rewriter and chain rebuilder.
+- `tcren ddg` gains `--side peptide|tcr|both` and `--virtual`, and now passes the structure, so the
+  scan is 3D by default.
+- **`recognition.INVARIANCE`** — what each of the 117 descriptors is invariant under, so
+  *geometry* and *topology* are different questions rather than two names for the contact set.
+  Five classes: `geometric` (a length, area, angle or direction cosine — preserved by isometry,
+  **this is the docking**), `topological` (Betti numbers, the Euler characteristic and their
+  normalized forms — preserved by continuous deformation, **this is the interface surface**),
+  `compositional` (a count over the *labelled* contact set, or a share, entropy or Hill number of
+  such counts), `energetic` and `categorical`. `descriptors(invariance=...)` filters on it and
+  composes with `family` and `tcr_only`.
+  Two things it makes visible. **The topology family is mostly compositional** — 19 of its 29
+  columns read the labelling rather than the shape, and only 8 are topological invariants. And
+  **neither shipped block is what its name says**: `Q`, called interface geometry, carries one
+  continuous quantity of four (`burial`, an area) and no angle, distance or height at all; `T`,
+  called the shape block, carries one topological invariant of five. Seven of the nine terms
+  across both are compositional, which is why the two correlate more than their names suggest.
+  `h0_pers_ent` is filed `geometric`, not `topological`: the H0 barcode's bar lengths *are* the
+  minimum spanning tree's edge lengths in angstroms, and persistent homology is a metric
+  construction.
+- **Peptide coverage, normalized so class I and class II compare** —
+  `footprint.PEPTIDE_COVERAGE_FEATURES`: `pep_free_frac`, `pep_cov_frac`, `pep_cov_even`,
+  `pep_cov_d2n`, `pep_cov_centre`, `pep_cov_spread`. Every column divides by the peptide's own
+  length, and **no position index, band or cutoff enters any definition**. Anchors are found from
+  the coordinates: position *i*'s accessibility `a_i = n_TCR_i / (n_TCR_i + n_MHC_i)` is its share
+  of contacts facing the receptor rather than the groove, so a buried anchor is discounted however
+  many of its atoms sit within the contact cutoff of a CDR loop. A binary anchor test cannot do
+  this — at 5 A **every** residue of a class I nonamer contacts the MHC, so the non-anchor set
+  comes out empty.
+  Measured, it recovers the canonical registers from contacts alone: the three class I complexes
+  (8-, 9- and 10-mer) bury **both termini** and peak in the middle, while class II `4ozg` buries a
+  **gapped core** — receptor-facing positions interleaved with groove-held ones — and leaves the
+  receptor the least peptide of the four (`pep_free_frac` 0.125 against 0.157-0.356).
+
+
+### Fixed
+- **The structural alanine scan read every position against a poly-stub baseline.** It threaded the
+  whole peptide through `substitute_peptide`, which truncates *every* residue to backbone + Cβ, so a
+  single substitution silently stripped its neighbours' side chains too. On 1ao7 the **native**
+  sequence threaded back through it keeps **14 of 29** TCR:peptide contacts and moves the interface
+  energy −0.9603 → −1.7177, and that offset appeared at every position — including positions with no
+  contacts, which must read exactly 0. The scan now substitutes one residue at a time through
+  `substitute_residues`. `substitute_peptide` is unchanged and remains correct for the poly-alanine
+  *reference*, where every residue genuinely is mutated.
+- `alanine_scan` validates the peptide length against the structure's own peptide chain before
+  scoring, so a mismatch names the chain rather than surfacing as "peptide was not scored".
+
+- **`recognition.DETAIL`** — units and a one-line definition for all 124 catalogue entries, and the
+  single source the docs table is generated from, so a descriptor cannot reach a feature table
+  undocumented. Units come from a closed vocabulary because they are what a transform has to
+  respect: a `count` is variance-stabilized by a square root, a `fraction` by the arcsine — the
+  classical angular transformation — and an unbounded continuous quantity by neither.
+- **`docs/descriptor_table.rst`** — all 117 descriptors by family, with invariance class, units,
+  whether the receptor enters the definition, and what each measures. Generated by
+  `scripts/gen_descriptor_table.py`; `--check` fails if it has drifted, and a test runs it.
+- **`docs/_static/descriptor_families.{dot,svg,pdf}`** — the family-against-invariance graph,
+  generated by `scripts/gen_family_graph.py` from the catalogue, Okabe-Ito so it survives greyscale
+  and colour blindness. It draws the mismatch the classification exposes: the thickest edge out of
+  `topology` runs to `compositional`, not to `topological`.
+
+### Changed
+- `docs/features.rst` gains *Two views of the same descriptors* and *The alanine scan, on both
+  sides*; SKILL.md gains the matching section.
+  The SKILL.md claim that `reference_delta` equals the sum of `alanine_scan().ddG` is now qualified:
+  it holds on the virtual path, where a fixed contact map makes the energy additive over contacts,
+  and not once atoms move.
+
 ## [2.24.0] — 2026-08-29
 
 **A second presentation potential, and the reference-state trap that made the first comparison

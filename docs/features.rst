@@ -220,6 +220,82 @@ poly-alanine interface *in the same pose*, which is right when every candidate c
 which is right when the pose is shared and what varies is capacity — ranking receptors for a fixed
 epitope. Each is at or near chance on the other's task.
 
+Two views of the same descriptors
+---------------------------------
+
+The six **families** are what computes the descriptors: one pass of one command each, and
+``tcren features -i <family>`` is how you ask for one. The **invariance classes** are what they
+mean, and the two do not line up.
+
+.. figure:: _static/descriptor_families.svg
+   :width: 100%
+   :alt: descriptor families against the invariance classes they fall into
+
+   Every descriptor, by what computes it and by what it is invariant under. Edge labels are
+   descriptor counts and edge width tracks them.
+
+Read the thick edges. ``placement`` is geometric throughout -- 31 of 31 -- and it is the only
+family that describes the **docking** in the sense of a quantity preserved by distance-preserving
+transformations. The ``topology`` family is **mostly compositional**: 20 of its 29 columns are
+diversity or coverage measures over labelled cells and positions, and only 8 are invariants of the
+**interface surface** under continuous deformation. ``interface`` contributes 23 counts and two
+continuous quantities.
+
+That matters when a block is built from a family rather than from a class. ``Q`` is named for
+interface geometry and carries one continuous quantity of four -- ``burial``, an area -- with no
+angle, distance or height in it; ``T`` is named for shape and carries one topological invariant of
+five. Seven of the nine terms across both blocks are compositional, which is why two blocks with
+different names read the same evidence.
+
+:data:`tcren.recognition.descriptors` filters on either axis, and they compose::
+
+    descriptors("topology", invariance="topological")   # the interface surface, 8 columns
+    descriptors(invariance="geometric", tcr_only=True)  # the docking
+
+.. seealso:: :doc:`descriptor_table` lists all 117 with their units and definitions.
+
+The alanine scan, on both sides
+-------------------------------
+
+``dF_tcr_pep`` and ``dF_pep_mhc`` are *aggregate* references: the whole peptide replaced by
+poly-alanine at once. To see which residue earns the energy, scan one at a time.
+
+:func:`tcren.ddg.alanine_scan` walks the **peptide** and :func:`tcren.ddg.tcr_alanine_scan` the
+**receptor's contacted CDR residues**. Both truncate one residue to alanine **in 3D** through
+:func:`tcren.refine.substitute.substitute_residues`, recompute the contact map and rescore, so a
+side chain that was the only thing bridging to its partner loses those contacts. Alanine is the
+target this needs no rotamer for: its heavy atoms are exactly backbone plus Cβ, so truncating at
+Cβ *is* the alanine.
+
+.. code-block:: console
+
+   $ tcren ddg -s complex.pdb --native LLFGYPVYV --alanine-scan --side both -o ala.csv
+
+``--side`` takes ``peptide`` (default), ``tcr`` or ``both``; ``--virtual`` takes the fast path that
+re-indexes the mutant on the native map with no atoms moved, and is peptide-side only, because
+truncating a receptor side chain without moving atoms would leave every contact it made in place.
+
+Output is long — one row per scanned residue, with ``side``, ``pos``, ``wt_aa`` and ``ddG``, plus
+``chain.id``, ``chain.type``, ``region.type`` and ``pos_index`` on the receptor rows. ``ddG`` is
+``E(native) - E(Ala@residue)`` throughout, so a **positive** value marks a residue that was earning
+its place.
+
+:func:`tcren.ddg.tcr_alanine_reference` folds a receptor scan into four per-structure numbers —
+``dPhi_ala_cdr12``, ``dPhi_ala_cdr3a``, ``dPhi_ala_cdr3b`` and their total ``dPhi_ala_tcr``. Each is
+the **sum of the per-residue** ΔΔGs of that loop, not the energy of mutating the whole loop in one
+pass; those differ once atoms move, because truncating every side chain at once loses contacts each
+residue alone retains.
+
+.. warning::
+
+   Before 2.25.0 the scan's structural path threaded the whole peptide through
+   :func:`~tcren.refine.substitute.substitute_peptide`, which truncates **every** residue to
+   backbone plus Cβ. Each position was therefore read against a poly-stub baseline rather than the
+   native — on 1ao7 the native sequence threaded back through it keeps 14 of 29 TCR:peptide
+   contacts — and the resulting offset appeared at every position, including positions with no
+   contacts at all. ``substitute_peptide`` remains correct for the poly-alanine *reference*, where
+   every residue genuinely is mutated.
+
 ``placement`` and ``interface`` were a single ``geometry`` family until 2026-08-24, and
 ``energetics`` was ``physics``. Both retired names still resolve in
 :func:`~tcren.recognition.descriptors`, so ``descriptors("geometry")`` returns the pooled

@@ -559,7 +559,9 @@ def score(
 def ddg_cmd(
     structures: Path = typer.Option(..., "-s", "--structures", help="structure file, directory, or .tar.gz (.pdb/.cif/.pdb.gz/.cif.gz)"),
     native: str = typer.Option(..., "--native", help="native peptide sequence"),
-    alanine_scan: bool = typer.Option(False, "--alanine-scan", help="ΔΔG of every position mutated to alanine"),
+    alanine_scan: bool = typer.Option(False, "--alanine-scan", help="ΔΔG of every position mutated to alanine, in 3D"),
+    side: str = typer.Option("peptide", "--side", help="which side the alanine scan walks: peptide|tcr|both"),
+    virtual: bool = typer.Option(False, "--virtual", help="alanine scan without moving atoms (fast; peptide side only)"),
     mutant: list[str] = typer.Option(None, "--mutant", help="mutant peptide(s); repeat for several (neoantigen mode)"),
     potential: str | None = typer.Option(None, "-p", "--potential", help="potential: bundled name (tcren2|karnaukhov2022|mj|keskin) or CSV path (default: tcren2)"),
     out: Path = typer.Option("ddg.csv", "-o", "--out"),
@@ -569,12 +571,15 @@ def ddg_cmd(
     organism: str = typer.Option("human", "--organism"),
     cutoff: float = typer.Option(5.0, "--cutoff"),
 ) -> None:
-    """ΔΔG of peptide mutations (fast virtual-matrix path; no atoms move).
+    """ΔΔG of point mutations; ``ddG = E(native) - E(mutant)``, positive => STABILISING.
 
-    Re-scores the mutant sequence on the native contact map; ``ddG = E(native) - E(mutant)``
-    (positive => STABILISING: the mutant scores lower, which is the better binder). Use
-    ``--alanine-scan`` for a per-position scan, or one or more
-    ``--mutant`` for specific neoantigen substitutions.
+    ``--alanine-scan`` walks one residue at a time, truncating it to alanine **in 3D** and
+    rescoring the rebuilt contact map, so a side chain that was the only thing bridging to its
+    partner loses those contacts. ``--side`` chooses which side is walked: ``peptide`` (default),
+    ``tcr`` (the contacted CDR residues) or ``both``. ``--virtual`` takes the fast path instead,
+    re-indexing the mutant on the native map with no atoms moved -- peptide side only.
+
+    ``--mutant`` scores specific substitutions rather than a scan.
     """
     if regions not in TCR_REGIONS:
         raise typer.BadParameter("--regions must be one of all|cdr|cdr+fr")
@@ -583,7 +588,14 @@ def ddg_cmd(
     if interface == "complex" and alanine_scan:
         raise typer.BadParameter("--interface complex needs --mutant; the alanine scan is "
                                  "single-interface")
-    from .ddg import alanine_scan as run_scan, neoantigen_ddg
+    if side not in ("peptide", "tcr", "both"):
+        raise typer.BadParameter("--side must be one of peptide|tcr|both")
+    if virtual and side != "peptide":
+        raise typer.BadParameter(
+            "--virtual is peptide-side only: truncating a receptor side chain without moving "
+            "atoms would leave every contact it made in place"
+        )
+    from .ddg import alanine_scan as run_scan, neoantigen_ddg, tcr_alanine_scan
 
     from .mhc import annotate_mhc
 
@@ -597,7 +609,21 @@ def ddg_cmd(
         annotate_mhc(s)
         cm = ContactMap.from_structure(s, cutoff=cutoff)
         if alanine_scan:
-            df = run_scan(cm, native, pot, interface=interface, tcr_regions=regions)
+            parts = []
+            if side in ("peptide", "both"):
+                parts.append(
+                    run_scan(cm, native, pot, interface=interface, tcr_regions=regions,
+                             structure=None if virtual else s, cutoff=cutoff)
+                    .with_columns(side=pl.lit("peptide"))
+                )
+            if side in ("tcr", "both"):
+                parts.append(
+                    tcr_alanine_scan(cm, s, pot, peptide=native, tcr_regions=regions,
+                                     cutoff=cutoff)
+                    .rename({"residue.index": "pos_index"})
+                    .with_columns(side=pl.lit("tcr"))
+                )
+            df = pl.concat(parts, how="diagonal")
         else:
             df = neoantigen_ddg(cm, native, mutant, pot, interface=interface,
                                 tcr_regions=regions,

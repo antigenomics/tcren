@@ -77,6 +77,7 @@ What tcren does
    potentials
    potts
    features
+   descriptor_table
    reliability
    gallery
    kit

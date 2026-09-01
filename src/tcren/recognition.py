@@ -704,6 +704,230 @@ DESCRIPTORS: dict[str, tuple[str, bool]] = {
     "P_native": ("score", True),
 }
 
+#: What each descriptor is invariant under -- the axis along which ``geometry`` and ``topology``
+#: are different questions rather than two names for the contact set.
+#:
+#: *Geometry is the study of properties preserved by distance-preserving transformations;
+#: topology is the study of properties preserved by continuous deformation.* Applied here:
+#:
+#: ``"geometric"``
+#:     A continuous quantity in physical units -- a length (A), an area (A^2), an angle, or a
+#:     direction cosine. Preserved by isometry, destroyed by deformation. **This is the docking**:
+#:     where the receptor sits on the groove and how it leans.
+#: ``"topological"``
+#:     An invariant of the contact complex under continuous deformation -- Betti numbers, the
+#:     Euler characteristic, and their size-normalized forms. **This is the interface surface**:
+#:     how many patches it falls into and how many holes it has, whatever its shape.
+#: ``"compositional"``
+#:     A count over the *labelled* contact set, or a ratio, share, entropy or Hill number built
+#:     from such counts. Preserved by both, because it reads the labelling rather than the shape.
+#: ``"energetic"``
+#:     A statistical-potential or Potts energy.
+#: ``"categorical"``
+#:     An indicator.
+#:
+#: Two consequences worth knowing before building a block from a family. The **topology family is
+#: mostly compositional**: 20 of its 29 columns are diversity or coverage measures over labelled
+#: cells and positions, and only 8 are topological invariants. And ``h0_pers_ent`` is filed
+#: ``"geometric"``, not ``"topological"``, because the H0 barcode's bar lengths *are* the minimum
+#: spanning tree's edge lengths in angstroms -- persistent homology is a metric construction, and
+#: the entropy of a length distribution is not a homeomorphism invariant.
+INVARIANCE: dict[str, str] = {
+    # placement is metric throughout: distances, angles and direction cosines in the groove frame
+    **{d: "geometric" for d, (fam, _) in DESCRIPTORS.items() if fam == "placement"},
+    # interface: two continuous quantities, the rest counts and count ratios
+    "burial": "geometric",              # dSASA, A^2
+    "clash_score": "geometric",         # summed heavy-atom overlap, A
+    "mhc_class_bin": "categorical",
+    **{d: "compositional" for d in (
+        "extent", "n_contacts_tp", "n_contacts_tm", "n_pep_contacted", "n_hbond",
+        "ct_tp_salt_bridge", "ct_tp_aromatic", "ct_tp_hydrophobic", "ct_tp_other",
+        "ct_tm_salt_bridge", "ct_tm_hydrogen_bond", "ct_tm_aromatic", "ct_tm_hydrophobic",
+        "ct_tm_other", "n_clashes", "n_loop_contacts", "n_pep_contacts", "n_mhc_contacts",
+        "n_pep_int", "chain_balance", "cdr3_dominance", "cdr3_ab_imbalance",
+        "chain_cdr_imbalance",
+    )},
+    # topology: the Betti/Euler block is topological; the diversity block reads the labelling
+    **{d: "topological" for d in (
+        "fp_b0_r7", "fp_b1_r7", "fp_chi_r7", "fp_b0_frac_r7",
+        "fp_b0_r8", "fp_b1_r8", "fp_chi_r8", "fp_b0_frac_r8",
+    )},
+    "h0_pers_ent": "geometric",
+    **{d: "compositional" for d in (
+        "H_cell", "D1_cell", "D2_cell", "S_cell", "J_cell", "H_loop", "D2_loop", "D2_pep24",
+        "ab_imb", "ab_imb_pep", "ab_imb_mhc", "L_canon", "p_germ_mhc", "p_cdr3_pep",
+        "pep_free_frac", "pep_cov_frac", "pep_cov_even", "pep_cov_d2n", "pep_cov_centre",
+        "pep_cov_spread",
+    )},
+    # energies
+    **{d: "energetic" for d, (fam, _) in DESCRIPTORS.items() if fam in ("energetics", "potts")},
+    # kinetics: stiffnesses, forces and work are continuous; the coupling tallies are counts
+    **{d: "geometric" for d in (
+        "K_tens", "K_shear", "S_tot", "aniso", "lam_max", "lam_min",
+        "rupture_force", "rupture_work", "mean_margin", "exp_lost",
+    )},
+    **{d: "compositional" for d in (
+        "n_spring", "n_interface", "couple_pep", "couple_mhc", "couple_tcr", "couple_total",
+        "frac_robust",
+    )},
+    # composite scores are outputs, never inputs
+    **{d: "score" for d, (fam, _) in DESCRIPTORS.items() if fam == "score"},
+}
+
+#: Units and a one-line definition for every descriptor. The single source the docs table is
+#: generated from, so a new descriptor cannot reach a feature table undocumented.
+#:
+#: ``units`` is what the number is measured in -- ``A``, ``A^2``, ``deg``, ``rad``, ``kT``, ``N/m``,
+#: or one of the dimensionless kinds ``count``, ``fraction``, ``signed fraction``, ``ratio``,
+#: ``cosine``, ``log-odds``, ``indicator``. It is what a transform has to respect: a count is
+#: variance-stabilized by a square root, a fraction by the arcsine (the classical angular
+#: transformation), and an unbounded continuous quantity by neither.
+DETAIL: dict[str, tuple[str, str]] = {
+ "pitch": ("deg", "Incident angle of the TCR out of the groove plane. **Banned as a feature**: it reproduces no clean geometric angle yet out-discriminates every one of them, which is AlphaFold-confidence contamination rather than geometry."),
+ "crossing": ("deg", "Crossing (scanning) angle between the Valpha->Vbeta axis projected into the groove plane and the groove long axis."),
+ "crossing_signed": ("deg", "The same angle on [-180, 180); its sign is the docking polarity, canonical or reversed."),
+ "dock_d": ("A", "MHC-stub to TCR-stub rigid-body separation."),
+ "dock_torsion": ("rad", "Rigid-body dihedral of the TCR about the MHC stub; the docking twist. Circular, wraps at +-pi."),
+ "dock_tcr_uy": ("cosine", "y component of the TCR stub unit vector in the MHC frame."),
+ "dock_tcr_uz": ("cosine", "z component of the TCR stub unit vector; how high the receptor body rides over the groove."),
+ "dock_mhc_uy": ("cosine", "y component of the MHC stub unit vector."),
+ "dock_mhc_uz": ("cosine", "z component of the MHC stub unit vector."),
+ "height": ("A", "Elevation of the CDR Calpha centroid above the groove plane."),
+ "shift_u": ("A", "In-plane displacement of that centroid from the peptide centroid along the groove long axis."),
+ "shift_w": ("A", "The same along the groove short axis."),
+ "offset": ("A", "Length of the in-plane displacement; lateral shift whatever its direction."),
+}
+_LOOP_DETAIL: dict[str, tuple[str, str]] = {
+ "reach": ("A", "Distance from the loop's Calpha centroid to the peptide Calpha centroid; how far {loop} reaches."),
+ "topep": ("A", "Minimum Calpha-Calpha distance from {loop} to the peptide; its engagement depth."),
+ "ext": ("A", "End-to-end extension of {loop}, the Calpha_N to Calpha_C distance."),
+ "ou": ("cosine", "Where {loop} sits over the groove, along the long axis u."),
+ "ow": ("cosine", "Where {loop} sits over the groove, along the short axis w."),
+ "on": ("cosine", "Where {loop} sits over the groove, along the groove normal n."),
+ "au": ("cosine", "Orientation of {loop}'s N->C axis against the groove long axis u."),
+ "aw": ("cosine", "Orientation of {loop}'s N->C axis against the groove short axis w."),
+ "an": ("cosine", "Orientation of {loop}'s N->C axis against the groove normal n."),
+}
+for _loop, _name in (("cdr3a", "CDR3alpha"), ("cdr3b", "CDR3beta")):
+    for _k, (_u, _d) in _LOOP_DETAIL.items():
+        DETAIL[f"{_loop}_{_k}"] = (_u, _d.format(loop=_name))
+
+DETAIL.update({
+ # --- interface -------------------------------------------------------------------------------
+ "burial": ("A^2", "Interface buried surface, SASA(TCR) + SASA(pMHC) - SASA(complex), by Shrake-Rupley."),
+ "extent": ("count", "Distinct TCR residues contacting the pMHC over both receptor interfaces."),
+ "chain_balance": ("fraction", "min(a,b)/(a+b) over TCR:peptide contacts by chain; 0.5 when both chains engage equally, 0 when only one does."),
+ "n_contacts_tp": ("count", "TCR-peptide residue-residue contacts."),
+ "n_contacts_tm": ("count", "TCR-MHC residue-residue contacts."),
+ "n_pep_contacted": ("count", "Distinct peptide residues the TCR contacts."),
+ "n_hbond": ("count", "Polar N/O atom pairs within 3.5 A across TCR:peptide."),
+ "ct_tp_salt_bridge": ("count", "Cationic-N / anionic-O pairs within 4 A across TCR:peptide."),
+ "ct_tp_aromatic": ("count", "Ring-atom pairs between aromatic residues across TCR:peptide."),
+ "ct_tp_hydrophobic": ("count", "Apolar C-C pairs between apolar residues across TCR:peptide."),
+ "ct_tp_other": ("count", "Remaining classified TCR:peptide contacts."),
+ "ct_tm_salt_bridge": ("count", "Salt bridges across TCR:MHC."),
+ "ct_tm_hydrogen_bond": ("count", "Hydrogen bonds across TCR:MHC."),
+ "ct_tm_aromatic": ("count", "Aromatic contacts across TCR:MHC."),
+ "ct_tm_hydrophobic": ("count", "Hydrophobic contacts across TCR:MHC."),
+ "ct_tm_other": ("count", "Remaining classified TCR:MHC contacts."),
+ "cdr3_dominance": ("fraction", "CDR3(alpha+beta) share of all CDR TCR:peptide contacts."),
+ "cdr3_ab_imbalance": ("fraction", "abs(CDR3a - CDR3b) / (CDR3a + CDR3b); how one-sided the CDR3 engagement is."),
+ "chain_cdr_imbalance": ("fraction", "abs(a - b) / (a + b) over all CDR contacts; the chain-level mirror of chain_balance."),
+ "n_clashes": ("count", "Peptide-partner heavy-atom pairs overlapping by more than 0.4 A on Bondi radii."),
+ "clash_score": ("A", "Summed overlap depth of those clashing pairs; the steric burden of a forced pose."),
+ "mhc_class_bin": ("indicator", "1 if any MHC chain is class II, else 0. Conditions every channel rather than being scored."),
+ "n_loop_contacts": ("count", "Contacts the six-CDR-loop partition sees; framework contacts are outside it by construction."),
+ "n_pep_contacts": ("count", "Of those loop contacts, the ones reaching the peptide."),
+ "n_mhc_contacts": ("count", "Of those loop contacts, the ones reaching the MHC."),
+ "n_pep_int": ("count", "Intra-peptide residue contacts, at 5 A with a sequence separation of at least three."),
+ # --- topology --------------------------------------------------------------------------------
+ "H_cell": ("fraction", "Normalized Shannon entropy of the contact composition over the twelve cells (six CDR loops x {peptide, MHC})."),
+ "D1_cell": ("count", "Hill number of order 1 over the same cells, exp(H); monotone in H_cell."),
+ "D2_cell": ("count", "Hill number of order 2, 1/sum(p^2); the effective number of engaged cells, discounting the weakly populated ones."),
+ "S_cell": ("count", "Richness: how many of the twelve cells are occupied."),
+ "J_cell": ("fraction", "Pielou evenness over the occupied cells. NaN when one cell is occupied."),
+ "H_loop": ("fraction", "Normalized entropy over the six CDR loops alone, ignoring which target each contact reaches."),
+ "D2_loop": ("count", "Hill number of order 2 over the six loops."),
+ "D2_pep24": ("count", "Hill number of order 2 over the twenty-four-cell partition, the peptide split into N-terminal, central and C-terminal bands."),
+ "ab_imb": ("signed fraction", "Signed (TRA - TRB)/(TRA + TRB) over CDR-loop contacts; positive is alpha-shifted."),
+ "ab_imb_pep": ("signed fraction", "The same restricted to peptide-side contacts."),
+ "ab_imb_mhc": ("signed fraction", "The same restricted to MHC-side contacts."),
+ "L_canon": ("log-odds", "Canonical-docking log odds-ratio of loop class (germline, CDR3) against target (MHC, peptide), Haldane-Anscombe corrected. High when CDR3 sits on the peptide and the germline loops on the helices."),
+ "p_germ_mhc": ("fraction", "Share of germline (CDR1/CDR2) contacts that reach the MHC."),
+ "p_cdr3_pep": ("fraction", "Share of CDR3 contacts that reach the peptide."),
+ "pep_free_frac": ("fraction", "Share of the peptide the groove leaves for the receptor: mean over positions of n_TCR/(n_TCR + n_MHC). The threshold-free reading of 'peptide without its MHC anchors'."),
+ "pep_cov_frac": ("fraction", "Peptide positions the TCR contacts, over peptide length."),
+ "pep_cov_even": ("fraction", "Pielou evenness of the accessibility-discounted contact distribution, base ln(peptide length); how evenly the receptor uses the peptide it can reach."),
+ "pep_cov_d2n": ("fraction", "Hill number of order 2 of that distribution over peptide length; the effective share of the peptide engaged."),
+ "pep_cov_centre": ("fraction", "Contact-weighted mean position on [0, 1] from N- to C-terminus; 0.5 is centred."),
+ "pep_cov_spread": ("fraction", "Contact-weighted standard deviation of that position, doubled; approaches 1 when the receptor reaches both termini."),
+ "h0_pers_ent": ("fraction", "Normalized entropy of the H0 barcode of the contacted pMHC Calpha cloud. The bar lengths are the minimum spanning tree's edges, so no filtration is chosen."),
+ # --- energetics ------------------------------------------------------------------------------
+ "F_tcr_pep": ("log-odds", "Phi over TCR-peptide contacts under TCRen2, summed over all TCR regions. Lower is more favourable."),
+ "F_tcr_mhc": ("log-odds", "Phi over TCR-MHC contacts under Miyazawa-Jernigan."),
+ "F_pep_mhc": ("log-odds", "Phi over peptide-MHC contacts under Miyazawa-Jernigan. Computed without the receptor."),
+ "F_cdr12": ("log-odds", "The CDR1 + CDR2 part of the TCR:peptide energy, both chains."),
+ "F_cdr3a": ("log-odds", "The CDR3alpha part of the TCR:peptide energy."),
+ "F_cdr3b": ("log-odds", "The CDR3beta part of the TCR:peptide energy."),
+ "dF_tcr_pep": ("log-odds", "Poly-alanine reference delta of the TCR:peptide energy; the pose-geometry baseline removed."),
+ "dF_pep_mhc": ("log-odds", "The same reference across peptide:MHC. Computed without the receptor."),
+ "F_pep_int": ("log-odds", "The peptide's own intra-chain contact energy. Computed without the receptor."),
+ # --- potts -----------------------------------------------------------------------------------
+ "neg_energy": ("kT", "-E of the observed contact map under the coupled Potts model; higher is more native-like. Exactly log_z + log_lik."),
+ "log_z": ("kT", "Log partition function over every contact map the geometry admits; the interface's capacity."),
+ "log_lik": ("kT", "Log probability of the observed contact map; its typicality."),
+ "psi": ("kT/site", "log_lik per available site, so interfaces of different size compare."),
+ "n_contacts": ("count", "Available residue pairs that engaged. Distinct from the footprint's loop tally."),
+ # --- kinetics --------------------------------------------------------------------------------
+ "exp_lost": ("count", "Expected TCR:peptide contacts lost under a 1 A isotropic shift."),
+ "mean_margin": ("A", "Mean contact margin, cutoff minus minimum heavy-atom distance."),
+ "frac_robust": ("fraction", "Share of TCR:peptide contacts with at least 1 A of margin."),
+ "n_spring": ("count", "Springs in the interface network; every other kinetics column is NaN below three."),
+ "S_tot": ("N/m", "Trace of the stiffness tensor; total interface stiffness."),
+ "K_tens": ("N/m", "Tensile stiffness along the docking axis."),
+ "K_shear": ("N/m", "In-plane stiffness, S_tot minus K_tens."),
+ "aniso": ("ratio", "K_shear / K_tens; how much stiffer the interface is along the pull than across it."),
+ "lam_max": ("N/m", "Largest eigenvalue of the stiffness tensor."),
+ "lam_min": ("N/m", "Smallest eigenvalue of the stiffness tensor."),
+ "rupture_force": ("N", "Peak resisting force under steered separation along the weaker axis."),
+ "rupture_work": ("J", "Force integrated to full separation; the off-rate proxy, and a geometry-only quantity no potential enters."),
+ "couple_pep": ("count", "Peptide residues contacting both the MHC and the TCR."),
+ "couple_mhc": ("count", "MHC residues contacting both the peptide and the TCR."),
+ "couple_tcr": ("count", "TCR residues in the Valpha-Vbeta interface that also contact the pMHC."),
+ "couple_total": ("count", "Sum of the three coupling counts."),
+ "n_interface": ("count", "Interface residue count; the size denominator for the coupling counts."),
+})
+
+# The radius-tagged footprint columns are named from the `radii` argument, so their entries are
+# generated the same way the columns are.
+for _r in (7, 8):
+    DETAIL.update({
+        f"fp_b0_r{_r}": ("count",
+            f"Betti-0 of the flag complex on the contacted pMHC Calpha atoms at {_r} A: how many "
+            "disconnected patches the footprint falls into."),
+        f"fp_b1_r{_r}": ("count",
+            f"Betti-1 at {_r} A: how many holes the footprint encloses."),
+        f"fp_chi_r{_r}": ("count", f"Euler characteristic b0 - b1 at {_r} A."),
+        f"fp_b0_frac_r{_r}": ("fraction",
+            f"Patches per contacted residue at {_r} A; the size-free form of Betti-0."),
+    })
+
+#: The composite scores, which are outputs of the descriptors above and never inputs.
+DETAIL.update({
+    "p_real": ("probability", "Genuine recognition interface against a wrong-receptor shuffle."),
+    "p_real_bn": ("probability", "The same question through the Bayesian-network fit."),
+    "p_forced": ("probability", "Legacy forced-pose classifier; superseded by the strain z-score."),
+    "p_bind": ("probability", "Legacy binder score; superseded by S_free."),
+    "q_bind": ("z", "Fit-free binder contrast, kept for v1 reproduction."),
+    "s_strain": ("z", "Interface-strain z-score: stretched CDR3 loops and thin contacts."),
+    "P_native": ("probability", "Retired cohort posterior over the three channels, fitted per call by latent-class EM. Not recommended: it is undefined for a single structure."),
+})
+
+#: The invariance classes, in the order the catalogue reports them.
+INVARIANCE_CLASSES: tuple[str, ...] = (
+    "geometric", "topological", "compositional", "energetic", "categorical", "score",
+)
+
 FAMILIES = ("placement", "interface", "topology", "energetics", "potts", "kinetics")
 
 #: Retired family names kept working for callers written before the 2026-08-24 split.
@@ -711,7 +935,7 @@ _FAMILY_ALIASES = {"geometry": ("placement", "interface"), "physics": ("energeti
 
 
 def descriptors(family: str | None = None, *, tcr_only: bool = False,
-                with_scores: bool = False) -> tuple[str, ...]:
+                with_scores: bool = False, invariance: str | None = None) -> tuple[str, ...]:
     """Descriptor names from :data:`DESCRIPTORS`, filtered by family and receptor involvement.
 
     Args:
@@ -723,6 +947,10 @@ def descriptors(family: str | None = None, *, tcr_only: bool = False,
             asked is about receptors — a peptide- or MHC-only column carries cohort identity.
         with_scores: also return the fitted/cohort-relative composites of the ``score`` family.
             Off by default: they are model outputs, not inputs.
+        invariance: keep one class of :data:`INVARIANCE` — ``"geometric"`` for the docking's
+            isometry invariants, ``"topological"`` for the interface surface's homeomorphism
+            invariants, ``"compositional"`` for counts over the labelled contact set,
+            ``"energetic"`` or ``"categorical"``. Combines with ``family``.
 
     Returns:
         The matching names, in catalogue order.
@@ -732,7 +960,14 @@ def descriptors(family: str | None = None, *, tcr_only: bool = False,
         ('F_tcr_pep', 'F_tcr_mhc', 'F_cdr12', 'F_cdr3a', 'F_cdr3b', 'dF_tcr_pep')
         >>> descriptors("physics") == descriptors("energetics")   # retired alias
         True
+        >>> descriptors("topology", invariance="topological")
+        ('fp_b0_r7', 'fp_b1_r7', 'fp_chi_r7', 'fp_b0_frac_r7', 'fp_b0_r8', 'fp_b1_r8', \
+'fp_chi_r8', 'fp_b0_frac_r8')
     """
+    if invariance is not None and invariance not in INVARIANCE_CLASSES:
+        raise ValueError(
+            f"unknown invariance {invariance!r}; expected one of {INVARIANCE_CLASSES}"
+        )
     if family is None:
         keep = set(FAMILIES) | {"score"}
     elif family in _FAMILY_ALIASES:
@@ -745,7 +980,8 @@ def descriptors(family: str | None = None, *, tcr_only: bool = False,
     return tuple(n for n, (fam, tcr) in DESCRIPTORS.items()
                  if fam in keep
                  and (with_scores or fam != "score")
-                 and (tcr or not tcr_only))
+                 and (tcr or not tcr_only)
+                 and (invariance is None or INVARIANCE[n] == invariance))
 
 
 #: Frozen "forced-pose" classifier: P(this pose is an AF-forced interface rather than a crystal-natural
