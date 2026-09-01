@@ -148,7 +148,7 @@ descriptor & class & operator & units & definition \\
 \texttt{sc\_\allowbreak{}interlock} & geometric & field moment & \AA$^3$ & Interdigitated volume, the gap integrated where it is negative. The larger of the two on a real interface. \\
 \texttt{sc\_\allowbreak{}gap\_\allowbreak{}index} & geometric & field moment & \AA & Void volume over retained contact area; the intensive form of the gap-volume channel. \\
 \texttt{sc\_\allowbreak{}interlock\_\allowbreak{}frac} & geometric & field moment & fraction & Share of retained cells whose gap is negative; the per-structure form of the corpus 71\% interdigitation. \\
-\texttt{sc\_\allowbreak{}gap\_\allowbreak{}depth} & geometric & field moment & \AA & Mean depth over the interlocked cells alone: how far the receptor reaches in where it does. \\
+\texttt{sc\_\allowbreak{}gap\_\allowbreak{}depth}$^{\dagger}$ & geometric & field moment & \AA & Mean depth over the interlocked cells alone: how far the receptor reaches in where it does. \\
 \texttt{sc\_\allowbreak{}gap\_\allowbreak{}height} & geometric & field moment & \AA & Mean standoff over the void cells alone: how high it stands where it does not mesh. \\
 \texttt{sc\_\allowbreak{}gap\_\allowbreak{}asym} & geometric & field moment & signed fraction & (void - interlock) / (void + interlock); -1 for a face that only interlocks, +1 for one that only stands off. \\
 \texttt{sc\_\allowbreak{}dh} & geometric & field moment & \AA & Mean absolute per-cell height difference between the two faces. \\
@@ -157,7 +157,7 @@ descriptor & class & operator & units & definition \\
 \texttt{sc\_\allowbreak{}cells} & geometric & count or share & count & Grid cells entering the comparison; bookkeeping, so a low complementarity can be told from a thin one. \\
 \texttt{sc\_\allowbreak{}coverage} & geometric & count or share & fraction & Retained cells as a share of the occupied pMHC cells in the window; bookkeeping. \\
 \texttt{co\_\allowbreak{}pep} & compositional & count or share & ratio & Contact order on the peptide: mean sequence separation of the peptide residues one CDR loop reaches, averaged over loops and divided by the peptide's span. \\
-\texttt{co\_\allowbreak{}mhc} & compositional & count or share & ratio & Contact order on the MHC helices, by the same construction. \\
+\texttt{co\_\allowbreak{}mhc}$^{\dagger}$ & compositional & count or share & ratio & Contact order on the MHC helices, by the same construction. \\
 \texttt{partcoef\_\allowbreak{}tcr} & compositional & Hill number & fraction & Mean over engaged TCR residues of 1 - sum\_s (k\_s/k)\textasciicircum{}2 with the modules peptide and MHC; 0 when every residue reads one target only. \\
 \texttt{partcoef\_\allowbreak{}pmhc} & compositional & Hill number & fraction & The same over engaged pMHC residues with the six CDR loops as modules. \\
 \bottomrule

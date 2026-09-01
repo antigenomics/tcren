@@ -923,7 +923,7 @@ The contact map as a network of breakable springs. No potential enters: these ar
      - yes
      - Interface residue count; the size denominator for the coupling counts.
 
-flagged descriptors (27)
+flagged descriptors (29)
 ------------------------
 
 Descriptors that need a second look before they are used, from ``tcren.recognition.STATUS``.
@@ -1018,6 +1018,12 @@ does not move on the corpus.
    * - ``g_comp_frac``
      - suspicious
      - CDR3-length coupled: -0.032 / +0.280, 92.7 per cent beyond both.
+   * - ``sc_gap_depth``
+     - suspicious
+     - peptide-length coupled: +0.366 / +0.124, 71.8 per cent of variance beyond both lengths. A longer class I peptide bulges, and the receptor reaches further in where it does.
+   * - ``co_mhc``
+     - suspicious
+     - CDR3-length coupled: +0.011 / +0.345, 88.0 per cent beyond both. Contact order divides by the target's span, not the loop's, so a longer loop spreads over more helix.
    * - ``ct_tp_salt_bridge``
      - stalled
      - only 3 distinct values over 1,707 modelled complexes: a salt bridge across the TCR:peptide interface is rare enough that the count is almost always 0. The TCR:MHC counterpart ct_tm_salt_bridge does move.

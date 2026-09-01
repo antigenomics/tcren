@@ -669,6 +669,16 @@ STATUS: dict[str, tuple[str, str]] = {
     "g_even_tcr": ("suspicious", "peptide-length coupled: -0.368 / -0.061, 91.0 per cent beyond both."),
     "g_loop_even": ("suspicious", "CDR3-length coupled: -0.186 / -0.350, 87.7 per cent beyond both."),
     "g_comp_frac": ("suspicious", "CDR3-length coupled: -0.032 / +0.280, 92.7 per cent beyond both."),
+    # Measured 2026-09-02 on the 19,213-structure harmonization corpus, within class I. Of the 23
+    # descriptors 2.30.0 added, only these two carry a length: the seven strongest binder
+    # separators among them -- the gap channel -- keep 96.9 to 99.6 per cent of their variance
+    # beyond both lengths, which is why none of the rest is flagged here.
+    "sc_gap_depth": ("suspicious", "peptide-length coupled: +0.366 / +0.124, 71.8 per cent of "
+                                   "variance beyond both lengths. A longer class I peptide "
+                                   "bulges, and the receptor reaches further in where it does."),
+    "co_mhc": ("suspicious", "CDR3-length coupled: +0.011 / +0.345, 88.0 per cent beyond both. "
+                             "Contact order divides by the target's span, not the loop's, so a "
+                             "longer loop spreads over more helix."),
     "ct_tp_salt_bridge": ("stalled", "only 3 distinct values over 1,707 modelled complexes: a "
                                      "salt bridge across the TCR:peptide interface is rare enough "
                                      "that the count is almost always 0. The TCR:MHC counterpart "
