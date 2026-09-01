@@ -73,7 +73,10 @@ RIDGE_PERCENTILE = 90.0
 #: 10 Å and 0.962 with no cutoff at all, so 10 Å sits where the curve has gone flat. One-sided on
 #: purpose: the median gap is **−1.7 Å** and 71% of cells are interdigitated (the receptor's lowest
 #: point in a cell lies below the groove's highest point in the same cell), because the two faces
-#: interlock rather than stack.
+#: interlock rather than stack. Confirmed on the wider population 2026-09-02: over **371 of the 374
+#: Native2026 crystals** the mean interdigitated fraction is **0.750** (s.d. 0.096) and the mean gap
+#: −1.14 Å, with the interdigitated volume 1,004 Å³ against a 373 Å³ void. The 60-crystal figures
+#: above stand for their own population; this is the same statement on six times as many.
 MAX_GAP = 10.0
 
 #: Half-widths ``(x, y)`` in Å of the window :func:`surface_complementarity` compares over.
