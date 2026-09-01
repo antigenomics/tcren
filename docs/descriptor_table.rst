@@ -718,7 +718,7 @@ The contact map as a network of breakable springs. No potential enters: these ar
      - yes
      - Interface residue count; the size denominator for the coupling counts.
 
-flagged descriptors (17)
+flagged descriptors (18)
 ------------------------
 
 Descriptors that need a second look before they are used, from ``tcren.recognition.STATUS``.
@@ -785,4 +785,7 @@ does not move on the corpus.
      - no receptor; see Phi_pep_mhc.
    * - ``mhc_class_bin``
      - suspicious
-     - no receptor: it is the MHC class, I or II.
+     - no receptor: it is the MHC class, I or II. It is also constant on any single-class cohort -- both receptor benchmarks are class I -- so it contributes nothing there and separates the classes everywhere else.
+   * - ``ct_tp_salt_bridge``
+     - stalled
+     - only 3 distinct values over 1,707 modelled complexes: a salt bridge across the TCR:peptide interface is rare enough that the count is almost always 0. The TCR:MHC counterpart ct_tm_salt_bridge does move.

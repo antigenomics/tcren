@@ -493,7 +493,15 @@ STATUS: dict[str, tuple[str, str]] = {
     "dPhi_pep_mhc": ("suspicious", "no receptor; see Phi_pep_mhc."),
     "Phi_pep_int": ("suspicious", "no receptor; see Phi_pep_mhc."),
     "n_pep_int": ("suspicious", "no receptor; see Phi_pep_mhc."),
-    "mhc_class_bin": ("suspicious", "no receptor: it is the MHC class, I or II."),
+    "mhc_class_bin": ("suspicious", "no receptor: it is the MHC class, I or II. It is also "
+                                    "constant on any single-class cohort -- both receptor "
+                                    "benchmarks are class I -- so it contributes nothing there "
+                                    "and separates the classes everywhere else."),
+    # measured on the modelled corpus rather than argued from the definition
+    "ct_tp_salt_bridge": ("stalled", "only 3 distinct values over 1,707 modelled complexes: a "
+                                     "salt bridge across the TCR:peptide interface is rare enough "
+                                     "that the count is almost always 0. The TCR:MHC counterpart "
+                                     "ct_tm_salt_bridge does move."),
 }
 
 FAMILIES = ("placement", "interface", "topology", "energetics", "potts", "kinetics")
