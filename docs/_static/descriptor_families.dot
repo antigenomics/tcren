@@ -25,7 +25,7 @@ digraph descriptor_families {
     "topological" [fillcolor="#D55E00", fontcolor="white", label="topological\n8 descriptors\npreserved by homeomorphism\nBetti numbers, Euler characteristic"];
     "compositional" [fillcolor="#009E73", fontcolor="white", label="compositional\n50 descriptors\na count over the labelled\ncontact set, or a share of one"];
     "energetic" [fillcolor="#CC79A7", fontcolor="white", label="energetic\n14 descriptors\na statistical-potential\nor Potts energy"];
-    "categorical" [fillcolor="#999999", fontcolor="white", label="categorical\n1 descriptor\nan indicator"];
+    "categorical" [fillcolor="#999999", fontcolor="white", label="categorical\n1 descriptor\nwhich class of MHC\npresents the peptide"];
   }
 
   "placement" -> "geometric" [label="31", penwidth=3.20, color="#0072B2"];

@@ -724,7 +724,7 @@ DESCRIPTORS: dict[str, tuple[str, bool]] = {
 #: ``"energetic"``
 #:     A statistical-potential or Potts energy.
 #: ``"categorical"``
-#:     An indicator.
+#:     Which class of MHC presents the peptide -- class I or class II.
 #:
 #: Two consequences worth knowing before building a block from a family. The **topology family is
 #: mostly compositional**: 20 of its 29 columns are diversity or coverage measures over labelled
@@ -835,7 +835,7 @@ DETAIL.update({
  "chain_cdr_imbalance": ("fraction", "abs(a - b) / (a + b) over all CDR contacts; the chain-level mirror of chain_balance."),
  "n_clashes": ("count", "Peptide-partner heavy-atom pairs overlapping by more than 0.4 A on Bondi radii."),
  "clash_score": ("A", "Summed overlap depth of those clashing pairs; the steric burden of a forced pose."),
- "mhc_class_bin": ("indicator", "1 if any MHC chain is class II, else 0. Conditions every channel rather than being scored."),
+ "mhc_class_bin": ("class I / II", "Which class of MHC presents the peptide: 0 for class I, 1 for class II. Class I and class II grooves differ in shape and in how they hold a peptide, so this conditions the other descriptors rather than being scored beside them; a coefficient fitted across both classes without it is fitted to a mixture."),
  "n_loop_contacts": ("count", "Contacts the six-CDR-loop partition sees; framework contacts are outside it by construction."),
  "n_pep_contacts": ("count", "Of those loop contacts, the ones reaching the peptide."),
  "n_mhc_contacts": ("count", "Of those loop contacts, the ones reaching the MHC."),

@@ -30,14 +30,14 @@ CLASS_COLOUR = {
     "topological": "#D55E00",     # vermillion-- the interface surface
     "compositional": "#009E73",   # green     -- counts over the labelled contact set
     "energetic": "#CC79A7",       # rose      -- the potentials
-    "categorical": "#999999",     # grey      -- indicators
+    "categorical": "#999999",     # grey      -- MHC class I or II
 }
 CLASS_GLOSS = {
     "geometric": "preserved by isometry\\na length, area, angle or cosine",
     "topological": "preserved by homeomorphism\\nBetti numbers, Euler characteristic",
     "compositional": "a count over the labelled\\ncontact set, or a share of one",
     "energetic": "a statistical-potential\\nor Potts energy",
-    "categorical": "an indicator",
+    "categorical": "which class of MHC\\npresents the peptide",
 }
 FAMILY_GLOSS = {
     "placement": "where the receptor sits",

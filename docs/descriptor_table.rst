@@ -304,9 +304,9 @@ How much contact there is and of what chemical kind. Two continuous quantities -
      - Summed overlap depth of those clashing pairs; the steric burden of a forced pose.
    * - ``mhc_class_bin``
      - categorical
-     - indicator
+     - class I / II
      - **no**
-     - 1 if any MHC chain is class II, else 0. Conditions every channel rather than being scored.
+     - Which class of MHC presents the peptide: 0 for class I, 1 for class II. Class I and class II grooves differ in shape and in how they hold a peptide, so this conditions the other descriptors rather than being scored beside them; a coefficient fitted across both classes without it is fitted to a mixture.
    * - ``n_loop_contacts``
      - compositional
      - count

@@ -24,7 +24,7 @@ def test_units_come_from_a_closed_vocabulary():
     """Units are what a transform has to respect, so they are a fixed set, not free text."""
     allowed = {
         "A", "A^2", "deg", "rad", "cosine", "kT", "kT/site", "N", "N/m", "J",
-        "count", "fraction", "signed fraction", "ratio", "log-odds", "indicator",
+        "count", "fraction", "signed fraction", "ratio", "log-odds", "class I / II",
         "probability", "z",
     }
     seen = {u for u, _ in DETAIL.values()}
