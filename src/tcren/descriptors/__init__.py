@@ -18,6 +18,7 @@ from .catalogue import (  # noqa: F401
     INTERFACE_SYMMETRY_FEATURES, INVARIANCE, INVARIANCE_CLASSES, PEPTIDE_INTERNAL_FEATURES,
     RECOGNITION_FEATURES, STATUS, TCR_PLACEMENT_FEATURES, descriptors,
 )
+
 from .compute import (  # noqa: F401
     _burial, _cdr3_frame_features, _chain_balance, _extent, _interface_symmetry,
     _peptide_internal_columns, _placement_columns, _stability_clash_columns, _symmetry_columns,

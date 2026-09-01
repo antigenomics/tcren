@@ -206,7 +206,7 @@ def centred_potential(name: str, alphabet: tuple[str, ...] = AA, *,
     Returns:
         A ``(len(alphabet), len(alphabet))`` array; cells absent from the potential are ``0``.
     """
-    from ..topology.pose import _double_centred
+    from ..potential.model import _double_centred
     from ..potential import model as _m
 
     loader = {"tcren2": _m.tcren2, "tcren": _m.tcren, "mj": _m.mj,

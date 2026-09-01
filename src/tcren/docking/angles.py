@@ -24,6 +24,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from ..contacts.geometry import _chain_ca  # noqa: F401  - moved there 2026-09-01
 from ..structure.model import Structure
 
 # Receptor chain pairing: (V-alpha-like, V-beta-like) for each cell type.
@@ -56,10 +57,6 @@ def _count_ca(structure: Structure, chain_type: str) -> int:
                for r in c.residues if r.ca is not None)
 
 
-def _chain_ca(structure: Structure, types) -> np.ndarray:
-    pts = [r.ca for c in structure.chains if c.chain_type in types
-           for r in c.residues if r.ca is not None]
-    return np.asarray(pts) if pts else np.empty((0, 3))
 
 
 def _groove_frame(structure: Structure) -> tuple[np.ndarray, np.ndarray, np.ndarray]:

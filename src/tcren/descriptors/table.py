@@ -13,6 +13,7 @@ from collections.abc import Sequence
 
 from .catalogue import DESCRIPTORS, FAMILIES, PEPTIDE_INTERNAL_FEATURES
 from .compute import (
+    _footprint_columns,
     _peptide_internal_columns,
     _placement_columns,
     _stability_clash_columns,

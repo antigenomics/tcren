@@ -324,3 +324,9 @@ def ca_distance_matrix(structure: Structure) -> tuple[np.ndarray, list[tuple[str
     arr = np.asarray(coords)
     diff = arr[:, None, :] - arr[None, :, :]
     return np.linalg.norm(diff, axis=2), keys
+
+
+def _chain_ca(structure: Structure, types) -> np.ndarray:
+    pts = [r.ca for c in structure.chains if c.chain_type in types
+           for r in c.residues if r.ca is not None]
+    return np.asarray(pts) if pts else np.empty((0, 3))

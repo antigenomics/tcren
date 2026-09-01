@@ -18,6 +18,7 @@ New code may import from the three directly; nothing is deprecated here.
 from __future__ import annotations
 
 from .descriptors import *  # noqa: F401,F403
+
 from .descriptors import (  # noqa: F401  - the private names the package's own modules reach for
     _burial,
     _cdr3_frame_features,

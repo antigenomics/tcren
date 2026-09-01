@@ -231,7 +231,7 @@ def _cdr3_peptide_dmaps(structure):
     """
     import numpy as np
 
-    from .docking.angles import _chain_ca
+    from .contacts.geometry import _chain_ca
     pep = _chain_ca(structure, (PEPTIDE_TYPE,))
     out: dict[str, np.ndarray] = {}
     if pep is None or len(pep) < 2:

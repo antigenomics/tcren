@@ -44,6 +44,11 @@ import polars as pl
 
 
 from ..contacts.definitions import ContactDefinition, multi_contacts
+# Both moved to the layer that owns them on 2026-09-01: `_interface_layers` builds the
+# d1/d2/d3 contact layers (contacts), `_double_centred` operates on a potential matrix
+# (hamiltonian). `potts` was reaching UP into this module for each of them.
+from ..contacts.definitions import _KEY, _REP_BUILD_CUTOFF, _interface_layers  # noqa: F401
+from ..potential.model import _double_centred  # noqa: F401
 from ..structure.model import MHC_TYPES, PEPTIDE_TYPE, RECEPTOR_TYPES, Structure
 
 __all__ = ["pose_consistency", "POSE_FEATURES", "POSE_FEATURES_CONTACT",
@@ -101,33 +106,9 @@ _CA_SHELL_RADIUS = 12.0
 # contacts one to three residues across the interface, and a long one parked against five or six is
 # the shape a contact-density objective produces.
 _MAX_TYPICAL_DEGREE = 3
-# Long side chains (Arg, Lys, Trp) put two heavy atoms within 5 A while their Calpha atoms sit far
-# apart, so the representative-atom layers are built well past their nominal 8/12 A defaults; the
-# per-descriptor thresholds are applied afterwards by filtering.
-_REP_BUILD_CUTOFF = 18.0
-
-_KEY = ["chain.id.from", "residue.index.from", "chain.id.to", "residue.index.to"]
 
 
-def _double_centred(potential):
-    """``(J, index)`` --- the pair-specific part of a potential, one-body terms removed.
 
-    ``J(a,b) = e(a,b) - rowmean(a) - colmean(b) + grandmean`` over the residue axes, so every row and
-    column of ``J`` sums to zero and what remains depends on the *pair*, not on either residue alone.
-    Unlike :meth:`tcren.Potential.decompose` this does not require a symmetric matrix, which matters
-    because the shipped TCRen2 is directional. Never-observed cells are ``nan`` and are ignored by
-    the means (and stay ``nan`` in ``J``, so they drop out of every descriptor).
-    """
-    import warnings
-
-    m, index = potential.as_matrix()
-    with warnings.catch_warnings():
-        # An alphabet entry with no observed contact at all (e.g. the gap symbol) is an all-nan
-        # row: its mean is genuinely undefined, J stays nan there, and those pairs drop out.
-        warnings.simplefilter("ignore", RuntimeWarning)
-        row = np.nanmean(m, axis=1, keepdims=True)
-        col = np.nanmean(m, axis=0, keepdims=True)
-        return m - row - col + np.nanmean(m), index
 
 
 def _pair_j(aa_from, aa_to, jmat, index) -> np.ndarray:
@@ -150,61 +131,6 @@ def _spearman(x: np.ndarray, y: np.ndarray) -> float:
     return float(spearmanr(x[ok], y[ok]).statistic)
 
 
-def _interface_layers(structure: Structure, cutoff: float, partner=(PEPTIDE_TYPE,),
-                      receptor=None) -> pl.DataFrame:
-    """The d1/d2/d3 layers pivoted onto one row per ``receptor``:``partner`` residue pair.
-
-    Args:
-        structure: The chain-typed complex.
-        cutoff: The d1 (closest heavy-atom) threshold, Å.
-        partner: Chain types on the partner side.
-        receptor: Chain types on the receptor side. ``None`` (default) is the TCR/BCR receptor,
-            which is what every caller wanted while the only interfaces were TCR:peptide and
-            TCR:MHC. Pass the MHC types to make the **groove** the receptor and the peptide the
-            partner — the peptide:MHC arm, whose Hamiltonian is a separate field from the
-            receptor's and whose partner-side numbering is the plain peptide position.
-
-    Returns a frame keyed by the residue pair with columns ``d1``/``d2``/``d3`` (Angstrom, null where
-    that layer does not reach), ``aa.tcr``/``aa.pep`` and the d1 atom names. The receptor side is
-    normalised to ``aa.tcr`` regardless of which side the canonical chain ordering put it on — the
-    column keeps its name across arms so one site schema serves all three.
-    """
-    stacked = multi_contacts(
-        structure,
-        ContactDefinition(d1=cutoff, d2=_REP_BUILD_CUTOFF, d3=_REP_BUILD_CUTOFF),
-    )
-    ctype = {c.chain_id: c.chain_type for c in structure.chains}
-    stacked = stacked.with_columns(
-        pl.col("chain.id.from").replace_strict(ctype, default=None).alias("type.from"),
-        pl.col("chain.id.to").replace_strict(ctype, default=None).alias("type.to"),
-    )
-    tcr, pep = list(RECEPTOR_TYPES if receptor is None else receptor), list(partner)
-    fwd = pl.col("type.from").is_in(tcr) & pl.col("type.to").is_in(pep)
-    rev = pl.col("type.from").is_in(pep) & pl.col("type.to").is_in(tcr)
-    stacked = stacked.filter(fwd | rev).with_columns(
-        pl.when(fwd).then(pl.col("residue.aa.from")).otherwise(pl.col("residue.aa.to")).alias("aa.tcr"),
-        pl.when(fwd).then(pl.col("residue.aa.to")).otherwise(pl.col("residue.aa.from")).alias("aa.pep"),
-        # Normalised receptor-side residue key: degree must be counted on the TCR side, because a
-        # peptide residue sits *inside* the groove ringed by receptor and has a high degree in every
-        # real complex. It is the receptor side-chain reaching too many partners that is the tell.
-        pl.when(fwd).then(pl.col("chain.id.from")).otherwise(pl.col("chain.id.to")).alias("key.tcr.chain"),
-        pl.when(fwd).then(pl.col("residue.index.from")).otherwise(pl.col("residue.index.to")).alias("key.tcr.res"),
-    )
-    if stacked.is_empty():
-        return stacked.select(*_KEY, "aa.tcr", "aa.pep").with_columns(
-            pl.lit(None, dtype=pl.Float64).alias(c) for c in ("d1", "d2", "d3")
-        )
-    # Identity is taken from the UNION of the three layers, not from d1 alone: a pair present in the
-    # Calpha shell but making no contact must still carry its residue types, or every shell
-    # descriptor that reads `aa` would collapse to the contact set without saying so.
-    ident = stacked.select(*_KEY, "aa.tcr", "aa.pep", "key.tcr.chain", "key.tcr.res").unique(subset=_KEY)
-    wide = stacked.filter(pl.col("layer") == "d1").select(*_KEY, pl.col("dist").alias("d1"))
-    for layer in ("d2", "d3"):
-        part = (stacked.filter(pl.col("layer") == layer)
-                .select(*_KEY, pl.col("dist").alias(layer)))
-        # A residue pair appears at most once per layer (each keeps its closest atom pair).
-        wide = wide.join(part, on=_KEY, how="full", coalesce=True)
-    return wide.join(ident, on=_KEY, how="left")
 
 
 def _degree_descriptors(contacts: pl.DataFrame, suffix: str) -> dict[str, float]:

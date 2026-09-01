@@ -170,3 +170,5 @@ def build_canonical_frame() -> dict:
         except Exception as exc:  # noqa: BLE001
             out[mhc_class] = {"reference_id": reference_id, "error": str(exc)[:120]}
     return out
+
+

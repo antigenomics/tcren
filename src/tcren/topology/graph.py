@@ -295,7 +295,8 @@ def _map_features(structure: Structure, cutoff: float) -> dict[str, float]:
     over the whole **approach shell**, which is about ten times larger and includes the pairs that
     come close and form nothing.
     """
-    from .pose import _CA_SHELL_RADIUS, _interface_layers, _spearman
+    from ..contacts.definitions import _interface_layers
+    from .pose import _CA_SHELL_RADIUS, _spearman
     from ..structure.model import MHC_TYPES as _MHC
 
     out: dict[str, float] = dict.fromkeys(MATRIX_FEATURES, float("nan"))

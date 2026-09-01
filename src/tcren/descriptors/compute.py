@@ -118,48 +118,6 @@ def _burial(structure, tcr_ids, pmhc_ids) -> float:
     return float((sasa_of(set(tcr_ids)) + sasa_of(set(pmhc_ids))) - sasa_of(both))
 
 
-def _cdr3_frame_features(structure) -> dict[str, float]:
-    """The 18 CDR3-local frame descriptors (:data:`CDR3_FRAME_FEATURES`) for a chain-typed structure.
-
-    Both CDR3 loops are projected onto the pMHC groove frame (see :data:`CDR3_FRAME_FEATURES`). The
-    structure must already be chain-typed (``classify_chains``) so its CDR3 regions are populated.
-    Undefined terms (no groove frame, missing peptide, or a loop with < 3 Cα) are ``NaN``.
-    """
-    from ..docking.angles import _chain_ca, _groove_frame
-
-    out = {k: math.nan for k in CDR3_FRAME_FEATURES}
-    try:
-        u, w, n = _groove_frame(structure)
-    except Exception:
-        return out
-    pep = _chain_ca(structure, ("PEPTIDE",))
-    if len(pep) < 2:
-        return out
-    origin = pep.mean(axis=0)
-    basis = np.stack([u, w, n])                                        # rows = groove basis
-    for loop, ctype in (("cdr3a", "TRA"), ("cdr3b", "TRB")):
-        cas = None
-        for c in structure.chains:
-            if c.chain_type != ctype:
-                continue
-            for reg in getattr(c, "regions", []) or []:
-                if reg.region_type == "CDR3":
-                    pts = [r.ca for r in reg.residues if r.ca is not None]
-                    if len(pts) >= 3:
-                        cas = np.asarray(pts)
-                    break
-        if cas is None:
-            continue
-        d = cas.mean(axis=0) - origin
-        reach = float(np.linalg.norm(d))
-        off = basis @ (d / (reach + 1e-9))
-        av = cas[-1] - cas[0]
-        ax = basis @ (av / (np.linalg.norm(av) + 1e-9))
-        topep = float(np.linalg.norm(cas[:, None, :] - pep[None, :, :], axis=2).min())
-        ext = float(np.linalg.norm(cas[-1] - cas[0]))
-        for k, v in zip(_CDR3_FRAME_KEYS, (reach, *off, *ax, topep, ext)):
-            out[f"{loop}_{k}"] = float(v)
-    return out
 
 
 def recognition_features(source, *, organism: str = "human", potential=None,
@@ -363,3 +321,48 @@ def _peptide_internal_columns(s) -> dict[str, float]:
                 "n_pep_int": float(cm.peptide_internal.height)}
     except Exception:  # noqa: BLE001 - no peptide chain etc.
         return {k: math.nan for k in PEPTIDE_INTERNAL_FEATURES}
+
+
+def _cdr3_frame_features(structure) -> dict[str, float]:
+    """The 18 CDR3-local frame descriptors (:data:`CDR3_FRAME_FEATURES`) for a chain-typed structure.
+
+    Both CDR3 loops are projected onto the pMHC groove frame (see :data:`CDR3_FRAME_FEATURES`). The
+    structure must already be chain-typed (``classify_chains``) so its CDR3 regions are populated.
+    Undefined terms (no groove frame, missing peptide, or a loop with < 3 Cα) are ``NaN``.
+    """
+    from ..contacts.geometry import _chain_ca
+    from ..docking.angles import _groove_frame
+
+    out = {k: math.nan for k in CDR3_FRAME_FEATURES}
+    try:
+        u, w, n = _groove_frame(structure)
+    except Exception:
+        return out
+    pep = _chain_ca(structure, ("PEPTIDE",))
+    if len(pep) < 2:
+        return out
+    origin = pep.mean(axis=0)
+    basis = np.stack([u, w, n])                                        # rows = groove basis
+    for loop, ctype in (("cdr3a", "TRA"), ("cdr3b", "TRB")):
+        cas = None
+        for c in structure.chains:
+            if c.chain_type != ctype:
+                continue
+            for reg in getattr(c, "regions", []) or []:
+                if reg.region_type == "CDR3":
+                    pts = [r.ca for r in reg.residues if r.ca is not None]
+                    if len(pts) >= 3:
+                        cas = np.asarray(pts)
+                    break
+        if cas is None:
+            continue
+        d = cas.mean(axis=0) - origin
+        reach = float(np.linalg.norm(d))
+        off = basis @ (d / (reach + 1e-9))
+        av = cas[-1] - cas[0]
+        ax = basis @ (av / (np.linalg.norm(av) + 1e-9))
+        topep = float(np.linalg.norm(cas[:, None, :] - pep[None, :, :], axis=2).min())
+        ext = float(np.linalg.norm(cas[-1] - cas[0]))
+        for k, v in zip(_CDR3_FRAME_KEYS, (reach, *off, *ax, topep, ext)):
+            out[f"{loop}_{k}"] = float(v)
+    return out

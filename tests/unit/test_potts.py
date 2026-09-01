@@ -160,7 +160,8 @@ def test_centred_potential_is_double_centred_and_sign_flipped():
 def test_centred_potential_flips_the_sign_of_the_energy():
     """TCRen is negative-is-favourable; a coupling is a log-odds where positive is more likely."""
     from tcren.potential import tcren2
-    from tcren.pose import _double_centred
+    # moved to the hamiltonian layer 2026-09-01: it double-centres a POTENTIAL, not a pose
+    from tcren.potential.model import _double_centred
     raw, index = _double_centred(tcren2())
     M = centred_potential("tcren2")
     i, j = index["L"], index["L"]

@@ -5,7 +5,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from tcren.pose import (POSE_FEATURES, _double_centred, _pair_j, _selfcheck, _spearman, pose_consistency)
+from tcren.potential.model import _double_centred
+from tcren.pose import (POSE_FEATURES, _pair_j, _selfcheck, _spearman, pose_consistency)
 from tcren.structure.model import PEPTIDE_TYPE, Atom, Chain, RegionMarkup, Residue, Structure
 
 
