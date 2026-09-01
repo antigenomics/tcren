@@ -7,10 +7,10 @@ fast ΔΔG, and a one-call oracle facade composing these for the paper notebooks
 """
 
 from . import potential
-from .binder import BINDER_MODEL, binder_score, is_real_interface
+from .binder import is_real_interface
 from .paper.helpers import annotate_batch
 from .refine.anchors import native_peptide
-from .cohort import (F_TERMS, Q_FEATURES_GEOM, coupling, f_score, p_native, q_coupled, q_score,
+from .cohort import (PHI_TERMS, Q_FEATURES_GEOM, coupling, phi_score, q_coupled, q_score,
                      strain_z, zscore)
 from .clashes import ClashReport, has_clashes, interface_clashes
 from .pose import (
@@ -49,17 +49,32 @@ from .structure import Structure, import_structure, parse_structure
 from .structure.io import mean_bfactor
 
 # One source of truth: pyproject.toml. Hard-coding it here as well meant a release could ship with
-# `tcren info` reporting the previous version, which is what happened at 2.3.2. The fallback covers
-# a source tree that was never installed (running from a checkout without `pip install -e .`).
-try:
-    from importlib.metadata import PackageNotFoundError, version as _pkg_version
-    __version__ = _pkg_version("tcren")
-except PackageNotFoundError:  # pragma: no cover - only an uninstalled source tree
-    __version__ = "0.0.0+unknown"
+# `tcren info` reporting the previous version, which is what happened at 2.3.2.
+#
+# An EDITABLE install adds a second way to be wrong: the dist-info is written once, at install time,
+# so after a version bump `importlib.metadata` keeps reporting the version that was current when
+# `pip install -e .` last ran. It read 2.13.0 against a source tree at 2.25.0 -- twelve releases
+# stale, and every provenance stamp written in between recorded the wrong version. When the package
+# is imported from a source checkout, pyproject.toml is therefore the authority.
+def _resolve_version() -> str:
+    from pathlib import Path as _P
+    src = _P(__file__).resolve().parents[2] / "pyproject.toml"
+    if src.exists():
+        for line in src.read_text().splitlines():
+            if line.startswith("version"):
+                return line.split("=", 1)[1].strip().strip('"\'')
+    try:
+        from importlib.metadata import PackageNotFoundError, version as _pkg_version
+        return _pkg_version("tcren")
+    except PackageNotFoundError:  # pragma: no cover - only an uninstalled source tree
+        return "0.0.0+unknown"
+
+
+__version__ = _resolve_version()
 
 __all__ = [
     "annotate_batch", "native_peptide",
-    "q_score", "f_score", "q_coupled", "coupling", "p_native", "Q_FEATURES_GEOM", "F_TERMS",
+    "q_score", "phi_score", "q_coupled", "coupling", "Q_FEATURES_GEOM", "PHI_TERMS",
     "strain_z", "zscore",
     "potential",
     "Potential",
@@ -88,8 +103,6 @@ __all__ = [
     "neoantigen_ddg",
     "reference_delta",
     "response_matrix", "ResponseMatrix", "mutation_effect", "position_scan", "equimolar_effect",
-    "binder_score",
-    "BINDER_MODEL",
     "is_real_interface",
     "interface_springs",
     "stiffness_tensor",

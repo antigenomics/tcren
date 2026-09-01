@@ -23,9 +23,9 @@ What tcren does
   (virtual-matrix, no re-docking).
 * **Interface descriptors** — ``features``: one flat per-structure table, in five invariance
   families, four of them computed by default (see :doc:`features`).
-* **Recognition scores** — ``recognize``: ``Q``, the three channel posteriors ``G`` / ``T`` / ``E``,
-  ``P_native``, and ``S_free`` with its calibrated ``p_binder``, from a feature table or straight
-  from structures (see :doc:`kit`).
+* **Recognition scores** — ``recognize``: ``Q`` (interface geometry), ``T`` (footprint shape) and
+  ``S_free`` with its calibrated ``p_binder``, from a feature table or straight from structures
+  (see :doc:`kit`). Every one of them is fit-free and defined for a single structure.
 * **Correcting the generator** — ``diagnose``: it says it is confident, what should you
   believe instead? Reads the confidence together with the coordinates and returns a
   corrected probability plus the parts it is made of (see :doc:`reliability`).

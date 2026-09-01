@@ -66,10 +66,10 @@ From one TCR–peptide–MHC structure (crystal or model), each task is one comm
 | Percentile-rank a peptide vs background | `tcren rank` | `percentile_rank` |
 | ΔΔG of mutations (alanine scan / neoantigen) | `tcren ddg` | `alanine_scan`, `neoantigen_ddg` |
 | **Predict a CPL response matrix from a template** | `tcren cpl` | `response_matrix`, `mutation_effect`, `position_scan`, `equimolar_effect` |
-| Binder vs non-binder for a TCR model | `tcren features` + `tcren recognize --features` | `cohort.p_native`, `cohort.q_score` |
+| Binder vs non-binder for a TCR model | `tcren features` + `tcren recognize --features` | `reliability.s_free`, `cohort.q_score` |
 | **Every interface descriptor, in five families (four by default)** | `tcren features` | `recognition_table(include=...)`, `descriptors` |
-| **All interface descriptors + joint P(real)** | `tcren recognize` | `recognition_features`, `real_probability` |
-| **P(native)** — the channels combined by a latent-class Bayes network | `tcren recognize --features` | `cohort.p_native` |
+| **All interface descriptors, one row per structure** | `tcren recognize` | `recognition_features` |
+| **`S_free`** — geometry, footprint shape and energy in native-sd units | `tcren recognize --features` | `reliability.s_free` |
 | **Is *this* model worth believing?** — `S_free`, a calibrated `p_binder`, and the generator diagnostic | `tcren assess` | `reliability.s_free`, `p_binder`, `af_band` |
 | **The contact map as a probability model** — energy, partition function, per-pair contact probability | `tcren potts fit` / `score` / `contacts` | `potts.fit_potts`, `score_sites`, `contact_probabilities` |
 | Three-interface energy Φ, poly-Ala ΔΦ, interface geometry | `tcren scoring` | `run_pipeline` |
@@ -212,16 +212,15 @@ tcren cpl -s complex.pdb --position 5                  # every substitution at p
 tcren cpl -s complex.pdb --position 5 --mutation W     # just that one cell
 tcren cpl -s complex.pdb --position 5 --to-mixture     # cost of giving position 5 up to the mixture
 
-# Rank candidate receptors against a fixed pMHC. S_free is the score to ship -- fit-free, and
-# defined for one structure. P_native comes out of the same call: a latent class over geometry,
-# footprint topology and contact energetics, fitted by EM with no binding label (TCRvdb macro
-# ROC 0.832 / PR 0.849, against AlphaFold ipTM 0.795 / 0.783), but cohort-relative, so score the
-# whole candidate set together rather than one structure at a time.
+# Rank candidate receptors against a fixed pMHC. S_free is the score to ship -- three fit-free
+# directional blocks (geometry, footprint shape, interface energy) against the Native2026 crystals,
+# each divided by its own native spread, so it is defined for ONE structure and its value does not
+# depend on what else was scored alongside it.
 tcren features  -s candidates/ -o feats.tsv
 tcren recognize --features feats.tsv -o scores.tsv
 
-# One TSV per structure: every interface descriptor (geometry + energies) + joint P(real).
-tcren recognize -s my_pdbs/ -o recognize.tsv          # descriptors + p_real + p_real_bn, one row/PDB
+# One TSV per structure: every interface descriptor (geometry + energies).
+tcren recognize -s my_pdbs/ -o recognize.tsv          # descriptors, one row per PDB
 
 # End-to-end candidate-epitope scoring from a structure
 tcren score -s complex.pdb -c candidates.txt -o ranked.csv
@@ -280,7 +279,7 @@ runs once and the scoring pass can be repeated for nothing.
 ```bash
 tcren features  -s my_pdbs/ -o feats.tsv                   # the four default families (--all adds kinetics)
 tcren features  -s my_pdbs/ -o shape.tsv -i topology       # one family -- and only it is computed
-tcren recognize --features feats.tsv -o scores.tsv         # Q, P_native + the G/T/E channels
+tcren recognize --features feats.tsv -o scores.tsv         # Q, T, S_free, p_binder
 ```
 
 Descriptors are catalogued in five **families**, four of them computed by default (`kinetics` is
@@ -292,23 +291,22 @@ independent evidence:
 | `placement` | where the receptor sits in the groove frame — angles, TCRdock parameters, ride height, shift, offset, the CDR3 loop frames | frame-**dependent** |
 | `interface` | how much contact and of what chemical kind — buried area, contact counts and types, hydrogen bonds, clashes | SE(3)-invariant |
 | `topology` | the **shape** of the contact set, free of its size — coverage entropy, Hill numbers, Betti numbers, persistence entropy, canonical preference | SE(3)-invariant |
-| `energetics` | statistical-potential interface energies `F` and their poly-alanine references `dF` | SE(3)-invariant |
+| `energetics` | statistical-potential interface energies `Phi` and their references `dPhi` — poly-alanine, and the smoothed background form | SE(3)-invariant |
 | `kinetics` | the interface as a spring network — stiffness, rupture, coupling residues (off unless asked) | — |
 
 `tcren recognize -s my_pdbs/` reads the structures itself, skipping the feature file:
 
 ```bash
-tcren recognize -s my_pdbs/ -o recognize.tsv               # descriptors + p_real
+tcren recognize -s my_pdbs/ -o recognize.tsv               # descriptors only
 tcren recognize -s my_pdbs/ -o scored.tsv --mechanics      # + the spring-network kinetics terms
 ```
 
 | what you want | columns in `recognize.tsv` |
 |---|---|
-| **(a) energy** — `F` per interface (TCRen on TCR:peptide, MJ on presentation) + poly-alanine `dF` + loop parts | `F_tcr_pep`, `F_tcr_mhc`, `F_pep_mhc`, `dF_tcr_pep`, `dF_pep_mhc`, `F_cdr12`, `F_cdr3a`, `F_cdr3b` |
-| **(a′) intra-peptide** (`--full`) — the peptide's contacts with *itself*, which every interface sum omits | `F_pep_int`, `n_pep_int` |
+| **(a) energy** — `Phi` per interface (TCRen on TCR:peptide, MJ on presentation) + references `dPhi` + loop parts | `Phi_tcr_pep`, `Phi_tcr_mhc`, `Phi_pep_mhc`, `dPhi_tcr_pep`, `dPhi_pep_mhc`, `Phi_cdr12`, `Phi_cdr3a`, `Phi_cdr3b`, `dPhi_{pep,tcr,tra,trb}_soft`, `varPhi_{pep,tcr}_soft` |
+| **(a′) intra-peptide** (`--full`) — the peptide's contacts with *itself*, which every interface sum omits | `Phi_pep_int`, `n_pep_int` |
 | **(b) geometry** — every docking + interface descriptor | `pitch`, `crossing`, `crossing_signed`, `dock_d`, `dock_torsion`, `dock_{tcr,mhc}_u{y,z}`, `extent`, `chain_balance`, `burial`, `n_contacts_{tp,tm}`, `n_pep_contacted`, `ct_{tp,tm}_*` |
-| **(c) cohort scores** — no training set, no binding label; written by `tcren recognize --features`, not by `-s` | `Q` — interface quality; `G` / `T` / `E` — the geometry, topology and energetics channels on their own; `P_native` — the three combined; `S_free` and its calibrated `p_binder`. See [`tcren.cohort`](src/tcren/cohort.py), [`tcren.reliability`](src/tcren/reliability.py) |
-| **(d) joint P(real)** ~ Bayesian model over energy + geometry | `p_real` — distribution-aware Bayesian **logistic** (5-fold CV AUC 0.885); `p_real_bn` — the Gaussian **BN** variant |
+| **(c) scores** — no training set, no binding label; written by `tcren recognize --features`, not by `-s` | `Q` — interface quality; `T` — footprint shape; `S_free` — the blocks combined, and its calibrated `p_binder`. See [`tcren.cohort`](src/tcren/cohort.py), [`tcren.reliability`](src/tcren/reliability.py) |
 
 ### Is *this* model worth believing? — `tcren assess`
 
@@ -334,17 +332,7 @@ tcren assess --features joined.tsv -o assessed.tsv
   also the band where `S_free` reads highest.
 
 Without the joined `neg_energy` column `assess` emits the two-block `Q + T` form and says so in its
-report rather than imputing the missing block. `P_native` is still emitted by `recognize`, now
-documented as cohort-refit and not the recommended score: it refits per call, raises when a cohort
-has fewer rows than features, and its value depends on what else was scored alongside it.
-
-**Where the joint model lives.** `p_real` is the frozen recognizer we derive from real crystals vs
-wrong-TCR *shuffled* decoys: code in [`tcren.recognition`](src/tcren/recognition.py)
-(`recognition_features` → `real_probability`), coefficients shipped in
-`src/tcren/data/shuffle_logistic.json.gz`, and the full derivation (PyMC fit, encoding, ROC/PR,
-posterior forest) in the technical appendix, which lives with the manuscript rather than here —
-`logistic_stan/`, with the Gaussian-BN companion in `shuffle_bn/`. Decoys come from
-`tcren shuffle`.
+report rather than imputing the missing block.
 
 **(c) physics of the interaction.** The koff proxies fold into the same table with `--mechanics`;
 only the mutation scan, which is per-residue rather than per-structure, needs its own command:
@@ -365,9 +353,11 @@ annotated, so the flag costs only the mechanics arithmetic (12 crystals: 19.0 s 
 columns, not Kd/ΔG/kon.) From Python:
 
 ```python
-from tcren.recognition import recognition_features, real_probability
-feats = recognition_features("complex.pdb")    # dict of the 34 descriptors (RECOGNITION_FEATURES)
-p = real_probability(feats)                     # {"logistic": P(real), "bn": P(real)}
+from tcren.recognition import recognition_features
+from tcren.reliability import s_free
+
+feats = recognition_features("complex.pdb")    # dict of the 40 descriptors (RECOGNITION_FEATURES)
+score = s_free({k: [v] for k, v in feats.items()})[0]     # one structure is enough
 ```
 
 ## Library
@@ -519,21 +509,22 @@ peptide into thirds — summarised by the normalised Shannon entropy and by the 
 where `D2` is the *effective number of engaged cells*. Topology joins the contacted pMHC residues at
 a Cα threshold and builds the flag complex: `fp_b0_*` counts footprint patches and `fp_b1_*` its
 holes. Coverage and topology are only weakly related, which is why they belong in one channel and
-why that channel is read as `T` — the shape posterior of `p_native`, not a hand-written z-sum.
+why that channel is read as `T`, a directional score against the native crystals rather than a
+hand-written z-sum.
 
 ```bash
 tcren features -s structures/ -i topology -o shape.tsv
 ```
 
 ```python
-from tcren.cohort import p_native
 from tcren.footprint import footprint_batch, footprint_features
+from tcren.reliability import t_score
 
 row = footprint_features(structure)          # one dict, 29 features at the default two radii
 row["D2_pep24"], row["fp_b0_r7"], row["L_canon"]
 
 table = footprint_batch("structures/")       # polars frame, one row per structure
-T = p_native(table, channels=("topology",))  # the shape score, cohort-relative
+T = t_score(table)                           # the shape score, fit-free, one row is enough
 ```
 
 Note the cyclomatic number of the bipartite contact graph (`E − V + C`) is deliberately not offered:
@@ -588,9 +579,6 @@ structures) — though with two distinct epitopes per group that is a 2-vs-2 com
 properly-powered evidence is the trend over all 279 class-I structures: `frac_above_ridge` rises
 0.054 (8-mers) → 0.569 (13-mers), Spearman on `relief` +0.414, p = 5.5e-13.
 
-`notebooks/pnative_channels.py` (marimo) runs the released scoring path over a directory of
-structures — one featurisation pass, one latent-class fit per channel, then `P_native` — and ends on
-the correlation whose sign says whether a pose was copied from a template.
 `notebooks/surface_topology.py` (marimo) draws the elevation / charge / hydropathy maps and
 reproduces this comparison.
 

@@ -191,7 +191,7 @@ On the ``Native2026`` crystals the ranking **inverts** between the two interface
 by 103.3 nats on TCR:peptide, and MJ beats TCRen2 by 35.5 nats on the TCR:MHC groove. TCRen2's
 fitted scale falls 5.4-fold across that move (:math:`\beta` = +1.131 → +0.209) while MJ's barely
 changes (+0.803 → +0.974). This is the measurement behind ``tcren``'s long-standing default of
-scoring ``F_tcr_mhc`` with Miyazawa–Jernigan and reserving TCRen for TCR:peptide.
+scoring ``Phi_tcr_mhc`` with Miyazawa–Jernigan and reserving TCRen for TCR:peptide.
 
 Three limits of one free energy
 -------------------------------
@@ -321,7 +321,7 @@ carrying that position, and the interface free energy moves with it:
 
    \Phi^{\mathrm{Potts}}(x) = \log Z_0\big(\eta(x)\big) = \sum_s \log\!\big(1 + e^{\eta_s(x)}\big),
    \qquad
-   \Delta F_i(a) = \Phi^{\mathrm{Potts}}(x_{i \to a}) - \tfrac{1}{20}\sum_b \Phi^{\mathrm{Potts}}(x_{i \to b})
+   \Delta Phi_i(a) = \Phi^{\mathrm{Potts}}(x_{i \to a}) - \tfrac{1}{20}\sum_b \Phi^{\mathrm{Potts}}(x_{i \to b})
 
 Higher is more favourable, and the reference is the **equimolar** one — the mean over the twenty
 residues at that position rather than the residue the structure carries — which is the null a

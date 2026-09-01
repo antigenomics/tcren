@@ -88,16 +88,26 @@ def render() -> str:
         lines += _rows(names)
         lines += [""]
 
-    scores = descriptors("score", with_scores=True)
-    lines += ["composite scores (%d)" % len(scores), "-" * len(f"composite scores ({len(scores)})"),
+    from tcren.recognition import STATUS
+
+    title = f"flagged descriptors ({len(STATUS)})"
+    lines += [title, "-" * len(title), "",
+              "Descriptors that need a second look before they are used, from "
+              "``tcren.recognition.STATUS``.",
+              "A name absent from this table has no known defect; presence is **not** a reason to "
+              "drop the",
+              "column, only to know what it is. ``suspicious`` means the quantity is not measuring "
+              "what its",
+              "family name suggests -- it reads the generator, or is fixed by an exact identity "
+              "over other",
+              "columns, or identifies the cohort rather than the complex. ``stalled`` means it is "
+              "defined but",
+              "does not move on the corpus.",
               "",
-              "Outputs of the descriptors above, never inputs. They are excluded from "
-              "``descriptors()`` unless",
-              "``with_scores=True`` is passed.", "",
-              ".. list-table::", "   :header-rows: 1", "   :widths: 18 14 10 8 50", "",
-              "   * - score", "     - invariance", "     - units", "     - receptor",
-              "     - definition"]
-    lines += _rows(scores)
+              ".. list-table::", "   :header-rows: 1", "   :widths: 20 12 68", "",
+              "   * - descriptor", "     - flag", "     - why"]
+    for name, (flag, why) in STATUS.items():
+        lines += [f"   * - ``{name}``", f"     - {flag}", f"     - {why}"]
     lines += [""]
     return "\n".join(lines)
 

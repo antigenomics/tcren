@@ -16,9 +16,9 @@ repeated for nothing.
    # scores from the table, without re-reading a single structure:
    tcren recognize --features feats.tsv -o scores.tsv
 
-``tcren recognize -s structures/`` reads the structures itself and writes the descriptor table with
-``p_real`` (``--full`` for the CDR3-frame layer, ``--mechanics`` for the kinetics terms). ``Q`` and
-``P_native`` come from ``--features``, which is the two-command route above.
+``tcren recognize -s structures/`` reads the structures itself and writes the descriptor table
+(``--full`` for the CDR3-frame layer, ``--mechanics`` for the kinetics terms). The scores ``Q``,
+``T`` and ``S_free`` come from ``--features``, which is the two-command route above.
 
 Output is **TSV**. The first column ``complex.id`` is the structure-file stem (the SHA-256 ``TCR_hash``
 for the modelled sets), which is the join key to labels and AlphaFold confidences. ``--features-only``
@@ -118,18 +118,20 @@ Options
      - emit the descriptors and skip the models
    * - ``--full``
      - off
-     - add the 18 CDR3-frame descriptors and the intra-peptide terms ``F_pep_int``/``n_pep_int``
+     - add the 18 CDR3-frame descriptors and the intra-peptide terms ``Phi_pep_int``/``n_pep_int``
    * - ``--mechanics``
      - off
      - append the ``kinetics`` terms in the same pass, with no second annotation
-   * - ``--scores``
-     - off
-     - legacy: the fitted ``p_bind`` / ``p_forced`` and their fit-free companions ``q_bind`` /
-       ``s_strain``, kept for v1 reproduction; implies ``--full``
 
 ``--features`` and ``-s`` are the two ways in. With ``--features`` the output is the score table
-alone — ``complex.id``, ``Q``, ``G``, ``T``, ``E``, ``P_native``, and ``S_free`` with its calibrated
-``p_binder``; with ``-s`` it is the descriptor table plus ``p_real``.
+alone — ``complex.id``, ``Q``, ``T``, and ``S_free`` with its calibrated ``p_binder``; with ``-s``
+it is the descriptor table.
+
+A table read through ``--features`` is checked against the installed descriptor catalogue before it
+is scored (:mod:`tcren.provenance`), and the command **refuses** a table written under a different
+one rather than scoring it. Every table ``tcren features`` writes carries a
+``<name>.provenance.json`` sidecar recording the version, the invocation and a digest of the
+catalogue, so a stale table cannot quietly produce a number that a fresh run would not reproduce.
 
 .. _reliability-columns:
 
@@ -204,7 +206,7 @@ also the axis along which they carry independent evidence:
        ``L_canon``, ``ab_imb``
    * - ``energetics``
      - statistical-potential interface energies and their poly-alanine references.
-     - ``F_tcr_pep``, ``F_tcr_mhc``, ``F_cdr12/3a/3b``, ``dF_tcr_pep``
+     - ``Phi_tcr_pep``, ``Phi_tcr_mhc``, ``Phi_cdr12/3a/3b``, ``dPhi_tcr_pep``
    * - ``potts``
      - the same contact energy read against the **partition function** instead of a poly-alanine
        interface, under the coupled contact-map model (:mod:`tcren.potts`). The decomposition is
@@ -257,7 +259,7 @@ different names read the same evidence.
 The alanine scan, on both sides
 -------------------------------
 
-``dF_tcr_pep`` and ``dF_pep_mhc`` are *aggregate* references: the whole peptide replaced by
+``dPhi_tcr_pep`` and ``dPhi_pep_mhc`` are *aggregate* references: the whole peptide replaced by
 poly-alanine at once. To see which residue earns the energy, scan one at a time.
 
 :func:`tcren.ddg.alanine_scan` walks the **peptide** and :func:`tcren.ddg.tcr_alanine_scan` the
@@ -301,22 +303,17 @@ residue alone retains.
 :func:`~tcren.recognition.descriptors`, so ``descriptors("geometry")`` returns the pooled
 ``placement`` + ``interface`` set.
 
-The three **channels** ``P_native`` combines are ``geometry``, ``topology`` and ``energetics``
-(:data:`tcren.cohort.P_NATIVE_CHANNELS`). A channel is not a family:
-:data:`~tcren.cohort.P_NATIVE_POOL` maps each channel onto the families it draws on, and
-``geometry`` is the pooled pair above, fitted as one network because ``placement`` and
-``interface`` are the most dependent pair measured. The ``energetics`` **channel** draws on the
-``potts`` **family**, not on the family of the same name: since 2.17.0 it reads ``neg_energy``,
-``log_z`` and ``log_lik`` rather than ``F_tcr_pep``, because the receptor task is where it is used. ``kinetics`` is a descriptor family only — it
-measures unbinding rather than nativeness, so it enters no channel and is not computed unless
-asked for.
+``kinetics`` measures unbinding rather than nativeness, and it is the most expensive family, so it
+is not computed unless asked for.
 
-A further group, ``score``, holds the composites built *from* the descriptors above — ``p_real``,
-``q_bind``, ``s_strain``. These are **outputs** and must never be fed back in as inputs, so
-:func:`~tcren.recognition.descriptors` omits them unless ``with_scores=True``.
+The catalogue holds **descriptors only**. The fitted composites that used to sit beside them — the
+real-vs-shuffled recognizers, the frozen forced-pose logistic, the fitted binder score and the
+cohort posterior — were removed in 2.26.0: their coefficients were frozen against training sets
+that no longer exist, which made them the one part of the package a reader could not reproduce.
+Scoring is :mod:`tcren.reliability` over this table.
 
-``involves_tcr`` is ``False`` for five columns — ``F_pep_mhc``, ``dF_pep_mhc``, ``mhc_class_bin``,
-``F_pep_int`` and ``n_pep_int`` — each computed from the peptide and MHC alone. Two structures of the same epitope
+``involves_tcr`` is ``False`` for five columns — ``Phi_pep_mhc``, ``dPhi_pep_mhc``, ``mhc_class_bin``,
+``Phi_pep_int`` and ``n_pep_int`` — each computed from the peptide and MHC alone. Two structures of the same epitope
 on the same allele share their values whatever the receptor, so such a column carries **cohort
 identity** rather than interface physics, and a model given one can reach a cohort-level label
 without learning anything about recognition. Any analysis whose question is about receptors should
@@ -325,7 +322,7 @@ select ``tcr_only=True``::
     from tcren.recognition import descriptors
 
     descriptors("energetics", tcr_only=True)
-    # ('F_tcr_pep', 'F_tcr_mhc', 'F_cdr12', 'F_cdr3a', 'F_cdr3b', 'dF_tcr_pep')
+    # ('Phi_tcr_pep', 'Phi_tcr_mhc', 'Phi_cdr12', 'Phi_cdr3a', 'Phi_cdr3b', 'dPhi_tcr_pep')
 
 Core recognition descriptors (34)
 ---------------------------------
@@ -417,35 +414,35 @@ Interface energies
      - Unit
      - Description
      - Source
-   * - ``F_tcr_pep``
+   * - ``Phi_tcr_pep``
      - TCRen
      - Raw TCR↔peptide interface energy (whole interface, all TCR regions).
      - :mod:`tcren.pipeline` energy
-   * - ``F_tcr_mhc``
+   * - ``Phi_tcr_mhc``
      - MJ
      - Raw TCR↔MHC interface energy.
      - :mod:`tcren.pipeline` energy
-   * - ``F_pep_mhc``
+   * - ``Phi_pep_mhc``
      - MJ
      - Raw peptide↔MHC interface energy.
      - :mod:`tcren.pipeline` energy
-   * - ``F_cdr12``
+   * - ``Phi_cdr12``
      - TCRen
      - TCR↔peptide energy over the CDR1+CDR2 loops only.
      - :mod:`tcren.pipeline` energy
-   * - ``F_cdr3a``
+   * - ``Phi_cdr3a``
      - TCRen
      - TCR↔peptide energy over the CDR3α loop only.
      - :mod:`tcren.pipeline` energy
-   * - ``F_cdr3b``
+   * - ``Phi_cdr3b``
      - TCRen
      - TCR↔peptide energy over the CDR3β loop only.
      - :mod:`tcren.pipeline` energy
-   * - ``dF_tcr_pep``
+   * - ``dPhi_tcr_pep``
      - TCRen
      - Poly-alanine reference delta of the TCR↔peptide energy (geometry-normalized ΔΦ).
      - :func:`tcren.ddg.reference_delta`
-   * - ``dF_pep_mhc``
+   * - ``dPhi_pep_mhc``
      - MJ
      - Poly-alanine reference delta of the peptide↔MHC energy.
      - :func:`tcren.ddg.reference_delta`
@@ -598,7 +595,7 @@ packed against itself. It is off everywhere by default.
    * - Column
      - Unit
      - Description
-   * - ``F_pep_int``
+   * - ``Phi_pep_int``
      - MJ
      - The peptide's contact energy with **itself**, symmetrised potential. Lower = more
        favourable, as everywhere in tcren.
@@ -613,7 +610,7 @@ byte-identical):
 .. code-block:: console
 
    $ tcren score -s c.pdb -c candidates.txt --intra-weight 0.5   # score = Φ_TP + w·E_intra
-   $ tcren scoring -s c.pdb --intra-weight 0.5                   # reports F_pep_int, folds w·it into F_total
+   $ tcren scoring -s c.pdb --intra-weight 0.5                   # reports Phi_pep_int, folds w·it into Phi_total
 
 .. code-block:: python
 
@@ -631,8 +628,8 @@ nothing about the contacts a chain makes with itself.
 Scores
 ------
 
-``tcren recognize`` emits ``p_real`` (is this a genuine recognition interface at all) by default,
-and ``--features`` turns a feature table into the scores the method proposes.
+``tcren recognize --features`` turns a feature table into the scores the method proposes. Every one
+of them is fit-free and defined for a single structure.
 
 .. list-table::
    :header-rows: 1
@@ -641,27 +638,26 @@ and ``--features`` turns a feature table into the scores the method proposes.
    * - Column
      - What it discriminates
      - Model
-   * - ``P_native``
-     - Binder vs non-binder, and a real interface vs a manufactured one. Cohort-refit, so **not**
-       the recommended score — ``S_free`` is (:doc:`reliability`).
-     - :func:`tcren.cohort.p_native`: a latent-class Bayes network per channel, fitted by EM, with
-       the channel log-odds added. No binding label enters.
-   * - ``G`` / ``T`` / ``E``
-     - The three channels on their own — geometry, footprint topology, energetics.
-     - ``p_native(table, channels=(...,))``. ``T`` is the size-free shape score; it is the one
-       channel that holds up when the generator had no template to copy.
+   * - ``S_free``
+     - Binder vs non-binder, and a real interface vs a manufactured one. **The recommended score**
+       (:doc:`reliability`).
+     - :func:`tcren.reliability.s_free`: three directional blocks against the Native2026 crystals,
+       each divided by that block's native spread, added. No cohort, no EM, no label.
    * - ``Q``
      - Interface quality for a **single** structure, against the shipped crystal reference.
      - Fit-free :func:`tcren.cohort.q_score`: whitened distance from the native descriptor
        manifold. Carries no fitted coefficient and needs no negative set.
+   * - ``T``
+     - Footprint shape, free of footprint size — the channel that holds up when the generator had
+       no template to copy.
+     - Fit-free :func:`tcren.reliability.t_score`, directional against the same crystals.
+   * - ``p_binder``
+     - ``S_free`` on a probability scale.
+     - :func:`tcren.reliability.p_binder`: a frozen out-of-fold Platt link, leave-one-epitope-out.
    * - ``s_strain``
      - Crystal-natural vs generated-forced pose.
      - Fit-free :func:`tcren.cohort.strain_z`: signed z of the strain terms, grading
        crystal < generated-real < generated-decoy.
-   * - ``p_real``
-     - Genuine TCR–pMHC recognition interface vs a wrong-TCR shuffle.
-     - Distribution-aware Bayesian logistic
-       (:class:`tcren.recognition.BayesianLogisticRecognizer`), trained on Shuffled2026 decoys.
 
 .. note::
 

@@ -762,34 +762,6 @@ def rank(
 
 
 @app.command(rich_help_panel=_P_SCORE)
-def binder(
-    structures: Path = typer.Option(..., "-s", "--structures", help="TCR-pMHC model file, directory, or .tar.gz"),
-    out: Path = typer.Option("binder.csv", "-o", "--out", help="per-structure descriptor + P(bind) table"),
-    organism: str = typer.Option("human", "--organism"),
-    cutoff: float = typer.Option(5.0, "--cutoff", help="contact cutoff (Å)"),
-    features_only: bool = typer.Option(False, "--features-only", help="emit the 5 descriptors, skip P(bind)"),
-) -> None:
-    """Predict TCR binder/non-binder from AF-orthogonal interface geometry (native _geom + frozen model).
-
-    Scores each complex from interface size, dual-chain balance, H-bonds, buried ΔSASA and the
-    CDR1/2-vs-CDR3α TCRen potential — signal that beats AlphaFold/TCRmodel2 confidence for ranking
-    candidate TCRs against a fixed pMHC. All descriptors are computed natively (no PyRosetta/Biopython
-    SASA/sklearn). Low ``p_bind`` = unlikely binder.
-    """
-    from .binder import binder_features, binder_score
-
-    rows = []
-    for _pid, s in iter_structures(structures, importer=parse_structure):
-        feats = binder_features(s, organism=organism, cutoff=cutoff)
-        row = {"complex.id": s.pdb_id, **feats}
-        if not features_only:
-            row["p_bind"] = binder_score(feats)
-        rows.append(row)
-    pl.DataFrame(rows).write_csv(str(out))
-    typer.echo(f"wrote {out}")
-
-
-@app.command(rich_help_panel=_P_SCORE)
 def surface(
     structures: Path = typer.Option(..., "-s", "--structures", help="pMHC / TCR-pMHC file, directory, or .tar.gz"),
     out: Path = typer.Option("surface.csv", "-o", "--out", help="per-structure surface-topology descriptors"),
@@ -883,31 +855,29 @@ def surface(
 @app.command(rich_help_panel=_P_SCORE)
 def recognize(
     structures: str = typer.Option(None, "-s", "--structures", help="TCR-pMHC structure file, directory, .tar.gz, or glob"),
-    features_table: Path = typer.Option(None, "--features", help="score a table already written by `tcren features` instead of re-reading the structures; emits Q, P_native and the channel posteriors G/T/E"),
-    out: Path = typer.Option("recognize.tsv", "-o", "--out", help="per-structure descriptors + P(real) table (TSV)"),
+    features_table: Path = typer.Option(None, "--features", help="score a table already written by `tcren features` instead of re-reading the structures; emits Q, T, S_free and p_binder"),
+    out: Path = typer.Option("recognize.tsv", "-o", "--out", help="per-structure descriptor + score table (TSV)"),
     organism: str = typer.Option("human", "--organism"),
-    features_only: bool = typer.Option(False, "--features-only", help="emit the descriptors, skip P(real)"),
-    full: bool = typer.Option(False, "--full", help="add the 18 CDR3-local frame descriptors (the FramePose strain layer) and the intra-peptide term F_pep_int/n_pep_int"),
-    scores: bool = typer.Option(False, "--scores", help="LEGACY (v1 reproduction): the fit-free q_bind + s_strain and the fitted p_bind + p_forced; implies --full. Prefer --features for Q/P_native"),
+    full: bool = typer.Option(False, "--full", help="add the 18 CDR3-local frame descriptors (the FramePose strain layer) and the intra-peptide term Phi_pep_int/n_pep_int"),
     mechanics: bool = typer.Option(False, "--mechanics", help="also append the koff proxies from `tcren mechanics` (stiffness tensor, steered rupture, coupling residues) — same table, no second annotation pass"),
-    threads: int = typer.Option(1, "-t", "--threads", help="concurrent annotation batches for a multi-structure run (0 = all cores); cohort scores stay computed over the whole set"),
+    threads: int = typer.Option(1, "-t", "--threads", help="concurrent annotation batches for a multi-structure run (0 = all cores)"),
     autodetect_species: bool = typer.Option(True, "--autodetect-species/--no-autodetect-species", help="also search mouse to catch a mis-declared organism; --no- halves the annotation cost"),
 ) -> None:
     """Full interface descriptor table + joint P(real) for each TCR-pMHC complex (one TSV row per PDB).
 
     One row per structure with the complete recognition feature set
     (``tcren.recognition.RECOGNITION_FEATURES``): docking geometry (pitch, crossing, the 6
-    TCRdock rigid-body params), per-interface energies ``F_{tcr_pep,tcr_mhc,pep_mhc}`` and
-    poly-alanine ``dF``, CDR-loop energies ``F_{cdr12,cdr3a,cdr3b}``, contact-type tallies, ΔSASA ``burial`` and the MHC-class
+    TCRdock rigid-body params), per-interface energies ``Phi_{tcr_pep,tcr_mhc,pep_mhc}`` and
+    poly-alanine ``dPhi``, CDR-loop energies ``Phi_{cdr12,cdr3a,cdr3b}``, contact-type tallies, ΔSASA ``burial`` and the MHC-class
     indicator — plus ``p_real`` (the distribution-aware Bayesian logistic) and ``p_real_bn`` (the
     Gaussian BN): the joint probability the complex is a genuine recognition interface rather than a
     wrong-TCR shuffle. ``--full`` also emits the 18 CDR3-local frame descriptors (the FramePose strain
-    layer) and the intra-peptide term ``F_pep_int``/``n_pep_int`` — the peptide's contact energy with
+    layer) and the intra-peptide term ``Phi_pep_int``/``n_pep_int`` — the peptide's contact energy with
     **itself**, which the three interface energies omit. ``--scores`` is kept for v1 reproduction:
     it adds the fit-free ``q_bind`` (binder-ID; the directional-decorrelated interface-quality
     score, calibrated on the native crystal reference so it is defined per structure and
     transfers) and ``s_strain`` (forced-pose), alongside the fitted ``p_bind`` / ``p_forced``. The
-    recommended scores are ``Q`` and ``P_native``, which come from ``--features``.
+    recommended scores are ``Q``, ``T`` and ``S_free``, which come from ``--features``.
     ``--features-only`` skips the models. Output is TSV.
 
     ``--mechanics`` appends the koff proxies ``tcren mechanics`` reports — stiffness tensor, steered
@@ -922,7 +892,7 @@ def recognize(
     Examples::
 
         tcren features  -s models/ -o feats.tsv                      # the descriptor pass, once
-        tcren recognize --features feats.tsv -o scores.tsv           # Q, P_native and its channels
+        tcren recognize --features feats.tsv -o scores.tsv           # Q, T, S_free, p_binder
         tcren recognize -s models/ -o out.tsv                        # descriptors + p_real, no feature file
         tcren recognize -s models/ --mechanics -t 0 -o out.tsv       # + the spring-network terms
     """
@@ -935,11 +905,10 @@ def recognize(
         _score_feature_table(features_table, out)
         return
 
-    full = full or scores                                             # p_forced needs the CDR3-frame feats
     items = list(iter_structures(structures, importer=import_structure))
     import os as _os
-    rows = recognition_table(items, organism=organism, full=full, scores=scores,
-                             with_p_real=not features_only, autodetect_species=autodetect_species,
+    rows = recognition_table(items, organism=organism, full=full,
+                             autodetect_species=autodetect_species,
                              mechanics=mechanics,
                              threads=threads if threads > 0 else (_os.cpu_count() or 1))
     table = pl.DataFrame(rows)
@@ -960,7 +929,7 @@ def scoring(
     peptide_mhc_potential: str = typer.Option(None, "--peptide-mhc-potential", help="potential for the peptide↔MHC interface: bundled name or CSV path (default: mj)"),
     regions: str = typer.Option("all", "--regions", help="TCR regions on the TCR side: all|cdr|cdr+fr (default: all)"),
     contact_weight: str = typer.Option("residue", "--contact-weight", help="residue (default, one per contacting pair) or atomic (weight by heavy-atom-pair count)"),
-    intra_weight: float = typer.Option(0.0, "--intra-weight", help="weight of the intra-peptide term: report F_pep_int and add w x it to F_total (0 = off, the default)"),
+    intra_weight: float = typer.Option(0.0, "--intra-weight", help="weight of the intra-peptide term: report Phi_pep_int and add w x it to Phi_total (0 = off, the default)"),
     delta: bool = typer.Option(False, "--delta", help="also report the poly-alanine-referenced ΔΦ per interface and ΔΦ total"),
     reference_aa: str = typer.Option("A", "--reference-aa", help="reference residue for --delta (default: alanine)"),
     geometry: bool = typer.Option(False, "--geometry", help="also report the interface-geometry descriptors and the decorrelated quality score Q"),
@@ -973,16 +942,16 @@ def scoring(
     (canonicalisation, region mapping, Cα / contact / atom-distance matrices) are separate
     commands: ``tcren annotate``, ``tcren superimpose``, ``tcren contacts``.
 
-    Columns ``F_tcr_pep``, ``F_tcr_mhc``, ``F_pep_mhc`` are the three interface terms
-    Φ_TP, Φ_TM, Φ_PM; ``F_total`` is their sum Φ. With ``--delta`` each also gets its
-    poly-alanine-referenced counterpart ``dF_*`` (ΔΦ_TP, ΔΦ_TM≡0, ΔΦ_PM) and ``dF_total`` = ΔΦ.
+    Columns ``Phi_tcr_pep``, ``Phi_tcr_mhc``, ``Phi_pep_mhc`` are the three interface terms
+    Φ_TP, Φ_TM, Φ_PM; ``Phi_total`` is their sum Φ. With ``--delta`` each also gets its
+    poly-alanine-referenced counterpart ``dPhi_*`` (ΔΦ_TP, ΔΦ_TM≡0, ΔΦ_PM) and ``dPhi_total`` = ΔΦ.
     The names match ``tcren recognize``, so the two tables join on ``pdb.id``.
     ΔΦ is the score to use across candidates that each carry their **own** generated pose,
     where raw Φ partly reads the pose geometry rather than the peptide sequence.
 
-    ``--intra-weight w`` adds the term the three interface sums omit — ``F_pep_int``, the peptide's
-    contact energy with **itself** (5 Å, sequence separation >= 3, MJ) — and folds ``w x F_pep_int``
-    into ``F_total``. The energy is reported raw, so the term and the weight stay separable.
+    ``--intra-weight w`` adds the term the three interface sums omit — ``Phi_pep_int``, the peptide's
+    contact energy with **itself** (5 Å, sequence separation >= 3, MJ) — and folds ``w x Phi_pep_int``
+    into ``Phi_total``. The energy is reported raw, so the term and the weight stay separable.
 
     ``--geometry`` appends the interface descriptors (buried surface ``burial``, peptide
     coverage ``n_pep_contacted``, ``chain_balance``, ``n_hbond``, docking ``pitch``/``crossing``)
@@ -1036,7 +1005,7 @@ def scoring(
         try:
             return score_struct(s, typed=True)
         except Exception as exc:  # noqa: BLE001 - keep the batch resilient
-            return {"pdb.id": s.pdb_id, "F_total": None,
+            return {"pdb.id": s.pdb_id, "Phi_total": None,
                     "error": f"{type(exc).__name__}: {str(exc)[:80]}"}
 
     if threads == 1:
@@ -1050,7 +1019,7 @@ def scoring(
         ex = ThreadPoolExecutor(max_workers=n)
         results = ex.map(one, structs)
     for r in results:
-        if r.get("F_total") is None and "error" in r:
+        if r.get("Phi_total") is None and "error" in r:
             failed += 1
             first_error = first_error or r["error"]
             if skip_errors:
@@ -1071,7 +1040,7 @@ def scoring(
                  for it in iter_structures(src, importer=import_structure, on_error="skip")]
         import os as _os2
         geo = pl.DataFrame(recognition_table(
-            items, organism=organism, with_p_real=False,
+            items, organism=organism,
             threads=threads if threads > 0 else (_os2.cpu_count() or 1)))
         geo = geo.with_columns(pl.Series("Q", q_score(geo, features=Q_FEATURES_GEOM)))
         keep = ["complex.id", *Q_FEATURES_GEOM, "pitch", "crossing", "Q"]
@@ -1328,7 +1297,13 @@ def _score_feature_table(path: Path, out: Path) -> None:
     """
     import numpy as np
 
-    from .cohort import P_NATIVE_CHANNELS, Q_FEATURES_GEOM, p_native, q_score
+    from .cohort import Q_FEATURES_GEOM, q_score
+
+    from .provenance import StaleTableError, check
+    try:
+        check(path)
+    except StaleTableError as exc:
+        raise typer.BadParameter(str(exc)) from exc
 
     sep = "," if path.suffix.lower() == ".csv" else "\t"
     t = pl.read_csv(path, separator=sep, infer_schema_length=None)
@@ -1340,42 +1315,15 @@ def _score_feature_table(path: Path, out: Path) -> None:
         scores = scores.with_columns(pl.Series("Q", q_score(t, features=Q_FEATURES_GEOM)))
     except KeyError as exc:
         typer.echo(f"  Q skipped: {exc.args[0].split(';')[0]}")
-    # Score only the channels this table actually carries. `tcren features -i topology` is a
-    # legitimate call and must still yield `T`; asking for all three would raise on the absent
-    # geometry columns and drop the whole score.
-    from .cohort import _channel_columns
-    have = tuple(c for c in P_NATIVE_CHANNELS
-                 if sum(n in t.columns for n in _channel_columns(c)) >= 2)
-    if not have:
-        typer.echo("  P_native skipped: no channel has two usable columns in this table")
-    try:
-        if not have:
-            raise ValueError("no usable channel")
-        v, models = p_native(t, channels=have, return_model=True)
-        if len(have) == 1:
-            models = {have[0]: models}
-        scores = scores.with_columns(pl.Series("P_native", v))
-        # each channel on its own as well: `T` is the shape score the paper reports, and a caller
-        # who wants to know WHY a structure scored as it did needs the parts, not just the sum
-        for ch in models:
-            scores = scores.with_columns(
-                pl.Series({"geometry": "G", "topology": "T", "energetics": "E"}.get(ch, ch),
-                          p_native(t, channels=(ch,), rule="flat")))
-        typer.echo(f"  P_native: {'sum of per-channel log-odds over ' if len(have) > 1 else ''}"
-                   f"{', '.join(models)} ({len(have)} of {len(P_NATIVE_CHANNELS)} channels present)")
-        for ch, model in models.items():
-            typer.echo(f"    {ch}: EM over {len(model.feature_names)} features, "
-                       f"{len(model.loglik_)} rounds, "
-                       + ("converged" if model.converged_ else "hit the round cap"))
-            typer.echo("      class weight per feature (sign and size EM chose, no labels used):")
-            for j, nm in enumerate(model.feature_names):
-                typer.echo(f"        {nm:18s} {model.nodes_[j]['beta'][-2]:+.3f}")
-    except ValueError as exc:
-        typer.echo(f"  P_native skipped: {exc}")
 
-    # S_free: the recommended single-structure score. Unlike P_native above it fits nothing at
-    # call time, so it is defined for one row and its value does not depend on what else was scored
-    # alongside it. The energy term needs `tcren potts score`, so a features-only table gets the
+    from .reliability import t_score
+    try:
+        scores = scores.with_columns(pl.Series("T", t_score(t)))
+    except KeyError as exc:
+        typer.echo(f"  T skipped: {exc.args[0].split(';')[0]}")
+
+    # S_free: the recommended single-structure score. It fits nothing at call time, so it is
+    # defined for one row and its value does not depend on what else was scored alongside it. The energy term needs `tcren potts score`, so a features-only table gets the
     # two-block form and the message says which was emitted.
     from .reliability import PI_FROZEN, T_FEATURES_TOPO, s_free
     need = (*Q_FEATURES_GEOM, *T_FEATURES_TOPO)
@@ -1396,6 +1344,9 @@ def _score_feature_table(path: Path, out: Path) -> None:
         typer.echo(f"  p_binder: frozen out-of-fold Platt link {link!r}")
 
     scores.write_csv(str(out), separator="\t")
+    from .provenance import stamp
+    stamp(out, command=f"tcren recognize --features {path} -o {out}", columns=scores.columns,
+          extra={"features_table": str(path), "rows": scores.height})
     typer.echo(f"wrote {out} ({scores.height} rows, {len(scores.columns) - 1} scores)")
 
 
@@ -1665,6 +1616,10 @@ def features(
                 if len(m.columns) > 1 else table.height
             typer.echo(f"  metadata.tsv: +{n_meta} columns, {hit}/{table.height} rows matched")
     table.write_csv(str(out), separator="\t")
+    from .provenance import stamp
+    stamp(out, command=f"tcren features -s {structures} -i {','.join(fams)} -o {out}",
+          columns=table.columns,
+          extra={"structures": table.height, "families": list(fams), "radii": list(rr)})
     n_err = int(table["error"].is_not_null().sum()) if "error" in table.columns else 0
     typer.echo(f"features [{','.join(fams)}]: {table.height} structures, "
                f"{len(table.columns) - 1 - n_meta} descriptors -> {out}"
@@ -1680,7 +1635,7 @@ def footprint(
     radii: str = typer.Option("7,8", "--radii", help="Calpha thresholds for the footprint flag complex; b0 is most informative at 7 A and b1 at 8 A"),
     group: str = typer.Option(None, "--group", help="column to fit T within (e.g. epitope); needs --meta"),
     meta: Path = typer.Option(None, "--meta", help="TSV/CSV with a 'pdb.id' column plus --group, joined before scoring"),
-    score: bool = typer.Option(False, "--score", help="append T, the cohort-fitted shape-channel posterior (p_native over the topology family)"),
+    score: bool = typer.Option(False, "--score", help="append T, the fit-free directional shape score against the native crystal reference"),
 ) -> None:
     """Footprint shape: how a receptor's contacts are DISTRIBUTED, not what they score.
 
@@ -1725,20 +1680,15 @@ def footprint(
             raise typer.BadParameter(f"--meta needs a 'pdb.id' column; got {list(m.columns)}")
         table = table.join(m, on="pdb.id", how="left")
     if score or group:
-        # 2.12.0 removed the fp_score z-sum in favour of the fitted channel posterior; this is the
-        # replacement its changelog names. Fitted per group where one is given, because the EM is a
-        # cohort operation and pooling epitopes fits a mixture across them.
-        from .cohort import p_native  # noqa: PLC0415
+        # 2.12.0 replaced the fp_score z-sum with a cohort-fitted channel posterior; 2.26.0 replaced
+        # THAT with `t_score`, which is directional against the native crystal reference and fits
+        # nothing at call time -- so it is defined for a single structure and `--group` no longer
+        # changes any value. The option is kept because it still carries the grouping column through.
+        from .reliability import t_score  # noqa: PLC0415
 
         if group and group not in table.columns:
             raise typer.BadParameter(f"--group {group!r} is not a column; pass it via --meta")
-        if group:
-            table = pl.concat([
-                part.with_columns(pl.Series("T", p_native(part, channels=("topology",))))
-                for (_key,), part in table.group_by([group], maintain_order=True)
-            ])
-        else:
-            table = table.with_columns(pl.Series("T", p_native(table, channels=("topology",))))
+        table = table.with_columns(pl.Series("T", t_score(table)))
     table.write_csv(out, separator="\t")
     typer.echo(f"footprint: {table.height} structures, {len(table.columns)} columns -> {out}")
 

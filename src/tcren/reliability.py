@@ -1,8 +1,9 @@
 r"""Single-structure reliability: ``S_free``, its calibration, and the generator diagnostic.
 
-``P_native`` refits a latent-class model per call and **raises when a cohort has fewer rows than
-features**, so it is undefined for one structure and its published numbers depend on which rows the
-fit was anchored on. ``S_free`` has neither property:
+The cohort-fitted posterior this module replaced refitted a latent-class model per call and raised
+when a cohort had fewer rows than features, so it was undefined for one structure and its numbers
+depended on which rows the fit was anchored on. It was discarded in 2.26.0. ``S_free`` has neither
+property:
 
 .. math::  S_{\mathrm{free}} \;=\; \frac{Q}{\sigma_Q} \;+\; \frac{T}{\sigma_T}
            \;+\; \frac{\Pi - \mu_\Pi}{\sigma_\Pi}

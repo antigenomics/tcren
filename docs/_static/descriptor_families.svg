@@ -134,7 +134,7 @@
 <title>energetics</title>
 <path fill="#f2f2f2" stroke="#4d4d4d" stroke-width="0.8" d="M156.88,-57.88C156.88,-57.88 46.37,-57.88 46.37,-57.88 40.38,-57.88 34.38,-51.88 34.38,-45.88 34.38,-45.88 34.38,-28.13 34.38,-28.13 34.38,-22.12 40.38,-16.12 46.38,-16.12 46.38,-16.12 156.88,-16.12 156.88,-16.12 162.88,-16.12 168.88,-22.12 168.88,-28.12 168.88,-28.12 168.88,-45.88 168.88,-45.88 168.88,-51.88 162.88,-57.88 156.88,-57.88"/>
 <text xml:space="preserve" text-anchor="middle" x="101.62" y="-44.38" font-family="Helvetica,sans-Serif" font-size="10.00">energetics</text>
-<text xml:space="preserve" text-anchor="middle" x="101.62" y="-33.12" font-family="Helvetica,sans-Serif" font-size="10.00">9 descriptors</text>
+<text xml:space="preserve" text-anchor="middle" x="101.62" y="-33.12" font-family="Helvetica,sans-Serif" font-size="10.00">15 descriptors</text>
 <text xml:space="preserve" text-anchor="middle" x="101.62" y="-21.88" font-family="Helvetica,sans-Serif" font-size="10.00">referenced interface energy</text>
 </g>
 <!-- energetic -->
@@ -142,16 +142,16 @@
 <title>energetic</title>
 <path fill="#cc79a7" stroke="#4d4d4d" stroke-width="0.8" d="M400.62,-80.5C400.62,-80.5 318.62,-80.5 318.62,-80.5 312.62,-80.5 306.62,-74.5 306.62,-68.5 306.62,-68.5 306.62,-39.5 306.62,-39.5 306.62,-33.5 312.62,-27.5 318.62,-27.5 318.62,-27.5 400.62,-27.5 400.62,-27.5 406.62,-27.5 412.62,-33.5 412.62,-39.5 412.62,-39.5 412.62,-68.5 412.62,-68.5 412.62,-74.5 406.62,-80.5 400.62,-80.5"/>
 <text xml:space="preserve" text-anchor="middle" x="359.62" y="-67" font-family="Helvetica,sans-Serif" font-size="10.00" fill="white">energetic</text>
-<text xml:space="preserve" text-anchor="middle" x="359.62" y="-55.75" font-family="Helvetica,sans-Serif" font-size="10.00" fill="white">14 descriptors</text>
+<text xml:space="preserve" text-anchor="middle" x="359.62" y="-55.75" font-family="Helvetica,sans-Serif" font-size="10.00" fill="white">20 descriptors</text>
 <text xml:space="preserve" text-anchor="middle" x="359.62" y="-44.5" font-family="Helvetica,sans-Serif" font-size="10.00" fill="white">a statistical&#45;potential</text>
 <text xml:space="preserve" text-anchor="middle" x="359.62" y="-33.25" font-family="Helvetica,sans-Serif" font-size="10.00" fill="white">or Potts energy</text>
 </g>
 <!-- energetics&#45;&gt;energetic -->
 <g id="edge8" class="edge">
 <title>energetics&#45;&gt;energetic</title>
-<path fill="none" stroke="#cc79a7" stroke-width="1.35" d="M169.22,-41.42C209.36,-44.09 260.05,-47.45 298.89,-50.03"/>
-<polygon fill="#cc79a7" stroke="#cc79a7" stroke-width="1.35" points="298.33,-52.1 304.46,-50.4 298.61,-47.91 298.33,-52.1"/>
-<text xml:space="preserve" text-anchor="middle" x="231.75" y="-46.9" font-family="Helvetica,sans-Serif" font-size="8.00">9</text>
+<path fill="none" stroke="#cc79a7" stroke-width="1.86" d="M169.22,-41.42C209.02,-44.07 259.21,-47.4 297.92,-49.97"/>
+<polygon fill="#cc79a7" stroke="#cc79a7" stroke-width="1.86" points="297.56,-52.05 303.69,-50.35 297.84,-47.86 297.56,-52.05"/>
+<text xml:space="preserve" text-anchor="middle" x="231.75" y="-46.9" font-family="Helvetica,sans-Serif" font-size="8.00">15</text>
 </g>
 <!-- potts -->
 <g id="node5" class="node">

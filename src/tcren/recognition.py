@@ -1,490 +1,27 @@
-"""Gaussian Bayesian-network classifier: real vs shuffled TCR-pMHC complexes.
+"""Per-structure interface descriptors: the catalogue, and the extractor that fills it.
 
-A conditional-linear-Gaussian Bayes net. A DAG is learned (BIC hill-climbing) over the standardized interface
-features on the *within-class-centred* data, so the edges capture genuine feature-feature dependence rather
-than the class shift. The binary class ``y`` (real = 1 / shuffled = 0) and the MHC class are then added as
-discrete parents of **every** feature node, shifting its conditional mean. Classification is the Gaussian
-log-likelihood ratio ``log P(x | y=1) - log P(x | y=0)`` (plus the class-prior log-odds if not balanced).
+:data:`DESCRIPTORS` is the single registry -- every emitted column, its family and whether the
+receptor enters its definition. :data:`INVARIANCE` says what each quantity is invariant under, and
+:data:`DETAIL` its units and one-line meaning; the docs table is generated from those three, so a
+descriptor cannot reach a feature table undocumented.
 
-Pure numpy (dep-light). Trained parameters serialise to gzipped JSON (:meth:`GaussianBNClassifier.save` /
-:meth:`load`); :meth:`to_dot` renders the network with graphviz. Trained on the Shuffled2026 decoys from
-:mod:`tcren.shuffle`.
-
-This module also provides :class:`BayesianLogisticRecognizer` — a frozen distribution-aware Bayesian logistic
-regression (fit externally with PyMC): each feature enters via its family's canonical form
-(:func:`encode_features` — circular angles as cos/sin, bounded ratios as logit, counts/continuous linearly),
-so unlike the Gaussian BN it does not mis-specify the count and angle features.
+This module emits **descriptors only**. The fitted composites that used to ride along here -- the
+Gaussian Bayes-net and Bayesian-logistic real-vs-shuffled recognizers, the frozen forced-pose
+logistic, the fitted binder score and the cohort posterior -- were removed in 2.26.0: their
+coefficients were frozen against training sets that no longer exist, which made them the one part
+of the package a reader could not reproduce. Scoring is :mod:`tcren.reliability` on this table.
 """
 from __future__ import annotations
 
-import gzip
-import json
 import math
 import warnings
 from collections.abc import Sequence
-from functools import lru_cache
-from pathlib import Path
 
 import numpy as np
 
 from .footprint import (FOOTPRINT_SIZE_FEATURES, footprint_topology_features)
 
 _EPS = 1e-9
-
-
-def _sigmoid(x: np.ndarray) -> np.ndarray:
-    """Numerically-safe logistic (clips the exponent to avoid overflow warnings)."""
-    return 1.0 / (1.0 + np.exp(-np.clip(x, -700, 700)))
-
-
-def _dump_json_gz(d: dict, path: str | Path) -> Path:
-    """Serialise ``d`` to JSON at ``path`` (gzip-compressed iff the name ends in ``.gz``)."""
-    path = Path(path)
-    opener = gzip.open if str(path).endswith(".gz") else open
-    with opener(path, "wb") as fh:
-        fh.write(json.dumps(d).encode())
-    return path
-
-
-def _load_json_gz(path: str | Path) -> dict:
-    """Inverse of :func:`_dump_json_gz`."""
-    path = Path(path)
-    opener = gzip.open if str(path).endswith(".gz") else open
-    with opener(path, "rb") as fh:
-        return json.loads(fh.read())
-
-
-def _bic_local(Z: np.ndarray, j: int, parents: list[int]) -> float:
-    n = Z.shape[0]
-    X = np.column_stack([np.ones(n), Z[:, parents]] if parents else [np.ones(n)])
-    beta, *_ = np.linalg.lstsq(X, Z[:, j], rcond=None)
-    rss = float(np.sum((Z[:, j] - X @ beta) ** 2)) or _EPS
-    k = len(parents) + 2
-    return -0.5 * n * math.log(rss / n) - 0.5 * k * math.log(n)
-
-
-def _acyclic(parents: dict[int, set[int]], p: int) -> bool:
-    indeg = {j: len(parents[j]) for j in range(p)}
-    children = {j: [c for c in range(p) if j in parents[c]] for j in range(p)}
-    q = [j for j in range(p) if indeg[j] == 0]
-    seen = 0
-    while q:
-        u = q.pop()
-        seen += 1
-        for c in children[u]:
-            indeg[c] -= 1
-            if indeg[c] == 0:
-                q.append(c)
-    return seen == p
-
-
-def _hill_climb(Z: np.ndarray, max_parents: int = 3) -> dict[int, list[int]]:
-    """BIC-scored greedy structure search over the columns of ``Z`` (add/remove edges)."""
-    p = Z.shape[1]
-    parents = {j: set() for j in range(p)}
-    score = {j: _bic_local(Z, j, []) for j in range(p)}
-    improved = True
-    while improved:
-        improved = False
-        best = (1e-6, None)
-        for a in range(p):
-            for b in range(p):
-                if a == b:
-                    continue
-                if a in parents[b]:
-                    cand = parents[b] - {a}
-                elif len(parents[b]) < max_parents:
-                    cand = parents[b] | {a}
-                    trial = {k: set(v) for k, v in parents.items()}
-                    trial[b] = cand
-                    if not _acyclic(trial, p):
-                        continue
-                else:
-                    continue
-                delta = _bic_local(Z, b, sorted(cand)) - score[b]
-                if delta > best[0]:
-                    best = (delta, (b, cand))
-        if best[1]:
-            b, cand = best[1]
-            parents[b] = cand
-            score[b] = _bic_local(Z, b, sorted(cand))
-            improved = True
-    return {j: sorted(parents[j]) for j in range(p)}
-
-
-class GaussianBNClassifier:
-    """Conditional-linear-Gaussian BN classifier (see the module docstring)."""
-
-    def __init__(self, feature_names: list[str], max_parents: int = 3):
-        self.feature_names = list(feature_names)
-        self.max_parents = max_parents
-
-    # -- fit ---------------------------------------------------------------------------------------------
-    def _fit_standardize(self, X: np.ndarray) -> np.ndarray:
-        """Set the NaN-safe column mean/sd from ``X``, then standardize it. Both fits need this."""
-        self.mu_ = np.nanmean(np.where(np.isfinite(X), X, np.nan), axis=0)
-        self.sd_ = np.nanstd(np.where(np.isfinite(X), X, np.nan), axis=0) + _EPS
-        return self._standardize(X)
-
-    def _standardize(self, X: np.ndarray) -> np.ndarray:
-        X = np.asarray(X, float)
-        X = np.where(np.isfinite(X), X, np.take(self.mu_, np.arange(X.shape[1]))[None, :])
-        return (X - self.mu_) / self.sd_
-
-    def fit(self, X, y, mhc_class=None) -> "GaussianBNClassifier":
-        X = np.asarray(X, float)
-        y = np.asarray(y, int)
-        m = np.zeros(len(y)) if mhc_class is None else np.asarray(mhc_class, float)
-        Z = self._fit_standardize(X)
-        # structure on within-(y,m)-class-centred data: remove the class/covariate shift first
-        Zc = Z.copy()
-        for yv in (0, 1):
-            for mv in np.unique(m):
-                mask = (y == yv) & (m == mv)
-                if mask.sum() > 1:
-                    Zc[mask] -= Zc[mask].mean(axis=0)
-        self.structure_ = _hill_climb(Zc, self.max_parents)
-        # per-node conditional: x_j ~ N(b0 + b.parents + g.y + d.m, sigma^2)
-        self.nodes_ = {}
-        n = len(y)
-        for j in range(len(self.feature_names)):
-            pa = self.structure_[j]
-            cov = np.column_stack([np.ones(n)] + ([Z[:, pa]] if pa else []) + [y.astype(float), m])
-            beta, *_ = np.linalg.lstsq(cov, Z[:, j], rcond=None)
-            resid = Z[:, j] - cov @ beta
-            self.nodes_[j] = {"parents": pa, "beta": beta.tolist(),
-                              "sigma": float(np.sqrt(np.mean(resid ** 2)) + _EPS)}
-        self.prior_ = float(np.mean(y))
-        return self
-
-    # -- fit with the class UNOBSERVED -------------------------------------------------------------------
-    def _m_step(self, Z: np.ndarray, g: np.ndarray, m: np.ndarray) -> None:
-        """Weighted refit of every node conditional against the responsibilities ``g``.
-
-        Each node is ``z_j = b0 + b.parents + gamma_j y + d_j m + eps``, so the expected complete-data
-        log-likelihood needs only the first two moments of the latent ``y``. Under a Bernoulli latent,
-        ``E[y] = E[y^2] = gamma`` — the second moment is **not** ``gamma^2``. Substituting ``gamma``
-        into the design matrix gets the cross terms right and the ``(y, y)`` entry wrong, so that one
-        entry is corrected explicitly; with it the M-step is exact rather than an approximation.
-        """
-        n = Z.shape[0]
-        self.nodes_ = {}
-        for j in range(len(self.feature_names)):
-            pa = self.structure_[j]
-            C = np.column_stack([np.ones(n)] + ([Z[:, pa]] if pa else []) + [g, m])
-            k = C.shape[1] - 2                                        # the latent-class column
-            A = C.T @ C
-            A[k, k] = float(g.sum())                                  # E[y^2] = E[y], not E[y]^2
-            beta = np.linalg.solve(A + _EPS * np.eye(A.shape[0]), C.T @ Z[:, j])
-            resid = Z[:, j] - C @ beta
-            # ...and the same correction in the residual variance: y contributes its own variance
-            var = float(np.mean(resid ** 2) + beta[k] ** 2 * np.mean(g - g ** 2))
-            self.nodes_[j] = {"parents": pa, "beta": beta.tolist(),
-                              "sigma": float(np.sqrt(var) + _EPS)}
-
-    def _mixture_loglik(self, Z: np.ndarray, m: np.ndarray) -> tuple[float, np.ndarray]:
-        """Observed-data log-likelihood ``sum_i log sum_y P(y) P(x_i|y)`` and the responsibilities."""
-        l1 = self._loglik(Z, m, 1) + math.log(self.prior_ + _EPS)
-        l0 = self._loglik(Z, m, 0) + math.log(1 - self.prior_ + _EPS)
-        hi = np.maximum(l0, l1)
-        tot = hi + np.log(np.exp(l0 - hi) + np.exp(l1 - hi))
-        return float(tot.sum()), np.exp(l1 - tot)
-
-    def fit_em(self, X, *, anchors=None, orient_by: str = "burial", rounds: int = 50,
-               tol: float = 1e-4, relearn_structure: bool = False,
-               mhc_class=None) -> "GaussianBNClassifier":
-        r"""Fit with the class **unobserved**, by expectation-maximization.
-
-        This is the fit that needs no binder labels. The class node is latent; each round takes an
-        **E-step** (responsibility :math:`\gamma_i = P(\mathrm{native}\mid x_i)` under the current
-        parameters) and an **M-step** (weighted refit of every node conditional, and of the DAG
-        itself on responsibility-centred data). Convergence is on the observed-data log-likelihood,
-        which this construction increases monotonically.
-
-        What it buys: the sign and the weight of every channel are *learned from the cohort being
-        scored*, which is the job the measured coupling :func:`tcren.cohort.coupling` was doing by
-        hand for the single energy channel. A cohort whose contact energy runs backwards is fitted
-        with a negative coefficient on that channel and nothing else has to change.
-
-        Args:
-            X: the design matrix, rows = structures, columns = :attr:`feature_names`.
-            anchors: optional ``{row_index: 0|1}`` of known labels, pinned at every E-step
-                (**semi-supervised**). Anything not listed stays latent. Use held-out known binders
-                to orient the component and pull the score toward a reference channel.
-            orient_by: feature name used to decide which mixture component is "native" when there
-                are no anchors — the component with the **higher** mean on it becomes class 1, or
-                the **lower** mean if the name is prefixed ``"-"``. Without this the labels can
-                switch between runs, since a mixture is only identified up to permutation.
-            rounds: maximum EM iterations.
-            tol: stop when the log-likelihood gains less than this.
-            relearn_structure: re-run the BIC hill climb each round on responsibility-centred data.
-                **Off by default, and the default is the principled one.** With the DAG held fixed
-                this is a textbook EM and the observed-data log-likelihood is monotone
-                non-decreasing; re-learning the graph changes the model family between rounds, so
-                the likelihood can and does fall (measured: three drops in 25 rounds on a synthetic
-                cohort, the largest 5.6 nats). Turn it on only if the structure is the object of
-                interest, and read :attr:`loglik_` rather than assuming convergence.
-            mhc_class: optional MHC-class covariate, as in :meth:`fit`.
-
-        Returns:
-            ``self``, with :attr:`responsibilities_` (final E-step), :attr:`loglik_` (the trace) and
-            :attr:`converged_` (whether ``tol`` was reached before ``rounds`` ran out).
-        """
-        X = np.asarray(X, float)
-        n = len(X)
-        m = np.zeros(n) if mhc_class is None else np.asarray(mhc_class, float)
-        Z = self._fit_standardize(X)
-
-        pin = {int(k): float(v) for k, v in (anchors or {}).items()}
-        # Initialise from the orientation feature rather than at random: a deterministic start makes
-        # the fit reproducible, and starting near the answer keeps EM off the symmetric saddle at
-        # gamma = 1/2, where every responsibility is equal and the M-step has nothing to separate.
-        # `orient_by` may carry a leading "-" meaning LOWER is native-like, which the energetics
-        # channel needs: Phi is a contact-preference sum in which lower is more favourable, so
-        # orienting it on the raw column would label the unfavourable component native.
-        sgn, key = (-1.0, orient_by[1:]) if orient_by.startswith("-") else (1.0, orient_by)
-        col = self.feature_names.index(key) if key in self.feature_names else 0
-        g = _sigmoid(sgn * np.nan_to_num(Z[:, col]))
-        for i, v in pin.items():
-            g[i] = v
-        self.structure_ = _hill_climb(Z - Z.mean(axis=0), self.max_parents)
-        self.prior_ = float(g.mean())
-
-        self.loglik_: list[float] = []
-        for _ in range(rounds):
-            self._m_step(Z, g, m)
-            ll, g_new = self._mixture_loglik(Z, m)
-            for i, v in pin.items():
-                g_new[i] = v
-            self.loglik_.append(ll)
-            done = len(self.loglik_) > 1 and abs(ll - self.loglik_[-2]) < tol
-            g = g_new
-            self.prior_ = float(np.clip(g.mean(), 1e-3, 1 - 1e-3))
-            if relearn_structure:                   # each row minus its own soft class mean
-                mu1 = (g[:, None] * Z).sum(0) / max(g.sum(), _EPS)
-                mu0 = ((1 - g)[:, None] * Z).sum(0) / max((1 - g).sum(), _EPS)
-                self.structure_ = _hill_climb(Z - (np.outer(g, mu1) + np.outer(1 - g, mu0)),
-                                              self.max_parents)
-            if done:
-                self.converged_ = True
-                break
-        else:
-            self.converged_ = False
-
-        # A mixture is identified only up to permutation of its components. Orient it, so two runs
-        # of the same data cannot disagree about which side is native.
-        flip = bool(pin) is False and sgn * np.nan_to_num(Z[:, col]) @ (g - g.mean()) < 0
-        if flip:
-            g = 1.0 - g
-            self.prior_ = float(np.clip(g.mean(), 1e-3, 1 - 1e-3))
-            self._m_step(Z, g, m)
-        self.responsibilities_ = g
-        return self
-
-    # -- predict -----------------------------------------------------------------------------------------
-    def _loglik(self, Z: np.ndarray, m: np.ndarray, yval: int) -> np.ndarray:
-        n = Z.shape[0]
-        ll = np.zeros(n)
-        for j, nd in self.nodes_.items():
-            pa = nd["parents"]
-            beta = np.asarray(nd["beta"])
-            sig = nd["sigma"]
-            cov = np.column_stack([np.ones(n)] + ([Z[:, pa]] if pa else [])
-                                  + [np.full(n, yval, float), m])
-            mean = cov @ beta
-            ll += -0.5 * math.log(2 * math.pi * sig ** 2) - 0.5 * ((Z[:, j] - mean) / sig) ** 2
-        return ll
-
-    def decision_function(self, X, mhc_class=None) -> np.ndarray:
-        """Log-likelihood ratio ``log P(x|y=1) - log P(x|y=0)`` (balanced; add prior log-odds separately)."""
-        Z = self._standardize(np.asarray(X, float))
-        m = np.zeros(len(Z)) if mhc_class is None else np.asarray(mhc_class, float)
-        return self._loglik(Z, m, 1) - self._loglik(Z, m, 0)
-
-    def predict_proba(self, X, mhc_class=None, balanced: bool = True) -> np.ndarray:
-        s = self.decision_function(X, mhc_class)
-        if not balanced:
-            s = s + math.log(self.prior_ / (1 - self.prior_ + _EPS))
-        p = _sigmoid(s)
-        return np.column_stack([1 - p, p])
-
-    # -- marginalization ---------------------------------------------------------------------------------
-    def _joint_gaussian(self):
-        """Reconstruct the class-conditional joint Gaussian from the DAG: shared covariance + the y/m means.
-
-        Each standardized node is ``z_j = b0_j + sum b.parents + g_j y + d_j m + eps_j``. In matrix form
-        ``z = (I-B)^{-1}(c + eps)`` for fixed (y, m), so the (homoscedastic) covariance is
-        ``Sigma = (I-B)^{-1} diag(sigma^2) (I-B)^{-T}`` and the class-mean shift is ``(I-B)^{-1} g``.
-        """
-        p = len(self.feature_names)
-        B = np.zeros((p, p)); c0 = np.zeros(p); g = np.zeros(p); d = np.zeros(p); D = np.zeros(p)
-        for j, nd in self.nodes_.items():
-            beta = np.asarray(nd["beta"]); pa = nd["parents"]
-            c0[j] = beta[0]
-            for k, a in enumerate(pa):
-                B[j, a] = beta[1 + k]
-            g[j] = beta[-2]; d[j] = beta[-1]; D[j] = nd["sigma"] ** 2
-        IB = np.linalg.inv(np.eye(p) - B)
-        return IB, c0, g, d, IB @ np.diag(D) @ IB.T
-
-    def marginal_decision(self, X, keep, mhc_class=None) -> np.ndarray:
-        """LLR ``log P(x_G|y=1) - log P(x_G|y=0)`` after **marginalizing out** every feature not in ``keep``.
-
-        ``keep`` is a list of feature names (e.g. the geometry features, energy marginalised out). Because the
-        covariance is shared across classes the marginal LLR is linear in the kept features.
-        """
-        idx = [self.feature_names.index(n) for n in keep]
-        Z = self._standardize(np.asarray(X, float))
-        m = np.zeros(len(Z)) if mhc_class is None else np.asarray(mhc_class, float)
-        IB, c0, g, d, Sigma = self._joint_gaussian()
-        Sinv = np.linalg.inv(Sigma[np.ix_(idx, idx)])
-        shift = (IB @ g)[idx]                              # mu_1 - mu_0 on the kept block (m-independent)
-        base = (IB @ (c0 + 0.5 * g))                       # the m=0 midpoint; add d*m per sample below
-        dm = (IB @ d)[idx]
-        Zk = Z[:, idx]
-        mid = base[idx][None, :] + np.outer(m, dm)         # per-sample class midpoint on kept block
-        return ((Zk - mid) @ Sinv) @ shift
-
-    def marginal_proba(self, X, keep, mhc_class=None) -> np.ndarray:
-        s = self.marginal_decision(X, keep, mhc_class)
-        p = _sigmoid(s)
-        return np.column_stack([1 - p, p])
-
-    # -- persistence + rendering -------------------------------------------------------------------------
-    def to_dict(self) -> dict:
-        return {"feature_names": self.feature_names, "max_parents": self.max_parents,
-                "mu": self.mu_.tolist(), "sd": self.sd_.tolist(), "prior": self.prior_,
-                "structure": {str(k): v for k, v in self.structure_.items()},
-                "nodes": {str(k): v for k, v in self.nodes_.items()}}
-
-    @classmethod
-    def from_dict(cls, d: dict) -> "GaussianBNClassifier":
-        obj = cls(d["feature_names"], d["max_parents"])
-        obj.mu_ = np.asarray(d["mu"]); obj.sd_ = np.asarray(d["sd"]); obj.prior_ = d["prior"]
-        obj.structure_ = {int(k): v for k, v in d["structure"].items()}
-        obj.nodes_ = {int(k): v for k, v in d["nodes"].items()}
-        return obj
-
-    def save(self, path: str | Path) -> Path:
-        return _dump_json_gz(self.to_dict(), path)
-
-    @classmethod
-    def load(cls, path: str | Path) -> "GaussianBNClassifier":
-        return cls.from_dict(_load_json_gz(path))
-
-    def to_dot(self, coef_threshold: float = 0.15) -> str:
-        """Graphviz DAG: feature-feature edges (partial slopes) + class/MHC covariate edges above threshold."""
-        names = self.feature_names
-        lines = ["digraph BN {", '  rankdir=LR; node [shape=box, style=rounded, fontsize=9];',
-                 '  y [shape=ellipse, style=filled, fillcolor="#ffd9d9", label="class (real/shuffled)"];',
-                 '  mhc [shape=ellipse, style=filled, fillcolor="#d9e6ff", label="MHC class"];']
-        for j, nm in enumerate(names):
-            lines.append(f'  f{j} [label="{nm}"];')
-        for j, nd in self.nodes_.items():
-            beta = nd["beta"]
-            pa = nd["parents"]
-            for k, a in enumerate(pa):
-                lines.append(f'  f{a} -> f{j} [label="{beta[k+1]:+.2f}", fontsize=7];')
-            g, d = beta[-2], beta[-1]                      # y and mhc covariate slopes
-            if abs(g) >= coef_threshold:
-                lines.append(f'  y -> f{j} [color="#cc3333", label="{g:+.2f}", fontsize=7];')
-            if abs(d) >= coef_threshold:
-                lines.append(f'  mhc -> f{j} [color="#3355cc", label="{d:+.2f}", fontsize=7];')
-        lines.append("}")
-        return "\n".join(lines)
-
-
-# ======================================================================================================
-# Distribution-aware Bayesian logistic recognizer
-# ======================================================================================================
-# Encodings that respect each feature's natural distribution before the (linear) logistic predictor:
-#   circular angle (von Mises) -> cos/sin ; bounded ratio (Beta) -> logit ; exact duplicate -> dropped.
-# Counts (Poisson canonical) and continuous / unit-vector features already enter linearly, so a logistic
-# regression -- unlike the Gaussian BN above -- does not mis-specify them.
-_ENCODE = {"dock_torsion": "cos_sin", "chain_balance": "logit_half", "n_hbond": "drop"}
-_HALF = 0.5
-
-
-def encode_features(X, feature_names) -> tuple[np.ndarray, list[str]]:
-    """Distribution-aware design matrix (pre-standardization).
-
-    ``dock_torsion`` (circular, wraps) -> its von Mises sufficient statistics ``(cos, sin)``; ``chain_balance``
-    ([0, 0.5] Beta) -> ``logit(2x)``; ``n_hbond`` dropped (exact duplicate of ``ct_tp_hydrogen_bond``);
-    everything else (counts + continuous + unit-vector cos/sin components) enters linearly.
-
-    Args:
-        X: ``(n, len(feature_names))`` raw feature array.
-        feature_names: column names of ``X``.
-
-    Returns:
-        ``(Z, encoded_names)`` — the encoded matrix and its column names.
-    """
-    X = np.asarray(X, float)
-    idx = {n: i for i, n in enumerate(feature_names)}
-    cols, names = [], []
-    for n in feature_names:
-        enc = _ENCODE.get(n, "linear")
-        if enc == "drop":
-            continue
-        x = X[:, idx[n]]
-        if enc == "cos_sin":
-            cols += [np.cos(x), np.sin(x)]; names += [f"{n}_cos", f"{n}_sin"]
-        elif enc == "logit_half":
-            u = np.clip(x / _HALF, 1e-4, 1 - 1e-4)
-            cols.append(np.log(u / (1 - u))); names.append(f"{n}_logit")
-        else:
-            cols.append(x); names.append(n)
-    return np.column_stack(cols), names
-
-
-class BayesianLogisticRecognizer:
-    """Frozen distribution-aware Bayesian logistic (posterior-mean coefficients) — dep-light numpy predictor.
-
-    Applies :func:`encode_features`, standardizes with the stored training statistics (nan -> train mean), and
-    returns ``sigmoid(alpha + Z @ beta)``. Fit externally by PyMC (``logistic_stan/build.py`` in the
-    technical appendix, which lives with the manuscript, not in this repo) and frozen here;
-    serialises to gzipped JSON.
-    """
-
-    def __init__(self, feature_names, encoded_names, mean, sd, alpha, beta, prior: str = "normal"):
-        self.feature_names = list(feature_names)
-        self.encoded_names = list(encoded_names)
-        self.mean = np.asarray(mean, float)
-        self.sd = np.asarray(sd, float)
-        self.alpha = float(alpha)
-        self.beta = np.asarray(beta, float)
-        self.prior = prior
-
-    def _design(self, X) -> np.ndarray:
-        Z, names = encode_features(X, self.feature_names)
-        if names != self.encoded_names:
-            raise ValueError("encoded feature names do not match the fitted model")
-        Z = np.where(np.isfinite(Z), Z, self.mean[None, :])       # nan -> train mean
-        return (Z - self.mean) / self.sd
-
-    def decision_function(self, X) -> np.ndarray:
-        return self.alpha + self._design(X) @ self.beta
-
-    def predict_proba(self, X) -> np.ndarray:
-        p = _sigmoid(self.decision_function(X))
-        return np.column_stack([1 - p, p])
-
-    def to_dict(self) -> dict:
-        return {"feature_names": self.feature_names, "encoded_names": self.encoded_names,
-                "mean": self.mean.tolist(), "sd": self.sd.tolist(),
-                "alpha": self.alpha, "beta": self.beta.tolist(), "prior": self.prior}
-
-    @classmethod
-    def from_dict(cls, d: dict) -> "BayesianLogisticRecognizer":
-        return cls(d["feature_names"], d["encoded_names"], d["mean"], d["sd"], d["alpha"], d["beta"],
-                   d.get("prior", "normal"))
-
-    def save(self, path: str | Path) -> Path:
-        return _dump_json_gz(self.to_dict(), path)
-
-    @classmethod
-    def load(cls, path: str | Path) -> "BayesianLogisticRecognizer":
-        return cls.from_dict(_load_json_gz(path))
 
 
 # ===================================================================================================
@@ -498,27 +35,24 @@ class BayesianLogisticRecognizer:
 
 #: The core descriptor block ``recognize`` emits, and the vector the frozen recognizers consume.
 #:
-#: Every statistical-potential energy is named ``F_*`` — there is one potential per interface (TCRen
+#: Every statistical-potential energy is named ``Phi_*`` — there is one potential per interface (TCRen
 #: on TCR:peptide, MJ on the two presentation interfaces), so the potential's name does not belong in
 #: the column's. Two exact duplicates were dropped in the 2026-07-28 audit: ``e_tcr_mhc`` (the same
-#: number as ``F_tcr_mhc``) and ``ct_tp_hydrogen_bond`` (the same number as ``n_hbond``, which is the
+#: number as ``Phi_tcr_mhc``) and ``ct_tp_hydrogen_bond`` (the same number as ``n_hbond``, which is the
 #: name Eq. Q uses). The frozen models still ask for the old names and get the same values through
 #: :data:`_FROZEN_ALIASES`, so their predictions are unchanged.
 RECOGNITION_FEATURES = (
     "extent", "chain_balance", "pitch", "crossing", "crossing_signed", "dock_d", "dock_torsion",
-    "dock_tcr_uy", "dock_tcr_uz", "dock_mhc_uy", "dock_mhc_uz", "F_cdr12", "F_cdr3a", "F_cdr3b",
-    "F_tcr_pep", "F_tcr_mhc", "F_pep_mhc", "dF_tcr_pep", "dF_pep_mhc", "n_contacts_tp",
+    "dock_tcr_uy", "dock_tcr_uz", "dock_mhc_uy", "dock_mhc_uz", "Phi_cdr12", "Phi_cdr3a", "Phi_cdr3b",
+    "Phi_tcr_pep", "Phi_tcr_mhc", "Phi_pep_mhc", "dPhi_tcr_pep", "dPhi_pep_mhc",
+    "dPhi_pep_soft", "varPhi_pep_soft", "dPhi_tcr_soft", "varPhi_tcr_soft",
+    "dPhi_tra_soft", "dPhi_trb_soft", "n_contacts_tp",
     "n_pep_contacted", "n_contacts_tm", "ct_tp_salt_bridge", "ct_tm_salt_bridge",
     "ct_tm_hydrogen_bond", "ct_tp_aromatic", "ct_tm_aromatic",
     "ct_tp_hydrophobic", "ct_tm_hydrophobic", "ct_tp_other", "ct_tm_other", "n_hbond",
     "burial", "mhc_class_bin",
 )
 
-#: Column names the frozen recognizers were fitted under, mapped onto the column that now carries the
-#: same number. Applied only when a frozen model's design matrix is filled (:func:`real_probability`),
-#: so dropping the duplicate columns leaves those models bit-identical.
-_FROZEN_ALIASES = {"e_tcr_mhc": "F_tcr_mhc", "e_cdr12": "F_cdr12", "e_cdr3a": "F_cdr3a",
-                   "e_cdr3b": "F_cdr3b", "ct_tp_hydrogen_bond": "n_hbond"}
 _CT_TYPES = ("salt_bridge", "hydrogen_bond", "aromatic", "hydrophobic", "other")
 _TCR_TYPES = ("TRA", "TRB", "TRG", "TRD")
 
@@ -538,11 +72,11 @@ INTERFACE_SYMMETRY_FEATURES = ("cdr3_dominance", "cdr3_ab_imbalance", "chain_cdr
 TCR_PLACEMENT_FEATURES = ("height", "shift_u", "shift_w", "offset")
 
 #: The intra-peptide term, emitted as extra ``recognize --full`` output columns — **not** part of
-#: :data:`RECOGNITION_FEATURES` (the frozen models' 35-vector is fixed). ``F_pep_int`` = the peptide's
+#: :data:`RECOGNITION_FEATURES` (the frozen models' 35-vector is fixed). ``Phi_pep_int`` = the peptide's
 #: MJ contact energy with **itself** (:func:`tcren.intra_peptide_energy`), the term every interface
 #: sum omits; ``n_pep_int`` = how many such contacts there are. Both are properties of the pMHC alone
 #: — no receptor enters them — so they carry cohort identity; see :data:`DESCRIPTORS`.
-PEPTIDE_INTERNAL_FEATURES = ("F_pep_int", "n_pep_int")
+PEPTIDE_INTERNAL_FEATURES = ("Phi_pep_int", "n_pep_int")
 
 #: CDR3-local frame features (18), the FramePose layer the whole-TCR :data:`RECOGNITION_FEATURES` miss.
 #: Per loop, relative to the pMHC groove frame (u, w, n; origin = peptide Cα centroid):
@@ -556,7 +90,7 @@ CDR3_FRAME_FEATURES = tuple(f"{loop}_{k}" for loop in ("cdr3a", "cdr3b") for k i
 #:
 #: The 12 "matrix-swap" columns (``tcren_{g}``/``mj_{g}``/``d_{g}`` for ``g`` ∈ {tp, cdr12, cdr3a,
 #: cdr3b}) were removed in the 2026-07-28 audit. The ``tcren_*`` four were exact duplicates of the
-#: ``F_*`` energies; the ``mj_*`` four scored TCR:peptide contacts under the generic MJ potential,
+#: ``Phi_*`` energies; the ``mj_*`` four scored TCR:peptide contacts under the generic MJ potential,
 #: which is not the potential this method uses on that interface, and the ``d_*`` four were their
 #: difference. Nothing consumed them.
 FULL_FEATURES = RECOGNITION_FEATURES + CDR3_FRAME_FEATURES
@@ -647,17 +181,25 @@ DESCRIPTORS: dict[str, tuple[str, bool]] = {
     # -- topology: the shape of the contact set (`tcren.footprint`) ------------------------------
     **{f: ("topology", True) for f in footprint_topology_features()},
     # -- energetics: interface energies ----------------------------------------------------------
-    "F_tcr_pep": ("energetics", True),
-    "F_tcr_mhc": ("energetics", True),
-    "F_cdr12": ("energetics", True),
-    "F_cdr3a": ("energetics", True),
-    "F_cdr3b": ("energetics", True),
-    "dF_tcr_pep": ("energetics", True),
+    "Phi_tcr_pep": ("energetics", True),
+    "Phi_tcr_mhc": ("energetics", True),
+    "Phi_cdr12": ("energetics", True),
+    "Phi_cdr3a": ("energetics", True),
+    "Phi_cdr3b": ("energetics", True),
+    "dPhi_tcr_pep": ("energetics", True),
+    # the same first difference against a smoothed background, both directions, TCR side split by
+    # chain so a linear model can form the TRB-TRA contrast rather than being handed it
+    "dPhi_pep_soft": ("energetics", True),
+    "varPhi_pep_soft": ("energetics", True),
+    "dPhi_tcr_soft": ("energetics", True),
+    "varPhi_tcr_soft": ("energetics", True),
+    "dPhi_tra_soft": ("energetics", True),
+    "dPhi_trb_soft": ("energetics", True),
     # peptide:MHC energy and its poly-alanine reference: presentation, no receptor
-    "F_pep_mhc": ("energetics", False),
-    "dF_pep_mhc": ("energetics", False),
+    "Phi_pep_mhc": ("energetics", False),
+    "dPhi_pep_mhc": ("energetics", False),
     # the peptide's contacts with itself: a property of the epitope's bound conformation alone
-    "F_pep_int": ("energetics", False),
+    "Phi_pep_int": ("energetics", False),
     "n_pep_int": ("interface", False),
     # -- potts: the contact map read against the coupled model (`tcren.potts`) -------------------
     # The same energy, referenced against the partition function instead of a poly-alanine
@@ -694,14 +236,6 @@ DESCRIPTORS: dict[str, tuple[str, bool]] = {
     "couple_tcr": ("kinetics", True),
     "couple_total": ("kinetics", True),
     "n_interface": ("kinetics", True),
-    # -- scores: outputs, never inputs ---------------------------------------------------------
-    "p_real": ("score", True),
-    "p_real_bn": ("score", True),
-    "p_forced": ("score", True),
-    "p_bind": ("score", True),
-    "q_bind": ("score", True),
-    "s_strain": ("score", True),
-    "P_native": ("score", True),
 }
 
 #: What each descriptor is invariant under -- the axis along which ``geometry`` and ``topology``
@@ -770,8 +304,6 @@ INVARIANCE: dict[str, str] = {
         "n_spring", "n_interface", "couple_pep", "couple_mhc", "couple_tcr", "couple_total",
         "frac_robust",
     )},
-    # composite scores are outputs, never inputs
-    **{d: "score" for d, (fam, _) in DESCRIPTORS.items() if fam == "score"},
 }
 
 #: Units and a one-line definition for every descriptor. The single source the docs table is
@@ -863,15 +395,21 @@ DETAIL.update({
  "pep_cov_spread": ("fraction", "Contact-weighted standard deviation of that position, doubled; approaches 1 when the receptor reaches both termini."),
  "h0_pers_ent": ("fraction", "Normalized entropy of the H0 barcode of the contacted pMHC Calpha cloud. The bar lengths are the minimum spanning tree's edges, so no filtration is chosen."),
  # --- energetics ------------------------------------------------------------------------------
- "F_tcr_pep": ("log-odds", "Phi over TCR-peptide contacts under TCRen2, summed over all TCR regions. Lower is more favourable."),
- "F_tcr_mhc": ("log-odds", "Phi over TCR-MHC contacts under Miyazawa-Jernigan."),
- "F_pep_mhc": ("log-odds", "Phi over peptide-MHC contacts under Miyazawa-Jernigan. Computed without the receptor."),
- "F_cdr12": ("log-odds", "The CDR1 + CDR2 part of the TCR:peptide energy, both chains."),
- "F_cdr3a": ("log-odds", "The CDR3alpha part of the TCR:peptide energy."),
- "F_cdr3b": ("log-odds", "The CDR3beta part of the TCR:peptide energy."),
- "dF_tcr_pep": ("log-odds", "Poly-alanine reference delta of the TCR:peptide energy; the pose-geometry baseline removed."),
- "dF_pep_mhc": ("log-odds", "The same reference across peptide:MHC. Computed without the receptor."),
- "F_pep_int": ("log-odds", "The peptide's own intra-chain contact energy. Computed without the receptor."),
+ "Phi_tcr_pep": ("log-odds", "Phi over TCR-peptide contacts under TCRen2, summed over all TCR regions. Lower is more favourable."),
+ "Phi_tcr_mhc": ("log-odds", "Phi over TCR-MHC contacts under Miyazawa-Jernigan."),
+ "Phi_pep_mhc": ("log-odds", "Phi over peptide-MHC contacts under Miyazawa-Jernigan. Computed without the receptor."),
+ "Phi_cdr12": ("log-odds", "The CDR1 + CDR2 part of the TCR:peptide energy, both chains."),
+ "Phi_cdr3a": ("log-odds", "The CDR3alpha part of the TCR:peptide energy."),
+ "Phi_cdr3b": ("log-odds", "The CDR3beta part of the TCR:peptide energy."),
+ "dPhi_tcr_pep": ("log-odds", "Poly-alanine reference delta of the TCR:peptide energy; the pose-geometry baseline removed."),
+ "dPhi_pep_mhc": ("log-odds", "The same reference across peptide:MHC. Computed without the receptor."),
+ "dPhi_pep_soft": ("log-odds", "Smoothed reference delta, peptide direction: the peptide's energy minus the free energy of the residue background at each peptide position, receptor frozen."),
+ "varPhi_pep_soft": ("log-odds^2", "Variance of the local field under the background, peptide direction: how sharply each peptide position's energy responds to residue identity, summed over positions. NOT a ddG -- it is a second cumulant, not a difference of differences."),
+ "dPhi_tcr_soft": ("log-odds", "Smoothed reference delta, receptor direction: the receptor's energy minus the free energy of the residue background at each contacted TCR position, peptide frozen."),
+ "varPhi_tcr_soft": ("log-odds^2", "Variance of the local field under the background, receptor direction, summed over contacted TCR positions."),
+ "dPhi_tra_soft": ("log-odds", "The alpha-chain part of the receptor-direction smoothed reference delta."),
+ "dPhi_trb_soft": ("log-odds", "The beta-chain part of the receptor-direction smoothed reference delta."),
+ "Phi_pep_int": ("log-odds", "The peptide's own intra-chain contact energy. Computed without the receptor."),
  # --- potts -----------------------------------------------------------------------------------
  "neg_energy": ("kT", "-E of the observed contact map under the coupled Potts model; higher is more native-like. Exactly log_z + log_lik."),
  "log_z": ("kT", "Log partition function over every contact map the geometry admits; the interface's capacity."),
@@ -912,21 +450,51 @@ for _r in (7, 8):
             f"Patches per contacted residue at {_r} A; the size-free form of Betti-0."),
     })
 
-#: The composite scores, which are outputs of the descriptors above and never inputs.
-DETAIL.update({
-    "p_real": ("probability", "Genuine recognition interface against a wrong-receptor shuffle."),
-    "p_real_bn": ("probability", "The same question through the Bayesian-network fit."),
-    "p_forced": ("probability", "Legacy forced-pose classifier; superseded by the strain z-score."),
-    "p_bind": ("probability", "Legacy binder score; superseded by S_free."),
-    "q_bind": ("z", "Fit-free binder contrast, kept for v1 reproduction."),
-    "s_strain": ("z", "Interface-strain z-score: stretched CDR3 loops and thin contacts."),
-    "P_native": ("probability", "Retired cohort posterior over the three channels, fitted per call by latent-class EM. Not recommended: it is undefined for a single structure."),
-})
 
 #: The invariance classes, in the order the catalogue reports them.
 INVARIANCE_CLASSES: tuple[str, ...] = (
-    "geometric", "topological", "compositional", "energetic", "categorical", "score",
+    "geometric", "topological", "compositional", "energetic", "categorical",
 )
+
+#: Descriptors that need a second look before they are used, and why. A name absent from here has
+#: no known defect; presence is **not** a reason to drop the column, only to know what it is.
+#:
+#: Two flags:
+#:
+#: * ``"suspicious"`` -- the quantity is not measuring what its family name suggests. Either it
+#:   reads the generator rather than the interface, or it is fixed by an exact identity over other
+#:   columns, or it identifies the cohort rather than the complex.
+#: * ``"stalled"`` -- the quantity is defined but does not move: near-zero spread, or undefined on
+#:   most of the corpus, so nothing downstream can use it.
+#:
+#: The identities were each verified to float tolerance on both receptor benchmarks (max relative
+#: difference 3.6e-15), so they are algebra rather than correlation. A determined column is exact
+#: information the model already has -- harmless in a report, and a rank deficiency in a fit.
+STATUS: dict[str, tuple[str, str]] = {
+    "pitch": ("suspicious", "reads the generator's confidence rather than the interface: it is "
+                            "docking_angles' incident_angle, and it out-discriminates every clean "
+                            "docking angle for that reason. Never use it as a feature."),
+    # determined by an exact identity over other emitted columns
+    "fp_chi_r7": ("suspicious", "determined: chi = b0 - b1 at the same radius."),
+    "fp_chi_r8": ("suspicious", "determined: chi = b0 - b1 at the same radius."),
+    "D1_cell": ("suspicious", "determined: D1 = 12 ** H_cell."),
+    "J_cell": ("suspicious", "determined: J = H_cell * ln 12 / ln S_cell."),
+    "offset": ("suspicious", "determined: offset = hypot(shift_u, shift_w)."),
+    "n_loop_contacts": ("suspicious", "determined: n_pep_contacts + n_mhc_contacts."),
+    "neg_energy": ("suspicious", "determined: log_z + log_lik."),
+    "S_tot": ("suspicious", "determined by K_tens and K_shear."),
+    "aniso": ("suspicious", "determined by K_tens and K_shear."),
+    "couple_total": ("suspicious", "determined: couple_pep + couple_mhc + couple_tcr."),
+    "crossing": ("suspicious", "determined: abs(crossing_signed)."),
+    # computed without the receptor: constant within an epitope-allele cohort
+    "Phi_pep_mhc": ("suspicious", "no receptor: constant across every structure of one epitope on "
+                                  "one allele, so a receptor-ranking model reading it reaches the "
+                                  "cohort label without reading an interface."),
+    "dPhi_pep_mhc": ("suspicious", "no receptor; see Phi_pep_mhc."),
+    "Phi_pep_int": ("suspicious", "no receptor; see Phi_pep_mhc."),
+    "n_pep_int": ("suspicious", "no receptor; see Phi_pep_mhc."),
+    "mhc_class_bin": ("suspicious", "no receptor: it is the MHC class, I or II."),
+}
 
 FAMILIES = ("placement", "interface", "topology", "energetics", "potts", "kinetics")
 
@@ -935,7 +503,7 @@ _FAMILY_ALIASES = {"geometry": ("placement", "interface"), "physics": ("energeti
 
 
 def descriptors(family: str | None = None, *, tcr_only: bool = False,
-                with_scores: bool = False, invariance: str | None = None) -> tuple[str, ...]:
+                invariance: str | None = None) -> tuple[str, ...]:
     """Descriptor names from :data:`DESCRIPTORS`, filtered by family and receptor involvement.
 
     Args:
@@ -945,8 +513,6 @@ def descriptors(family: str | None = None, *, tcr_only: bool = False,
             still work.
         tcr_only: keep only descriptors the receptor enters. Set this whenever the question being
             asked is about receptors — a peptide- or MHC-only column carries cohort identity.
-        with_scores: also return the fitted/cohort-relative composites of the ``score`` family.
-            Off by default: they are model outputs, not inputs.
         invariance: keep one class of :data:`INVARIANCE` — ``"geometric"`` for the docking's
             isometry invariants, ``"topological"`` for the interface surface's homeomorphism
             invariants, ``"compositional"`` for counts over the labelled contact set,
@@ -957,7 +523,7 @@ def descriptors(family: str | None = None, *, tcr_only: bool = False,
 
     Example:
         >>> descriptors("energetics", tcr_only=True)
-        ('F_tcr_pep', 'F_tcr_mhc', 'F_cdr12', 'F_cdr3a', 'F_cdr3b', 'dF_tcr_pep')
+        ('Phi_tcr_pep', 'Phi_tcr_mhc', 'Phi_cdr12', 'Phi_cdr3a', 'Phi_cdr3b', 'dPhi_tcr_pep')
         >>> descriptors("physics") == descriptors("energetics")   # retired alias
         True
         >>> descriptors("topology", invariance="topological")
@@ -972,43 +538,15 @@ def descriptors(family: str | None = None, *, tcr_only: bool = False,
         keep = set(FAMILIES) | {"score"}
     elif family in _FAMILY_ALIASES:
         keep = set(_FAMILY_ALIASES[family])
-    elif family in FAMILIES or family == "score":
+    elif family in FAMILIES:
         keep = {family}
     else:
         raise ValueError(f"unknown family {family!r}; expected one of {FAMILIES} "
                          f"or an alias {tuple(_FAMILY_ALIASES)}")
     return tuple(n for n, (fam, tcr) in DESCRIPTORS.items()
                  if fam in keep
-                 and (with_scores or fam != "score")
                  and (tcr or not tcr_only)
                  and (invariance is None or INVARIANCE[n] == invariance))
-
-
-#: Frozen "forced-pose" classifier: P(this pose is an AF-forced interface rather than a crystal-natural
-#: one). A raw-feature logistic (no standardization) over interface *strain* — stretched CDR3 loops and
-#: thin contacts. Trained ONLY on provenance (Canonical2026 crystals = 0 vs AF/TCRmodel2 models = 1;
-#: n=2681, 268 crystal / 2413 forced), so it is independent of any binder label; 5-fold CV AUC 0.762.
-#: High ``p_forced`` marks a "too-good-to-be-true" pose; the score grades crystal < AF-real < AF-decoy.
-#:
-#: .. note::
-#:    For new work prefer the fit-free :func:`tcren.cohort.strain_z` (``S_strain``). It grades the
-#:    same crystal < AF-real < AF-decoy provenance gradient by signed standardization of the strain
-#:    terms, with no training set — so it is fully reproducible, unlike the coefficients below.
-#:
-#: .. warning::
-#:    These coefficients are **frozen and not re-derivable** -- the n=2681 training set no longer
-#:    exists. ``models/fit_frozen.py::forced_pose`` in the benchmark repo recovers the *procedure*
-#:    (unstandardized L2 logistic, C=0.1, which reproduces the 0.762 CV above to within 0.001) but
-#:    not the coefficients. Refitting on the surviving 1168-row fixture gives a **better** in-sample
-#:    ROC (0.769 vs 0.745), which is how we know these were fit on different rows rather than
-#:    overfit to what survives. Do not replace them with a refit without re-basing the benchmarks.
-FORCED_POSE_MODEL = {
-    "features": ("dock_d", "cdr3b_reach", "cdr3b_topep", "cdr3a_ext", "extent_per_ct", "chain_balance"),
-    "coef": (-0.46517433874162056, 0.14437146872011086, -0.31411562068257676,
-             -2.114810136001524, 1.198769596894963, -0.6237422800760706),
-    "intercept": 26.11747560652168,
-    "cv_auc": 0.762,
-}
 
 
 def _extent(cm) -> float:
@@ -1150,9 +688,6 @@ def recognition_features(source, *, organism: str = "human", potential=None,
     chain-typed and MHC-annotated in place. :data:`DESCRIPTORS` gives each column's family and
     whether the receptor enters its definition.
 
-    Feed the result to :func:`frozen_recognizers` (or :class:`BayesianLogisticRecognizer`) for
-    ``P(real)`` — the probability the complex looks like a genuine TCR–pMHC recognition interface.
-
     With ``full=True`` the row is extended with the 18 CDR3-frame descriptors
     (:data:`CDR3_FRAME_FEATURES`) — the complete :data:`FULL_FEATURES` vector.
     """
@@ -1202,23 +737,45 @@ def recognition_features(source, *, organism: str = "human", potential=None,
                       f"the six dock_* features are NaN", RuntimeWarning, stacklevel=2)
 
     tm = cm.interface("tcr_mhc", tcr_regions="all")                  # interface energetics
-    row["F_tcr_mhc"] = float(_interface_energy(tm, mj_pot))
+    row["Phi_tcr_mhc"] = float(_interface_energy(tm, mj_pot))
     tp = cm.interface("tcr_peptide", tcr_regions="all")
     reg, ch = pl.col("region.type.from"), pl.col("chain.type.from")
-    row["F_tcr_pep"] = float(_interface_energy(tp, tcren_pot))
-    row["F_pep_mhc"] = float(_interface_energy(cm.interface("peptide_mhc"), mj_pot))
-    row["F_cdr12"] = float(_interface_energy(tp.filter(reg.is_in(["CDR1", "CDR2"])), tcren_pot))
-    row["F_cdr3a"] = float(_interface_energy(tp.filter((reg == "CDR3") & (ch == "TRA")), tcren_pot))
-    row["F_cdr3b"] = float(_interface_energy(tp.filter((reg == "CDR3") & (ch == "TRB")), tcren_pot))
+    row["Phi_tcr_pep"] = float(_interface_energy(tp, tcren_pot))
+    row["Phi_pep_mhc"] = float(_interface_energy(cm.interface("peptide_mhc"), mj_pot))
+    row["Phi_cdr12"] = float(_interface_energy(tp.filter(reg.is_in(["CDR1", "CDR2"])), tcren_pot))
+    row["Phi_cdr3a"] = float(_interface_energy(tp.filter((reg == "CDR3") & (ch == "TRA")), tcren_pot))
+    row["Phi_cdr3b"] = float(_interface_energy(tp.filter((reg == "CDR3") & (ch == "TRB")), tcren_pot))
     if native:
         try:
-            row["dF_tcr_pep"] = float(reference_delta(cm, native, tcren_pot, interface="tcr_peptide"))
+            row["dPhi_tcr_pep"] = float(reference_delta(cm, native, tcren_pot, interface="tcr_peptide"))
         except Exception:
             pass
         try:
-            row["dF_pep_mhc"] = float(reference_delta(cm, native, mj_pot, interface="peptide_mhc"))
+            row["dPhi_pep_mhc"] = float(reference_delta(cm, native, mj_pot, interface="peptide_mhc"))
         except Exception:
             pass
+
+    # The smoothed counterpart of dPhi: the same first difference in sequence, but against the free
+    # energy of the residue BACKGROUND rather than of poly-alanine, plus varPhi, the variance of the
+    # same local field. varPhi is a second CUMULANT, not a difference of differences -- the only
+    # `dd` quantity in the package is ddG, the change in binding free energy upon mutation.
+    # Emitted in both directions, because they answer different questions -- the peptide direction
+    # varies the peptide with the receptor frozen (the peptide scan), the TCR direction varies the
+    # receptor with the peptide frozen (the TCR scan) -- and the TCR direction is split by chain,
+    # since a linear model given the two chains apart can form any contrast between them, while one
+    # given only their sum cannot. See ddg.smoothed_reference.
+    from .ddg import smoothed_reference
+    for name, kw in (("pep", {"side": "peptide"}),
+                     ("tcr", {"side": "tcr"}),
+                     ("tra", {"side": "tcr", "chain": "TRA"}),
+                     ("trb", {"side": "tcr", "chain": "TRB"})):
+        try:
+            sm = smoothed_reference(cm, tcren_pot, **kw)
+        except Exception:
+            continue
+        row[f"dPhi_{name}_soft"] = sm["dPhi"]
+        if name in ("pep", "tcr"):
+            row[f"varPhi_{name}_soft"] = sm["varPhi"]
 
     row["extent"] = _extent(cm)                                      # coverage
     row["chain_balance"] = _chain_balance(cm)
@@ -1318,29 +875,29 @@ def _peptide_internal_columns(s) -> dict[str, float]:
     from .scoring import intra_peptide_energy
     try:
         cm = ContactMap.from_structure(s, peptide_internal=True)
-        return {"F_pep_int": float(intra_peptide_energy(cm, _mj())),
+        return {"Phi_pep_int": float(intra_peptide_energy(cm, _mj())),
                 "n_pep_int": float(cm.peptide_internal.height)}
     except Exception:  # noqa: BLE001 - no peptide chain etc.
         return {k: math.nan for k in PEPTIDE_INTERNAL_FEATURES}
 
 
-def recognition_table(items, *, organism: str = "human", full: bool = False, scores: bool = False,
-                      with_p_real: bool = True, threads: int = 1, chunk: int = 64,
+def recognition_table(items, *, organism: str = "human", full: bool = False,
+                      threads: int = 1, chunk: int = 64,
                       autodetect_species: bool = True, mechanics: bool = False,
                       include: Sequence[str] | None = None, radii: Sequence[float] = (7.0, 8.0),
-                      _mmseqs_threads: int = 0, _cohort_scores: bool = True) -> list[dict]:
+                      _mmseqs_threads: int = 0) -> list[dict]:
     """Batched feature (+score) extraction for a whole set of TCR–pMHC structures.
 
     ``items`` is an iterable of ``(id, structure-or-path)``. The set is annotated with a **single**
     arda call per organism (:func:`tcren.paper.helpers._batch_annotate`) and a **single** mmseqs MHC
     search (:func:`tcren.mhc.annotate_mhc_batch`) — the dataset-scale path that avoids the per-structure
-    annotation cost — then :func:`recognition_features` (``full=``) is extracted for each. With
-    ``with_p_real`` the ``p_real`` / ``p_real_bn`` recognizer columns are added; with ``scores`` the
-    fit-free cohort scores ``q_bind`` / ``s_strain`` (**recommended**, see :mod:`tcren.cohort`) plus
-    the fitted ``p_forced`` / ``p_bind`` (retained for reproducibility). ``full`` also appends the
-    intra-peptide columns :data:`PEPTIDE_INTERNAL_FEATURES` (``F_pep_int``, ``n_pep_int``) — the
+    annotation cost — then :func:`recognition_features` (``full=``) is extracted for each. This emits
+    **descriptors only**: the fitted composites and cohort-relative scores that used to ride along
+    here were removed in 2.26.0, and scoring is :func:`tcren.reliability.s_free` on the table.
+    ``full`` also appends the
+    intra-peptide columns :data:`PEPTIDE_INTERNAL_FEATURES` (``Phi_pep_int``, ``n_pep_int``) — the
     peptide's contact energy with itself, which the interface energies omit. Returns one row dict per
-    structure (``complex.id`` + features [+ scores]); a structure that fails yields
+    structure (``complex.id`` + features); a structure that fails yields
     ``{"complex.id": id, "error": ...}`` so the batch stays resilient.
 
     The two stages run **in sequence** and never compete for the machine.
@@ -1399,7 +956,7 @@ def recognition_table(items, *, organism: str = "human", full: bool = False, sco
 
     # stage 2: featurisation, the part that actually costs (94 % of wall time on a 100-pose probe:
     # 96 s against 2.4 s of arda and 0.9 s of MHC search). It is pure Python/numpy, so processes.
-    work = [(id_, s, organism, full, with_p_real, scores, mechanics, include, tuple(radii))
+    work = [(id_, s, organism, full, mechanics, include, tuple(radii))
             for id_, s in zip(ids, structs)]
     if threads > 1 and len(work) > 1:
         from concurrent.futures import ProcessPoolExecutor
@@ -1408,8 +965,6 @@ def recognition_table(items, *, organism: str = "human", full: bool = False, sco
     else:
         rows.extend(_featurise_one(w) for w in work)
 
-    if scores and _cohort_scores:                                     # fit-free cohort scores (recommended)
-        _add_cohort_scores(rows)
     return rows
 
 
@@ -1419,7 +974,7 @@ def _featurise_one(args) -> dict:
     The structure arrives already annotated: chain typing and the MHC call are batch operations and
     belong to the single search in :func:`recognition_table`, not to a per-structure worker.
     """
-    id_, s, organism, full, with_p_real, scores, mechanics, include, radii = args
+    id_, s, organism, full, mechanics, include, radii = args
     if include is not None:
         return _featurise_families(id_, s, organism, include, radii)
     try:
@@ -1427,16 +982,6 @@ def _featurise_one(args) -> dict:
         row = {"complex.id": id_, **feats, **_stability_clash_columns(s), **_symmetry_columns(s)}
         if full:                              # the intra-peptide term costs a second contact map
             row.update(_peptide_internal_columns(s))
-        if with_p_real:
-            p = real_probability(feats, recognizers=frozen_recognizers())
-            row["p_real"], row["p_real_bn"] = float(p["logistic"][0]), float(p["bn"][0])
-        if scores:
-            from .binder import binder_features, binder_score
-            row["p_forced"] = forced_pose_score(feats)
-            try:
-                row["p_bind"] = float(binder_score(binder_features(s)))
-            except Exception:  # noqa: BLE001 - binder ext optional
-                row["p_bind"] = math.nan
         if mechanics:
             from .mechanics import interface_mechanics
             row.update(interface_mechanics(s))
@@ -1479,85 +1024,5 @@ def _featurise_families(id_, s, organism: str, include, radii) -> dict:
     keep = {n for n, (fam, _) in DESCRIPTORS.items() if fam in want}
     keep |= {f"fp_{k}_r{r:g}" for r in radii for k in ("b0", "b1", "chi", "b0_frac")} if "topology" in want else set()
     return {"complex.id": id_, **{k: v for k, v in row.items() if k in keep}}
-
-
-def _add_cohort_scores(rows: list[dict]) -> None:
-    """Append the fit-free cohort scores ``q_bind`` (:func:`tcren.cohort.q_score`) and ``s_strain``
-    (:func:`tcren.cohort.strain_z`) in place. Cohort-relative, so they are computed over the whole
-    batch at once and are the **recommended** binder / forced-pose scores (see :mod:`tcren.cohort`).
-    Needs the ``full`` CDR3-frame features; NaN where a structure lacks them.
-    """
-    from . import cohort
-    ok = [r for r in rows if "error" not in r]
-    if len(ok) < 2:                                                   # cohort scores are undefined for <2
-        for r in ok:
-            r["q_bind"] = r["s_strain"] = math.nan
-        return
-    table = {k: [r.get(k, math.nan) for r in ok]
-             for k in set().union(*(r.keys() for r in ok)) if k != "complex.id"}
-    try:
-        q, s = cohort.q_score(table), cohort.strain_z(table)
-    except KeyError:                                                  # missing full features -> skip cleanly
-        return
-    for i, r in enumerate(ok):
-        r["q_bind"], r["s_strain"] = float(q[i]), float(s[i])
-
-
-@lru_cache(maxsize=None)
-def frozen_recognizers():
-    """Load the shipped real-vs-shuffled recognizers ``(logistic, bn)`` from ``tcren.data`` (cached).
-
-    ``logistic`` is the headline distribution-aware :class:`BayesianLogisticRecognizer`
-    (``shuffle_logistic.json.gz``); ``bn`` is the :class:`GaussianBNClassifier`
-    (``shuffle_bn.json.gz``). Feed rows from :func:`recognition_features` to :func:`real_probability`.
-    """
-    from importlib import resources
-    d = resources.files("tcren.data")
-    lr = BayesianLogisticRecognizer.load(str(d.joinpath("shuffle_logistic.json.gz")))
-    bn = GaussianBNClassifier.load(str(d.joinpath("shuffle_bn.json.gz")))
-    return lr, bn
-
-
-def real_probability(rows, *, recognizers=None) -> dict[str, np.ndarray]:
-    """``P(real)`` for feature rows from :func:`recognition_features`.
-
-    ``rows`` is a dict or a list of dicts keyed by :data:`RECOGNITION_FEATURES`. Returns
-    ``{"logistic": p, "bn": p}`` — the headline logistic recognizer and the Gaussian BN, each an array
-    of P(genuine TCR–pMHC interface). NaN features are imputed to the training mean by each model.
-
-    Both models were fitted before the duplicate columns were dropped, so they still ask for names
-    like ``e_cdr12``; :data:`_FROZEN_ALIASES` points those at the column that now carries the value.
-    """
-    if isinstance(rows, dict):
-        rows = [rows]
-    lr, bn = recognizers or frozen_recognizers()
-
-    def val(r: dict, k: str) -> float:
-        return r[k] if k in r else r.get(_FROZEN_ALIASES.get(k, k), np.nan)
-
-    Xlr = np.array([[val(r, k) for k in lr.feature_names] for r in rows], float)
-    Xbn = np.array([[val(r, k) for k in bn.feature_names] for r in rows], float)
-    m = np.array([r.get("mhc_class_bin", 0.0) for r in rows], float)
-    return {"logistic": lr.predict_proba(Xlr)[:, 1], "bn": bn.predict_proba(Xbn, m)[:, 1]}
-
-
-def forced_pose_score(feats: dict[str, float]) -> float:
-    """``P(forced)`` — probability a pose is an AF-forced interface, from :data:`FORCED_POSE_MODEL`.
-
-    ``feats`` is a row from :func:`recognition_features` with ``full=True`` (it needs the CDR3-frame
-    ``cdr3b_reach``/``cdr3b_topep``/``cdr3a_ext`` plus core ``dock_d``/``extent``/``n_contacts_tp``/
-    ``chain_balance``). ``extent_per_ct`` is derived as ``extent / n_contacts_tp``. Returns ``NaN`` if
-    any required feature is missing/undefined. High = "too good to be true" (see :data:`FORCED_POSE_MODEL`).
-    """
-    m = FORCED_POSE_MODEL
-    nc = feats.get("n_contacts_tp", math.nan)
-    derived = {"extent_per_ct": feats.get("extent", math.nan) / nc if nc else math.nan}
-    z = m["intercept"]
-    for name, w in zip(m["features"], m["coef"]):
-        v = derived.get(name, feats.get(name, math.nan))
-        if not (isinstance(v, (int, float)) and math.isfinite(v)):
-            return math.nan
-        z += w * float(v)
-    return 1.0 / (1.0 + math.exp(-max(-700.0, min(700.0, z))))
 
 

@@ -1,22 +1,11 @@
-"""TCR binder/non-binder classification from AF-orthogonal interface geometry.
+"""Interface-sanity flag for a modelled complex.
 
-The shipped model (:func:`binder_score`, :data:`BINDER_MODEL`) scores a TCR-pMHC complex from native
-interface descriptors (`tcren._geom`) plus the CDR1/2-vs-CDR3α TCRen potential term — signal that
-beats AlphaFold/TCRmodel2 confidence for ranking candidate TCRs against a fixed pMHC (denoised AUC
-0.928 vs AF 0.872). Feature extraction (:func:`binder_features`) is added once its native potential
-term is validated; the frozen classifier is available now.
+The fitted binder score this package once carried was removed in 2.26.0 -- its coefficients were
+frozen against a training set that no longer exists. What remains is the pre-energy check that a
+TCR:pMHC interface is a plausible dock at all, which is a rule over contact count and docking
+geometry rather than a model.
 """
 
-from __future__ import annotations
-
-from .model import BINDER_MODEL, FEATURES, binder_score
 from .noise import is_real_interface
 
-__all__ = ["binder_score", "BINDER_MODEL", "FEATURES", "is_real_interface"]
-
-
-def __getattr__(name):  # lazy: features pulls in _geom + scoring, keep import light
-    if name == "binder_features":
-        from .features import binder_features
-        return binder_features
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+__all__ = ["is_real_interface"]

@@ -344,7 +344,7 @@ def peptide_free_energy(sites: pl.DataFrame, model: PottsModel, *, coupled: bool
        \Phi^{\mathrm{Potts}}(x) \;=\; \log Z_0\big(\eta(x)\big)
        \;=\; \sum_a \log\!\big(1 + e^{\eta_a(x)}\big),
        \qquad
-       \Delta F_i(a) \;=\; \Phi^{\mathrm{Potts}}(x_{i \to a})
+       \Delta Phi_i(a) \;=\; \Phi^{\mathrm{Potts}}(x_{i \to a})
                           \;-\; \tfrac{1}{20}\sum_b \Phi^{\mathrm{Potts}}(x_{i \to b})
 
     Higher is more favourable: :math:`\log Z_0` is the interface's capacity to make contacts at all,

@@ -2,13 +2,13 @@
 import numpy as np
 import pytest
 
-from tcren.cohort import (F_TERMS, Q_FEATURES, Q_FEATURES_CORE, Q_FEATURES_GEOM, STRAIN_TERMS, f_score, native_reference, q_score, strain_z, zscore)
+from tcren.cohort import (PHI_TERMS, Q_FEATURES, Q_FEATURES_CORE, Q_FEATURES_GEOM, STRAIN_TERMS, phi_score, native_reference, q_score, strain_z, zscore)
 
 
 def _table(n=120, seed=0, **shift):
     rng = np.random.default_rng(seed)
-    cols = ["burial", "n_pep_contacted", "chain_balance", "n_hbond", "F_cdr12", "F_cdr3a",
-            "pitch", "F_tcr_mhc", "cdr3b_topep", "cdr3b_reach", "extent"]
+    cols = ["burial", "n_pep_contacted", "chain_balance", "n_hbond", "Phi_cdr12", "Phi_cdr3a",
+            "pitch", "Phi_tcr_mhc", "cdr3b_topep", "cdr3b_reach", "extent"]
     t = {c: rng.normal(size=n) for c in cols}
     t["n_contacts_tp"] = np.abs(rng.normal(size=n)) * 10 + 5
     for k, v in shift.items():
@@ -31,7 +31,7 @@ def test_zscore_rank_is_bounded_and_monotone():
 
 def test_native_reference_ships_and_has_q_descriptors():
     ref = native_reference()
-    for c in Q_FEATURES_GEOM + ("F_cdr12", "F_cdr3a"):
+    for c in Q_FEATURES_GEOM + ("Phi_cdr12", "Phi_cdr3a"):
         assert c in ref and len(ref[c]) > 300      # the ~369 Native2026 crystals
         assert np.isfinite(ref[c]).all()
 
@@ -141,22 +141,22 @@ def test_q_features_geom_is_the_four_geometry_terms():
 
 
 def _table_f(n=120, seed=4):
-    """Table with the two F contact-energy terms f_score needs."""
+    """Table with the two F contact-energy terms phi_score needs."""
     t = _table(n, seed)
     rng = np.random.default_rng(seed + 1)
-    t["F_tcr_pep"] = rng.normal(size=n)
-    t["F_tcr_mhc"] = rng.normal(size=n)
+    t["Phi_tcr_pep"] = rng.normal(size=n)
+    t["Phi_tcr_mhc"] = rng.normal(size=n)
     return t
 
 
-def test_f_score_is_binder_oriented_zscore_of_negated_energy():
+def test_phi_score_is_binder_oriented_zscore_of_negated_energy():
     t = _table_f()
-    # F = z(-(F_tcr_pep + F_tcr_mhc)): lower raw energy -> higher (more binder-like) score
-    expected = zscore(-(np.asarray(t["F_tcr_pep"]) + np.asarray(t["F_tcr_mhc"])))
-    assert np.allclose(f_score(t), expected)
-    assert F_TERMS == ("F_tcr_pep", "F_tcr_mhc")
+    # F = z(-(Phi_tcr_pep + Phi_tcr_mhc)): lower raw energy -> higher (more binder-like) score
+    expected = zscore(-(np.asarray(t["Phi_tcr_pep"]) + np.asarray(t["Phi_tcr_mhc"])))
+    assert np.allclose(phi_score(t), expected)
+    assert PHI_TERMS == ("Phi_tcr_pep", "Phi_tcr_mhc")
     # a structure with lower total energy ranks strictly higher
-    assert f_score(t)[np.argmin(np.asarray(t["F_tcr_pep"]) + np.asarray(t["F_tcr_mhc"]))] == f_score(t).max()
+    assert phi_score(t)[np.argmin(np.asarray(t["Phi_tcr_pep"]) + np.asarray(t["Phi_tcr_mhc"]))] == phi_score(t).max()
 
 
 def test_q_coupled_r_override_defaults_to_the_measured_coupling():
@@ -179,37 +179,6 @@ def test_q_coupled_r_override_defaults_to_the_measured_coupling():
     out = q_coupled(q, e, r=rvec)
     assert out.shape == (60,)
     assert np.isclose(out[10], q_coupled(q, e, r=float(rvec[10]))[10])
-
-
-def test_no_channel_names_a_banned_descriptor():
-    """`pitch` IS `pitch_angle`: both are `docking_angles(s).incident_angle`.
-
-    The project bans that quantity as AlphaFold-confidence leakage rather than interface geometry,
-    and it sat in `P_NATIVE_FEATURES["placement"]` until 2.17.0 under the shorter name — which is
-    exactly why the ban has to be checked on the resolved column list rather than on the spelling
-    somebody happened to type.
-    """
-    from tcren.cohort import (P_NATIVE_BANNED, P_NATIVE_CHANNELS, P_NATIVE_FEATURES,
-                              Q_FEATURES_GEOM, _channel_columns)
-
-    for ch in P_NATIVE_CHANNELS:
-        assert not (P_NATIVE_BANNED & set(_channel_columns(ch)))
-    assert not (P_NATIVE_BANNED & {n for v in P_NATIVE_FEATURES.values() for n in v})
-    assert not (P_NATIVE_BANNED & set(Q_FEATURES_GEOM))
-
-    with pytest.raises(ValueError, match="banned descriptor"):
-        _channel_columns("geometry", {"placement": ("height", "pitch")})
-
-
-def test_the_energetics_channel_reads_the_potts_energy():
-    """It read `F_tcr_pep` until 2.17.0 — the poly-alanine reference, which is the peptide task's
-    instrument and is at or below chance on the receptor task the channel is used for."""
-    from tcren.cohort import P_NATIVE_ORIENT, _channel_columns
-
-    cols = _channel_columns("energetics")
-    assert cols == ["neg_energy", "log_z", "log_lik"]
-    assert not [c for c in cols if c.startswith(("F_", "dF_"))]
-    assert P_NATIVE_ORIENT["energetics"].lstrip("-") in cols
 
 
 def test_the_potts_family_is_a_feature_family():

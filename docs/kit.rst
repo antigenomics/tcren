@@ -17,8 +17,8 @@ The expensive pass — parse, annotate, contact map, descriptors — runs once:
    tcren features   -s models/ -i placement,interface,topology,energetics -o feats.tsv
    tcren recognize  --features feats.tsv -o scores.tsv
 
-``scores.tsv`` carries ``Q`` (interface geometry), the three channel posteriors ``G``, ``T``, ``E``,
-``P_native``, and ``S_free`` with its calibrated ``p_binder``. Join your generator's ``iptm`` /
+``scores.tsv`` carries ``Q`` (interface geometry), ``T`` (footprint shape), and ``S_free`` with its
+calibrated ``p_binder``. Join your generator's ``iptm`` /
 ``plddt`` on the structure-file stem if you want to compose with them; they are not structural
 quantities, so tcren does not compute them.
 
@@ -37,13 +37,9 @@ The three questions the kit answers
    :func:`tcren.reliability.p_binder` turns it into a probability through a frozen out-of-fold
    Platt link.
 
-   ``P_native`` (:func:`tcren.cohort.p_native`) is still emitted. It is the posterior of a latent
-   class over the same three channels, fitted by expectation maximization on the cohort you pass;
-   the fit is unsupervised unless the caller passes ``anchors=``, and the shipped command line
-   never does. The published numbers (macro ROC-AUC 0.832 / PR-AUC 0.849 on a two-epitope
-   TCRvdb screen; 0.718 / 0.685 on a 22-cohort balanced VDJdb benchmark) come from a
-   leave-one-epitope-out *anchored* protocol — no scored structure informed the model that ranked
-   it, but they depend on which rows the fit was anchored on. It is not the recommended score.
+   The cohort-refit posterior that used to sit beside it was discarded in 2.26.0. It refitted a
+   latent class per call, so it was undefined for one structure and its numbers depended on which
+   rows the fit was anchored on — neither property survives contact with a user who has one model.
 
 **2. Did the generator have a template, and does that matter?**
    It matters enormously, and this is the result the method exists for. Split the VDJdb benchmark
@@ -70,10 +66,6 @@ The three questions the kit answers
         - 0.756
         - 0.608
         - 0.148
-      * - ``P_native``
-        - 0.721
-        - **0.716**
-        - **0.005**
 
    The shape of a footprint — how evenly six loops spread their contacts, whether the touched
    surface is one patch or several — is invariant under the rigid-body placement a co-folding model
@@ -89,14 +81,10 @@ The three questions the kit answers
 Composing with the generator's confidence
 -----------------------------------------
 
-Worth measuring, and worth measuring honestly. A plain logistic on ``P_native``, ipTM and pLDDT,
-fitted and read in sample as a demonstration of complementarity rather than a ranking claim, adds:
-
-- on TCRvdb, **nothing resolvable** — ΔROC +0.008 [−0.009, +0.027], ΔPR +0.012 [−0.012, +0.036];
-- on VDJdb, a small PR gain only — ΔPR +0.034 [+0.005, +0.054], ΔROC's interval containing zero.
-
-The generator's confidences rank well on their own; on these cohorts they carry little the
-structure does not already say.
+The generator's confidence and the structure are two read-outs of the same complex, and composing
+them is worth measuring rather than assuming. Report the confidence on its own, the structural score
+on its own, and the two together, on identical rows — a combination quoted without both of its parts
+cannot be checked.
 
 What the kit does *not* claim
 -----------------------------
@@ -108,6 +96,7 @@ What the kit does *not* claim
 - **Not a substitute for reporting template coverage.** Nothing computable from the model announces
   which regime a cohort is in — the generator's confidence least of all — so template availability
   is a covariate to report, not one to infer. It needs only a PDB lookup on the peptide.
-- ``P_native`` is **cohort-relative**: it standardizes and fits over the set you pass, and raises
-  when a cohort has fewer rows than features. Score a whole batch of candidates together, not one
-  at a time. For a single structure use ``S_free``, which has none of those properties.
+- **Not a number you can carry between versions.** Every table ``tcren features`` writes is stamped
+  with the descriptor catalogue that produced it, and ``tcren recognize --features`` refuses a table
+  written under a different one. A score is only meaningful against the catalogue it was computed
+  from; recompute rather than re-read.

@@ -85,6 +85,20 @@ def _resolve_potentials(
     return resolved
 
 
+def _phi_scale(interface: str, potential: Potential) -> float:
+    """The scale that makes one interface energy commensurate with the other two.
+
+    The Native2026 standard deviation of that interface's energy under that potential, read from
+    the frozen moments; :meth:`Potential.scale` (the sd of the potential's own matrix) when the
+    pair is not tabulated, which is what an unbundled potential or a non-default assignment gets.
+    """
+    from .reliability import moments
+
+    key = f"{interface}|{potential.name}"
+    entry = moments().get("phi", {}).get(key)
+    return float(entry["sd"]) if entry else potential.scale()
+
+
 @dataclass(slots=True)
 class PipelineResult:
     """Everything the pipeline produces for one structure.
@@ -258,7 +272,16 @@ def run(
         )
         for iface in _INTERFACE_POTENTIAL
     }
-    scores["total"] = sum(scores.values())
+    # Phi_TCRpMHC = c_TP Phi_TP + c_TM Phi_TM + c_PM Phi_PM. The three interfaces are scored with
+    # DIFFERENT potentials -- TCRen2 for recognition, MJ or Keskin for presentation -- and those are
+    # Boltzmann-inverted from different contact statistics, so their matrices are not on a common
+    # scale (sd 0.4880 / 0.3270 / 1.3181). An unweighted sum is therefore a sum of three quantities
+    # in three units. Each coefficient is 1 / the sd of that interface energy over the 374
+    # Native2026 crystals -- the scale the quantity actually realises on real complexes, which
+    # absorbs both the matrix scale and the interface's size. No label and no fit enter it, the
+    # same standing as the reliability block moments. See _phi_scale.
+    weights = {i: 1.0 / _phi_scale(i, resolved[i]) for i in _INTERFACE_POTENTIAL}
+    scores["total"] = sum(weights[i] * scores[i] for i in _INTERFACE_POTENTIAL)
 
     if intra_weight:
         # The peptide's contacts with itself: reported raw, folded into the total at its weight,
@@ -268,7 +291,7 @@ def run(
         scores["peptide_internal"] = intra_peptide_energy(
             cm, resolved["peptide_internal"], contact_weight=contact_weight
         )
-        scores["total"] += intra_weight * scores["peptide_internal"]
+        scores["total"] += intra_weight * scores["peptide_internal"] / resolved["peptide_internal"].scale()
 
     if reference_aa is not None:
         # ΔF = F(peptide) − F(poly-reference peptide) per interface, on THIS structure's own
@@ -285,7 +308,7 @@ def run(
                 cm, peptide, resolved[iface], interface=iface, reference_aa=reference_aa,
                 tcr_regions=tcr_regions, contact_weight=contact_weight,
             )
-        scores["delta_total"] = sum(scores[f"delta_{i}"] for i in _INTERFACE_POTENTIAL)
+        scores["delta_total"] = sum(weights[i] * scores[f"delta_{i}"] for i in _INTERFACE_POTENTIAL)
 
     # Interface-sanity (assay-noise) flag: a cheap pre-energy check that the TCR:peptide
     # interface is a plausible dock (enough contacts + in-range docking geometry). The docking
@@ -321,7 +344,7 @@ def score_row(result: PipelineResult) -> dict:
     """Flatten a :class:`PipelineResult` to a one-row scores dict (for a CSV table).
 
     The ``d_*`` reference-normalised columns are present only when the pipeline was run with
-    ``reference_aa`` set, and ``F_pep_int`` only when it was run with a non-zero ``intra_weight``.
+    ``reference_aa`` set, and ``Phi_pep_int`` only when it was run with a non-zero ``intra_weight``.
     """
     mhc = next((c for c in result.mhc_calls if c.chain_role == "MHCa"), None)
     row = {
@@ -331,18 +354,18 @@ def score_row(result: PipelineResult) -> dict:
         "rmsd": result.rmsd,
         # Same names as tcren.recognition.RECOGNITION_FEATURES, so the two tables join and the
         # project has ONE vocabulary for these quantities.
-        "F_tcr_pep": result.scores["tcr_peptide"],
-        "F_tcr_mhc": result.scores["tcr_mhc"],
-        "F_pep_mhc": result.scores["peptide_mhc"],
-        "F_total": result.scores["total"],
+        "Phi_tcr_pep": result.scores["tcr_peptide"],
+        "Phi_tcr_mhc": result.scores["tcr_mhc"],
+        "Phi_pep_mhc": result.scores["peptide_mhc"],
+        "Phi_total": result.scores["total"],
     }
     if "peptide_internal" in result.scores:
-        row["F_pep_int"] = result.scores["peptide_internal"]
+        row["Phi_pep_int"] = result.scores["peptide_internal"]
     if "delta_total" in result.scores:
         row.update({
-            "dF_tcr_pep": result.scores["delta_tcr_peptide"],
-            "dF_tcr_mhc": result.scores["delta_tcr_mhc"],
-            "dF_pep_mhc": result.scores["delta_peptide_mhc"],
-            "dF_total": result.scores["delta_total"],
+            "dPhi_tcr_pep": result.scores["delta_tcr_peptide"],
+            "dPhi_tcr_mhc": result.scores["delta_tcr_mhc"],
+            "dPhi_pep_mhc": result.scores["delta_peptide_mhc"],
+            "dPhi_total": result.scores["delta_total"],
         })
     return row

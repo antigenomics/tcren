@@ -3,7 +3,7 @@
 Every descriptor, with its units
 ================================
 
-All 117 descriptors ``tcren features --all`` emits, in catalogue order, with what each is
+All 123 descriptors ``tcren features --all`` emits, in catalogue order, with what each is
 invariant under and what it is measured in. The *receptor* column says whether the TCR enters the
 definition: a column marked **no** is computed from the peptide and its allele alone, so every
 structure of one epitope on one allele shares its value whatever the receptor, and it carries cohort
@@ -488,8 +488,8 @@ The footprint: its connectivity, its composition over labelled cells, and how th
      - yes
      - Patches per contacted residue at 8 A; the size-free form of Betti-0.
 
-energetics (9)
---------------
+energetics (15)
+---------------
 
 Statistical-potential interface sums and their poly-alanine references. Lower is more favourable.
 
@@ -502,47 +502,77 @@ Statistical-potential interface sums and their poly-alanine references. Lower is
      - units
      - receptor
      - definition
-   * - ``F_tcr_pep``
+   * - ``Phi_tcr_pep``
      - energetic
      - log-odds
      - yes
      - Phi over TCR-peptide contacts under TCRen2, summed over all TCR regions. Lower is more favourable.
-   * - ``F_tcr_mhc``
+   * - ``Phi_tcr_mhc``
      - energetic
      - log-odds
      - yes
      - Phi over TCR-MHC contacts under Miyazawa-Jernigan.
-   * - ``F_cdr12``
+   * - ``Phi_cdr12``
      - energetic
      - log-odds
      - yes
      - The CDR1 + CDR2 part of the TCR:peptide energy, both chains.
-   * - ``F_cdr3a``
+   * - ``Phi_cdr3a``
      - energetic
      - log-odds
      - yes
      - The CDR3alpha part of the TCR:peptide energy.
-   * - ``F_cdr3b``
+   * - ``Phi_cdr3b``
      - energetic
      - log-odds
      - yes
      - The CDR3beta part of the TCR:peptide energy.
-   * - ``dF_tcr_pep``
+   * - ``dPhi_tcr_pep``
      - energetic
      - log-odds
      - yes
      - Poly-alanine reference delta of the TCR:peptide energy; the pose-geometry baseline removed.
-   * - ``F_pep_mhc``
+   * - ``dPhi_pep_soft``
+     - energetic
+     - log-odds
+     - yes
+     - Smoothed reference delta, peptide direction: the peptide's energy minus the free energy of the residue background at each peptide position, receptor frozen.
+   * - ``varPhi_pep_soft``
+     - energetic
+     - log-odds^2
+     - yes
+     - Variance of the local field under the background, peptide direction: how sharply each peptide position's energy responds to residue identity, summed over positions. NOT a ddG -- it is a second cumulant, not a difference of differences.
+   * - ``dPhi_tcr_soft``
+     - energetic
+     - log-odds
+     - yes
+     - Smoothed reference delta, receptor direction: the receptor's energy minus the free energy of the residue background at each contacted TCR position, peptide frozen.
+   * - ``varPhi_tcr_soft``
+     - energetic
+     - log-odds^2
+     - yes
+     - Variance of the local field under the background, receptor direction, summed over contacted TCR positions.
+   * - ``dPhi_tra_soft``
+     - energetic
+     - log-odds
+     - yes
+     - The alpha-chain part of the receptor-direction smoothed reference delta.
+   * - ``dPhi_trb_soft``
+     - energetic
+     - log-odds
+     - yes
+     - The beta-chain part of the receptor-direction smoothed reference delta.
+   * - ``Phi_pep_mhc``
      - energetic
      - log-odds
      - **no**
      - Phi over peptide-MHC contacts under Miyazawa-Jernigan. Computed without the receptor.
-   * - ``dF_pep_mhc``
+   * - ``dPhi_pep_mhc``
      - energetic
      - log-odds
      - **no**
      - The same reference across peptide:MHC. Computed without the receptor.
-   * - ``F_pep_int``
+   * - ``Phi_pep_int``
      - energetic
      - log-odds
      - **no**
@@ -688,53 +718,71 @@ The contact map as a network of breakable springs. No potential enters: these ar
      - yes
      - Interface residue count; the size denominator for the coupling counts.
 
-composite scores (7)
---------------------
+flagged descriptors (17)
+------------------------
 
-Outputs of the descriptors above, never inputs. They are excluded from ``descriptors()`` unless
-``with_scores=True`` is passed.
+Descriptors that need a second look before they are used, from ``tcren.recognition.STATUS``.
+A name absent from this table has no known defect; presence is **not** a reason to drop the
+column, only to know what it is. ``suspicious`` means the quantity is not measuring what its
+family name suggests -- it reads the generator, or is fixed by an exact identity over other
+columns, or identifies the cohort rather than the complex. ``stalled`` means it is defined but
+does not move on the corpus.
 
 .. list-table::
    :header-rows: 1
-   :widths: 18 14 10 8 50
+   :widths: 20 12 68
 
-   * - score
-     - invariance
-     - units
-     - receptor
-     - definition
-   * - ``p_real``
-     - score
-     - probability
-     - yes
-     - Genuine recognition interface against a wrong-receptor shuffle.
-   * - ``p_real_bn``
-     - score
-     - probability
-     - yes
-     - The same question through the Bayesian-network fit.
-   * - ``p_forced``
-     - score
-     - probability
-     - yes
-     - Legacy forced-pose classifier; superseded by the strain z-score.
-   * - ``p_bind``
-     - score
-     - probability
-     - yes
-     - Legacy binder score; superseded by S_free.
-   * - ``q_bind``
-     - score
-     - z
-     - yes
-     - Fit-free binder contrast, kept for v1 reproduction.
-   * - ``s_strain``
-     - score
-     - z
-     - yes
-     - Interface-strain z-score: stretched CDR3 loops and thin contacts.
-   * - ``P_native``
-     - score
-     - probability
-     - yes
-     - Retired cohort posterior over the three channels, fitted per call by latent-class EM. Not recommended: it is undefined for a single structure.
+   * - descriptor
+     - flag
+     - why
+   * - ``pitch``
+     - suspicious
+     - reads the generator's confidence rather than the interface: it is docking_angles' incident_angle, and it out-discriminates every clean docking angle for that reason. Never use it as a feature.
+   * - ``fp_chi_r7``
+     - suspicious
+     - determined: chi = b0 - b1 at the same radius.
+   * - ``fp_chi_r8``
+     - suspicious
+     - determined: chi = b0 - b1 at the same radius.
+   * - ``D1_cell``
+     - suspicious
+     - determined: D1 = 12 ** H_cell.
+   * - ``J_cell``
+     - suspicious
+     - determined: J = H_cell * ln 12 / ln S_cell.
+   * - ``offset``
+     - suspicious
+     - determined: offset = hypot(shift_u, shift_w).
+   * - ``n_loop_contacts``
+     - suspicious
+     - determined: n_pep_contacts + n_mhc_contacts.
+   * - ``neg_energy``
+     - suspicious
+     - determined: log_z + log_lik.
+   * - ``S_tot``
+     - suspicious
+     - determined by K_tens and K_shear.
+   * - ``aniso``
+     - suspicious
+     - determined by K_tens and K_shear.
+   * - ``couple_total``
+     - suspicious
+     - determined: couple_pep + couple_mhc + couple_tcr.
+   * - ``crossing``
+     - suspicious
+     - determined: abs(crossing_signed).
+   * - ``Phi_pep_mhc``
+     - suspicious
+     - no receptor: constant across every structure of one epitope on one allele, so a receptor-ranking model reading it reaches the cohort label without reading an interface.
+   * - ``dPhi_pep_mhc``
+     - suspicious
+     - no receptor; see Phi_pep_mhc.
+   * - ``Phi_pep_int``
+     - suspicious
+     - no receptor; see Phi_pep_mhc.
+   * - ``n_pep_int``
+     - suspicious
+     - no receptor; see Phi_pep_mhc.
+   * - ``mhc_class_bin``
+     - suspicious
+     - no receptor: it is the MHC class, I or II.

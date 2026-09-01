@@ -25,13 +25,13 @@ construction, so re-centring does nothing; its *variance* is :math:`s^\top C^{-1
 without the division the energy would carry ten times the weight of the geometry. The claim the
 formula makes is **equal weight in native-sd units**, and the division is what makes it true.
 
-Why this and not ``P_native``
-------------------------------
+Why this and not a cohort-refit posterior
+------------------------------------------
 
-:func:`tcren.cohort.p_native` refits a latent-class model on every call and **raises when a cohort
-has fewer rows than features** — so it is undefined for a single structure, and its value depends on
-what else was scored alongside it. ``S_free`` fits nothing at call time. It is still emitted, and
-still documented, as a cohort-refit score; it is no longer the recommended one.
+The latent-class posterior this module replaced refitted on every call and **raised when a cohort
+had fewer rows than features** — so it was undefined for a single structure, and its value depended
+on what else was scored alongside it. Neither property survives contact with a user holding one
+model. It was discarded in 2.26.0. ``S_free`` fits nothing at call time.
 
 Calibration, and what a probability costs
 ------------------------------------------

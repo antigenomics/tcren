@@ -136,6 +136,48 @@ class Potential:
             raise KeyError(f"pair ({aa_from!r}, {aa_to!r}) not in potential {self.name!r}")
         return float(hit["value"][0])
 
+    def scale(self) -> float:
+        r"""The potential's own energy scale: the standard deviation over its defined pairs.
+
+        Two potentials Boltzmann-inverted from different contact statistics are not on a common
+        scale, so summing energies read off them weights whichever has the wider matrix. Measured
+        over the shipped matrices: TCRen2 0.4880, MJ 0.3270, **Keskin 1.3181** -- so an unweighted
+        :math:`\Phi_{\mathrm{TCR:pep}} + \Phi_{\mathrm{TCR:MHC}} + \Phi_{\mathrm{pep:MHC}}` is
+        2.70x more sensitive to a presentation contact than to a recognition one when the
+        presentation interfaces are scored with Keskin.
+
+        Dividing each interface energy by its potential's scale makes the three terms commensurate.
+        The coefficient is a property of the matrix alone -- no cohort, no label, no fit.
+
+        Diagonal and off-diagonal entries are pooled and each unordered pair counted once, since
+        the matrix is symmetric in use.
+        """
+        m, _ = self.as_matrix()
+        v = np.asarray(m, float)
+        iu = np.triu_indices_from(v)
+        w = v[iu]
+        w = w[np.isfinite(w)]
+        if w.size < 2:
+            raise ValueError(f"potential {self.name!r} has {w.size} defined pairs; no scale")
+        return float(w.std(ddof=0))
+
+    def offset(self) -> float:
+        """The potential's mean over its defined pairs (see :meth:`scale`).
+
+        An additive offset multiplied by a contact count is a contact count, not an energy, so a
+        potential with a large one -- Keskin's mean is -3.5630 and every entry is negative -- makes
+        its interface energy read mostly as interface size. Subtracting it leaves the identity
+        preference, which is what the other channels do not already carry.
+        """
+        m, _ = self.as_matrix()
+        v = np.asarray(m, float)
+        iu = np.triu_indices_from(v)
+        w = v[iu]
+        w = w[np.isfinite(w)]
+        if not w.size:
+            raise ValueError(f"potential {self.name!r} has no defined pairs")
+        return float(w.mean())
+
     def as_matrix(self) -> tuple[np.ndarray, dict[str, int]]:
         """Return a dense ``(n, n)`` matrix and an amino-acid → index map.
 

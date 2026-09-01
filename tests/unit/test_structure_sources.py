@@ -109,3 +109,29 @@ def test_iter_structures_never_yields_a_duplicate_id(tmp_path):
         (tmp_path / n).write_bytes(body)
     ids = sorted(i for i, _ in iter_structures(tmp_path, importer=parse_structure))
     assert ids == ["Model_1_min", "Model_2_min"]
+
+
+def test_appledouble_sidecars_are_skipped(tmp_path):
+    """Tarring a structure set on macOS writes ``._x.pdb`` beside every ``x.pdb``.
+
+    The sidecar carries a binary resource fork under the extension of the file it shadows,
+    so a parser reaches a decode error rather than a structure; the corpus recompute lost
+    two sets of 2,000+ models to exactly this.
+    """
+    from tcren.structure.io import is_structure_file
+
+    assert is_structure_file("4x5w.pdb")
+    assert not is_structure_file("._4x5w.pdb")
+    assert not is_structure_file("positives/._4x5w.pdb.gz")
+
+    d = tmp_path / "set"
+    d.mkdir()
+    (d / "1ao7.pdb").write_bytes(_ASSET.read_bytes())
+    (d / "._1ao7.pdb").write_bytes(b"\x00\x05\x16\x07\xa3Mac OS X resource fork")
+    assert [pid for pid, _ in iter_structures(d, importer=parse_structure)] == ["1ao7"]
+
+    tgz = tmp_path / "set.tar.gz"
+    with tarfile.open(tgz, "w:gz") as tar:
+        for p in sorted(d.iterdir()):
+            tar.add(p, arcname=p.name)
+    assert [pid for pid, _ in iter_structures(tgz, importer=parse_structure)] == ["1ao7"]

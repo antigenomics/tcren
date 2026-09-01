@@ -3,6 +3,71 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
+## [2.26.0] — 2026-09-01
+
+**Every fitted composite is gone, `F` is `Phi`, and a generated table now says which catalogue
+produced it.** The author's ruling: discard, do not deprecate, and rebuild from a recompute.
+
+### Removed
+- **`P_native` and `cohort.p_native`**, with `P_NATIVE_CHANNELS` / `_POOL` / `_ORIENT` /
+  `_FEATURES` / `_BANNED` and the per-channel posteriors `G` / `T` / `E`. It refitted a latent class
+  on every call, raised when a cohort had fewer rows than features, and its value depended on which
+  rows the fit was anchored on — none of which survives contact with a user holding one model.
+  `tcren footprint --score` now emits the fit-free `reliability.t_score` instead.
+- **The v1 score block** — `p_bind`, `p_forced`, `q_bind`, `s_strain` as emitted columns, and the
+  `--scores` and `--features-only` flags on `tcren recognize`. `cohort.q_score` and
+  `cohort.strain_z` remain as functions; what went is the frozen-coefficient layer around them.
+- **`FORCED_POSE_MODEL` and `forced_pose_score`**; **`tcren.binder.binder_score` / `BINDER_MODEL`
+  and the `tcren binder` command**. Their coefficients were frozen against training sets that no
+  longer exist, which made them the one part of the package a reader could not reproduce.
+- **`p_real` / `p_real_bn`**, with `real_probability`, `frozen_recognizers`, `encode_features`,
+  `GaussianBNClassifier`, `BayesianLogisticRecognizer`, `_hill_climb` and the shipped weights
+  `shuffle_logistic.json.gz` / `shuffle_bn.json.gz`.
+- The `score` family and the `score` invariance class. **The catalogue is descriptors only.**
+
+### Changed
+- **`F_*` → `Phi_*`, `dF_*` → `dPhi_*`, `F_TERMS` → `PHI_TERMS`, `f_score` → `phi_score`.** The
+  symbol in the manuscript is Φ; the code now uses it too. `d` in `dPhi` is the **reference
+  difference** ΔΦ = Φ(sequence) − Φ(reference), not a derivative — the docs say so at every site.
+- **`Phi_total` is the commensurate sum.** The three interfaces are scored with different
+  potentials, and those are Boltzmann-inverted from different contact statistics, so their matrices
+  are not on one scale (sd: TCRen2 0.4880, MJ 0.3270, **Keskin 1.3181**). An unweighted
+  Φ_TP + Φ_TM + Φ_PM is 2.70× more sensitive to a presentation contact than to a recognition one
+  when Keskin scores presentation. Each term now enters divided by the standard deviation of that
+  interface energy over the **374 Native2026 crystals** (1.6390 / 1.8697 / 4.3013), read from
+  `reliability_moments.json`; an untabulated potential falls back to `Potential.scale()`, the sd of
+  its own matrix. No label and no fit enters either.
+- **`tcren.__version__` reads pyproject when imported from a source checkout.** An editable
+  install writes its dist-info once, so `importlib.metadata` had been reporting **2.13.0** against a
+  source tree at 2.25.0 — twelve releases stale, and every provenance record in between wrong.
+
+### Added
+- **`ddg.smoothed_reference`** — ΔΦ against the **free energy of the residue background** instead of
+  one arbitrary poly-alanine sequence, plus `varPhi`, the variance of the same local field.
+  Both interfaces containing the varying chain are summed and the third cancels identically:
+  varying the peptide cannot change Φ_TCR:MHC, varying the TCR cannot change Φ_pep:MHC — verified,
+  exactly 0.000000, on both the frozen-map and structural paths. β → 0 recovers the equimolar mean
+  field a combinatorial library realises; β → ∞ the distance from the best residue at each position.
+  Emitted as `dPhi_{pep,tcr,tra,trb}_soft` and `varPhi_{pep,tcr}_soft`. The receptor direction is
+  **split by chain** so a linear model can form the TRB − TRA contrast rather than being handed it.
+- **`tcren.provenance`** — every table `tcren features` writes gets a `<name>.provenance.json`
+  recording the version, the invocation and a **SHA-256 digest of the descriptor catalogue** (names,
+  families, invariance classes, units and definitions). `tcren recognize --features` checks it and
+  **refuses** a table written under a different catalogue, naming the command that would regenerate
+  it. This is the guard against quoting a number from a stale table that a fresh run would not
+  reproduce; it fired on its first real use.
+- **`recognition.STATUS`** — the descriptors that need a second look, and why: `pitch` (reads the
+  generator's confidence, never a feature), eleven columns fixed by an exact algebraic identity over
+  others, and five computed without the receptor, which carry cohort identity. Rendered as its own
+  table in `docs/descriptor_table.rst`.
+- **`Potential.scale()` / `.offset()`** — the sd and mean over a potential's defined pairs.
+
+### Fixed
+- **macOS AppleDouble sidecars are no longer parsed as structures.** Tarring a structure set on HFS
+  writes `._x.pdb` beside every `x.pdb`, carrying a binary resource fork under the same extension;
+  `is_structure_file` accepted them and the parser died on a decode error several frames from the
+  cause. The corpus recompute lost two sets of 2,000+ models to exactly this.
+
 ## [2.25.0] — 2026-09-01
 
 **The alanine scan moves atoms, on both sides of the interface.** `tcren ddg --alanine-scan` had

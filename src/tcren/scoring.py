@@ -256,7 +256,7 @@ def recognition_matrix(
     """The per-position × 20-AA substitution-energy matrix for one interface side.
 
     For ``interface="tcr_peptide"``, ``side="from"`` scans the **TCR/CDR3** (the motif-matrix analog)
-    and ``side="to"`` scans the **peptide** (the CPL-matrix analog). Each entry is the F energy summed
+    and ``side="to"`` scans the **peptide** (the CPL-matrix analog). Each entry is the Φ energy summed
     over that position's contacts with the given amino acid substituted in, the opposite side fixed —
     the same virtual-substitution path as :func:`score_peptides`, resolved per position rather than
     summed over the whole sequence.

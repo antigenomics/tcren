@@ -75,7 +75,7 @@ def _oracle_set(pdb_id: str, oracle: pl.DataFrame) -> set[tuple]:
 # Structures deposited with explicit hydrogens. The legacy pipeline counted H-mediated pairs as
 # residue contacts, so its contact set for these is a superset of ours: tcren now filters hydrogens
 # in `_atom_arrays`, because otherwise the same complex scores differently depending only on whether
-# the depositor modelled H (5jhd: 7 of 28 TCR:peptide contacts and -58.5% on F_tcr_pep; 7qpj: 8 of 33
+# the depositor modelled H (5jhd: 7 of 28 TCR:peptide contacts and -58.5% on Phi_tcr_pep; 7qpj: 8 of 33
 # and +38.6%). Parity is asserted on the heavy-atom subset, which is what both pipelines mean by a
 # 5 Å contact.
 _HAS_HYDROGENS = {"5jhd", "7qpj"}

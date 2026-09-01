@@ -206,7 +206,7 @@ def test_recognize_mechanics_matches_standalone():
     if not pdb.exists():
         pytest.skip(f"bundled structure not found: {pdb}")
 
-    row = recognition_table([("1mi5", pdb)], mechanics=True, with_p_real=False)[0]
+    row = recognition_table([("1mi5", pdb)], mechanics=True)[0]
     assert "error" not in row, row
 
     s = import_structure(pdb)                      # annotate the same way recognition_table does

@@ -24,7 +24,7 @@ def test_reference_is_complete_in_every_block_descriptor(ref):
 
 
 def test_s_free_is_defined_for_a_single_structure(ref):
-    """The property `cohort.p_native` cannot have: it refits per call and raises when rows <=
+    """The property the discarded cohort posterior could not have: it refit per call and raised when rows <=
     features, so it is undefined for one row."""
     one = {k: v[:1] for k, v in ref.items()}
     s = rel.s_free(one, energy=one["neg_energy"])

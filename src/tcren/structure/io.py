@@ -40,8 +40,16 @@ def _strip_gz(name: str) -> tuple[str, bool]:
 
 
 def is_structure_file(name: str | Path) -> bool:
-    """True if ``name`` is a (optionally gzipped) PDB/mmCIF structure file."""
+    """True if ``name`` is a (optionally gzipped) PDB/mmCIF structure file.
+
+    Rejects macOS AppleDouble sidecars (``._4x5w.pdb``), which carry the extension of the
+    file they shadow but hold a binary resource fork -- tarring a structure set on HFS+
+    writes one beside every member, and feeding one to a parser raises a decode error
+    several frames from the cause.
+    """
     inner, _ = _strip_gz(Path(name).name)
+    if inner.startswith("._"):
+        return False
     return inner.lower().endswith(STRUCTURE_SUFFIXES)
 
 

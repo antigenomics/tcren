@@ -488,3 +488,157 @@ def reference_delta(
                interface=interface, tcr_regions=tcr_regions, contact_weight=contact_weight,
                structure=structure, cutoff=cutoff, sidechain=sidechain,
                mhc_potential=mhc_potential)
+
+
+#: Which interfaces a smoothed reference varies, and which side of each carries the varying chain.
+#:
+#: The complex Hamiltonian is
+#: :math:`\Phi = c_{\mathrm{TP}}\Phi_{\mathrm{TCR:pep}} + c_{\mathrm{TM}}\Phi_{\mathrm{TCR:MHC}}
+#: + c_{\mathrm{PM}}\Phi_{\mathrm{pep:MHC}}`, so a substitution on one chain leaves one whole term
+#: untouched and that term drops out of the difference:
+#:
+#: * varying the **peptide** kills :math:`\Delta\Phi_{\mathrm{TCR:MHC}}` -- no peptide residue is in it;
+#: * varying the **TCR** kills :math:`\Delta\Phi_{\mathrm{pep:MHC}}` -- no TCR residue is in it.
+#:
+#: Each remaining interface is scored with its own potential and divided by its own Native2026
+#: scale, so the two surviving terms are commensurate before they are added.
+SMOOTH_INTERFACES: dict[str, tuple[tuple[str, str], ...]] = {
+    "peptide": (("tcr_peptide", "to"), ("peptide_mhc", "from")),
+    "tcr": (("tcr_peptide", "from"), ("tcr_mhc", "from")),
+}
+
+
+def smoothed_reference(
+    contact_map: ContactMap,
+    potential: Potential,
+    *,
+    side: str = "peptide",
+    beta: float = 1.0,
+    background=None,
+    tcr_regions: str = "all",
+    chain: str | None = None,
+    mhc_potential: Potential | None = None,
+    weights: dict | None = None,
+) -> dict:
+    r"""Boltzmann-smoothed reference difference :math:`\delta\Phi` and its curvature.
+
+    The hard reference of :func:`reference_delta` subtracts the energy of one arbitrary sequence
+    (poly-alanine). This subtracts the **free energy of the residue background** instead, so the
+    baseline is a distribution rather than a choice of amino acid.
+
+    Both interfaces that contain the varying chain are summed; the third drops out identically (see
+    :data:`SMOOTH_INTERFACES`). Because no interface energy carries a within-chain term,
+    :math:`\Phi` is a sum of independent local fields over the varying positions,
+
+    .. math::  \varphi_i(a) \;=\; \sum_{\text{interfaces } I} c_I
+               \sum_{j \,:\, (i,j) \in C_I} e_I(a, y_j)
+
+    -- position :math:`i` of the varying chain, amino acid :math:`a`, summed over that position's
+    contacts with the frozen partners :math:`y`, each interface weighted by its own
+    :math:`c_I = 1/\mathrm{sd}_{\mathrm{Native2026}}(\Phi_I)`. The partition function therefore
+    factorizes exactly, and the reference free energy is available in closed form:
+
+    .. math::  \Phi_{\mathrm{ref}} \;=\; -\frac{1}{\beta}\sum_i
+               \log \sum_a p(a)\, e^{-\beta \varphi_i(a)}
+
+    with :math:`p` the background composition over the 20 amino acids. Then
+
+    .. math::  \delta\Phi \;=\; \Phi(\text{observed}) - \Phi_{\mathrm{ref}}, \qquad
+               \operatorname{Var}\Phi \;=\; \sum_i \operatorname{Var}_{\beta}\!\left[\varphi_i\right]
+
+    where the variance is taken under the tilted weights
+    :math:`p(a)e^{-\beta\varphi_i(a)}/\sum_b p(b)e^{-\beta\varphi_i(b)}`.
+
+    :math:`\delta\Phi` is a first difference in sequence, against a smooth baseline;
+    :math:`\operatorname{Var}\Phi` is the second cumulant of the same log partition function, i.e. how
+    sharply that position's energy responds to residue identity at all. A position whose twenty
+    fields are equal contributes nothing to either; one with a single strongly preferred residue
+    contributes to both.
+
+    :math:`\beta` sets how much of the background is averaged over. :math:`\beta \to 0` gives the
+    arithmetic mean field :math:`\varphi_i(a_i) - \langle\varphi_i\rangle_p`, which is the reference
+    state a combinatorial peptide library actually realises (every other position held at an
+    equimolar mixture); :math:`\beta \to \infty` gives :math:`\varphi_i(a_i) - \min_a \varphi_i(a)`,
+    the distance from the best residue available at that position. The default :math:`\beta = 1` is
+    the potential's own scale, since a Boltzmann-inverted potential is already in units of
+    :math:`k_{\mathrm B}T`.
+
+    Args:
+        contact_map: the structure's contact map.
+        potential: the TCR:peptide potential (TCRen2).
+        side: ``"peptide"`` (vary the peptide, receptor frozen -- the peptide scan) or ``"tcr"``
+            (vary the receptor, peptide frozen -- the TCR scan). See :data:`SMOOTH_INTERFACES`.
+        beta: inverse temperature in the potential's units (default 1.0).
+        background: 20-vector of amino-acid frequencies in :data:`tcren.scoring.RecognitionMatrix`
+            column order, or ``None`` (default) for the equimolar background.
+        tcr_regions: TCR-region filter, applied on the TCR side.
+        chain: restrict a ``side="tcr"`` scan to one chain (``"TRA"`` or ``"TRB"``), so the two
+            chains can be read apart rather than pooled. ``None`` (default) keeps both.
+        mhc_potential: the potential for the presentation interface (default Miyazawa-Jernigan,
+            which is what :mod:`tcren.pipeline` assigns there).
+        weights: ``{interface: coefficient}`` override; ``None`` (default) reads the Native2026
+            scales through :func:`tcren.pipeline._phi_scale`.
+
+    Returns:
+        ``{"dPhi": float, "varPhi": float, "n_positions": int}``. Both sums are ``0.0`` over an empty
+        position set, which is what an interface with no contacts on that side should score.
+    """
+    import numpy as np
+
+    from .pipeline import _phi_scale
+    from .potential import mj
+    from .scoring import recognition_matrix
+
+    if side not in SMOOTH_INTERFACES:
+        raise ValueError(f"side must be one of {sorted(SMOOTH_INTERFACES)}, got {side!r}")
+    if beta <= 0:
+        raise ValueError(f"beta must be positive, got {beta}")
+
+    mhc_pot = mj() if mhc_potential is None else mhc_potential
+    fields: dict[tuple, "np.ndarray"] = {}
+    aa: tuple = ()
+    for iface, which in SMOOTH_INTERFACES[side]:
+        pot = potential if iface == "tcr_peptide" else mhc_pot
+        c = (weights or {}).get(iface, 1.0 / _phi_scale(iface, pot))
+        rm = recognition_matrix(contact_map, pot, interface=iface, side=which,
+                                tcr_regions=tcr_regions)
+        aa = aa or rm.aa
+        for i, key in enumerate(rm.positions):
+            if chain is not None and key[0] != chain:
+                continue
+            v = c * np.asarray(rm.energy, float)[i]
+            fields[key] = v if key not in fields else fields[key] + v
+
+    if not fields:
+        return {"dPhi": 0.0, "varPhi": 0.0, "n_positions": 0}
+
+    keys = list(fields)
+    phi = np.vstack([fields[k] for k in keys])                       # (n_positions, 20)
+    native = np.array([aa.index(k[3]) if k[3] in aa else -1 for k in keys])
+
+    p = (np.full(20, 1.0 / 20.0) if background is None
+         else np.asarray(background, float) / np.sum(background))
+
+    # An amino acid the potential leaves undefined (NaN) carries no weight, rather than poisoning
+    # the whole position -- the same rule `score_peptides` applies when it drops those contacts.
+    ok = np.isfinite(phi)
+    w = np.where(ok, p[None, :], 0.0)
+    e = np.where(ok, phi, 0.0)
+
+    shift = np.min(np.where(ok, phi, np.inf), axis=1, keepdims=True)   # log-sum-exp, per position
+    u = w * np.exp(-beta * (e - shift))
+    z = u.sum(axis=1)
+    live = z > 0
+    if not live.any():
+        return {"dPhi": 0.0, "varPhi": 0.0, "n_positions": 0}
+
+    f_ref = np.where(live, shift[:, 0] - np.log(np.where(live, z, 1.0)) / beta, 0.0)
+    q = np.where(live[:, None], u / np.where(live, z, 1.0)[:, None], 0.0)   # tilted weights
+    m1 = (q * e).sum(axis=1)
+    var = (q * e * e).sum(axis=1) - m1 * m1
+
+    got = live & (native >= 0)
+    phi_obs = np.where(got, e[np.arange(len(native)), np.clip(native, 0, 19)], 0.0)
+    return {"dPhi": float(np.sum(phi_obs[got] - f_ref[got])),
+            "varPhi": float(np.sum(var[live])),
+            "n_positions": int(got.sum())}

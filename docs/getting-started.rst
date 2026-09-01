@@ -97,7 +97,7 @@ Two options change what is reported:
 
 ``--delta``
    adds the poly-alanine reference :math:`\Delta\Phi_I=\Phi_I(\text{peptide})-\Phi_I(\text{poly-Ala})`
-   per interface, plus ``dF_total``. :math:`\Delta\Phi_{\mathrm{TCR:MHC}}` is identically zero — the
+   per interface, plus ``dPhi_total``. :math:`\Delta\Phi_{\mathrm{TCR:MHC}}` is identically zero — the
    peptide is not in that interface. On a *fixed* contact map :math:`\Delta\Phi` is :math:`\Phi`
    minus a constant and reorders nothing; use it when each candidate carries its **own** generated
    pose, where raw :math:`\Phi` partly reads the pose the predictor chose.
@@ -109,7 +109,7 @@ Two options change what is reported:
    single structure. For the complete descriptor catalogue plus ``P(real)``, use
    ``tcren recognize``.
 
-Columns are named as in ``tcren recognize`` (``F_tcr_pep``, ``dF_pep_mhc``, …), but the key is
+Columns are named as in ``tcren recognize`` (``Phi_tcr_pep``, ``dPhi_pep_mhc``, …), but the key is
 not: ``tcren scoring`` emits ``pdb.id`` and ``tcren recognize`` emits ``complex.id``, so rename
 one of them before joining the two tables.
 
@@ -197,12 +197,10 @@ Case studies
   specific neoantigen substitutions. Positive ΔΔG = stabilising (the mutant scores lower).
 
 * **Rank candidate TCRs against a fixed pMHC.** ``tcren features`` then ``tcren recognize
-  --features`` gives ``S_free``, the recommended score — three fit-free blocks, so it is defined
-  for a single structure — alongside ``P_native``: a latent class over interface geometry,
-  footprint topology and contact energetics, fitted by expectation-maximization on the cohort you
-  pass, with no binding label anywhere in the fit. ``P_native`` is cohort-relative, so score the
-  whole candidate set together. See :func:`tcren.reliability.s_free`,
-  :func:`tcren.cohort.p_native` and :doc:`kit`.
+  --features`` gives ``S_free``, the recommended score — three fit-free blocks over interface
+  geometry, footprint topology and contact energetics, each a directional score against the
+  Native2026 crystals, so it is defined for a **single structure** and its value does not depend on
+  what else was scored alongside it. See :func:`tcren.reliability.s_free` and :doc:`kit`.
 
 * **Substitute + refine a pose.** ``tcren refine --substitute`` threads a new equal-length peptide
   onto the backbone and runs a knowledge-based Monte-Carlo refinement scored by the DOPE atom-level

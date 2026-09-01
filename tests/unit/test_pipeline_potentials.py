@@ -48,7 +48,7 @@ def test_swapping_tcr_mhc_to_tcren_changes_score():
 def test_intra_peptide_term_is_off_by_default():
     scores = run(_FIXTURE, superimpose=False).scores
     assert "peptide_internal" not in scores
-    assert "F_pep_int" not in score_row(run(_FIXTURE, superimpose=False))
+    assert "Phi_pep_int" not in score_row(run(_FIXTURE, superimpose=False))
 
 
 def test_intra_weight_reports_the_term_raw_and_folds_it_into_the_total():
@@ -59,8 +59,11 @@ def test_intra_weight_reports_the_term_raw_and_folds_it_into_the_total():
         assert weighted.scores[iface] == default.scores[iface]
     term = weighted.scores["peptide_internal"]
     assert term != 0.0
-    assert weighted.scores["total"] == pytest.approx(default.scores["total"] + 3.0 * term)
-    assert score_row(weighted)["F_pep_int"] == term
+    # the term enters the total on the same normalised scale as the three interfaces, so its
+    # weight means the same thing whichever potential scores it
+    scale = _resolve_potentials(None)["peptide_internal"].scale()
+    assert weighted.scores["total"] == pytest.approx(default.scores["total"] + 3.0 * term / scale)
+    assert score_row(weighted)["Phi_pep_int"] == term
 
 
 def test_intra_peptide_potential_defaults_to_mj_and_is_overridable():

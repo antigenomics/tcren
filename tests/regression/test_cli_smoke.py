@@ -76,26 +76,35 @@ def test_scoring_reports_three_interfaces_and_delta(tmp_path):
     run("scoring", "-s", ASSET, "-o", out, "--delta", "--no-superimpose")
     df = pl.read_csv(out)
     assert df.height == 1 and df["pdb.id"][0] == "1ao7"
-    # Phi is decomposed over the three interfaces and they sum to the total.
-    parts = ["F_tcr_pep", "F_tcr_mhc", "F_pep_mhc"]
+    # Phi is decomposed over the three interfaces; the total is their Native2026-normalised sum,
+    # since the three are scored with potentials that are not on a common scale.
+    parts = ["Phi_tcr_pep", "Phi_tcr_mhc", "Phi_pep_mhc"]
     assert set(parts) <= set(df.columns), df.columns
-    assert df["F_total"][0] == pytest.approx(sum(df[c][0] for c in parts), abs=1e-6)
-    assert "dF_pep_mhc" in df.columns, "--delta must add the poly-alanine reference"
+    from tcren.pipeline import _phi_scale, _resolve_potentials
+    pots = _resolve_potentials(None)
+    want = sum(df[c][0] / _phi_scale(i, pots[i])
+               for c, i in zip(parts, ("tcr_peptide", "tcr_mhc", "peptide_mhc")))
+    assert df["Phi_total"][0] == pytest.approx(want, abs=1e-6)
+    assert "dPhi_pep_mhc" in df.columns, "--delta must add the poly-alanine reference"
 
 
 @arda
-def test_recognize_reports_descriptors_scores_and_mechanics(tmp_path):
-    """The manuscript's path: one command, one table, all three column families in it."""
+def test_recognize_reports_descriptors_and_mechanics(tmp_path):
+    """The manuscript's path: one command, one table, descriptors and mechanics in it.
+
+    The fitted composites (`p_real`, `p_bind`, `p_forced`) and the cohort-relative `q_bind` /
+    `s_strain` that this command used to append were removed in 2.26.0 -- their coefficients were
+    frozen against training sets that no longer exist. Scoring is `tcren recognize --features`.
+    """
     pytest.importorskip("arda")
     out = tmp_path / "rec.tsv"
-    run("recognize", "-s", ASSET, "-o", out, "--scores", "--mechanics")
+    run("recognize", "-s", ASSET, "-o", out, "--mechanics")
     df = pl.read_csv(out, separator="\t")
     assert df.height == 1 and df["complex.id"][0] == "1ao7"
     assert "error" not in df.columns, df.to_dicts()
     assert {"burial", "chain_balance", "n_hbond"} <= set(df.columns)      # descriptors
-    assert {"p_real", "q_bind", "s_strain"} <= set(df.columns)            # scores
     assert {"K_tens", "rupture_work", "couple_total"} <= set(df.columns)  # --mechanics
-    assert 0.0 < df["p_real"][0] < 1.0
+    assert not {"p_real", "p_bind", "p_forced", "q_bind", "s_strain"} & set(df.columns)
 
 
 @arda

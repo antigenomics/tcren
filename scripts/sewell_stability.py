@@ -61,12 +61,12 @@ def one(task):
         row = {"clone": clone, "is_best": is_best, "pdb": path.stem,
                "peptide": "".join(r.aa for c in s.chains if c.chain_type == "PEPTIDE"
                                   for r in c.residues)}
-        row["F_tcr_pep"] = float(_interface_energy(cm.interface("tcr_peptide"), tcren()))
-        row["F_pep_mhc"] = float(_interface_energy(cm.interface("peptide_mhc"), mj()))
+        row["Phi_tcr_pep"] = float(_interface_energy(cm.interface("tcr_peptide"), tcren()))
+        row["Phi_pep_mhc"] = float(_interface_energy(cm.interface("peptide_mhc"), mj()))
         # The intra-peptide CONTACT energy: the additive model's own view of the same interactions
         # whose dynamical effect we are measuring.
         from tcren.scoring import intra_peptide_energy
-        row["F_intra"] = float(intra_peptide_energy(cm, mj()))
+        row["Phi_intra"] = float(intra_peptide_energy(cm, mj()))
         row["n_intra"] = int(cm.peptide_internal.height) if cm.peptide_internal is not None else 0
 
         for w, tag in ((1.0, "intra1"), (0.0, "intra0")):
@@ -127,7 +127,7 @@ if __name__ == "__main__":
     pl.Config.set_tbl_width_chars(170)
 
     print("\n=== per clone: AUC(best vs worst) — does each signal separate them? ===")
-    print("    contact = -F_tcr_pep (lower energy = better binder)")
+    print("    contact = -Phi_tcr_pep (lower energy = better binder)")
     print("    stable  = -rmsf      (less motion  = better binder)")
     out = []
     for clone in sorted(set(d["clone"])):
@@ -135,21 +135,21 @@ if __name__ == "__main__":
         lab = sub["is_best"].to_numpy()
         out.append({
             "clone": clone, "n_best": int(lab.sum()), "n_worst": int((~lab).sum()),
-            "contact": auc(-sub["F_tcr_pep"].to_numpy(), lab),
-            "pep_mhc": auc(-sub["F_pep_mhc"].to_numpy(), lab),
+            "contact": auc(-sub["Phi_tcr_pep"].to_numpy(), lab),
+            "pep_mhc": auc(-sub["Phi_pep_mhc"].to_numpy(), lab),
             "stable": auc(-sub["rmsf_intra1"].to_numpy(), lab),
             "stable_nointra": auc(-sub["rmsf_intra0"].to_numpy(), lab),
             "delta_rmsf": auc(sub["delta_rmsf"].to_numpy(), lab),
-            "F_intra": auc(-sub["F_intra"].to_numpy(), lab),
+            "Phi_intra": auc(-sub["Phi_intra"].to_numpy(), lab),
         })
     res = pl.DataFrame(out).with_columns(
         pl.col(c).round(3) for c in ("contact", "pep_mhc", "stable", "stable_nointra",
-                                     "delta_rmsf", "F_intra"))
+                                     "delta_rmsf", "Phi_intra"))
     print(res)
 
     lab = d["is_best"].to_numpy()
     print("\npooled: contact %.3f | stable %.3f | delta_rmsf %.3f"
-          % (auc(-d["F_tcr_pep"].to_numpy(), lab), auc(-d["rmsf_intra1"].to_numpy(), lab),
+          % (auc(-d["Phi_tcr_pep"].to_numpy(), lab), auc(-d["rmsf_intra1"].to_numpy(), lab),
              auc(d["delta_rmsf"].to_numpy(), lab)))
 
     print("\n=== the hypothesis: does stability carry signal where the contact model fails? ===")

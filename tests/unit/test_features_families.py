@@ -21,12 +21,12 @@ from tcren.recognition import (
 
 
 def test_every_descriptor_has_a_known_family():
-    bad = {n: fam for n, (fam, _) in DESCRIPTORS.items() if fam not in set(FAMILIES) | {"score"}}
+    bad = {n: fam for n, (fam, _) in DESCRIPTORS.items() if fam not in set(FAMILIES)}
     assert not bad, bad
 
 
 def test_families_partition_the_catalogue():
-    total = sum(len(descriptors(f)) for f in FAMILIES) + len(descriptors("score", with_scores=True))
+    total = sum(len(descriptors(f)) for f in FAMILIES)
     assert total == len(DESCRIPTORS)
     # and no name is claimed twice
     seen = [n for f in FAMILIES for n in descriptors(f)]
@@ -50,7 +50,7 @@ def test_placement_holds_the_translational_terms_no_angle_can_see():
     assert set(TCR_PLACEMENT_FEATURES) <= p
     # the pose angles belong here too, and the contact chemistry does not
     assert {"crossing_signed", "dock_d", "dock_torsion"} <= p
-    assert not p & {"burial", "n_hbond", "F_tcr_pep"}
+    assert not p & {"burial", "n_hbond", "Phi_tcr_pep"}
 
 
 def test_contact_counts_are_interface_size_not_topology():
@@ -77,18 +77,19 @@ def test_the_engaged_pair_count_belongs_to_potts_and_to_no_other_family():
 
 def test_energetics_is_the_energy_channel_and_nothing_else():
     e = set(descriptors("energetics"))
-    assert e == {"F_tcr_pep", "F_tcr_mhc", "F_cdr12", "F_cdr3a", "F_cdr3b",
-                 "dF_tcr_pep", "F_pep_mhc", "dF_pep_mhc", "F_pep_int"}
+    assert e == {"Phi_tcr_pep", "Phi_tcr_mhc", "Phi_cdr12", "Phi_cdr3a", "Phi_cdr3b",
+                 "dPhi_pep_soft", "varPhi_pep_soft", "dPhi_tcr_soft", "varPhi_tcr_soft",
+                 "dPhi_tra_soft", "dPhi_trb_soft",
+                 "dPhi_tcr_pep", "Phi_pep_mhc", "dPhi_pep_mhc", "Phi_pep_int"}
 
 
 def test_tcr_only_drops_the_cohort_identity_columns():
     """A pMHC-only column is shared by every receptor of an epitope, so it leaks cohort identity."""
     assert "mhc_class_bin" in descriptors("interface")
     assert "mhc_class_bin" not in descriptors("interface", tcr_only=True)
-    assert "F_pep_mhc" not in descriptors("energetics", tcr_only=True)
+    assert "Phi_pep_mhc" not in descriptors("energetics", tcr_only=True)
 
 
 def test_scores_are_excluded_from_every_family_by_default():
     for f in FAMILIES:
-        assert not set(descriptors(f)) & {"p_real", "P_native", "q_bind"}
-    assert "P_native" in descriptors("score", with_scores=True)
+        assert not set(descriptors(f)) & {"S_free", "Q", "T", "p_binder"}
