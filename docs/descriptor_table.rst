@@ -3,7 +3,7 @@
 Every descriptor, with its units
 ================================
 
-All 141 descriptors ``tcren features --all`` emits, in catalogue order, with what each is
+All 164 descriptors ``tcren features --all`` emits, in catalogue order, with what each is
 invariant under and what it is measured in. The *receptor* column says whether the TCR enters the
 definition: a column marked **no** is computed from the peptide and its allele alone, so every
 structure of one epitope on one allele shares its value whatever the receptor, and it carries cohort
@@ -328,7 +328,7 @@ How much contact there is and of what chemical kind. Two continuous quantities -
      - **no**
      - Intra-peptide residue contacts, at 5 A with a sequence separation of at least three.
 
-topology (47)
+topology (70)
 -------------
 
 The footprint: its connectivity, its composition over labelled cells, and how the receptor's contacts spread along the peptide.
@@ -577,6 +577,121 @@ The footprint: its connectivity, its composition over labelled cells, and how th
      - fraction
      - yes
      - Patches per contacted residue at 8 A; the size-free form of Betti-0.
+   * - ``sc_shape``
+     - geometric
+     - ratio
+     - yes
+     - Pearson r between the pMHC and TCR height fields over the shared grid; positive is complementary, the receptor riding up where the groove rises. Lawrence & Colman's Sc is the same idea on a dot surface.
+   * - ``sc_charge``
+     - compositional
+     - ratio
+     - yes
+     - Pearson r between the two charge fields; NEGATIVE is complementary, plus meeting minus.
+   * - ``sc_phobic``
+     - compositional
+     - ratio
+     - yes
+     - Pearson r between the two Kyte-Doolittle fields; positive is complementary, apolar meeting apolar.
+   * - ``sc_charge_prod``
+     - compositional
+     - ratio
+     - yes
+     - Mean per-cell product of the two charge fields.
+   * - ``sc_phobic_prod``
+     - compositional
+     - ratio
+     - yes
+     - Mean per-cell product of the two hydropathy fields.
+   * - ``sc_gap_mean``
+     - geometric
+     - A
+     - yes
+     - Mean of h(TCR) - h(pMHC) over retained cells. Negative on a real interface: the median cell interdigitates.
+   * - ``sc_gap_sd``
+     - geometric
+     - A
+     - yes
+     - Spread of the same gap. High when the receptor rests on a few high points rather than meshing.
+   * - ``sc_gap_vol``
+     - geometric
+     - A^3
+     - yes
+     - Void volume, the gap integrated over the contact plane where it is positive.
+   * - ``sc_interlock``
+     - geometric
+     - A^3
+     - yes
+     - Interdigitated volume, the gap integrated where it is negative. The larger of the two on a real interface.
+   * - ``sc_gap_index``
+     - geometric
+     - A
+     - yes
+     - Void volume over retained contact area; the intensive form of the gap-volume channel.
+   * - ``sc_interlock_frac``
+     - geometric
+     - fraction
+     - yes
+     - Share of retained cells whose gap is negative; the per-structure form of the corpus 71% interdigitation.
+   * - ``sc_gap_depth``
+     - geometric
+     - A
+     - yes
+     - Mean depth over the interlocked cells alone: how far the receptor reaches in where it does.
+   * - ``sc_gap_height``
+     - geometric
+     - A
+     - yes
+     - Mean standoff over the void cells alone: how high it stands where it does not mesh.
+   * - ``sc_gap_asym``
+     - geometric
+     - signed fraction
+     - yes
+     - (void - interlock) / (void + interlock); -1 for a face that only interlocks, +1 for one that only stands off.
+   * - ``sc_dh``
+     - geometric
+     - A
+     - yes
+     - Mean absolute per-cell height difference between the two faces.
+   * - ``sc_dcharge``
+     - compositional
+     - ratio
+     - yes
+     - Mean absolute per-cell charge difference between the two faces.
+   * - ``sc_dphobic``
+     - compositional
+     - ratio
+     - yes
+     - Mean absolute per-cell hydropathy difference between the two faces.
+   * - ``sc_cells``
+     - geometric
+     - count
+     - yes
+     - Grid cells entering the comparison; bookkeeping, so a low complementarity can be told from a thin one.
+   * - ``sc_coverage``
+     - geometric
+     - fraction
+     - yes
+     - Retained cells as a share of the occupied pMHC cells in the window; bookkeeping.
+   * - ``co_pep``
+     - compositional
+     - ratio
+     - yes
+     - Contact order on the peptide: mean sequence separation of the peptide residues one CDR loop reaches, averaged over loops and divided by the peptide's span.
+   * - ``co_mhc``
+     - compositional
+     - ratio
+     - yes
+     - Contact order on the MHC helices, by the same construction.
+   * - ``partcoef_tcr``
+     - compositional
+     - fraction
+     - yes
+     - Mean over engaged TCR residues of 1 - sum_s (k_s/k)^2 with the modules peptide and MHC; 0 when every residue reads one target only.
+   * - ``partcoef_pmhc``
+     - compositional
+     - fraction
+     - yes
+     - The same over engaged pMHC residues with the six CDR loops as modules.
 
 energetics (15)
 ---------------

@@ -3,6 +3,63 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
+## [2.30.0] — 2026-09-02
+
+**Twenty-three descriptors, 141 -> 164: the published interface literature, measured on the
+19,213-structure benchmark corpus before being adopted. The gap between the two faces is the find,
+and it was already computable — `topology.surface.surface_complementarity` had shipped twelve
+quantities and not one of them was catalogued.**
+
+### Added
+- **`tcren.topology.literature`**, and with it 23 catalogued descriptors in the `topology` family.
+  Every one was measured on the whole corpus first: the R^2 of an OLS of it on **all 141 incumbent
+  descriptors** decides whether it is a channel this package could already reach.
+- **Nineteen surface descriptors, `sc_*`.** Both faces are rasterised as height fields on one
+  shared groove-frame grid, so the gap is their difference cell by cell, `h_tcr - h_pmhc`, and no
+  new geometry is computed — `surface_map(s, side="pmhc")` and `side="tcr"` already existed.
+  `sc_gap_mean` and `sc_gap_sd` carry the largest binder/non-binder contrasts of any published
+  descriptor tested (Cohen's *d* -0.651 and -0.681 out-of-panel, 4,907 labelled structures) at
+  R^2 **0.131** and **0.255** on the incumbents. `sc_shape` — Lawrence & Colman's Sc on a raster
+  rather than a dot surface — is the more familiar and the *less* novel: R^2 0.445, nearest
+  incumbent `m_erank_tm` at rho 0.414.
+- **The gap integrated over the contact plane, with the two signs kept apart**, because they mean
+  opposite things and a mean cancels them. `sc_gap_vol` is the void, `sc_interlock` the
+  interdigitated volume, both in A^3; `sc_gap_index` is the void over the retained contact area,
+  the intensive form. On 1AO7 interlock is 1,089 A^3 against a 315 A^3 void.
+- **Four more reading the same field by sign**: `sc_interlock_frac` (share of cells with a negative
+  gap — 0.771 on 1AO7, against the 0.71 this module's own 60-crystal calibration reports),
+  `sc_gap_depth` (how far in, over those cells alone), `sc_gap_height` (how far off, over the void
+  cells alone) and `sc_gap_asym` (the balance of the two volumes, in [-1, 1]). `sc_gap_mean` is
+  `interlock_frac` weighting the two, so these are the three numbers it collapses into one.
+- **`co_pep` / `co_mhc`** — contact order (Plaxco 1998), the package's first sequence-separation
+  descriptor. New on the MHC helices (R^2 0.275); **not** new on the peptide (R^2 0.519), because
+  our peptides are overwhelmingly 9-mers so the length normalisation has almost no range: 619
+  distinct values over 12,662 structures.
+- **`partcoef_tcr` / `partcoef_pmhc`** — Di Paola's participation coefficient
+  `P_i = 1 - sum_s (k_si/k_i)^2`, their most discriminative descriptor. Adopted with its verdict
+  recorded rather than hidden: on this corpus it is **redundant**, R^2 0.730 and 0.720 on the
+  incumbents, the pMHC side's nearest neighbour being `g_loop_overlap` from the same bipartite
+  object. It costs nothing over the contact map already built.
+
+### Changed
+- `surface_complementarity` returns seven more keys (`gap_vol`, `interlock`, `gap_index`,
+  `interlock_frac`, `gap_depth`, `gap_height`, `gap_asym`). Existing keys are unchanged.
+- `descriptors("topology")` is 70 columns, 34 compositional / 22 geometric / 14 topological. The
+  family is no longer identical to `footprint_topology_features()`; `test_features_families` now
+  asserts the union rather than an equality that only forbade the family from growing.
+- Units gain `A^3`. The vocabulary is closed by test, so a genuinely new physical unit is added
+  there deliberately.
+
+### Notes
+- **Two corrections the audit proposed are falsified on this corpus and were NOT applied.** "Any
+  sum-over-contacts potential is extensive in interface size" is false for ours — every `Phi_*` has
+  R^2 <= 0.044 on interface size, `Phi_tcr_pep` 0.006 — so per-BSA normalisation solves a problem
+  this package does not have. And "`S_cell` is interface size wearing a hat" does not hold: R^2
+  0.303, *lower* than `D2_pep24`'s 0.441.
+- The gap is the **channel** Jones & Thornton 1996 named, not their gap volume index, which divides
+  a Voronoi gap volume by interface ASA. Ours is a raster height-field gap and the catalogue says
+  so rather than citing their formula.
+
 ## [2.29.0] — 2026-09-01
 
 **Eighteen descriptors, 123 -> 141: the footprint's evenness re-derived from the contact graph

@@ -546,7 +546,7 @@ def surface_complementarity(pmhc: SurfaceMap, tcr: SurfaceMap, *,
                             window: tuple[float, float] | None = COMPARE_WINDOW,
                             region: str | tuple[str, ...] | None = None,
                             tcr_region: str | tuple[str, ...] | None = None) -> dict[str, float]:
-    """Cell-for-cell agreement between a pMHC face and the TCR underside that meets it.
+    r"""Cell-for-cell agreement between a pMHC face and the TCR underside that meets it.
 
     Both maps must come from the same structure (same groove frame, grid and extent), one built
     with ``side="pmhc"`` and one with ``side="tcr"``. A cell enters the comparison when both maps
@@ -561,6 +561,27 @@ def surface_complementarity(pmhc: SurfaceMap, tcr: SurfaceMap, *,
     ``gap_mean`` / ``gap_sd``
         Mean and spread of ``h_tcr − h_pmhc`` in Å. A tight, even gap is a well-packed interface;
         a wide or ragged one is a receptor resting on a few high points.
+    ``interlock_frac`` / ``gap_depth`` / ``gap_height`` / ``gap_asym``
+        The gap resolved **by sign**, because a cell where the receptor rides above the groove and
+        one where it dips into it are different events and every pooled moment mixes them.
+        ``interlock_frac`` is the share of retained cells with a negative gap — the per-structure
+        form of the 71 % this module's calibration reports over the corpus. ``gap_depth`` is the
+        mean of ``-gap`` over those cells alone, in Å: how far the receptor reaches in where it
+        does. ``gap_height`` is the mean of ``gap`` over the positive cells alone, in Å: how high
+        it stands off where it does not. ``gap_asym`` is
+        ``(gap_vol - interlock) / (gap_vol + interlock)``, in [-1, 1], -1 for a face that only
+        interlocks and +1 for one that only stands off. All four are NaN when their side is empty,
+        never 0 — a face with no void has no standoff height, and 0 Å would read as perfect
+        contact.
+    ``gap_vol`` / ``interlock`` / ``gap_index``
+        The gap **integrated over the contact plane**, with the two signs kept apart because they
+        mean opposite things and a mean cancels them. ``gap_vol`` is the void,
+        :math:`\int \max(0, \mathrm{gap})\,\mathrm{d}A`, in Å³; ``interlock`` is the
+        interdigitated volume, :math:`\int \max(0, -\mathrm{gap})\,\mathrm{d}A`, in Å³ --
+        and it is the larger of the two on a real interface, since the median gap is −1.7 Å and
+        71 % of cells interlock. ``gap_index`` is ``gap_vol`` over the retained contact area, in Å,
+        which is the intensive form Jones & Thornton's gap volume index takes. The area element is
+        the grid cell, ``(x1-x0)(y1-y0) / (n_x n_y)`` = 0.977 Å² at the default extent and grid.
     ``shape_r``
         Pearson *r* between the two height fields. **Positive** is complementary: where the groove
         rises the receptor must ride up over it.
@@ -594,7 +615,9 @@ def surface_complementarity(pmhc: SurfaceMap, tcr: SurfaceMap, *,
             names = (sel,) if isinstance(sel, str) else tuple(sel)
             occupied = occupied & np.isin(smap.source, [SOURCE_CODES[n] for n in names])
     keep = occupied & np.isfinite(ht) & ((ht - hp) <= max_gap)
-    out = {k: float("nan") for k in ("gap_mean", "gap_sd", "shape_r", "charge_r", "charge_product",
+    out = {k: float("nan") for k in ("gap_mean", "gap_sd", "gap_vol", "interlock", "gap_index",
+                                     "interlock_frac", "gap_depth", "gap_height", "gap_asym",
+                                     "shape_r", "charge_r", "charge_product",
                                      "phobic_r", "phobic_product", "d_h", "d_charge", "d_phobic")}
     out["n_cells"] = float(keep.sum())
     out["coverage"] = float(keep.sum() / max(int(occupied.sum()), 1))
@@ -603,6 +626,28 @@ def surface_complementarity(pmhc: SurfaceMap, tcr: SurfaceMap, *,
 
     gap = ht[keep] - hp[keep]
     out["gap_mean"], out["gap_sd"] = float(gap.mean()), float(gap.std())
+    # The integral, not the average. A cell where the receptor sits above the groove contributes
+    # void; one where it dips below contributes interlock. Averaging them cancels the two, which is
+    # why `gap_mean` alone cannot say whether a small mean is a tight interface or a ragged one
+    # whose voids and overlaps happen to balance.
+    n_y, n_x = pmhc.grid
+    x0, x1, y0, y1 = pmhc.extent
+    cell_area = (x1 - x0) * (y1 - y0) / (n_x * n_y)
+    out["gap_vol"] = float(np.clip(gap, 0, None).sum() * cell_area)
+    out["interlock"] = float(np.clip(-gap, 0, None).sum() * cell_area)
+    out["gap_index"] = float(out["gap_vol"] / (keep.sum() * cell_area))
+    # The same field read by sign. `gap_mean` is the difference of `gap_height` and `gap_depth`
+    # weighted by `interlock_frac`, so these are not a reparameterisation of it -- they are the
+    # three numbers it collapses into one.
+    below, above = gap < 0, gap > 0
+    out["interlock_frac"] = float(below.mean())
+    if below.any():
+        out["gap_depth"] = float(-gap[below].mean())
+    if above.any():
+        out["gap_height"] = float(gap[above].mean())
+    tot = out["gap_vol"] + out["interlock"]
+    if tot > 0:
+        out["gap_asym"] = float((out["gap_vol"] - out["interlock"]) / tot)
     for name, a, b in (("shape", hp[keep], ht[keep]),
                        ("charge", pmhc.channels["charge"][keep], tcr.channels["charge"][keep]),
                        ("phobic", pmhc.channels["phobic"][keep], tcr.channels["phobic"][keep])):

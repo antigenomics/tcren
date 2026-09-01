@@ -11,6 +11,7 @@ from __future__ import annotations
 import pytest
 
 from tcren.footprint import FOOTPRINT_SIZE_FEATURES, footprint_topology_features
+from tcren.topology.literature import LITERATURE_FEATURES
 from tcren.recognition import (
     _FAMILY_ALIASES,
     DESCRIPTORS,
@@ -58,7 +59,10 @@ def test_contact_counts_are_interface_size_not_topology():
     topo = set(descriptors("topology"))
     assert not topo & set(FOOTPRINT_SIZE_FEATURES)
     assert set(FOOTPRINT_SIZE_FEATURES) <= set(descriptors("interface"))
-    assert set(footprint_topology_features()) == topo
+    # Topology is footprint plus the published descriptors `tcren.topology.literature` adds. It was
+    # equal to the footprint set until 2026-09-02; asserting equality again would only forbid the
+    # family from growing, and the claim this test exists for is the size/shape separation above.
+    assert topo == set(footprint_topology_features()) | set(LITERATURE_FEATURES)
 
 
 def test_the_engaged_pair_count_belongs_to_potts_and_to_no_other_family():

@@ -63,11 +63,18 @@ def test_persistence_entropy_is_metric_not_topological():
 
 
 def test_the_topology_family_is_mostly_compositional():
-    """The diversity measures read the labelling of the 12-/24-cell partition, not the shape."""
+    """The diversity measures read the labelling of the 12-/24-cell partition, not the shape.
+
+    Counts updated 2026-09-02 when `tcren.topology.literature` added 23: ten compositional (the
+    charge and hydropathy channels read the amino-acid labelling painted on the grid; contact
+    order reads target sequence positions; the participation coefficients read which module an
+    edge lands in) and thirteen geometric (every height-field quantity is built from Angstroms).
+    None is topological, so the family's compositional majority widened rather than moved.
+    """
     topo = descriptors("topology")
     counts = [d for d in topo if INVARIANCE[d] == "compositional"]
     invariants = [d for d in topo if INVARIANCE[d] == "topological"]
-    assert len(counts) == 24
+    assert len(counts) == 34
     assert len(invariants) == 14
     assert len(counts) > len(invariants)
 

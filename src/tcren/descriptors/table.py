@@ -153,6 +153,11 @@ def _featurise_families(id_, s, organism: str, include, radii) -> dict:
             row.update(_placement_columns(s))
         if "topology" in want:
             row.update(_footprint_columns(s, radii))
+            # the published descriptors ride on the topology already built: the gap is the
+            # difference of the two surface height fields, and the graph pair reuses the contact
+            # map. Both fail soft to NaN, so an unmappable groove is a thin row, not a dead batch.
+            from ..topology.literature import literature_features
+            row.update(literature_features(s))
         if "potts" in want:
             from ..potts import score_structure
             row.update({k: v for k, v in score_structure(s).items() if k != "pdb.id"})

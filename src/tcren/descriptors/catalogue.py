@@ -16,6 +16,7 @@ from __future__ import annotations
 # returns the topology family's column names so `DESCRIPTORS` can splat them, which keeps the
 # catalogue and the module that produces those columns from drifting apart. No arithmetic crosses.
 from ..topology.footprint import FOOTPRINT_SIZE_FEATURES, footprint_topology_features
+from ..topology.literature import LITERATURE_FEATURES
 
 _EPS = 1e-9
 
@@ -176,6 +177,10 @@ DESCRIPTORS: dict[str, tuple[str, bool]] = {
     **{f: ("interface", True) for f in FOOTPRINT_SIZE_FEATURES},
     # -- topology: the shape of the contact set (`tcren.footprint`) ------------------------------
     **{f: ("topology", True) for f in footprint_topology_features()},
+    # -- topology: published interface descriptors (`tcren.topology.literature`) -----------------
+    # The surface pair reads a channel nothing else here reaches: both faces rasterised as height
+    # fields on one shared groove-frame grid, so the gap is their difference cell by cell.
+    **{f: ("topology", True) for f in LITERATURE_FEATURES},
     # -- energetics: interface energies ----------------------------------------------------------
     "Phi_tcr_pep": ("energetics", True),
     "Phi_tcr_mhc": ("energetics", True),
@@ -280,6 +285,37 @@ INVARIANCE: dict[str, str] = {
     "g_loop_overlap": "compositional",
     "degree_evenness_tp": "compositional",
     "frac_well_coordinated_tp": "compositional",
+    # -- the two surfaces read as height fields, and two graph functionals ------------------------
+    # Geometric: every surface quantity is built from Angstrom heights on a metric grid, so a
+    # deformation that preserves which residue touches which still moves them. That is the point --
+    # the gap is the one channel here that measures space rather than incidence.
+    "sc_shape": "geometric",
+    "sc_gap_mean": "geometric",
+    "sc_gap_sd": "geometric",
+    "sc_gap_vol": "geometric",
+    "sc_interlock": "geometric",
+    "sc_gap_index": "geometric",
+    "sc_interlock_frac": "geometric",
+    "sc_gap_depth": "geometric",
+    "sc_gap_height": "geometric",
+    "sc_gap_asym": "geometric",
+    "sc_dh": "geometric",
+    "sc_cells": "geometric",
+    "sc_coverage": "geometric",
+    # Compositional: these read the amino-acid labelling painted on the same grid, not its shape.
+    "sc_charge": "compositional",
+    "sc_phobic": "compositional",
+    "sc_charge_prod": "compositional",
+    "sc_phobic_prod": "compositional",
+    "sc_dcharge": "compositional",
+    "sc_dphobic": "compositional",
+    # Compositional: contact order reads target SEQUENCE positions and the participation
+    # coefficient reads which module an edge lands in -- both are labellings on the contact graph,
+    # not invariants of the bare complex.
+    "co_pep": "compositional",
+    "co_mhc": "compositional",
+    "partcoef_tcr": "compositional",
+    "partcoef_pmhc": "compositional",
     # -- the Calpha / Cbeta maps read as matrices -------------------------------------------------
     # Geometric, not topological, and for the reason `h0_pers_ent` is: the Gaussian kernel is built
     # from Angstrom distances, so its singular values move under a deformation that leaves the
@@ -429,6 +465,30 @@ for _loop, _name in (("cdr3a", "CDR3alpha"), ("cdr3b", "CDR3beta")):
         DETAIL[f"{_loop}_{_k}"] = (_u, _d.format(loop=_name))
 
 DETAIL.update({
+ # --- published interface descriptors, `tcren.topology.literature` -----------------------------
+ "sc_shape": ("ratio", "Pearson r between the pMHC and TCR height fields over the shared grid; positive is complementary, the receptor riding up where the groove rises. Lawrence & Colman's Sc is the same idea on a dot surface."),
+ "sc_charge": ("ratio", "Pearson r between the two charge fields; NEGATIVE is complementary, plus meeting minus."),
+ "sc_phobic": ("ratio", "Pearson r between the two Kyte-Doolittle fields; positive is complementary, apolar meeting apolar."),
+ "sc_charge_prod": ("ratio", "Mean per-cell product of the two charge fields."),
+ "sc_phobic_prod": ("ratio", "Mean per-cell product of the two hydropathy fields."),
+ "sc_gap_mean": ("A", "Mean of h(TCR) - h(pMHC) over retained cells. Negative on a real interface: the median cell interdigitates."),
+ "sc_gap_sd": ("A", "Spread of the same gap. High when the receptor rests on a few high points rather than meshing."),
+ "sc_gap_vol": ("A^3", "Void volume, the gap integrated over the contact plane where it is positive."),
+ "sc_interlock": ("A^3", "Interdigitated volume, the gap integrated where it is negative. The larger of the two on a real interface."),
+ "sc_gap_index": ("A", "Void volume over retained contact area; the intensive form of the gap-volume channel."),
+ "sc_interlock_frac": ("fraction", "Share of retained cells whose gap is negative; the per-structure form of the corpus 71% interdigitation."),
+ "sc_gap_depth": ("A", "Mean depth over the interlocked cells alone: how far the receptor reaches in where it does."),
+ "sc_gap_height": ("A", "Mean standoff over the void cells alone: how high it stands where it does not mesh."),
+ "sc_gap_asym": ("signed fraction", "(void - interlock) / (void + interlock); -1 for a face that only interlocks, +1 for one that only stands off."),
+ "sc_dh": ("A", "Mean absolute per-cell height difference between the two faces."),
+ "sc_dcharge": ("ratio", "Mean absolute per-cell charge difference between the two faces."),
+ "sc_dphobic": ("ratio", "Mean absolute per-cell hydropathy difference between the two faces."),
+ "sc_cells": ("count", "Grid cells entering the comparison; bookkeeping, so a low complementarity can be told from a thin one."),
+ "sc_coverage": ("fraction", "Retained cells as a share of the occupied pMHC cells in the window; bookkeeping."),
+ "co_pep": ("ratio", "Contact order on the peptide: mean sequence separation of the peptide residues one CDR loop reaches, averaged over loops and divided by the peptide's span."),
+ "co_mhc": ("ratio", "Contact order on the MHC helices, by the same construction."),
+ "partcoef_tcr": ("fraction", "Mean over engaged TCR residues of 1 - sum_s (k_s/k)^2 with the modules peptide and MHC; 0 when every residue reads one target only."),
+ "partcoef_pmhc": ("fraction", "The same over engaged pMHC residues with the six CDR loops as modules."),
  # --- interface -------------------------------------------------------------------------------
  "burial": ("A^2", "Interface buried surface, SASA(TCR) + SASA(pMHC) - SASA(complex), by Shrake-Rupley."),
  "extent": ("count", "Distinct TCR residues contacting the pMHC over both receptor interfaces."),
