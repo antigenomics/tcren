@@ -103,6 +103,11 @@ SLICE_FEATURES = SLICE_DIR / "holdout_slice_features.tsv.gz"
 #: the whole file -- which sets the tolerance the refit is checked at.
 SLICE_MODEL = SLICE_DIR / "holdout_slice_model.npz"
 
+#: The refit bound. Set by the Yeo-Johnson lambda, which `scipy.stats.yeojohnson_normmax`
+#: determines only to its optimiser tolerance; see the refit test's docstring for the
+#: measured cross-platform spread. Orders of magnitude below what a real change moves.
+_TOL = {"rtol": 1e-5, "atol": 1e-6}
+
 
 def _holdout_features(rows: int | None = 300):
     import gzip
@@ -170,18 +175,18 @@ def test_refitting_the_committed_slice_reproduces_the_frozen_arrays():
     carries -- that one needs the 19 MB table, and
     `test_the_shipped_model_is_reproducible_from_the_full_hold_out_table` is where it is checked.
 
-    **To what tolerance.** Everything is checked at rtol 1e-6. The binding term is not BLAS:
-    `Transformer.fit` takes each Yeo-Johnson lambda from `scipy.stats.yeojohnson_normmax`, whose
-    Brent search converges only to its own default tolerance of about 1.5e-8, and a lambda wobble
-    that size moves a column mean by about 9e-9. Between macOS arm64 and Linux x86_64 the refit
-    means duly differ, by at most 6.0e-9 absolute on 18 of the 149 coordinates and 1.4e-7 relative
-    -- so the earlier rtol of 1e-9 on the means asserted a tolerance the fit never promised, passed
-    on the machine it was written on and failed on CI. The covariances are stored float32, which
-    costs at most 5.9e-8 relative, so 1e-6 is a hundredfold above their storage floor. They also
-    carry an atol of 1e-7, because the same lambda term moves 50 of the 22,201 covariance entries
-    by up to 2.5e-8 absolute, and those 50 sit near zero (magnitude about 9e-5) -- where a purely
-    relative bound is meaningless and reports 2.9e-4 for a difference smaller in absolute terms
-    than the one the means survive. Every
+    **To what tolerance.** One bound, `_TOL`, for every float, because one term sets them all and it
+    is not BLAS. `Transformer.fit` takes each Yeo-Johnson lambda from
+    `scipy.stats.yeojohnson_normmax`, whose Brent search stops at its own default tolerance of about
+    1.5e-8 -- so lambda is a fitted quantity that is only ever determined to that precision, and
+    everything downstream inherits it. Measured between macOS arm64 and Linux x86_64: one of the 55
+    lambdas differs by 8.4e-8 (1.3e-6 relative), 18 of the 149 class-mean coordinates by up to
+    6.0e-9, and 50 of the 22,201 covariance entries by up to 2.5e-8 -- the last reading as 2.9e-4
+    relative only because those entries sit near zero, at a magnitude of about 9e-5, which is why
+    the bound needs an absolute part as well. The earlier rtol of 1e-9 on the means asserted a
+    precision the fit never promised: it passed on the machine it was written on and failed on CI.
+    The covariances are stored float32, costing at most 5.9e-8 relative, so this bound also clears
+    their storage floor. Every
     tolerance here is orders of magnitude below what a change to the epitope weighting, the
     Yeo-Johnson fit or the Ledoit-Wolf shrinkage would move these arrays by.
     """
@@ -204,21 +209,16 @@ def test_refitting_the_committed_slice_reproduces_the_frozen_arrays():
     for k in ("descriptors", "coordinates", "receptor_coordinates"):
         assert meta[k] == rmeta[k], f"{k} moved -- regenerate the slice fixture"
 
-    for k in ("mu0", "mu1", "conf_cov"):
-        np.testing.assert_allclose(got[k], np.asarray(ref[k], float),
-                                   rtol=1e-6, atol=1e-7, err_msg=k)
-    for k in ("cov0", "cov1"):
-        np.testing.assert_allclose(got[k], np.asarray(ref[k], float),
-                                   rtol=1e-6, atol=1e-7, err_msg=k)
+    for k in ("mu0", "mu1", "conf_cov", "cov0", "cov1"):
+        np.testing.assert_allclose(got[k], np.asarray(ref[k], float), **_TOL, err_msg=k)
     for k in ("lam", "loc", "scale"):
         assert set(meta[k]) == set(rmeta[k]), k
         np.testing.assert_allclose([meta[k][n] for n in rmeta[k]],
-                                   [rmeta[k][n] for n in rmeta[k]],
-                                   rtol=1e-6, atol=1e-9, err_msg=k)
+                                   [rmeta[k][n] for n in rmeta[k]], **_TOL, err_msg=k)
     for k in ("prior", "n_pos", "n_neg", "n_epitopes"):
         assert meta[k] == rmeta[k], k
     for k in ("alpha", "conf_mu", "conf_var"):
-        assert meta[k] == pytest.approx(rmeta[k], rel=1e-6), k
+        assert meta[k] == pytest.approx(rmeta[k], rel=_TOL["rtol"], abs=_TOL["atol"]), k
 
 
 @pytestmark_model
