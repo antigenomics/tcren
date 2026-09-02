@@ -28,6 +28,9 @@ dependencies = [
     "requests>=2.31",
     "huggingface_hub>=0.20",  # lazy fetch of canonical reference structures for orientation
     "arda-mapper>=2.5.7",  # TCR annotation backend (PyPI dist of antigenomics/arda; imports as `arda`). Auto-fetches its reference + a static mmseqs binary on first use (no ARDA_HOME, no conda).
+    "scikit-learn>=1.3",  # Ledoit-Wolf shrinkage intensity in score.model._shrink, which is on
+                         # Joint.fit's path -- so a clean install could not refit the frozen
+                         # model, and the reproducibility test failed rather than skipped.
     "rapidfuzz>=3.0",  # CDR3 clustering in potential.redundancy — imported at package-import time (potential/__init__), so core, not optional.
 ]
 

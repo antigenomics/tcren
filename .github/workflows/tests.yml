@@ -37,6 +37,7 @@ jobs:
         run: |
           uv pip install -e . --no-deps
           uv pip install biopython scipy numpy polars typer requests huggingface_hub rapidfuzz \
+                      scikit-learn \
                       pytest pytest-cov matplotlib
       - name: Run unit tests (arda/mmseqs-backed tests skip without arda)
         # Coverage gate: the lean unit suite covers ~58% of src/tcren; fail below 50%

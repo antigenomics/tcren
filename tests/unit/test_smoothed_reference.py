@@ -20,6 +20,7 @@ _ASSET = Path(__file__).resolve().parents[1] / "assets" / "cgene" / "1ao7_full.p
 
 @pytest.fixture(scope="module")
 def cm():
+    pytest.importorskip("arda")  # classify_chains needs the arda backend; CI installs tcren without it
     s = import_structure(_ASSET)
     classify_chains(s)
     annotate_mhc(s)
