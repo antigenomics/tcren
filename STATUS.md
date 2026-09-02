@@ -1,8 +1,8 @@
 # tcren — project status & TODO
 
 Status of the Python re-implementation of TCRen (`src/tcren/`). The legacy R/Java pipeline
-is preserved (tag `legacy-r-1.0`) and serves as the numerical oracle. Current release: **v3.0.0**;
-the newest wheel on PyPI is **2.23.0**.
+is preserved (tag `legacy-r-1.0`) and serves as the numerical oracle. Current release: **v3.0.0**, published to PyPI on 2026-09-02 as 12 wheels
+(cp310-cp313 x macOS arm64 / manylinux x86_64 / win_amd64) plus the sdist.
 
 The recommended read-out is the **score set** (`tcren.score`), and it is two commands:
 
