@@ -116,21 +116,112 @@ energy optimum). The FlexPepDock oracle is currently a no-op on these 5-chain co
 setup needed), so the one method that might beat the baseline is not yet measured. The open problem for
 the C++ rewrite is de-novo pocket/pose prediction, not refinement speed.
 
-## Receptor ranking on AI-generated structures (`P_native`)
+## Receptor ranking on AI-generated structures — the score set (v3.0.0)
 
 Ranking candidate TCRs against a fixed pMHC on generated (AlphaFold/TCRmodel2) structures. The raw
 TCR:peptide contact energy is at chance there — the forced-pose problem: the generator seats every
-TCR in a plausible low-energy pose, binder or not. `P_native` reads the interface instead: a latent
-class over three channels (geometry, footprint topology, contact energetics), each a
-conditional-linear-Gaussian Bayes network, their log-odds added.
+TCR in a plausible low-energy pose, binder or not. `tcren assess` reads the interface instead, and
+returns the score set: `peptide_score` (tier 0, nothing estimated), `pose_score` and
+`confidence_residual` (tier 1, a covariance over hold-out binders, no negative and no label),
+`binder_score` and the five `channel_*` columns (tier 2, class means and covariances from hold-out
+binder labels). Every one is a projection of one frozen object — a transform plus a Gaussian per
+class over the transformed descriptor coordinates — so every one is **defined for a single
+structure**.
+
+**How to read every number in this section.** None of it was computed in this repository, and none
+should be: computing an AUC belongs in the benchmark repo `~/vcs/projects/2026-tcren2-code`. Each
+value is quoted from CHANGELOG `[3.0.0]` or `docs/assess.rst`, carrying the claim it was attached
+to there. The metric is **ROC-AUC computed within epitope cohort**; where a source names the
+aggregate across cohorts, the line below names it too. The two panels are the ones the superseded
+section below defines: the functionally validated receptor screen (TCRvdb — n = 618 structures,
+309 binders / 309 non-binders, 2 epitope cohorts) and the VDJdb real-versus-mock panel (n = 1,089
+structures, 523 real / 566 mock, 22 epitope cohorts, of which 6 are template-covered and 16
+template-free).
+
+### The fit-free tier leads, and composes with the fitted one
+
+| panel / stratum | score | ROC-AUC, within epitope cohort |
+|---|---|--:|
+| functionally validated receptor screen (2 cohorts, n = 618) | `S`, fit-free | **0.818** |
+| functionally validated receptor screen (2 cohorts, n = 618) | generator ipTM | 0.795 |
+| VDJdb template-covered stratum (6 of 22 cohorts) | `S` + `binder_score` | **0.783** |
+| VDJdb template-covered stratum (6 of 22 cohorts) | `S` alone | 0.665 |
+| VDJdb template-covered stratum (6 of 22 cohorts) | `binder_score` alone | 0.682 |
+
+`S` leads the screen on its own, and on the template-covered stratum it **composes** with
+`binder_score` rather than being replaced by it — 0.783 together against 0.665 and 0.682 apart.
+That is why `cohort.q_score` (`Q`), `reliability.t_score` (`T`) and `reliability.s_score` (`S`) are
+documented as the fit-free predecessor tier and were not retired with the rest. (Source: CHANGELOG
+`[3.0.0]`, "Not removed".)
+
+### The channels, and where one beats the whole model
+
+A channel is the same posterior marginalized to one descriptor family, which is a sub-block of the
+covariance — exact, closed form, no re-fit. The five channels do not sum to `binder_score` and
+should not: the whole model also reads the correlations *between* channels. Sometimes a channel is
+the better instrument, because the whole model dilutes it.
+
+| panel | channel | channel ROC-AUC, within cohort | full posterior |
+|---|---|--:|--:|
+| VDJdb template-free stratum (16 of 22 cohorts) | `channel_shape` | **0.637** | 0.615 |
+| combinatorial peptide library | `channel_energetics` | **0.700** | 0.542 |
+
+(Source: `docs/assess.rst`.)
+
+### Two things measured on the way, both reading no binder label
+
+- **The transform is variance-stabilising and never rank-based, and that is measured rather than
+  argued.** Mapping each marginal onto a uniform CDF took the per-cohort median ROC-AUC from
+  **0.630 to 0.543** on the six template-covered cohorts, and from **0.613 to 0.507** on the sixteen
+  template-free ones. The signal *is* the marginal scale, and flattening the distribution deletes
+  it.
+- **Some directions of the binder manifold belong to the structure generator, not to the
+  interface.** `reliability.artefact_directions` is a label-free test for which. The tightest band
+  is broken **4.55×** by native crystals against **3.18×** by decoys, and it scores
+  **0.504** ROC-AUC over the sixteen template-free cohorts — a coin — where the loose
+  band reads **0.606**. Ledoit-Wolf shrinkage floors the shipped model's smallest direction at
+  s.d. **0.0797**, above that band, so `pose_score` cannot read it. (Source: CHANGELOG `[3.0.0]`.)
+
+### Reproducing the frozen model
+
+`holdout_manifest()` returns the **8,292 hold-out structures** the fit used, with dataset, epitope,
+binder label and ipTM. The manifest (329 kB) and the model arrays (315 kB) ship inside the wheel;
+the 19 MB descriptor table deliberately does not, and `tcren fetch-data` + `tcren features` +
+`tcren fit-holdout` regenerates the shipped arrays **bit for bit**. That is the difference from
+`P_native` below, whose coefficients were frozen against a training set nobody could reconstruct.
+
+## Superseded — receptor ranking with `P_native` (shipped v2.12.0, discarded v2.26.0)
+
+**`P_native` and `cohort.p_native` were removed in v2.26.0**, with `P_NATIVE_CHANNELS` / `_POOL` /
+`_ORIENT` / `_FEATURES` / `_BANNED` and the per-channel posteriors `G` / `T` / `E`. Discarded, not
+deprecated, and the changelog gives the reasons in one place: it refitted a latent class on every
+call, raised when a cohort had fewer rows than features, and its value depended on which rows the
+fit was anchored on — none of which survives contact with a user holding one model — and its
+coefficients were frozen against training sets that no longer exist, which made it the one part of
+the package a reader could not reproduce.
+
+**The measurements stay, because they are the record of what was measured.** Nothing below is
+reproducible from the current package and no value in it is a current tcren result. Three names
+used below have since been reused, and must not be read as today's quantities:
+
+| name below | what it meant here | what the name means now |
+|---|---|---|
+| `S` | `cohort.q_coupled(Q, ΔΦ)`, already deprecated when these rows were measured | `reliability.s_score`, the three-block composite `Q/sd_Q + T/sd_T + (Π − μ)/sd_Π`, renamed from `S_free` in v2.27.0 |
+| `T` | `P_native`'s topology **channel** — one posterior of the same latent-class fit, so it carried every defect above | `reliability.t_score`, a fit-free directional score against the Native2026 crystals |
+| `binder_score` | `tcren.binder.binder_score`, a frozen 5-feature logistic, removed in v2.26.0 | `tcren.score.binder_score`, the tier-2 log-odds of the frozen score set |
+
+Ranking candidate TCRs against a fixed pMHC on generated (AlphaFold/TCRmodel2) structures.
+`P_native` read the interface as a latent class over three channels (geometry, footprint topology,
+contact energetics), each a conditional-linear-Gaussian Bayes network, their log-odds added.
 
 **How to read every number below.** All are **macro** averages over epitope cohorts — the mean of
 the per-cohort value — because a pooled AUC on these panels reads epitope composition rather than
-recognition. `P_native` and its channels are fitted **leave-one-epitope-out**: a cohort is scored by
-a model anchored on the *other* cohorts' rows, so no scored row contributes its own label to the fit
-that scores it. Numbers are quoted to three decimals, as the generator prints them. Source: the
+recognition. `P_native` and its channels were fitted **leave-one-epitope-out**: a cohort was scored
+by a model anchored on the *other* cohorts' rows, so no scored row contributed its own label to the
+fit that scored it. Numbers are quoted to three decimals, as the generator printed them. Source: the
 benchmark repo `~/vcs/projects/2026-tcren2-code`, files
-`bench/eda/out/native_bn_{endpoint,channel_auc,template,glm,glm_gain}_*.csv` and `results/ledger.md`.
+`bench/eda/out/native_bn_{endpoint,channel_auc,template,glm,glm_gain}_*.csv` and `results/ledger.md`
+— the producer `bench/scripts/native_bn.py` no longer exists in that repository.
 
 ### TCRvdb — n = 618 structures, 309 binders / 309 non-binders, 2 epitope cohorts
 
@@ -150,9 +241,10 @@ n = 423. **Raw labels** (`padj < 1e-5`, no cleaning).
 | `P_native`, flat network over the union of the same features | 0.750 | 0.758 | 0.892 |
 | ΔΦ TCR:peptide (inverse `dF`) | 0.557 | 0.622 | 0.729 |
 
-`S` reproducing 0.802 / 0.817 is the harness check that nothing upstream moved; it is superseded by
-`P_native` and its constituents `cohort.coupling` / `cohort.q_coupled` are deprecated (still
-importable, byte-identical, so every published `S` reproduces).
+`S` reproducing macro ROC-AUC 0.802 / macro PR-AUC 0.817 on these 618 structures is the harness
+check that nothing upstream had moved. `cohort.coupling` and `cohort.q_coupled` are still
+importable and still byte-identical, so those two values reproduce; the current composite carrying
+the name `S` is `reliability.s_score`, which is a different quantity (see the table above).
 
 ### VDJdb real-versus-mock — n = 1,089 structures, 523 real / 566 mock, 22 epitope cohorts
 
@@ -234,16 +326,18 @@ contain zero, at P(Δ>0) = 0.814 for ROC and 0.818 for PR. On VDJdb only the PR 
 (P(Δ>0) = 0.994). They rank well on their own; on these cohorts they carry little the structure does
 not already say.
 
-### Why the score has no fitted coefficient
+### Why `P_native` carried no fitted coefficient
 
-> **Fitting to a cohort does not transfer, so nothing shipped is fitted to one.** The frozen
-> 5-feature `p_bind` (`tcren.binder`, kept for v1 reproduction and reached only via
-> `recognize --scores`) reads macro ROC 0.796 / pooled ROC 0.810 / macro PR 0.804 on the same 618
+> **Fitting to a cohort does not transfer, so nothing shipped was fitted to one.** The frozen
+> 5-feature `p_bind` (`tcren.binder`, then kept for v1 reproduction and reached only via
+> `recognize --scores`; the model, `tcren.binder.binder_score`, `BINDER_MODEL`, the `tcren binder`
+> command and the `--scores` flag were all removed in v2.26.0) reads macro ROC 0.796 / pooled ROC
+> 0.810 / macro PR 0.804 on the same 618
 > TCRvdb structures — competitive in sample, and it does not carry over. Train on VDJdb, test on
 > TCRvdb: macro 0.466, **below chance**. Train on TCRvdb, test on VDJdb: macro 0.537. Against a
 > within-cohort TCRvdb cross-validation of 0.811. Holding whole epitopes out of the VDJdb panel
 > drops a random-fold pooled 0.808 to 0.471, because class balance there tracks epitope almost
-> perfectly. `P_native` is fitted per cohort **without any binding label**, so there is no
+> perfectly. `P_native` was fitted per cohort **without any binding label**, so there was no
 > coefficient to carry and nothing to transfer. (Source: `results/ledger.md`, entries C25 and the
 > receptor-ranking table.)
 

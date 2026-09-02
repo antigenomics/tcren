@@ -36,6 +36,9 @@ from .cpl import (ResponseMatrix, equimolar_effect, mutation_effect, position_sc
 from .energetics.mutation import alanine_scan, ddg, neoantigen_ddg, reference_delta
 from .mechanics.springs import coupling_residues, interface_springs, rupture, stiffness_tensor
 from .oracle import summarize_structure
+from .score import (CHANNELS, ScoreModel, binder_score, channel_scores,
+                    confidence_residual, holdout_manifest, holdout_model, peptide_score,
+                    pose_score, score_table)
 from .docking import substitute_tcr
 from .pipeline import PipelineResult
 from .pipeline import run as run_pipeline
@@ -76,6 +79,9 @@ __all__ = [
     "annotate_batch", "native_peptide",
     "q_score", "phi_score", "q_coupled", "coupling", "Q_FEATURES_GEOM", "PHI_TERMS",
     "strain_z", "zscore",
+    # the score set: five read-outs of one frozen object, each defined for a single structure
+    "peptide_score", "pose_score", "confidence_residual", "binder_score", "channel_scores",
+    "score_table", "holdout_model", "holdout_manifest", "ScoreModel", "CHANNELS",
     "potential",
     "Potential",
     "derive_tcren",

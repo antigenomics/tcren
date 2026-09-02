@@ -21,8 +21,8 @@ repeated for nothing.
 ``T`` and ``S`` come from ``--features``, which is the two-command route above.
 
 Output is **TSV**. The first column ``complex.id`` is the structure-file stem (the SHA-256 ``TCR_hash``
-for the modelled sets), which is the join key to labels and AlphaFold confidences. ``--features-only``
-skips the models. Degenerate or undefined terms are ``NaN``. Every
+for the modelled sets), which is the join key to labels and AlphaFold confidences. Degenerate or
+undefined terms are ``NaN``. Every
 feature is also available programmatically from :func:`tcren.recognition.recognition_features` (pass
 ``full=True``); the column-name tuples are :data:`tcren.recognition.RECOGNITION_FEATURES`,
 :data:`~tcren.recognition.CDR3_FRAME_FEATURES` and :data:`~tcren.recognition.FULL_FEATURES`.
@@ -49,10 +49,12 @@ way and matched 523 of 1,089 structures, losing all 566 negatives.
 :func:`tcren.metadata.read_metadata` raises on a duplicate ``id`` for that reason.
 
 Conventions used below: **tp** = TCR↔peptide interface, **tm** = TCR↔MHC, **pm** = peptide↔MHC.
-``F_*`` is a raw interface energy Φ and ``dF_*`` its poly-alanine reference delta ΔΦ — every energy
-column is named ``F``, because the potential is fixed by the interface rather than chosen per column:
-TCR↔peptide uses the **TCRen** potential, TCR↔MHC and peptide↔MHC the **Miyazawa–Jernigan (MJ)**
-potential. Energies are in dimensionless statistical-potential units (more negative = more
+``Phi_*`` is a raw interface energy Φ and ``dPhi_*`` its poly-alanine **reference difference**
+ΔΦ = Φ(sequence) − Φ(reference) — the ``d`` is that difference, never a derivative, and the only
+``dd`` quantity in the package is ``ddG``, the change in binding free energy on mutation. Every
+energy column is named ``Phi``, because the potential is fixed by the interface rather than chosen
+per column: TCR↔peptide uses the **TCRen** potential, TCR↔MHC and peptide↔MHC the
+**Miyazawa–Jernigan (MJ)** potential. Energies are in dimensionless statistical-potential units (more negative = more
 favourable); they are log-odds ratios of contact frequencies and are *not* in kT.
 
 .. note::
@@ -113,9 +115,6 @@ Options
    * - ``--features``
      - unset
      - score a table already written by ``tcren features``, instead of re-reading the structures
-   * - ``--features-only``
-     - off
-     - emit the descriptors and skip the models
    * - ``--full``
      - off
      - add the 18 CDR3-frame descriptors and the intra-peptide terms ``Phi_pep_int``/``n_pep_int``
@@ -361,11 +360,14 @@ select ``tcr_only=True``::
     descriptors("energetics", tcr_only=True)
     # ('Phi_tcr_pep', 'Phi_tcr_mhc', 'Phi_cdr12', 'Phi_cdr3a', 'Phi_cdr3b', 'dPhi_tcr_pep')
 
-Core recognition descriptors (34)
+Core recognition descriptors (40)
 ---------------------------------
 
-The base feature set the shipped real-vs-shuffled recognizers consume
+The interface block :mod:`tcren.descriptors.compute` computes itself
 (:data:`tcren.recognition.RECOGNITION_FEATURES`), emitted by ``tcren recognize`` with no extra flags.
+These 40 are a **subset** of the catalogue, not the catalogue: :data:`tcren.recognition.DESCRIPTORS`
+carries 164 columns across the six families, the rest of them produced by
+:mod:`tcren.topology`, :mod:`tcren.energetics`, :mod:`tcren.potts` and :mod:`tcren.mechanics`.
 
 Coverage & burial
 ~~~~~~~~~~~~~~~~~~
@@ -418,11 +420,11 @@ Docking geometry
    * - ``pitch``
      - degrees
      - Incident (tilt) angle of the TCR over the pMHC groove — a clean structural angle.
-     - :func:`tcren.orient.docking_angles`
+     - :func:`tcren.docking.docking_angles`
    * - ``crossing``
      - degrees
      - TCR crossing (scanning) angle relative to the groove long axis.
-     - :func:`tcren.orient.docking_angles`
+     - :func:`tcren.docking.docking_angles`
    * - ``dock_d``
      - Å
      - MHC-stub → TCR-stub rigid-body separation (native TCRdock geometry).
@@ -536,7 +538,7 @@ Interface quality — clashes & contact stability
 
 Coordinate-only reads of forced-pose quality, always emitted by ``recognize`` (not part of the 34
 model features): a steric-clash burden (:mod:`tcren.clashes`) and TCR:peptide contact fragility
-(:mod:`tcren.stability`). Both are computed natively (``_geom``).
+(:mod:`tcren.mechanics.stability`). Both are computed natively (``_geom``).
 
 .. list-table::
    :header-rows: 1

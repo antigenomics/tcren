@@ -73,7 +73,7 @@ so it is never called per structure and never wrapped in Python threads (a fork-
 deadlock after mmseqs2/BLAS spawn their own threads). Batching amortises the fixed ~1.5 s mmseqs2
 startup: ~0.2 s/structure across a set, versus ~1.5 s/structure one at a time.
 
-Threads (:func:`tcren.orient.run_folder`'s ``threads`` / ``tcren orient -t N``) are used **only** for
+Threads (:func:`tcren.docking.run_folder`'s ``threads`` / ``tcren orient -t N``) are used **only** for
 the embarrassingly-parallel, mmseqs-free stages — structure parsing, the Kabsch/SVD alignment, and
 writing oriented files — and, by extension, any PyMOL/Rosetta/FlexPepDock rendering and relaxation.
 

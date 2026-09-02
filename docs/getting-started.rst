@@ -224,7 +224,7 @@ Case studies
   structures of the same epitope cluster. Over the 374 Canonical2026 complexes the literature-named
   bulged epitopes rank 2nd, 5th and 8th of 230 while both named featureless ones sit at exactly
   0.000. ``notebooks/surface_topology.py`` draws all three channels; see
-  :doc:`notebooks/surface_topology` and :mod:`tcren.surface`.
+  :doc:`notebooks/surface_topology` and :mod:`tcren.topology.surface`.
 
   .. code-block:: python
 
@@ -243,7 +243,7 @@ Case studies
   set (2102 modelled complexes, seven clones) stability separates best from worst binders in 4/4
   clones where the additive contact energy fails and 0/3 where it works. Not MD: no solvent, no force
   field, no time, so ``rmsf`` compares between structures run at the same settings, never against an
-  MD RMSF in Å. See :mod:`tcren.dynamics`.
+  MD RMSF in Å. See :mod:`tcren.mechanics.dynamics`.
 
   .. code-block:: python
 
@@ -326,7 +326,7 @@ Orient into the canonical frame, layer contacts, and read the docking geometry:
 .. code-block:: python
 
    from tcren.mhc import annotate_mhc
-   from tcren.orient import canonicalize_structure, superimpose, docking_angles
+   from tcren.docking import canonicalize_structure, superimpose, docking_angles
    from tcren.contacts import multi_contacts, ContactDefinition
 
    annotate_mhc(structure)

@@ -158,7 +158,7 @@ class Transformer:
     #: transformed coordinates are clipped to +-CLIP reference standard deviations.
     #: A power transform fitted on one population extrapolates on another, and the extrapolation is
     #: a power: one CPL structure (KMFLYQEEVE, clone mel8) has a standoff height of -2.51 A where
-    #: the hold-out minimum is +6.59 A, and Yeo-Johnson's negative branch turns that into |z| =
+    #: the hold-out minimum is +6.59 A, and Yeo-Johnson's negative branch turns that into ``|z|`` =
     #: 5.1e4 while the 99.9th percentile of the same cohort is 8.5. That structure IS maximally
     #: anomalous and should score as such -- the clip preserves that -- but at 5e4 it dominates
     #: every sum it enters and takes an out-of-fold R^2 to -1.1e4. Ten reference sd is far outside

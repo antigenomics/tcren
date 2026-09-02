@@ -1,14 +1,14 @@
 """Descriptors: the catalogue, the computation, and the batch dispatch, in three layers.
 
-============================  ==========================================================
-:mod:`~tcren.descriptors.catalogue`  what every column is -- names, families, invariance
-                              classes, units, definitions and known defects. Pure data.
-:mod:`~tcren.descriptors.compute`    structure -> values for the interface block, and the
-                              calls out to the energetics, topology, potts and kinetics
-                              modules that own the rest.
-:mod:`~tcren.descriptors.table`      a whole structure set -> one row each, with the single
-                              batched annotation pass and the process pool.
-============================  ==========================================================
+:mod:`~tcren.descriptors.catalogue`
+    what every column is -- names, families, invariance classes, units, definitions and known
+    defects. Pure data, no arithmetic.
+:mod:`~tcren.descriptors.compute`
+    structure -> values for the interface block, and the calls out to the energetics, topology,
+    potts and kinetics modules that own the rest.
+:mod:`~tcren.descriptors.table`
+    a whole structure set -> one row each, with the single batched annotation pass and the
+    process pool.
 
 :mod:`tcren.recognition` re-exports all three under the name every caller already uses.
 """

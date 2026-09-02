@@ -47,8 +47,7 @@ From the command line
 .. code-block:: console
 
    $ tcren features -s models/ -i placement,interface,topology,energetics -o feats.tsv
-   $ tcren assess --features feats.tsv -o assessed.tsv \
-       --link 'tcrvdb|S' --band 'tcrvdb|ipTM'
+   $ tcren assess --features feats.tsv -o assessed.tsv --band 'tcrvdb|ipTM'
 
    618 structures; S = Q + T in native-sd units, 618 finite
      top 50% of the set (309 structures): mean S 0.737 against 0.562 overall

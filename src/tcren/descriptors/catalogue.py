@@ -22,22 +22,23 @@ _EPS = 1e-9
 
 
 # ===================================================================================================
-# Structure -> the 35-descriptor recognition vector the frozen recognizers consume, and P(real).
+# Structure -> the recognition vector: 40 descriptors, the interface block this module computes itself.
 #
-# Reproduces the extractor the shipped models were trained on (the manuscript's compute_features.py):
-# docking geometry + per-interface TCRen/MJ energetics (F, poly-Ala ΔF) + contact-type tallies +
-# biopython ΔSASA burial + MHC-class indicator. Heavy imports are function-local so that a bare
+# It is a SUBSET of the catalogue, not the catalogue. :data:`DESCRIPTORS` carries 164 columns across
+# six families; :data:`RECOGNITION_FEATURES` is the 40 of them that come out of the interface pass
+# here — docking geometry + per-interface TCRen/MJ energetics (Φ, poly-Ala ΔΦ) + contact-type tallies
+# + biopython ΔSASA burial + MHC-class indicator. Heavy imports are function-local so that a bare
 # ``import tcren`` (and ``import tcren.recognition``) stays dependency-light.
 # ===================================================================================================
 
-#: The core descriptor block ``recognize`` emits, and the vector the frozen recognizers consume.
+#: The core descriptor block ``recognize`` emits: 40 columns, a subset of the 164-row catalogue.
 #:
 #: Every statistical-potential energy is named ``Phi_*`` — there is one potential per interface (TCRen
 #: on TCR:peptide, MJ on the two presentation interfaces), so the potential's name does not belong in
-#: the column's. Two exact duplicates were dropped in the 2026-07-28 audit: ``e_tcr_mhc`` (the same
-#: number as ``Phi_tcr_mhc``) and ``ct_tp_hydrogen_bond`` (the same number as ``n_hbond``, which is the
-#: name Eq. Q uses). The frozen models still ask for the old names and get the same values through
-#: :data:`_FROZEN_ALIASES`, so their predictions are unchanged.
+#: the column's. ``d`` in ``dPhi_*`` is the **reference difference** ΔΦ = Φ(sequence) − Φ(reference),
+#: never a derivative. Two exact duplicates were dropped in the 2026-07-28 audit: ``e_tcr_mhc`` (the
+#: same number as ``Phi_tcr_mhc``) and ``ct_tp_hydrogen_bond`` (the same number as ``n_hbond``, which
+#: is the name Eq. Q uses).
 RECOGNITION_FEATURES = (
     "extent", "chain_balance", "pitch", "crossing", "crossing_signed", "dock_d", "dock_torsion",
     "dock_tcr_uy", "dock_tcr_uz", "dock_mhc_uy", "dock_mhc_uz", "Phi_cdr12", "Phi_cdr3a", "Phi_cdr3b",
@@ -54,14 +55,14 @@ _CT_TYPES = ("salt_bridge", "hydrogen_bond", "aromatic", "hydrophobic", "other")
 _TCR_TYPES = ("TRA", "TRB", "TRG", "TRD")
 
 #: Interface-symmetry descriptors from per-loop TCR:peptide contact **counts** (not energies), emitted as
-#: extra ``recognize`` output columns — **not** part of :data:`RECOGNITION_FEATURES` (the frozen models'
-#: 35-vector is fixed). ``cdr3_dominance`` = CDR3(α+β) share of CDR contacts (higher = CDR3-dominated,
+#: extra ``recognize`` output columns — **not** part of :data:`RECOGNITION_FEATURES` (that 40-column
+#: block is fixed). ``cdr3_dominance`` = CDR3(α+β) share of CDR contacts (higher = CDR3-dominated,
 #: oriented positive); ``cdr3_ab_imbalance`` = ``|CDR3α−CDR3β|`` normalised (absolute); ``chain_cdr_imbalance``
 #: = ``|α−β|`` whole-CDR normalised (absolute). See :func:`_interface_symmetry`.
 INTERFACE_SYMMETRY_FEATURES = ("cdr3_dominance", "cdr3_ab_imbalance", "chain_cdr_imbalance")
 
 #: Where the receptor body sits over the groove (:func:`tcren.docking.tcr_placement`), emitted as extra
-#: output columns — **not** part of :data:`RECOGNITION_FEATURES` (the frozen models' vector is fixed).
+#: output columns — **not** part of :data:`RECOGNITION_FEATURES` (that 40-column block is fixed).
 #: ``height`` = elevation of the CDR centroid above the groove plane, ``shift_u``/``shift_w`` its
 #: in-plane displacement from the peptide centroid along the groove long/short axes, ``offset`` the
 #: in-plane distance. These are the translational degrees of freedom no docking *angle* can see, and
@@ -69,7 +70,7 @@ INTERFACE_SYMMETRY_FEATURES = ("cdr3_dominance", "cdr3_ab_imbalance", "chain_cdr
 TCR_PLACEMENT_FEATURES = ("height", "shift_u", "shift_w", "offset")
 
 #: The intra-peptide term, emitted as extra ``recognize --full`` output columns — **not** part of
-#: :data:`RECOGNITION_FEATURES` (the frozen models' 35-vector is fixed). ``Phi_pep_int`` = the peptide's
+#: :data:`RECOGNITION_FEATURES` (that 40-column block is fixed). ``Phi_pep_int`` = the peptide's
 #: MJ contact energy with **itself** (:func:`tcren.intra_peptide_energy`), the term every interface
 #: sum omits; ``n_pep_int`` = how many such contacts there are. Both are properties of the pMHC alone
 #: — no receptor enters them — so they carry cohort identity; see :data:`DESCRIPTORS`.

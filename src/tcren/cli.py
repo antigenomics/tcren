@@ -867,7 +867,7 @@ def recognize(
     (``pdb.id``) that then has to be joined. One flag costs about a sixth of the descriptor pass and
     returns one table.
 
-    Complementary scorer on the same inputs: ``tcren ddg`` (per-mutation alanine/neoantigen ΔΔF).
+    Complementary scorer on the same inputs: ``tcren ddg`` (per-mutation alanine/neoantigen ΔΔG).
 
     Examples::
 
@@ -915,7 +915,7 @@ def fit_holdout_cmd(
         tcren fit-holdout --features hold.tsv -o refit.npz
 
     and ``refit.npz`` matches the shipped model bit for bit. Pass your own ``--manifest`` to fit a
-    different hold-out, then read it back with ``tcren score --model``.
+    different hold-out, then read it back with ``tcren assess --model``.
     """
     from .score import MANIFEST_FILE, holdout_manifest
     from .score.fit import fit_holdout
@@ -979,7 +979,8 @@ def scoring(
     coverage ``n_pep_contacted``, ``chain_balance``, ``n_hbond``, docking ``pitch``/``crossing``)
     and ``Q`` — the directional, decorrelated interface-quality score, standardised against the
     native-crystal reference so it is defined for a single structure (:func:`tcren.q_score`).
-    For the complete descriptor catalogue plus P(real), use ``tcren recognize``.
+    For the complete descriptor catalogue, use ``tcren features``; for the scores built on it,
+    ``tcren recognize`` (``Q``, ``T``, ``S``) and ``tcren assess`` (the score set).
 
     Each interface's potential can be overridden with a bundled name (``tcren2``,
     ``karnaukhov2022``, ``mj``, ``keskin``) or a CSV path; an unset option keeps the default
@@ -1389,24 +1390,38 @@ def assess(
     estimated from the rows you pass, so a score does not move depending on what was scored beside
     it. Higher is better throughout.
 
-    \b
-      pose_score           is this the kind of interface real complexes make? A one-class distance
-                           to the manifold hold-out binders occupy, reading NO binder label at
-                           all. This is the bad-pose channel.
-      binder_score         log-odds that the complex is a genuine recognition interface.
-      channel_*            the same log-odds marginalized to one descriptor family, so a number
-                           can be attributed: placement (where the receptor sits), interface (how
-                           much it makes, of what chemistry), shape (the footprint free of its
-                           size), energetics (the contact chemistry in kT), mechanics (the
-                           interface as breakable springs).
-      peptide_score        the poly-alanine-referenced recognition energy, with nothing fitted in
-                           it. This ranks PEPTIDES for a fixed receptor and reads below chance on
-                           a receptor benchmark -- a property of the reference frame, not a fault.
-      confidence_residual  reported ipTM minus what the coordinates say it should have been. A
-                           large positive residual is a model the generator is more certain of
-                           than its own geometry and chemistry warrant.
-      binder_iptm          binder_score + logit(ipTM): two log-odds added, no coefficient to fit.
-                           The recommended read when a confidence is available.
+    pose_score
+
+        Is this the kind of interface real complexes make? A one-class distance to the manifold
+        hold-out binders occupy, reading NO binder label at all. This is the bad-pose channel.
+
+    binder_score
+
+        Log-odds that the complex is a genuine recognition interface.
+
+    channel_*
+
+        The same log-odds marginalized to one descriptor family, so a number can be attributed:
+        placement (where the receptor sits), interface (how much it makes, of what chemistry),
+        shape (the footprint free of its size), energetics (the contact chemistry in kT),
+        mechanics (the interface as breakable springs).
+
+    peptide_score
+
+        The poly-alanine-referenced recognition energy, with nothing fitted in it. This ranks
+        PEPTIDES for a fixed receptor and reads below chance on a receptor benchmark -- a property
+        of the reference frame, not a fault.
+
+    confidence_residual
+
+        Reported ipTM minus what the coordinates say it should have been. A large positive
+        residual is a model the generator is more certain of than its own geometry and chemistry
+        warrant.
+
+    binder_iptm
+
+        binder_score + logit(ipTM): two log-odds added, no coefficient to fit. The recommended
+        read when a confidence is available.
 
     \b
     THE PREDECESSOR TIER -- `S`, the fit-free composition of interface quality, footprint shape
@@ -1547,8 +1562,8 @@ def features(
     * ``topology`` -- the SHAPE of the contact set, free of its size: coverage entropy and Hill
       numbers, the footprint's Betti numbers and persistence entropy, the canonical germline/CDR3
       preference.
-    * ``energetics`` -- statistical-potential interface energies F and their poly-alanine
-      references dF.
+    * ``energetics`` -- statistical-potential interface energies Phi and their poly-alanine
+      reference differences dPhi. The ``d`` is the reference difference, never a derivative.
     * ``kinetics`` -- the interface as a spring network: stiffness, rupture, coupling residues.
       Off by default (it is the most expensive family); add it with --all or -i.
 
@@ -1635,12 +1650,14 @@ def footprint(
     oriented -- only chain-typed with CDR region markup, which this command does for you in one
     batched annotation pass over the whole set.
 
-    ``--score`` adds ``T``, the shape channel's posterior: the same latent-class Bayes network
-    ``tcren recognize`` fits, restricted to these descriptors. It is fitted on the cohort being
-    scored, so it needs a set and is undefined for a single input. Use ``--group`` with ``--meta``
-    to fit within epitope rather than across the whole table.
+    ``--score`` adds ``T``, the fit-free shape score: a directional score against the Native2026
+    crystal reference, restricted to these descriptors. Nothing is fitted at call time, so it is
+    **defined for a single input** and ``--group`` no longer changes any value -- the option is kept
+    only because it carries the grouping column through. The cohort-fitted channel posterior this
+    replaced went at 2.26.0.
 
-    Complementary scorer on the same inputs: ``tcren recognize`` (energies + P(real)).
+    Complementary scorers on the same inputs: ``tcren recognize`` (the energies plus ``Q``, ``T``
+    and ``S``) and ``tcren assess`` (the score set).
     """
     from .topology.footprint import footprint_batch
 

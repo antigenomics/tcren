@@ -43,12 +43,12 @@ way it does.
 | **A functionally validated repertoire screen** | which receptors read this epitope? | `tcren features`, `tcren recognize` |
 | **A balanced epitope panel, template-stratified** | the same, where no related complex has been solved | as above, with template availability reported rather than inferred |
 | **Molecular dynamics with measured kinetics** | may a single static structure be scored at all, and what does its energy reach? | the three interface energies, `tcren.potts` contact marginals |
-| **Model-confidence diagnostics** | which confidently modelled complexes are not real? | `tcren assess`, `tcren.reliability.af_band` |
+| **Model-confidence diagnostics** | which confidently modelled complexes are not real? | `tcren assess`, `tcren.score.confidence_residual`, `tcren.reliability.af_band` |
 
 The last is the one most users reach for first: you already have an AlphaFold model and want to know
-whether to trust it. It is also the only read-out here that is fitted — it takes the generator's
-confidence as a prior and adds the structure as log-odds, learning four coefficients and freezing
-them. Everything else takes no binding label anywhere.
+whether to trust it. Everything in the score set is frozen on a hold-out that ships inside the wheel
+and refits from a manifest that ships with it, so nothing is estimated from the rows you score and no
+number depends on what was scored beside it.
 
 ## What it does
 
@@ -63,14 +63,18 @@ From one TCR–peptide–MHC structure (crystal or model), each task is one comm
 | task | command | library |
 |---|---|---|
 | Score candidate epitopes for a TCR | `tcren score` | `score_peptides` |
+| **Rank peptides for a fixed receptor** — the poly-alanine-referenced energy | `tcren assess --peptide` | `score.peptide_score` |
 | Percentile-rank a peptide vs background | `tcren rank` | `percentile_rank` |
 | ΔΔG of mutations (alanine scan / neoantigen) | `tcren ddg` | `alanine_scan`, `neoantigen_ddg` |
 | **Predict a CPL response matrix from a template** | `tcren cpl` | `response_matrix`, `mutation_effect`, `position_scan`, `equimolar_effect` |
-| Binder vs non-binder for a TCR model | `tcren features` + `tcren recognize --features` | `reliability.s_score`, `cohort.q_score` |
-| **Every interface descriptor, in five families (four by default)** | `tcren features` | `recognition_table(include=...)`, `descriptors` |
+| **Binder vs non-binder for a TCR model** | `tcren features` + `tcren assess` | `score.binder_score`, `score.score_table` |
+| **Which part of the structure says so** — the five channels | `tcren assess` | `score.channel_scores` |
+| **Is the reported confidence warranted?** | `tcren assess` | `score.confidence_residual` |
+| **Every interface descriptor, 164 in six families (four by default)** | `tcren features` | `recognition_table(include=...)`, `descriptors` |
 | **All interface descriptors, one row per structure** | `tcren recognize` | `recognition_features` |
 | **`S`** — geometry, footprint shape and energy in native-sd units | `tcren recognize --features` | `reliability.s_score` |
-| **Is *this* model worth believing?** — `S` and the generator diagnostic | `tcren assess` | `reliability.s_score`, `af_band` |
+| **Is *this* model worth believing?** — the score set, `S` and the generator diagnostic | `tcren assess` | `score.score_table`, `reliability.s_score`, `af_band` |
+| Refit the frozen model from its shipped manifest | `tcren fit-holdout` | `score.holdout_model`, `score.holdout_manifest` |
 | **The contact map as a probability model** — energy, partition function, per-pair contact probability | `tcren potts fit` / `score` / `contacts` | `potts.fit_potts`, `score_sites`, `contact_probabilities` |
 | Three-interface energy Φ, poly-Ala ΔΦ, interface geometry | `tcren scoring` | `run_pipeline` |
 | Annotate chains + region markup | `tcren annotate` | `classify_chains`, `annotate_mhc` |
@@ -121,7 +125,8 @@ tcren ships five small **pybind11/C++ extensions**, built on install by `scikit-
 (which fetches `cmake`+`ninja` automatically): `tcren._align` (MHC-pseudosequence fitting
 alignment; a Biopython fallback runs if unbuilt), `tcren._refine` (DOPE atom-level Monte-Carlo
 peptide refinement), `tcren._relax` (DOPE interface energy for `tcren energy` / ΔΔG),
-`tcren._fold` (CCD loop closure) and `tcren._geom` (interface geometry for `tcren binder`). TCR
+`tcren._fold` (CCD loop closure) and `tcren._geom` (interface geometry, clash detection and
+contact stability). TCR
 annotation is provided by [`arda`](https://github.com/antigenomics/arda), a runtime dependency
 published to PyPI as [`arda-mapper`](https://pypi.org/project/arda-mapper/) (it imports as
 `arda`); `uv`/`setup.sh` pull it automatically, and from `arda-mapper >= 2.5.7` it auto-fetches
@@ -188,7 +193,7 @@ tcren score -s complex.pdb -c candidates.txt -o ranked.csv --soft
 # same as one that is not. --intra-weight w adds score = Φ + w·E_intra (5 Å, |i-j| >= 3, MJ).
 # Sparse by design: an extended class-I 9-mer makes zero to two internal contacts. w=0 = off.
 tcren score -s complex.pdb -c candidates.txt -o ranked.csv --intra-weight 0.5
-tcren scoring -s complex.pdb -o scores.csv --intra-weight 0.5   # reports F_pep_int separately
+tcren scoring -s complex.pdb -o scores.csv --intra-weight 0.5   # reports Phi_pep_int separately
 
 # Percentile-rank the native (or candidate) peptide's TCRen energy against a random pMHC
 # background — small rank_pct = the peptide scores among the best binders.
@@ -212,12 +217,17 @@ tcren cpl -s complex.pdb --position 5                  # every substitution at p
 tcren cpl -s complex.pdb --position 5 --mutation W     # just that one cell
 tcren cpl -s complex.pdb --position 5 --to-mixture     # cost of giving position 5 up to the mixture
 
-# Rank candidate receptors against a fixed pMHC. S is the score to ship -- three fit-free
-# directional blocks (geometry, footprint shape, interface energy) against the Native2026 crystals,
-# each divided by its own native spread, so it is defined for ONE structure and its value does not
-# depend on what else was scored alongside it.
-tcren features  -s candidates/ -o feats.tsv
-tcren recognize --features feats.tsv -o scores.tsv
+# Rank candidate receptors against a fixed pMHC. `assess` is the score set: is the pose real, is it
+# a binder, and which part of the structure says so. Every read-out is defined for ONE structure --
+# the transform, the class means and the covariance are frozen on a hold-out that ships in the wheel.
+tcren features -s candidates/ -o feats.tsv
+tcren assess   --features feats.tsv -o scores.tsv
+tcren assess   --features cpl_feats.tsv --peptide -o cpl.tsv   # when the PEPTIDE is what varies
+
+# The fit-free predecessor tier on the same table: Q (interface geometry), T (footprint shape) and
+# their composition with the contact energy, S. Still shipped, still reported, and it COMPOSES with
+# the score set rather than being replaced by it.
+tcren recognize --features feats.tsv -o qts.tsv
 
 # One TSV per structure: every interface descriptor (geometry + energies).
 tcren recognize -s my_pdbs/ -o recognize.tsv          # descriptors, one row per PDB
@@ -270,7 +280,7 @@ tcren --install-completion        # shell tab-completion (bash/zsh)
 `tcren orient` and `tcren superimpose` need the reference sets in `data/` (`Native2026`,
 `Canonical2026`); `setup.sh` fetches them at install via `tcren fetch-data` (re-run it any time).
 
-## One table per structure: descriptors, energies & the joint recognizer
+## One table per structure: descriptors, energies and the score set
 
 Two commands, two jobs. **`tcren features` reads structures and writes descriptors**;
 **`tcren recognize` turns descriptors into scores.** The feature pass is the expensive half, so it
@@ -282,9 +292,9 @@ tcren features  -s my_pdbs/ -o shape.tsv -i topology       # one family -- and o
 tcren recognize --features feats.tsv -o scores.tsv         # Q, T, S
 ```
 
-Descriptors are catalogued in five **families**, four of them computed by default (`kinetics` is
-opt-in), split by what each is invariant under — which is also the axis along which they carry
-independent evidence:
+The 164 descriptors are catalogued in six **families**, four of them computed by default (`potts`
+and `kinetics` are opt-in), split by what each is invariant under — which is also the axis along
+which they carry independent evidence:
 
 | family | what it is | invariance |
 |---|---|---|
@@ -292,6 +302,7 @@ independent evidence:
 | `interface` | how much contact and of what chemical kind — buried area, contact counts and types, hydrogen bonds, clashes | SE(3)-invariant |
 | `topology` | the **shape** of the contact set, free of its size — coverage entropy, Hill numbers, Betti numbers, persistence entropy, canonical preference | SE(3)-invariant |
 | `energetics` | statistical-potential interface energies `Phi` and their references `dPhi` — poly-alanine, and the smoothed background form | SE(3)-invariant |
+| `potts` | the contact map's own energy against a Boltzmann distribution over it — `neg_energy`, `log_z`, `log_lik` (off unless asked) | SE(3)-invariant |
 | `kinetics` | the interface as a spring network — stiffness, rupture, coupling residues (off unless asked) | — |
 
 `tcren recognize -s my_pdbs/` reads the structures itself, skipping the feature file:
@@ -306,40 +317,79 @@ tcren recognize -s my_pdbs/ -o scored.tsv --mechanics      # + the spring-networ
 | **(a) energy** — `Phi` per interface (TCRen on TCR:peptide, MJ on presentation) + references `dPhi` + loop parts | `Phi_tcr_pep`, `Phi_tcr_mhc`, `Phi_pep_mhc`, `dPhi_tcr_pep`, `dPhi_pep_mhc`, `Phi_cdr12`, `Phi_cdr3a`, `Phi_cdr3b`, `dPhi_{pep,tcr,tra,trb}_soft`, `varPhi_{pep,tcr}_soft` |
 | **(a′) intra-peptide** (`--full`) — the peptide's contacts with *itself*, which every interface sum omits | `Phi_pep_int`, `n_pep_int` |
 | **(b) geometry** — every docking + interface descriptor | `pitch`, `crossing`, `crossing_signed`, `dock_d`, `dock_torsion`, `dock_{tcr,mhc}_u{y,z}`, `extent`, `chain_balance`, `burial`, `n_contacts_{tp,tm}`, `n_pep_contacted`, `ct_{tp,tm}_*` |
-| **(c) scores** — no training set, no binding label; written by `tcren recognize --features`, not by `-s` | `Q` — interface quality; `T` — footprint shape; `S` — the blocks combined. See [`tcren.cohort`](src/tcren/cohort.py), [`tcren.reliability`](src/tcren/reliability.py) |
+| **(c) scores** — written by `tcren recognize --features`, not by `-s`. No training set and no binding label enters any of them | `Q` — interface quality; `T` — footprint shape; `S` — the blocks combined with the contact energy. See [`tcren.cohort`](src/tcren/cohort.py), [`tcren.reliability`](src/tcren/reliability.py). The two-class read-outs are `tcren assess`, below |
 
 ### Is *this* model worth believing? — `tcren assess`
 
-A co-folding model will seat any TCR against any peptide. `assess` answers the three questions a
-caller actually has about one structure, from coordinates alone:
+A co-folding model will seat any TCR against any peptide, binding or not. `assess` reads the
+coordinates it produced and answers four separate questions about them, and **every answer is defined
+for a single structure**: the transform, the class means and the covariance are all frozen on a
+hold-out that ships with the package, so nothing is estimated from the rows you pass and a score does
+not move depending on what was scored beside it.
 
 ```bash
-tcren features -s models/ -i placement,interface,topology,energetics -o feats.tsv
-tcren potts   score -s models/ -o potts.tsv            # writes neg_energy, the energy block
-# join potts.tsv's neg_energy onto feats.tsv on the structure id, then:
-tcren assess --features joined.tsv -o assessed.tsv
+tcren features -s models/ -o feats.tsv                 # the expensive pass, once
+tcren assess   --features feats.tsv -o scores.tsv      # arithmetic over that table
 ```
 
-- **Reliability** — `S` = `Q/sd_Q + T/sd_T + (Pi - mu)/sd_Pi`, three fit-free directional
-  blocks each divided by its own native spread, so they carry equal weight in native-sd units.
-  Nothing is fitted at score time, so **it is defined for a single structure**. The package ships
-  no probability to threshold on: every out-of-fold-fitted read-out was removed in 2.28.0.
-- **Ranking** — the structure's rank and percentile inside the set, and the expected precision at a
-  recall budget.
-- **The generator diagnostic** — which AlphaFold confidence band the model falls in, how often
-  models in that band turned out to be non-binders, and what `S` still separates *inside* it.
-  On a balanced 22-cohort VDJdb panel the top ipTM decile is 26.2% [18.7, 35.5] non-binders, and is
-  also the band where `S` reads highest.
+**The score set — five read-outs of one frozen object.** Higher is better throughout.
 
-Without the joined `neg_energy` column `assess` emits the two-block `Q + T` form and says so in its
-report rather than imputing the missing block.
+| read-out | tier | what is estimated | what it answers |
+|---|---|---|---|
+| `peptide_score` | 0 | nothing; the direction is fixed by the potential | which peptide does this receptor read? |
+| `pose_score` | 1 | a covariance over hold-out binders — **no negative, no label** | is this the kind of interface real complexes make? |
+| `confidence_residual` | 1 | the same covariance, read as a conditional mean | is the reported confidence warranted? |
+| `binder_score` | 2 | class means and covariances, from hold-out binder labels | binder or not? |
+| `channel_scores` | 2 | the same object, marginalized to one descriptor family | which part of the structure says so? |
+
+`binder_iptm` is `binder_score + logit(ipTM)`: two log-odds added, no coefficient to fit, and still
+defined for one structure. It is the recommended read when a confidence is available.
+
+**The five channels** are named in physics and geometry terms — `placement` (where the receptor sits
+in the groove frame), `interface` (how much interface it makes, of what chemistry), `shape` (the
+footprint free of its size), `energetics` (the contact chemistry in kT), `mechanics` (the interface as
+a network of breakable springs). A marginal of a Gaussian is a sub-block of its covariance — exact,
+closed form, no re-fit — so attributing a score to a part of the structure costs an index and nothing
+else. They do not sum to `binder_score` and should not: the whole model also reads the correlations
+*between* channels. Sometimes a channel is the better instrument: on template-free cohorts of the
+22-cohort VDJdb panel `channel_shape` reads 0.637 median ROC-AUC against the full posterior's 0.615.
+
+Pass `--peptide` when the **peptide** is what varies across the structures being compared, as in a
+combinatorial library or a mutational scan. Otherwise the five descriptors computed without the
+receptor are marginalized out, because they are constant across every structure of one epitope on one
+allele and a model reading them reaches the cohort's name without reading an interface.
+
+`assess` also emits, on the same rows: the fit-free predecessor tier `S`; the rank and percentile
+within the set with the expected mean score at a recall budget; and — when the table carries ipTM —
+the generator diagnostic, which band the model falls in, how often models in that band turned out to
+be non-binders, and what `S` still separates *inside* it. On the balanced 22-cohort VDJdb panel the
+top ipTM decile is 26.2% [18.7, 35.5] non-binders.
+
+**The coefficients are frozen, and the inputs they were frozen against are named.** That is the
+contract the withdrawn cohort-refit posterior could not offer:
+
+```bash
+tcren fetch-data                                       # the structure sets the manifest names
+tcren features -s <those structures> -o hold.tsv
+tcren fit-holdout --features hold.tsv -o refit.npz     # matches the shipped model bit for bit
+```
+
+`tcren.score.holdout_manifest()` returns the 8,292 structures with their dataset, epitope, label and
+ipTM. From Python the whole set is one call:
+
+```python
+import polars as pl
+from tcren import score_table
+
+scores = score_table(pl.read_csv("feats.tsv", separator="\t"))
+```
 
 **(c) physics of the interaction.** The koff proxies fold into the same table with `--mechanics`;
 only the mutation scan, which is per-residue rather than per-structure, needs its own command:
 
 ```bash
 tcren recognize -s models/ --mechanics -t 0 -o out.tsv    # every per-structure descriptor, one table
-tcren ddg       -s complex.pdb -o ddg.csv     # per-residue alanine / neoantigen ΔΔF (fast virtual matrix)
+tcren ddg       -s complex.pdb -o ddg.csv     # per-residue alanine / neoantigen ΔΔG (fast virtual matrix)
 ```
 
 `--mechanics` is how to ask for the stiffness tensor, steered rupture and coupling residues on a
@@ -394,207 +444,15 @@ score_peptides(cm, cands, tcren(), intra_weight=0.5, intra_potential=mj())
 res = run_pipeline("complex.pdb", intra_weight=0.5)             # + scores["peptide_internal"]
 ```
 
-### What a contact potential can and cannot express
+### Beyond the contact sum
 
-A contact energy is not purely an interaction: burying a residue against *any* partner costs
-something that depends on that residue alone. `decompose()` separates the two exactly, and only the
-pair part `J` is beyond what a per-position model can already write down.
-
-```python
-from tcren.potential import mj, mj1996, mj_partition_energy
-
-d = mj1996().decompose()          # e(a,b) = mean + H(a) + H(b) + J(a,b), J double-centred
-d.h("F"), d.j("F", "W")           # one-body term; the genuinely pairwise remainder
-d.energy("F", "W")                # reassembles the original value
-
-f = mj1996().hydrophobicity_fit()  # C0 + C1(q_a + q_b) + C2 q_a q_b
-f.r2, f.eigenvalue_share           # 0.98 on MJ1996, 0.85 on the bundled mj
-mj_partition_energy()["F"]         # 4.37 — MJ's own one-body scale (larger = more hydrophobic)
-```
-
-Where a potential has that shape the interaction term is only `C2·q_a·q_b`, so it **cannot prefer
-one pair of side chains over another of equal hydrophobicity**. Both calls refuse a directed
-potential — TCRen is TCR→peptide and must not be split this way.
-
-### Peptide conformational stability: what a contact model cannot see
-
-A contact potential scores whichever conformation it is handed. It cannot tell a peptide that its
-own side chains **hold** in the TCR-facing conformation from one that merely happens to have been
-modelled there — both present the same contact list. `tcren.dynamics` puts the backbone in motion:
-it samples peptide φ/ψ by Metropolis Monte Carlo against DOPE and reports how far the peptide
-wanders, not a better pose.
-
-```python
-from tcren import peptide_stability, stability_table
-peptide_stability(structure).rmsf                       # ensemble spread, A -- larger = floppier
-stability_table([s1, s2]) ["delta_rmsf"]                # intra-peptide term ON vs OFF, paired
-```
-
-**The hypothesis it was built to test** (Sewell, 2026-08): intra-peptide interactions stabilise the
-productive bulge a TCR reads, and *"poor binders could perhaps still make many contacts but fail to
-stabilise the productive peptide conformation"* — which would explain why an additive contact model
-describes some systems well and others badly.
-
-Tested on the CPL set: ~160 best-binder and ~160 worst-binder modelled complexes for each of seven
-clones, 2102 structures (`scripts/sewell_stability.py`). AUC is best-vs-worst discrimination.
-
-| clone | contact energy | **stability** |
-|---|---|---|
-| ila1 | 0.348 | **0.862** |
-| 868 | 0.537 | **0.677** |
-| sb27 | 0.570 | **0.934** |
-| mel8 | 0.690 | **0.876** |
-| 4c6 | **0.955** | 0.519 |
-| 1e6 | **0.973** | 0.707 |
-| mel5 | **0.974** | 0.859 |
-
-**Stability beats the contact energy in 4/4 clones where the contact model fails, and 0/3 where it
-works.** Mean AUC over the failing clones goes 0.536 → 0.837; over the working ones the contact
-energy stays ahead (0.967 vs 0.695). Combining the two (within-clone z-sum) lifts the mean AUC from
-0.721 to 0.826, improved in 5/7 — though with seven clones that paired test is underpowered
-(Wilcoxon p = 0.22).
-
-**The intra-peptide term is a switch, and flipping it does what the hypothesis says.** Removing the
-peptide's contacts with itself lets the *best* binders' backbones wander further (Δrmsf = +0.021 Å,
-SE 0.005, i.e. 4.4σ) and leaves the *worst* binders unchanged (+0.002 Å, SE 0.007); best vs worst
-p = 0.042. The same term also sharpens the stability discrimination itself, by +0.024 AUC on average
-and in 5/7 clones (Wilcoxon p = 0.078).
-
-So the **mechanism** Sewell proposed is supported, while the **system** he guessed is not: 4c6 is one
-of the clones the contact model handles well here (0.955), and the ones it fails on are ila1, 868,
-sb27 and mel8. Caveats worth carrying: these are modelled structures, the MC is knowledge-based
-rather than MD (no solvent, no force field, no time), Δrmsf is a mechanistic signal and not a useful
-classifier on its own (AUC 0.526), and every clone-level test has n = 7.
-
-### Side-chain repack: what a local minimiser cannot do
-
-`tcren.repack` (native `_relax.repack`) places every side chain in the χ rotamer the DOPE potential
-prefers. The rigid-body refiner moves the peptide and leaves every χ where it found it, so a
-full-atom model whose side chains a predictor placed keeps them — which is most of why a pairwise
-contact energy stops discriminating on AlphaFold poses.
-
-```python
-from tcren import repack
-fixed, report = repack(structure)        # report: n_conformers, energy, p_best per residue
-```
-
-Like-for-like — same wrong-rotamer input (χ1 rotated 120°), same 33–42 side-chain atoms, same
-crystal reference:
-
-| | peptide side-chain RMSD (Å) | time |
-|---|---|---|
-| input (wrong χ1) | 4.131 | — |
-| **`repack`** | **2.364** | **6 ms** |
-| OpenMM (anchor-restrained minimisation) | 4.133 | 3103 ms |
-
-OpenMM leaves them where they are. That is not a defect in OpenMM: a local minimiser cannot cross
-the torsional barrier between two rotamer basins, so relaxing clashes and re-sampling rotamers are
-different operations and only a discrete packer does the second. Over eight structures the packer
-recovers side-chain RMSD 3.93 → 1.66 Å, 8/8 improved, median 6 ms.
-
-It rotates the side chains a model **has** — it cannot rebuild ones `substitute_peptide` stripped;
-that is side-chain *construction*, still open (`refine/CPP_REWRITE.md`).
-
-### Footprint shape: what the contacts say before they are scored
-
-Every other scorer here sums over contacts. `tcren.footprint` reads the same contact map as a
-**shape** — which of the six CDR loops touched what, and whether the resulting footprint is one
-connected patch. No potential, no reference structure, no fitted parameter, and **no canonical
-orientation**: every feature is invariant under rigid motion, so unaligned inputs are fine. Only
-chain typing and CDR markup are needed, which the CLI does in one batched annotation pass.
-
-Coverage is the composition over cells — the 6 CDR loops × {peptide, MHC}, optionally splitting the
-peptide into thirds — summarised by the normalised Shannon entropy and by the Hill numbers
-([Hill 1973](https://doi.org/10.2307/1934352), [Jost 2006](https://doi.org/10.1111/j.2006.0030-1299.14714.x)),
-where `D2` is the *effective number of engaged cells*. Topology joins the contacted pMHC residues at
-a Cα threshold and builds the flag complex: `fp_b0_*` counts footprint patches and `fp_b1_*` its
-holes. Coverage and topology are only weakly related, which is why they belong in one channel and
-why that channel is read as `T`, a directional score against the native crystals rather than a
-hand-written z-sum.
-
-```bash
-tcren features -s structures/ -i topology -o shape.tsv
-```
-
-```python
-from tcren.footprint import footprint_batch, footprint_features
-from tcren.reliability import t_score
-
-row = footprint_features(structure)          # one dict, 29 features at the default two radii
-row["D2_pep24"], row["fp_b0_r7"], row["L_canon"]
-
-table = footprint_batch("structures/")       # polars frame, one row per structure
-T = t_score(table)                           # the shape score, fit-free, one row is enough
-```
-
-Note the cyclomatic number of the bipartite contact graph (`E − V + C`) is deliberately not offered:
-with of order thirty contacts among of order thirty residues it is dominated by `E` and simply
-tracks interface size. The patch count is scale-free instead.
-
-### Surface topology: what a TCR meets before it binds
-
-A contact potential scores an interface that already exists. `tcren.surface` describes the pMHC
-*beforehand*: the peptide sits in a groove between two helices, and a TCR coming down meets one
-surface, so the descriptor is a height field `h(x, y)` over that groove with hydropathy and charge
-painted on. Method follows [SURFMAP](https://doi.org/10.1021/acs.jcim.1c01269) (surface shell,
-per-cell feature, 8-neighbour smoothing, Manhattan map distance, hierarchical tree) and
-[Protein Surface Topography](https://doi.org/10.1074/jbc.RA119.010494) (centre the chart on the
-functional site). A flat raster rather than SURFMAP's equal-area spherical chart, because the
-TCR-facing surface is an open, near-planar patch that a plane does not distort.
-
-```python
-from tcren import surface_map, surface_stats, surface_distance, surface_tree
-smap = surface_map(structure)              # channels: h, phobic, charge; source: peptide/helix/floor
-surface_stats(smap)["frac_above_ridge"]    # how much peptide surface clears the MHC helix crests
-ids, d = surface_distance([m1, m2, m3])    # pairwise map distance -> epitopes cluster
-```
-
-Two things worth knowing, because both were defects first:
-
-* **The frame is refit from every structure** — z from the groove-floor plane normal, **y from the
-  peptide**, origin on the peptide centroid. The floor's own principal axis is *not* the groove axis
-  (its β-strands run across the groove), which put the two helices diagonally across the map. Because
-  the frame is intrinsic, maps compare without prealigning the inputs — SURFMAP's standing caveat.
-* **Heights come from ray casting in the groove frame**, not from Shrake-Rupley surface points.
-  Sphere sampling is fixed in global axes, so the same structure rotated gave a different map (median
-  cell moved 1.35 Å, `relief` by 19%). Ray casting is exactly equivariant and needs no probe test —
-  the highest surface in a column is by definition the one nothing is above.
-
-**"Featureless" becomes a number.** Over the 374 Canonical2026 complexes (230 distinct epitopes), the
-epitopes the literature *names* as featureless and as bulged separate completely:
-
-| epitope | source | rank by `frac_above_ridge` | `frac_above_ridge` | `relief` (Å) |
-|---|---|---|---|---|
-| LPEPLPQGQLTAY | EBV BZLF1 13-mer, HLA-B\*35 — **bulged** | **2 / 230** | 0.749 | 2.81 |
-| HPVGEADYFEY | HCMV pp65 11-mer, HLA-B\*35:08 — **bulged** | 5 / 230 | 0.562 | 3.59 |
-| EPLPQGQLTAY | EBV BZLF1 11-mer, HLA-B\*35 — **bulged** | 8 / 230 | 0.416 | 2.54 |
-| LLFGYPVYV | HTLV-1 Tax, HLA-A\*02:01 — prominent P5-Tyr | 46 / 230 | 0.145 | 2.15 |
-| GILGFVFTL | influenza M1, HLA-A\*02:01 — **featureless** | 139 / 230 | **0.000** | 1.16 |
-| TAFTIPSI | HIV RT 8-mer, HLA-B\*51:01 — **featureless** | 205 / 230 | **0.000** | 0.95 |
-
-Five of the eight most-protruding epitopes are literature-named bulged HLA-B\*35 epitopes; both named
-featureless ones have *no* peptide surface clearing the helix crest at all. Structure-level AUC is
-1.000 on `relief`, `peak_to_valley` and `frac_above_ridge` (p ≤ 0.001, 9 featureless vs 5 bulged
-structures) — though with two distinct epitopes per group that is a 2-vs-2 comparison, so the
-properly-powered evidence is the trend over all 279 class-I structures: `frac_above_ridge` rises
-0.054 (8-mers) → 0.569 (13-mers), Spearman on `relief` +0.414, p = 5.5e-13.
-
-`notebooks/surface_topology.py` (marimo) draws the elevation / charge / hydropathy maps and
-reproduces this comparison.
-
-### Ring stacking: the geometry identity cannot carry
-
-A contact potential scores a pair by identity, so two rings face-to-face at 3.5 Å score exactly like
-the same two residues brushing past edge-on. This measures the difference and returns **no energy**:
-
-```python
-from tcren import ring_stacking
-ring_stacking(structure, cutoff=7.5)   # centroid_distance, interplanar_angle, vertical, lateral
-```
-
-`interplanar_angle` near 0 is face-to-face, near 90 edge-to-face; a parallel-displaced stack shows a
-small `vertical` with a few Å of `lateral`. Proline is included — its pyrrolidine ring packs face-on
-against aromatics through CH–π contacts.
+Five things a TCR:pMHC interface does are invisible to a sum over a contact list, and each has its own
+instrument here: the one-body / pair split of a potential (`tcren.potential`), peptide backbone
+stability under Monte Carlo (`tcren.mechanics.dynamics`), discrete side-chain repacking
+(`tcren.energetics.rotamers`), footprint shape (`tcren.topology.footprint`), the pMHC surface a TCR
+meets before it binds (`tcren.topology.surface`) and ring-stacking geometry (`tcren.stacking`). What
+each measures, and what it was measured on, is in
+[**Beyond the contact sum**](https://docs.isalgo.dev/tcren/beyond-the-contact-sum.html).
 
 ### CPL response matrices from one template structure
 
@@ -651,7 +509,7 @@ for pdb_id, structure in iter_structures("batch.tar.gz"):   # file | directory |
 
 ```python
 from tcren.mhc import annotate_mhc
-from tcren.orient import canonicalize_structure, superimpose, docking_angles
+from tcren.docking import canonicalize_structure, superimpose, docking_angles
 from tcren.contacts import multi_contacts, ContactDefinition
 
 annotate_mhc(s)
@@ -703,7 +561,7 @@ points, and `x/y/z` does not tell them — so the arrows are named for what they
 The triad is thin, arrow-headed, and turns with the camera. An axis pointing at the viewer
 foreshortens to a dot and its label drops to the lower left of it, the usual convention for an axis
 normal to the page. These are the three directions the docking-geometry literature uses (SwiftTCR,
-TCR3d); only the principal-component ranking differs, because `tcren.orient.frame` fits the whole
+TCR3d); only the principal-component ranking differs, because `tcren.docking.frame` fits the whole
 complex where those fit the MHC groove alone.
 
 **Colour by which residues carry the score.** Φ is a sum over residue–residue contacts, so it
@@ -748,15 +606,16 @@ Worked examples of every view, with images: **[Figure gallery](https://docs.isal
 | `tcren.contacts` / `contactmap` | closest-atom 5 Å contacts, Cα distances, multi-layer (5/8/12 Å) contact tables, interface partitioning |
 | `tcren.potential` | `Potential` (TCRen/MJ/Keskin/MJ1996 + MJ partition energies); `decompose` / `hydrophobicity_fit` — the one-body vs pair split; `derive_tcren` (classic/AM/LOO) with non-redundancy filtering |
 | `tcren.stacking` | ring-stacking **geometry** (centroid distance, interplanar angle, vertical/lateral offset) — the directional signal a contact potential cannot see |
-| `tcren.scoring` / `scoring_rank` | substitution scoring of candidate peptides; percentile rank vs a background |
-| `tcren.ddg` | fast virtual-matrix ΔΔG — alanine scan, neoantigen mutants |
+| `tcren.energetics` | the interface energy sum (`scoring`), ΔΔG on mutation (`mutation`), rotamer-averaged contacts (`rotamers`); `scoring_rank` percentile-ranks a peptide against a background |
 | `tcren.cpl` | CPL response-matrix prediction from one template complex; equimolar and wild-type references; per-position and per-cell queries |
-| `tcren.binder` | binder/non-binder classifier from AF-orthogonal interface geometry |
-| `tcren.recognition` | 34-descriptor extractor (`recognition_features`) + frozen real-vs-shuffled recognizers — distribution-aware Bayesian logistic + Gaussian BN — for joint `P(real)` |
-| `tcren.orient` | canonical frame, `superimpose` onto the canonical DB, docking angles, reverse-dock detection |
+| `tcren.binder` | the pre-energy check that an interface is a plausible dock at all — a rule over contact count and docking geometry, not a model |
+| `tcren.recognition` / `descriptors` | the descriptor catalogue: 164 columns in six families, what each means, its units and its known defects (`DESCRIPTORS`, `STATUS`), plus the 40-column interface block this layer computes itself |
+| `tcren.score` | the score set — one frozen object, five read-outs (`peptide_score`, `pose_score`, `confidence_residual`, `binder_score`, `channel_scores`), each defined for a single structure |
+| `tcren.cohort` / `reliability` | the fit-free predecessor tier: `Q`, `T`, `S`, the AlphaFold band table and the screening cut |
+| `tcren.docking` | canonical frame, `superimpose` onto the canonical DB, docking angles, reverse-dock detection |
 | `tcren.refine` | peptide substitution + refinement (DOPE MC; CCD/OpenMM/ProMod3/FlexPepDock engines); register QC |
-| `tcren.clashes` / `mechanics` | steric-clash report; interface spring-network stiffness + rupture model |
-| `tcren.footprint` | footprint **shape**: coverage entropy / Hill numbers over the CDR-loop × target partition, canonical germline-MHC vs CDR3-peptide preference, α/β contact imbalance, and the footprint's topology (patches, holes, H₀ persistence) — no potential, no reference, orientation-free |
+| `tcren.clashes` / `mechanics` | steric-clash report; interface spring-network stiffness + rupture model; peptide backbone dynamics |
+| `tcren.topology` | footprint **shape**: coverage entropy / Hill numbers over the CDR-loop × target partition, canonical germline-MHC vs CDR3-peptide preference, α/β contact imbalance, and the footprint's topology (patches, holes, H₀ persistence); the pMHC surface as a height field and the gap between the two faces — no potential, no reference, orientation-free |
 | `tcren.project2d` / `viz` | project the interface onto the groove plane; SVG complementarity maps + 3D pocket/CDR views |
 | `tcren.pipeline` / `oracle` | one-call structure scoring (`run_pipeline` → Φ, ΔΦ per interface; `summarize_structure`) |
 | `tcren.paper` | Nat Comput Sci 2022 reproduction (HF bootstrap, batch annotation, legacy comparison) |
@@ -804,12 +663,23 @@ Runnable examples under [`notebooks/`](notebooks/) (rendered in the
 - `tcren_analysis` — potential heatmaps (TCRen / MJ / Keskin) and contact distributions
 - `natcompsci2022/` — full reproduction of the Nat Comput Sci 2022 analyses
 
-Two **marimo** apps ship alongside them (`pip install 'tcren[marimo]'`, then `marimo run <file>`):
+Two of them run the score set end to end, from fetching structures to ranking them:
+
+- `score_vdjdb_panel` — receptor ranking for a fixed epitope on the balanced 22-cohort VDJdb panel
+  (1,089 TCRmodel2 models), reported one cohort at a time with template-covered and template-free
+  apart, and the five channel scores per cohort
+- `rank_peptides_cpl` — peptide ranking for a fixed receptor on the combinatorial-peptide-library set
+  (7 clones, 2,103 models): per-clone ROC, the graded activation read-out, and a whole response
+  matrix predicted from one template
+
+Four **marimo** apps ship alongside them (`pip install 'tcren[marimo]'`, then `marimo run <file>`):
 
 - `surface_topology.py` — elevation / charge / hydropathy maps over the groove, and the
   featureless-vs-bulged epitope comparison against the structures the literature names
 - `pymol_interactive.py` — a PyMOL render explorer over the canonical scenes (overlay, groove,
   interface, residue importance)
+- `confident_negatives.py` — a generator's confidence read together with the coordinates
+- `potts_contact_map.py` — the predicted contact-frequency map beside the contacts a structure made
 
 ## Performance
 
@@ -822,7 +692,7 @@ Per-stage wall time (best of *n*) on a TCR-pMHC complex (1ao7), Apple M-series, 
 | contact map (5 Å, cKDTree) | ~9 ms | per structure |
 | score 1000 candidate peptides | ~11 ms | ~10 µs/peptide (vectorised) |
 | ΔΔG alanine scan (9-mer) | ~11 ms | virtual-matrix; no atoms move |
-| binder P(bind) (features + model) | ~49 ms | native geometry, no external tool |
+| the score set, all six read-outs | ~5 ms for one structure, ~34 µs/structure over 1,089 | frozen transform + two Gaussians; no structure re-read |
 | peptide refine (2000-step DOPE MC) | ~320 ms | knowledge-based rigid-body refinement |
 | annotate (MHC map, 1 structure) | ~670 ms | one mmseqs2 search |
 | **annotate (TCR + MHC), batched** | **~0.2 s/structure** | one mmseqs2 call for the whole set; vs ~1.5 s/structure unbatched |

@@ -84,18 +84,32 @@ def test_an_unshrunk_covariance_is_left_alone():
 
 
 # --------------------------------------------------------------------- the shipped model
-#: The hold-out descriptors are 19 MB and deliberately do NOT ship -- the manifest names the
-#: structures and `tcren features` regenerates the table. Tests that need them look where the
-#: benchmark's `freeze.py` leaves them, and skip when that checkout is absent.
-HOLDOUT_FEATURES = (pathlib.Path.home()
-                    / "vcs/projects/2026-tcren2-code/bench/eda/out/pca/holdout_features.tsv")
+#: The whole hold-out descriptor table is 8,292 rows by 147 descriptors, 19 MB, and deliberately
+#: does NOT ship: the manifest names the structures and `tcren features` regenerates it. What ships
+#: here instead is a **slice** of it, so that every test below runs for anyone who clones the repo
+#: rather than skipping on a path only one machine has.
+#:
+#: 362 structures -- 232 binders and 130 non-binders over 10 epitopes -- carrying all 147 modelling
+#: descriptors, every value present and finite, rounded to four significant digits. The row keys are
+#: the real `pdb.id` hashes, so the shipped `holdout_manifest` supplies the label, the epitope and
+#: the ipTM by an ordinary join and nothing about the fixture is invented. Rebuild it by taking the
+#: first N ids per (epitope, class) in `pdb.id` order from a regenerated hold-out table; the counts
+#: are chosen so the binder arm clears the 200-row floor `fit_holdout` needs before it estimates the
+#: ipTM coordinate at all.
+SLICE_DIR = pathlib.Path(__file__).resolve().parents[1] / "assets" / "score"
+SLICE_FEATURES = SLICE_DIR / "holdout_slice_features.tsv.gz"
+#: What the shipped fitter returned from that slice, frozen: `mu0`, `mu1`, `cov0`, `cov1`, the ipTM
+#: covariance row and the transform parameters. Covariances are stored float32 -- 149 x 149 twice is
+#: the whole file -- which sets the tolerance the refit is checked at.
+SLICE_MODEL = SLICE_DIR / "holdout_slice_model.npz"
 
 
 def _holdout_features(rows: int | None = 300):
+    import gzip
+
     import polars as pl
-    if not HOLDOUT_FEATURES.exists():
-        pytest.skip(f"{HOLDOUT_FEATURES} not present (benchmark checkout)")
-    t = pl.read_csv(HOLDOUT_FEATURES, separator="\t", infer_schema_length=None)
+    with gzip.open(SLICE_FEATURES, "rb") as fh:
+        t = pl.read_csv(fh.read(), separator="\t", infer_schema_length=None)
     return t if rows is None else t.head(rows)
 
 
@@ -142,24 +156,99 @@ def test_scores_do_not_depend_on_what_was_scored_alongside_them():
         assert one[c][0] == pytest.approx(many[c][i], rel=1e-12, abs=1e-12), c
 
 
-@pytestmark_model
-def test_the_frozen_model_is_reproducible_from_the_inputs_that_ship_with_it():
-    """The reproducibility contract, and the reason this read-out is not the one that was withdrawn.
+def test_refitting_the_committed_slice_reproduces_the_frozen_arrays():
+    """The reproducibility contract, asserted on the arrays and run by anyone who clones the repo.
 
-    `P_native` was removed because its coefficients were frozen against a training set that no
-    longer existed. Refitting from the shipped manifest and feature table has to return the shipped
-    arrays bit for bit, or that claim is decoration.
+    `P_native` was removed from this project because its coefficients were frozen against a training
+    set that no longer existed. The claim that replaces it is that the shipped fitter, handed a
+    named input, returns a frozen output -- so the test has to pin the model itself, and a version
+    string or a row count is not the model.
+
+    **What is reproduced.** `fit_holdout` is re-run on the committed 362-structure slice (232
+    binders, 130 non-binders, 10 epitopes, 147 descriptors) joined to the shipped manifest, and
+    every array it emits is compared against `holdout_slice_model.npz`: the two class means, 149
+    coordinates each; the two class covariances, 149 x 149 each; the ipTM covariance row, 149; and
+    the three per-descriptor transform parameter maps. This is NOT the 8,292-structure fit the wheel
+    carries -- that one needs the 19 MB table, and
+    `test_the_shipped_model_is_reproducible_from_the_full_hold_out_table` is where it is checked.
+
+    **To what tolerance.** Means, transform parameters and the ipTM row refit bit-identically and
+    are checked at rtol 1e-9 only to leave room for a different BLAS. The covariances are stored
+    float32, which costs at most 5.9e-8 relative, so they are checked at rtol 1e-6: a hundredfold
+    above the storage floor and orders of magnitude below what any change to the epitope weighting,
+    the Yeo-Johnson fit or the Ledoit-Wolf shrinkage would move them by.
     """
     import json
+    import tempfile
+
+    from tcren.score import holdout_manifest
+    from tcren.score.fit import fit_holdout
+
+    ref = np.load(SLICE_MODEL, allow_pickle=False)
+    rmeta = json.loads(str(ref["meta"]))
+    with tempfile.TemporaryDirectory() as d:
+        out = pathlib.Path(d) / "refit.npz"
+        meta = fit_holdout(_holdout_features(rows=None), holdout_manifest(), out=out)
+        got = {k: np.asarray(v, float) for k, v in np.load(out, allow_pickle=False).items()
+               if k != "meta"}
+
+    # the column set first: a mismatch here means the catalogue moved and the fixture is stale,
+    # which would otherwise surface as an unreadable diff over 22,201 covariance entries.
+    for k in ("descriptors", "coordinates", "receptor_coordinates"):
+        assert meta[k] == rmeta[k], f"{k} moved -- regenerate the slice fixture"
+
+    for k in ("mu0", "mu1", "conf_cov"):
+        np.testing.assert_allclose(got[k], np.asarray(ref[k], float),
+                                   rtol=1e-9, atol=1e-12, err_msg=k)
+    for k in ("cov0", "cov1"):
+        np.testing.assert_allclose(got[k], np.asarray(ref[k], float),
+                                   rtol=1e-6, atol=1e-9, err_msg=k)
+    for k in ("lam", "loc", "scale"):
+        assert set(meta[k]) == set(rmeta[k]), k
+        np.testing.assert_allclose([meta[k][n] for n in rmeta[k]],
+                                   [rmeta[k][n] for n in rmeta[k]],
+                                   rtol=1e-6, atol=1e-9, err_msg=k)
+    for k in ("prior", "n_pos", "n_neg", "n_epitopes"):
+        assert meta[k] == rmeta[k], k
+    for k in ("alpha", "conf_mu", "conf_var"):
+        assert meta[k] == pytest.approx(rmeta[k], rel=1e-6), k
+
+
+@pytestmark_model
+@pytest.mark.slow
+def test_the_shipped_model_is_reproducible_from_the_full_hold_out_table():
+    """The same contract at full scale. Opt-in, because its 19 MB input does not ship.
+
+    Regenerate the hold-out descriptor table with `tcren features` over the 8,292 structures
+    `holdout_manifest` names, then point `TCREN_HOLDOUT_FEATURES` at it. On the table the shipped
+    model was frozen from, the refit is bit-identical: `mu0`, `mu1`, `cov0`, `cov1` and the ipTM
+    covariance row all differ by exactly 0, so this is asserted at zero tolerance rather than a
+    nominal one.
+    """
+    import json
+    import os
+    import tempfile
 
     import polars as pl
 
     from tcren.score import holdout_manifest
     from tcren.score.fit import fit_holdout
 
-    meta = fit_holdout(_holdout_features(rows=None), holdout_manifest())
+    src = os.environ.get("TCREN_HOLDOUT_FEATURES", "")
+    if not src or not pathlib.Path(src).exists():
+        pytest.skip("set TCREN_HOLDOUT_FEATURES to a regenerated hold-out feature table")
+
+    features = pl.read_csv(src, separator="\t", infer_schema_length=None)
+    with tempfile.TemporaryDirectory() as d:
+        out = pathlib.Path(d) / "refit.npz"
+        meta = fit_holdout(features, holdout_manifest(), out=out)
+        got = {k: np.asarray(v, float) for k, v in np.load(out, allow_pickle=False).items()
+               if k != "meta"}
+
     shipped = np.load(MODEL_FILE, allow_pickle=False)
     ref = json.loads(str(shipped["meta"]))
+    for k in ("mu0", "mu1", "cov0", "cov1", "conf_cov"):
+        assert np.array_equal(got[k], np.asarray(shipped[k], float)), k
     for k in ("coordinates", "receptor_coordinates", "prior", "alpha", "n_pos", "n_neg",
               "n_epitopes", "conf_mu", "conf_var", "catalogue_digest"):
         assert meta[k] == ref[k], k

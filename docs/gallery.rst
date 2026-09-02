@@ -39,7 +39,7 @@ label drops to the lower left of that dot — the usual convention for an axis n
 So in a top-down view ``TCR`` sits at the origin, and in a side-on view ``N→C`` does.
 
 These are the three directions the docking-geometry literature uses; the principal-component
-*ranking* differs from it because :mod:`tcren.orient.frame` fits the whole complex where the
+*ranking* differs from it because :mod:`tcren.docking.frame` fits the whole complex where the
 groove-only conventions fit the MHC alone. :data:`tcren.viz.pymol.CANONICAL_AXES` carries the
 names, the definitions and the correspondence.
 

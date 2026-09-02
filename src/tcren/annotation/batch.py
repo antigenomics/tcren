@@ -78,6 +78,10 @@ def annotate_structure_set(
     When ``count_atoms`` is set, each contact row carries an ``n_atom_contacts``
     heavy-atom-pair count (needed for atomic-weighted scoring).
     """
+    # `contact_table` still lives in `paper.helpers`, which re-exports this module, so importing it
+    # at the top would close the cycle this module was split out to open. Local, as everywhere else.
+    from ..paper.helpers import contact_table  # noqa: PLC0415
+
     contacts, markup = [], []
     for s in iter_annotated_set(struct_dir, on_error=on_error):
         pdb_id = s.pdb_id

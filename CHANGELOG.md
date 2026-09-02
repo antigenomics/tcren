@@ -66,6 +66,43 @@ The major version is for the new public surface and the new package data, not fo
   registry digest does not move and no recompute follows.
 - `Joint.fit` takes `shrink=False`, which the artefact test needs and nothing else should use.
 
+### Documentation
+- **The score set is exported at package level**: `peptide_score`, `pose_score`,
+  `confidence_residual`, `binder_score`, `channel_scores`, `score_table`, `holdout_model`,
+  `holdout_manifest`, `ScoreModel` and `CHANNELS` are in `tcren.__all__`, so
+  `from tcren import score_table` works. The import costs nothing measurable — `tcren.recognition`
+  was already pulled in transitively.
+- **Two end-to-end example notebooks**, both executed and both running from deposited coordinates
+  to a ranking. `notebooks/score_vdjdb_panel.ipynb` fetches the 1,089-model balanced VDJdb
+  benchmark, featurises it, scores it with `score_table` and reports the receptor ranking **one
+  cohort at a time** over the 22 epitopes, template-covered (6) and template-free (16) apart, with
+  the five channel scores per cohort. `notebooks/rank_peptides_cpl.ipynb` does the peptide task on
+  the combinatorial-peptide-library set (7 clones, 2,103 models): per-clone ROC, the rank
+  correlation against the assay's graded activation, and a whole response matrix from one template.
+- **`docs/tcren.rst` is rebuilt against the package tree.** It had been `automodule`-ing 17
+  deprecated shim paths as canonical (nine top-level modules plus the whole `tcren.orient` package,
+  eight of whose submodules no longer exist and produced twelve autodoc import warnings) while
+  omitting `tcren.score`, `tcren.descriptors`, `tcren.topology.*`, `tcren.energetics.*`,
+  `tcren.mechanics.*` and `tcren.docking.*` entirely.
+- **The five "what a contact potential cannot do" essays moved out of `README.md`** into
+  `docs/beyond-the-contact-sum.rst`; the README is 864 -> 730 lines and now carries the score set,
+  which was absent from it.
+- Every reference to `tcren binder` and `tcren diagnose` is gone from `README.md`,
+  `docs/`, `CLAUDE.md`, `skills/tcren/SKILL.md` and `notebooks/`. Neither command has existed since
+  2.26.0 and 2.28.0 respectively.
+
+### Fixed
+- **`annotate_structure_set` failed on every structure**, because `contact_table` was left behind in
+  `tcren.paper.helpers` when the batching moved to `tcren.annotation.batch` at 2.29.0 and no import
+  followed it. `on_error="skip"` swallowed the `NameError` per structure, so
+  `tcren derive-potential --structure-dir` returned an empty frame and died several frames later on
+  a missing `cdr3a` column. The import is now function-local, since `paper.helpers` re-exports this
+  module and a top-level import would close the cycle the split opened. With it,
+  `test_recipe_reproduces_the_shipped_matrix[tcren2]` passes again: the derived matrix matches the
+  shipped `TCRen2_potential.csv` to within 1e-9 over all 380 amino-acid pairs.
+- `tcren fit-holdout --help` pointed at `tcren score --model`, which is the epitope-threading
+  command and has no `--model`. It is `tcren assess --model`.
+
 ### Not removed
 - `cohort.q_score`, `reliability.t_score` and `reliability.s_score` stay, documented as the
   fit-free predecessor tier. `S` leads the functionally validated receptor screen on its own

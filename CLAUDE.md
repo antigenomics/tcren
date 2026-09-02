@@ -15,6 +15,25 @@ released to PyPI. See `README.md` for what it exposes, `skills/tcren/SKILL.md` f
 If you find yourself computing an AUC here, stop — it belongs in the benchmark. If you find yourself
 re-implementing featurisation in the benchmark, stop — it belongs here.
 
+## The score set — the 3.0.0 public surface
+
+**One frozen object, five read-outs, every one defined for a single structure.** The transform, the
+class means and the covariance are all frozen on a hold-out that ships in the wheel, so nothing is
+estimated from the rows being scored.
+
+| name | tier | what is estimated |
+|---|---|---|
+| `peptide_score` | 0 | nothing; the direction is fixed by the potential |
+| `pose_score` | 1 | a covariance over hold-out binders — no negative, no label |
+| `confidence_residual` | 1 | the same covariance, read as a conditional mean |
+| `binder_score` | 2 | class means and covariances, from hold-out binder labels |
+| `channel_scores` | 2 | the same object, marginalized to one descriptor family |
+
+Channels: `placement`, `interface`, `shape`, `energetics`, `mechanics`. Two commands —
+`tcren features` then `tcren assess`. `cohort.q_score`, `reliability.t_score` and
+`reliability.s_score` stay as the **fit-free predecessor tier**; `S` composes with `binder_score`
+rather than being replaced by it, and is reported beside it.
+
 ## The five benchmark blocks — what this library is built to serve (author, 2026-08-30)
 
 **The manuscript's backbone is five benchmark blocks, chosen to cover the most common problems a
@@ -24,21 +43,24 @@ should name the block it serves.
 | # | block | task | what the library must expose |
 |---|---|---|---|
 | 1 | **CPL** | peptide ranking for a fixed receptor | `tcren.ddg` (`ddg`, `neoantigen_ddg`, `reference_delta`), `tcren pipeline --delta` |
-| 2 | **TCRvdb** | receptor ranking for a fixed epitope, functionally validated | `tcren features`, `tcren recognize`, `cohort.q_score`, `reliability.t_score`, `reliability.s_free` |
+| 2 | **TCRvdb** | receptor ranking for a fixed epitope, functionally validated | `tcren features`, `tcren assess`, `tcren.score.binder_score`, and the fit-free tier `cohort.q_score` / `reliability.t_score` / `reliability.s_score` |
 | 3 | **VDJdb panel** | receptor ranking under template scarcity | the same, plus the template covariate being reportable rather than inferred |
 | 4 | **Kinetics / ergodicity** | the licence to score one static structure, and magnitude | the three per-interface contact energies, `tcren.potts` contact marginals, the occupancy law |
-| 5 | **ipTM / pLDDT diagnostics** | which confident complexes are not real, and correcting the confidence | `tcren diagnose`, `reliability.correct_confidence`, `available_corrections` |
+| 5 | **ipTM / pLDDT diagnostics** | which confident complexes are not real, and whether the confidence is warranted | `tcren assess`, `tcren.score.confidence_residual`, `tcren.score.pose_score`, `reliability.af_band` |
 
 Blocks 1-2 are the two ranking tasks; block 3 is the same task in the regime the applied question
 lands in; block 4 licenses the whole approach; block 5 is the one a user reaches for first, holding
 an AlphaFold model and no way to judge it.
 
-**Block 5 is the only fitted read-out.** `correct_confidence` takes the generator's confidence as a
-prior and adds the structure as log-odds, learning four coefficients and freezing them — the same
-standing as the Platt links. Every other score takes no label anywhere. Say so wherever it is
-reported. Report the template split, never the pool: pooled over the panel the correction reads
--0.015, which averages +0.051 over the 6 template-covered cohorts against -0.039 over the 16 free
-ones, and the pooled number is a Simpson artefact.
+**Nothing is fitted at score time, and the frozen fit is reproducible.** The 2.28.0 removal took out
+every out-of-fold-fitted read-out, `correct_confidence` and the `tcren diagnose` command with it. Its
+replacement is `score.confidence_residual` at a strictly better standing: tier 1, the reported ipTM
+minus `E[logit ipTM | x]` under the binder Gaussian, with **no binder label anywhere**. The tier-2
+read-outs (`binder_score`, `channel_scores`) do read hold-out labels, but the hold-out is named,
+deposited and shipped — `score.holdout_manifest()` returns its 8,292 structures and `tcren
+fit-holdout` regenerates the shipped arrays from them, which is exactly the contract `P_native` could
+not offer. **Report the template split, never the pool.** On the 22-cohort VDJdb panel every arm
+divides under template coverage, and a macro number over the two strata is a Simpson artefact.
 
 ## Hard conventions
 
@@ -51,8 +73,9 @@ ones, and the pooled number is a Simpson artefact.
   installed wheel, silently, and exits 0 with an empty table.
 - **A command whose every row carries an error exits non-zero.** That guard exists because the
   silent-success failure mode above cost a debugging session; keep it.
-- **`pitch_angle` is generator-confidence leakage, never interface geometry.** `cohort.P_NATIVE_BANNED`
-  makes naming it in a channel raise rather than silently fit.
+- **`pitch_angle` is generator-confidence leakage, never interface geometry.** It out-discriminated
+  every clean docking angle for exactly that reason. `recognition.STATUS` flags it, and it is not in
+  the coordinate set `tcren.score.transform.working_set` hands the frozen model.
 
 ## The descriptor whitepaper — `appendix/` (2026-09-02)
 

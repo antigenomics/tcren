@@ -13,7 +13,6 @@ names its own CLI subcommand via ``command`` (default ``derive-potential``), bec
 from __future__ import annotations
 
 import json
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -36,8 +35,17 @@ def _derivable() -> list[str]:
 
 
 def _cli() -> list[str]:
-    exe = shutil.which("tcren")
-    return [exe] if exe else [sys.executable, "-m", "tcren"]
+    """Always the interpreter running the test, never whatever `tcren` is on PATH.
+
+    `shutil.which("tcren")` finds any console script the user has installed, and on this machine
+    that was a uv tool editable install of 2.11.0 pinned at this same checkout: eighteen versions
+    stale, with an editable finder still mapping the pre-2.29.0 flat layout, so it raised
+    FileNotFoundError on src/tcren/mechanics.py the moment `mechanics` became a package. The test
+    then reported that the shipped potential does not reproduce from its recipe, which is a
+    load-bearing claim, on evidence about an install this repo does not control. Whenever it passed
+    it passed by accident.
+    """
+    return [sys.executable, "-m", "tcren"]
 
 
 def _structure_dir(name: str) -> Path | None:

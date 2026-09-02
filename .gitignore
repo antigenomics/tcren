@@ -321,6 +321,12 @@ notebooks/data/Canonical2026/
 notebooks/data/PolyV2022/
 notebooks/data/Bobisse/
 notebooks/data/Bigot/
+# notebooks/data/: the two benchmark sets the score-set notebooks fetch and featurise.
+# `score_vdjdb_panel.ipynb` unpacks 1,089 PDBs plus a 3.3 MB feature table here;
+# `rank_peptides_cpl.ipynb` unpacks 2,103. Both are re-fetchable from the Hub and neither
+# belongs in git.
+notebooks/data/vdjdb_binder_benchmark/
+notebooks/data/cpl/
 data/pdb_recent/
 # Point-mutant / CPL structure set (mutagenesis + relaxation) — large; syncs to the Hub, not git.
 data/cpl/

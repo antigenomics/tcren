@@ -46,7 +46,7 @@ Everything current lives in `~/vcs/projects/2026-tcren2-code`, not here:
 | dataset catalogue, provenance | `SOURCES.md`, `data/datasets.csv` |
 | every reported number, with its n | `results/ledger.md` |
 | fetch the benchmark cohorts | `bench/scripts/bootstrap_data.py` |
-| receptor ranking — `P_native`, its channels, the template split, the AF composition | `bench/scripts/native_bn.py` → `bench/eda/out/native_bn_*.csv` |
+| receptor ranking — the score set (`tcren assess`), the fit-free `Q` / `T` / `S`, the template split, the composition with AlphaFold confidence | `bench/scripts/tcrvdb_panel.py` and the rest of `recompute.sh`'s `tcrvdb` stage → `bench/eda/out/`. The `P_native` producer `bench/scripts/native_bn.py` and its `native_bn_*.csv` outputs no longer exist there; `P_native` itself was discarded in tcren 2.26.0 |
 | VDJdb real-versus-mock panel assembly | `bench/scripts/binder_benchmark.py`, `bench/scripts/tcren_binder_score.py` |
 
 Sets `bootstrap_data.py` fetches from HF: `cpl`, `tcrvdb`, `vdjdb_positives`, `vdjdb_negatives`,

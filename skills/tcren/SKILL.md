@@ -12,6 +12,30 @@ derivation → epitope-ranking benchmarks). Annotation uses the `arda` package
 `>=2.5.7`) — no separate checkout and **no `ARDA_HOME`** (arda auto-fetches its reference and a
 static mmseqs binary on first use). Repo-local `.venv` via uv, no conda (`bash setup.sh`).
 
+## The flat middle became four named sub-packages (2.29.0) — old imports still work
+
+`docking` (renamed from `orient`), `topology`, `energetics` and `mechanics`. **Every old top-level
+name is a transparent re-export and keeps importing**, so nothing breaks; prefer the canonical home
+when writing new code, since that is where the docstrings and the layering audit
+(`scripts/audit_architecture.py --check`) live.
+
+| deprecated location | canonical home |
+|---|---|
+| `tcren.orient` | `tcren.docking` (`orient.docking` → `docking.angles`) |
+| `tcren.footprint` | `tcren.topology.footprint` |
+| `tcren.surface` | `tcren.topology.surface` |
+| `tcren.pose` | `tcren.topology.pose` |
+| `tcren.interface_graph` | `tcren.topology.graph` |
+| `tcren.ddg` | `tcren.energetics.mutation` |
+| `tcren.rotamers` | `tcren.energetics.rotamers` |
+| `tcren.scoring` | `tcren.energetics.scoring` |
+| `tcren.dynamics` | `tcren.mechanics.dynamics` |
+| `tcren.stability` | `tcren.mechanics.stability` |
+
+`energetics.ddg` is `energetics.mutation` because as a submodule it shadowed the `ddg` *function*
+of the same name on the package. Section headings below still use several of the deprecated names;
+they resolve, and this table is the map.
+
 ## Batch annotation — never loop (mmseqs2 is the parallel layer)
 
 **All structure annotation (TCR chain typing AND MHC allele mapping) must gather every
@@ -69,15 +93,20 @@ Reference: `arda.annotate_sequences([(id, seq), ...])` — one call, threads int
   (alleles + chains + MHC groove) → superimpose onto the canonical DB (canonical Cα) → resmarkup
   + 5 Å contacts → per-interface energies. Scores: **TCRen** for TCR↔peptide, **MJ** for TCR↔MHC
   and peptide↔MHC, plus `total` (sum of the residue-pair potential over each interface's contacts).
-- **Φ and ΔΦ with the TP / TM / PM breakdown come from this one command.** Columns `F_tcr_pep`,
-  `F_tcr_mhc`, `F_pep_mhc`, `F_total`; `run_pipeline(…, reference_aa="A")` / `tcren scoring --delta`
-  adds `dF_*` and `dF_total` (each interface's `tcren.ddg.reference_delta`; `dF_tcr_mhc` ≡ 0, the
-  peptide is not in that interface). Use ΔΦ, not Φ, when each candidate carries its **own**
-  generated pose. **Column names are shared with `tcren recognize`** — one vocabulary — but the
-  **keys differ**: `scoring` emits `pdb.id`, `recognize`/`features` emit `complex.id`, so rename
-  one before joining (`scoring --geometry` does that rename internally).
-  (Manuscript notation: Φ for the energy, φ for a potential matrix entry, F for the
-  binder-direction channel `−Φ_TCR:pep` in `cohort.f_score`.)
+- **Φ and ΔΦ with the TP / TM / PM breakdown come from this one command.** Columns `Phi_tcr_pep`,
+  `Phi_tcr_mhc`, `Phi_pep_mhc`, `Phi_total`; `run_pipeline(…, reference_aa="A")` /
+  `tcren scoring --delta` adds `dPhi_*` and `dPhi_total` (each interface's
+  `tcren.ddg.reference_delta`; `dPhi_tcr_mhc` ≡ 0, the peptide is not in that interface). Use ΔΦ,
+  not Φ, when each candidate carries its **own** generated pose. **Column names are shared with
+  `tcren recognize`** — one vocabulary — but the **keys differ**: `scoring` emits `pdb.id`,
+  `recognize`/`features` emit `complex.id`, so rename one before joining (`scoring --geometry` does
+  that rename internally).
+- **`F_*` → `Phi_*`, `dF_*` → `dPhi_*`, `F_TERMS` → `PHI_TERMS`, `f_score` → `phi_score` at
+  2.26.0** — in the code and the emitted columns, not only in prose, and with no alias. **`d` in
+  `dPhi` is the reference difference** ΔΦ = Φ(sequence) − Φ(reference), never a derivative, and the
+  package carries **no `dd` quantity** except `ddG`, the change in binding free energy on mutation.
+  (Manuscript notation: Φ for the energy, φ for a potential matrix entry; `cohort.phi_score` is the
+  binder-direction channel `−Φ_TCR:pep`.)
 - `tcren scoring --geometry` appends the interface descriptors + `Q` by calling
   `recognition_table` + `cohort.q_score` — it does **not** reimplement them.
 - `-s` accepts a file, directory, `.tar.gz`, quoted glob, `.txt`/`.list` manifest (one path per
@@ -90,9 +119,14 @@ Reference: `arda.annotate_sequences([(id, seq), ...])` — one call, threads int
   _refine _fold _geom _relax …)`): `src/_align/align.cpp` (MHC pseudoseq fitting alignment),
   `src/_refine/refine.cpp` (potential-guided peptide refinement), `src/_relax/relax.cpp` (DOPE
   interface energy for `tcren energy`/ΔΔG), `src/_fold/fold.cpp` (CCD loop closure) and
-  `src/_geom/geom.cpp` (interface geometry for `tcren binder`; also `interface_clashes` and
-  `contact_stability`, the clash + fragility kernels). Adding a sixth = same pattern; a new *function*
+  `src/_geom/geom.cpp` (the clash and contact-fragility kernels: `interface_clashes` behind
+  `tcren.clashes.interface_clashes`, `contact_stability` behind
+  `tcren.mechanics.stability.contact_stability`). Adding a sixth = same pattern; a new *function*
   in an existing module (as clashes/stability were added to `_geom`) needs no `CMakeLists.txt` change.
+- **Three of `_geom`'s five entry points have no Python caller left.** `shrake_rupley`,
+  `interface_hbonds` and `contact_descriptors` built the interface-geometry table for the
+  `tcren binder` command, which 2.26.0 removed with its frozen model; they are exercised only by
+  `tests/unit/test_geom.py`. Do not reach for them expecting a supported path.
 - The MHC-pseudosequence fitting-alignment hot path is a C++ ext (`src/_align/align.cpp`,
   `CMakeLists.txt`). Build backend is `scikit-build-core` (not hatchling); `uv pip install -e .`
   builds it once at install. Funcs: `fitting_score`, `best_hit` (GIL released over
@@ -135,13 +169,16 @@ QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses ar
   Heavy-atom vdW overlaps (Bondi radii) between the peptide chain and its partners, broken down by
   partner `chain_type` (`by_partner`), with `n_clashes`/`n_severe`/`max_overlap`/`clash_score` + the
   worst residue pairs. `has_clashes(structure)` is the bool convenience. Self-check `python -m tcren.clashes`.
-- `contact_stability(structure, cutoff=5.0, delta=1.0) -> StabilityReport` (`tcren.stability`) — TCR:peptide
+- `contact_stability(structure, cutoff=5.0, delta=1.0) -> StabilityReport`
+  (`tcren.mechanics.stability`; `tcren.stability` still imports) — TCR:peptide
   contact fragility read straight off the contact map (native `_geom.contact_stability`, numpy reference
   behind it). Per contact `margin = cutoff − dmin`; report has `n_contacts`, `mean_margin`, `frac_robust`,
   `frac_marg_lt1`, `exp_lost` (expected contacts lost under a `delta`-Å shift). A coordinate-only interface
   positional-confidence readout. Self-check `python -m tcren.stability`.
 - `tcren recognize` appends both as output columns: `n_clashes`, `clash_score`, `exp_lost`, `mean_margin`,
-  `frac_robust` (extra columns, **not** part of the 34 `RECOGNITION_FEATURES` the models consume).
+  `frac_robust`. **Four of the five are catalogued descriptors now** — `n_clashes` and `clash_score`
+  in the `interface` family, `exp_lost` and `mean_margin` in `kinetics` — so they reach the score
+  set like any other coordinate rather than riding along beside it.
 - `check_register(model, reference=None) -> RegisterReport` — always reports the clash burden; with a
   correctly-registered `reference` (crystal / trusted pose) it adds the **anchor-Cα RMSD** in the
   MHC-groove frame (`peptide_rmsd`) → `wrong_register` (True/False; `None` without a reference).
@@ -330,7 +367,7 @@ every fit and the comparison is about **pair structure alone**. Measured on Nati
 **inverts** between interfaces: TCRen2 beats MJ by 103.3 nats on TCR:peptide, MJ beats TCRen2 by
 35.5 nats on the TCR:MHC groove, and TCRen2's fitted scale falls 5.4-fold across that move
 (+1.131 -> +0.209) while MJ's barely moves (+0.803 -> +0.974). That is the measurement behind
-scoring `F_tcr_mhc` with MJ and reserving TCRen for TCR:peptide — **do not reuse TCRen2 on the
+scoring `Phi_tcr_mhc` with MJ and reserving TCRen for TCR:peptide — **do not reuse TCRen2 on the
 groove.**
 
 **`pin_centred=False` is the gauge that reproduces a referenced score.** Double-centring is right
@@ -418,8 +455,8 @@ interfaces of different size.
   from TCR↔peptide contacts and says nothing about a chain's contacts with itself.
 - Wired in at three layers: `score_peptides(..., intra_weight=w, intra_potential=)` /
   `tcren score --intra-weight` (score = Φ + w·E_intra); `run_pipeline(..., intra_weight=w)` /
-  `tcren scoring --intra-weight` (reports `F_pep_int` raw, folds w·it into `F_total`; potential
-  overridable via `potentials={"peptide_internal": …}`); `tcren recognize --full` (`F_pep_int`,
+  `tcren scoring --intra-weight` (reports `Phi_pep_int` raw, folds w·it into `Phi_total`; potential
+  overridable via `potentials={"peptide_internal": …}`); `tcren recognize --full` (`Phi_pep_int`,
   `n_pep_int`, catalogued `involves_tcr=False` — the peptide's own conformation is cohort identity).
 - **Expect a sparse term.** A canonical extended class-I 9-mer makes 0–2 internal contacts, so it only
   separates candidates where the peptide is genuinely bulged or self-packed. Untested as a ranking
@@ -459,12 +496,12 @@ interfaces of different size.
   per-spring rows from one structure as independent samples — that is pseudo-replication.
 - Self-check (no PDB): `python -m tcren.mechanics`.
 
-## Docking geometry — `tcren.orient.docking` + `tcren.orient.tcrdock_geometry`
+## Docking geometry — `tcren.docking.angles` + `tcren.docking.tcrdock_geometry`
 
 - **Two interpretable angles** (existing): `docking_angles(structure) -> DockingAngles(crossing_angle,
   crossing_angle_signed, incident_angle, ...)`. `crossing_angle` = the groove-plane "scanning" angle,
   `incident_angle` = the tilt. Computed from the Vα→Vβ axis in the groove frame; no reference DB.
-- **Full rigid-body pose** (new, `tcrdock_geometry.py`): `docking_geometry(structure) -> DockingGeometry(d,
+- **Full rigid-body pose** (`tcren.docking.tcrdock_geometry`): `docking_geometry(structure) -> DockingGeometry(d,
   torsion, tcr_unit_y, tcr_unit_z, mhc_unit_y, mhc_unit_z)` — native reimplementation of **TCRdock**
   (phbradley/TCRdock, MIT, commit `c5a7af4`; see `THIRD_PARTY_NOTICES.md`). MHC + TCR symmetry stubs (β-sheet
   floor / Vα-Vβ two-fold), MHC-I core by BLOSUM-align to TCRdock's template, TCR core by conserved IMGT
@@ -483,7 +520,7 @@ interfaces of different size.
   PyMOL script body. Scene presets: `overlay_scene(ids, canon_dir, limit=8)` (ensemble, side-on),
   `groove_scene(pid, canon_dir, surface=False)` (peptide in the cleft, top-down; `surface=True` is
   the histo.fyi look), `interface_scene(pid, canon_dir, cdr_resi)` (peptide + CDR loops).
-- **`CANONICAL_AXES` is the naming of `tcren.orient.frame`, and the gizmo prints it**: x=`width`
+- **`CANONICAL_AXES` is the naming of `tcren.docking.frame`, and the gizmo prints it**: x=`width`
   (groove width, α1↔α2, PC3), y=`N→C` (groove axis toward the peptide C-terminus, PC2), z=`TCR`
   (docking normal, MHC floor→TCR, PC1). Same three directions as SwiftTCR / TCR3d; the PC *ranking*
   differs because `orient.frame` fits the whole complex and they fit the MHC groove alone.
@@ -526,7 +563,7 @@ interfaces of different size.
   a salt bridge whose nearest contact is two carbons is invisible otherwise. `type_weights(typed)`
   gives 0/1 weights that drop pure-proximity contacts (`tcren score --drop-untyped`).
 - **Hydrogens are now filtered** in `all_atom_contacts`. This changes contacts and energies for
-  H-bearing depositions (5jhd: +7 of 28 contacts, −58.5% F_tcr_pep) and breaks legacy-oracle parity
+  H-bearing depositions (5jhd: +7 of 28 contacts, −58.5% `Phi_tcr_pep`) and breaks legacy-oracle parity
   on 5jhd/7qpj, recorded as a subset relation in the regression test.
 
 ## Feature families — `tcren features` (descriptors) vs `tcren assess` (scores)
@@ -568,21 +605,30 @@ interfaces of different size.
 - **The fit-free predecessor tier is still shipped**, and `tcren recognize --features feats.tsv`
   emits it: `complex.id` + **`Q`** (interface quality), **`T`** (the shape block) and **`S`**
   (their composition with the energy block). `S` leads the functionally validated receptor screen
-  on its own and **composes** with `binder_score` rather than being replaced by it. `P_native`,
-  `p_binder`, `G`/`E`/`S_free` and every other fitted composite were removed at 2.26.0 and do not
-  return.
+  on its own and **composes** with `binder_score` rather than being replaced by it.
+- **What the composite is called, and what is gone.** `S` is the current name: 2.27.0 renamed
+  `reliability.s_free` → **`reliability.s_score`**, the emitted column `S_free` → **`S`**, and the
+  frozen key `<set>|S_nat` → `<set>|S`, **outright, with no alias** — a caller on the old name fails
+  loudly rather than reading a renamed quantity. `P_native` with `cohort.p_native` and the
+  per-channel posteriors `G`/`T`/`E` went at **2.26.0**; `reliability.p_binder` with
+  `available_links`, and `reliability.correct_confidence` with `available_corrections` and the
+  `tcren diagnose` command, went at **2.28.0**, because the Platt links and the four correction
+  coefficients were fitted out of fold. None of them returns.
 
 - **`tcren fit-holdout` reproduces the frozen model bit for bit** from the shipped manifest plus a
   descriptor table you regenerate with `tcren features`. The 19 MB descriptor table does not ship;
   the 8,292-row manifest does. This is the contract that `P_native` could not offer.
 
-- **Five families, split by invariance** (`tcren.recognition.DESCRIPTORS`, `FAMILIES`); a
-  *family* is a slice of the descriptor table, a *channel* is one of the three networks `P_native`
-  sums, and `P_NATIVE_POOL` is the map between them:
+- **Six families, split by invariance** (`tcren.recognition.DESCRIPTORS`, `FAMILIES`); a
+  *family* is a slice of the descriptor table and a **channel is one of the five score channels**
+  in `tcren.score.CHANNELS`, with `tcren.score.CHANNEL_OF` the map between them — `topology` →
+  `shape`, `kinetics` → `mechanics`, and `potts` joining `energetics` because both are contact
+  energies in kT and splitting them helps nobody. Families:
   `placement` (groove-frame pose — angles, TCRdock params, ride height/shift/offset, CDR3 frames;
   frame-**dependent**), `interface` (contact size + chemistry), `topology` (the *shape* of the
   contact set, size-free), `energetics` (Φ and ΔΦ), `potts`, `kinetics` (spring network; off by
-  default). **164 descriptors as of 2.30.0**, of which `topology` is 70 — the largest, since it
+  default). **164 catalogued descriptors as of 2.30.0** — `topology` 70, `placement` 31,
+  `interface` 26, `kinetics` 17, `energetics` 15, `potts` 5. `topology` is the largest since it
   absorbed the contact-graph, matrix and surface blocks.
 - **The gap is in `topology`, and it is the one channel that measures space rather than incidence.**
   `tcren.topology.surface.surface_map(s, side=...)` rasterises each face as a height field on one
@@ -601,54 +647,69 @@ interfaces of different size.
 - **Only the requested families are computed.** `-i topology` never builds the energies.
 - **Contact counts are `interface`, not `topology`** (`FOOTPRINT_SIZE_FEATURES`). A shape channel
   carrying the interface's size would correlate with the interface channel by construction.
-- `P_native` (`tcren.cohort.p_native`) combines **three** channels — `geometry`, `topology`,
-  `energetics` — each fitted as its own latent-class Bayes network by EM
-  (`GaussianBNClassifier.fit_em`), their log-odds added. **No binder label enters.** EM learns each
-  channel's sign, which is what makes the measured coupling `C*` unnecessary: on a cohort whose
-  contact energy runs backwards the energetics coefficient simply comes out negative.
-  - **`geometry` pools the `placement` and `interface` FAMILIES into one network** (`P_NATIVE_POOL`).
-    Adding log-odds is the exact posterior only across channels that are conditionally independent
-    given the class, and those two are the most dependent pair measured (|ρ| = 0.244). Pooling them
-    is what the assumption requires; summing them as two terms counts the dependence twice, and
-    measurably: the four-channel sum reads 0.817/0.668 (TCRvdb/VDJdb ROC) against the pooled
-    three-channel 0.832/0.718.
-  - `rule="flat"` instead pools every channel's features into one network. It holds the top of a
-    ranking better where cohorts are small (VDJdb P@10 0.872 vs 0.812) and ranks worse overall
-    (0.689 vs 0.718). Both are reported in the paper; neither dominates.
-  - **`T` is just `p_native(channels=("topology",))`** — the shape channel read on its own. It is
-    what replaced the hand-written `fp_score` z-sum.
-  - EM is monotone **only with the DAG fixed**, which is the default; `relearn_structure=True`
-    changes the model family between rounds and the likelihood can fall.
-  - A mixture is identified only up to permutation — `orient_by` is what stops the two components
-    swapping between runs, and `P_NATIVE_ORIENT` gives the per-channel default. **A leading `-`
-    means lower-is-native**; no shipped channel needs it, because each orients on a column that
-    already runs binder-upwards (`burial`, `D2_pep24`, `neg_energy` — the last is `-E`, so higher
-    is more favourable). Orienting the energetics channel on a raw Φ column *would* need the `-`.
-  - **Anchors are optional and semi-supervised** — `{row_index: 0|1}` over the caller's own rows,
-    pinned at every E-step; those rows stay in the design matrix and are still scored. The default
-    is `anchors=None`, a fully unsupervised fit. Anchoring a row you then score reads the label
-    back out: an early draft did that and reported 0.83 where the honest number is 0.69.
-  - Keep the feature count small: the BIC hill climb is quadratic (0.01 s at 18 features on 618
-    rows, 1.7 s at 40, **45 s at 89**). `P_NATIVE_FEATURES` is the compact default, keyed by
-    FAMILY; `_channel_columns(channel)` resolves a channel through the pool.
+- **A channel costs an index, not a fit.** Each of the five is an exact marginal of the one frozen
+  covariance — a sub-block of Σ, closed form — so `channel_scores` re-fits nothing and the five
+  land on one scale and can be read against each other. **They do not sum to `binder_score` and
+  should not**: the whole model also reads the correlations *between* channels, which a
+  per-channel view cannot show. A channel is only emitted when at least 3 of its transformed
+  coordinates are present.
+- **`P_native` and the whole latent-class layer are gone (2.26.0), and are not to be re-added.**
+  `cohort.p_native`, `P_NATIVE_CHANNELS`/`_POOL`/`_ORIENT`/`_FEATURES`/`_BANNED`, the per-channel
+  posteriors `G`/`T`/`E`, `GaussianBNClassifier` and `BayesianLogisticRecognizer` with
+  `encode_features`, `frozen_recognizers` and `real_probability` all went in one release. It
+  re-fitted on every call, **raised when a cohort had fewer rows than features**, and its value
+  depended on which rows the fit was anchored on — none of which survives contact with a user
+  holding one model. The score set replaces it at a strictly better standing, and every read-out
+  above is defined for a single structure.
 
-## Single-structure reliability — `tcren.reliability` / `tcren assess`
+## Single-structure reliability — `tcren.score`, `tcren.reliability` / `tcren assess`
 
-**`P_native` is not the score to ship.** `cohort.p_native` refits a latent-class model on every
-call and **raises when a cohort has fewer rows than features**, so it is undefined for one structure
-and its value depends on what else was scored alongside it. Use `S_free`.
+**Every read-out here is defined for ONE structure.** The score set's transform, class means and
+covariance are frozen on the shipped hold-out; the fit-free tier's blocks are frozen on the
+Native2026 crystals. Nothing is estimated from the rows being scored, so no score moves depending
+on what was scored beside it.
+
+```python
+from tcren.score import (peptide_score, pose_score, confidence_residual, binder_score,
+                         channel_scores, score_table, holdout_model, holdout_manifest,
+                         ScoreModel, MODEL_FILE, CHANNELS, CHANNEL_OF)
+
+m = holdout_model()                       # the frozen ScoreModel; MODEL_FILE is where it ships
+out = score_table(features, receptor=True, iptm=iptm, model=m)   # every read-out, one frame
+b   = binder_score(features, receptor=True)      # receptor=False when the PEPTIDE varies
+ch  = channel_scores(features)                   # {channel: log-odds}, keys from CHANNELS
+r   = confidence_residual(features, iptm)        # reported logit(ipTM) - E[logit ipTM | x]
+```
+
+- `score_table` adds **`binder_iptm`** when `iptm` is passed: `binder_score + logit(ipTM)`, two
+  log-odds summed with no coefficient to fit. On the functionally validated receptor screen it
+  reads 0.771 ROC-AUC against the posterior's 0.768 and ipTM's 0.795, and it is the recommended
+  read when a confidence exists.
+- `peptide_score` needs only `dPhi_tcr_pep` and `dPhi_pep_mhc` and fits nothing; every other
+  read-out goes through `holdout_model()`, which is `lru_cache`d and raises a message naming
+  `tcren fit-holdout` rather than a bare `FileNotFoundError`.
+- **Two kinds of absence, handled differently and both deliberately.** A missing *column* is
+  marginalized out exactly (a sub-block of Σ), which is what lets `-i placement,interface,topology`
+  still produce a binder score; a *row* missing a column that is present is left NaN rather than
+  imputed, because a filled-in value is a fabricated correlation. Below `ScoreModel.MIN_COORDINATES`
+  = 20 usable coordinates the model raises and names the `tcren features` call that fixes it.
+- `holdout_manifest()` returns the 8,292 structures the fit used with dataset, epitope, label and
+  ipTM. The descriptors do not ship (8,292 × 147 is 19 MB); `tcren fetch-data` → `tcren features` →
+  `tcren fit-holdout` returns the shipped arrays bit for bit.
+
+**The fit-free predecessor tier**, still shipped and still reported:
 
 ```python
 from tcren.potts import score_sites, available_pairs, PottsModel
-from tcren.reliability import s_free, p_binder, af_band
+from tcren.reliability import s_score, t_score, af_band
 
 potts_scores = score_sites(available_pairs(structure), PottsModel.bundled())  # writes neg_energy
-v = s_free(feature_table, energy=potts_scores["neg_energy"])   # energy optional
-p = p_binder(v, link="binder_bm|S_nat")                        # frozen out-of-fold Platt
+v = s_score(feature_table, energy=potts_scores["neg_energy"])  # energy optional
+t = t_score(feature_table)                                     # the shape block on its own
 b = af_band(meta["iptm"], reference="binder_bm|ipTM")          # the generator diagnostic
 ```
 
-`S_free = Q/sd_Q + T/sd_T + (Pi - mu)/sd_Pi`. Three fit-free directional blocks `z(x)' C^-1 s` over
+`S = Q/sd_Q + T/sd_T + (Pi - mu)/sd_Pi`. Three fit-free directional blocks `z(x)' C^-1 s` over
 the Native2026 crystals, each divided by its own native spread.
 
 **The outer transform is a DIVIDE, not a z.** A block score's native mean is 0 by construction, so
@@ -662,14 +723,20 @@ with `Q`** of the five ways of spending `-E = log Z + L`: native Pearson +0.33, 
 the contact count and +0.51 for `log Z`. Pass `energy=None` and the two-block form is returned —
 still defined, and reported as such rather than imputed.
 
-`t_score` is new and is the block that **survives without a template**: on the balanced VDJdb panel
+`t_score` is the block that **survives without a template**: on the balanced VDJdb panel
 `T` loses 0.06 ROC-AUC where the epitope has no solved complex, against `Q`'s 0.24. It needs
 `q_score(..., signs=T_SIGNS)`, because the footprint's connected-component fraction at 7 A runs the
 other way from the rest.
 
-**Calibration is per-link and the name is a contract.** `p_binder`'s links were fitted out of fold
-and each expects the score its name carries; handing a raw `S_free` to a `min rank%(...)` link is a
-category error, not a rescaling. `available_links()` / `available_bands()` list what ships.
+**There is no calibrated probability any more, and that is on purpose.** `p_binder` and its
+`available_links()` were removed at 2.28.0 with the `calibration` section of
+`data/reliability_moments.json`: the Platt links were fitted out of fold — leave-one-epitope-out on
+the 22-cohort VDJdb panel, within-epitope 5-fold on TCRvdb — and shipped as fold means. `moments()`
+asserts in its own test that `calibration` and `corrections` are absent, so neither can return
+quietly. `available_bands()` lists what still ships: `binder_bm|ipTM`, `binder_bm|pLDDT`,
+`tcrvdb|ipTM`, `tcrvdb|pLDDT`. A band table is a quantile binning of the generator's confidence
+carrying the observed non-binder fraction with a Wilson interval — a measurement of the benchmark,
+not a model of it.
 
 ```
 tcren features -s models/ -i placement,interface,topology,energetics -o feats.tsv
@@ -698,17 +765,30 @@ y = screening_yield(v, budget=0.10, prevalence=0.48)   # what testing the top 10
 `inversion_flag` is the energy block minus the mean of the two shape blocks, in native-sd units.
 Large positive = the energy is vouching for a structure the footprint does not, which is the pattern
 to distrust; a generator fakes favourable contacts far more easily than a well-formed footprint.
-It ranks and triages — it is not calibrated, `p_binder` is.
+It ranks and triages; nothing in the package calibrates it to a probability.
 
 `screening_yield` returns the cut only: how many structures, at what threshold and percentile, plus
 `expected_hits` under a stated prevalence. **Enrichment over random is not returned** — it needs
 labels the function does not have, and a NaN there would read like a measurement.
 
-`assess` emits three blocks: reliability (`S_free`, `p_binder`), ranking within the set (rank,
-percentile, expected precision at a recall budget), and — when the table carries ipTM — the
-generator diagnostic (`af_band`, `p_nonbinder_af`, `s_free_roc_in_band`). The last column is the
-actionable one: on the balanced VDJdb panel the **top ipTM decile is 26.2 %** [18.7, 35.5]
-**non-binders**, and is also the band where `S_free` reads highest.
+**`artefact_directions(binder_coords, crystal_coords, tolerance=0.05)` — which directions belong to
+the generator, read with no binder label.** A direction real crystals break *harder* than modelled
+binders do is the generator's own regularity rather than the interface: the tightest band breaks
+4.55× against decoys' 3.18×, and scores ROC-AUC 0.504 over the 16 template-free cohorts — a coin —
+where the loose band reads 0.606. The shipped model cannot see it, because Ledoit-Wolf shrinkage
+floors its smallest direction at s.d. `ARTEFACT_SD` = 0.0797, above that band; measuring the bands
+needs `Joint.fit(shrink=False)`, which nothing else should use.
+
+**`tcren assess` emits four blocks, one table.** The score set (`pose_score`, `binder_score`, the
+`channel_*` columns, `peptide_score`, and with an ipTM column `confidence_residual` and
+`binder_iptm`); the fit-free tier (`S`, plus `inversion_flag` when the energy column is present);
+triage on the recommended score (`rank`, `percentile`, and the mean over the top `--budget`
+fraction); and the generator diagnostic (`af_band`, `p_nonbinder_af`, `s_roc_in_band`). The last is
+the actionable one: on the balanced VDJdb panel the **top ipTM decile is 26.2 %** [18.7, 35.5]
+**non-binders**, and is also the band where `S` reads highest. Flags: `--peptide`, `--model`,
+`--iptm-column`, `--band`, `--budget`, `--list-bands`. **`--link` and `--list-links` went with
+`p_binder` at 2.28.0**, and there is no `tcren diagnose` — `confidence_residual` replaced the
+fitted confidence correction at tier 1, reading no label anywhere.
 
 ## Footprint shape — `tcren.footprint` / `tcren footprint`
 
@@ -717,9 +797,9 @@ actionable one: on the balanced VDJdb panel the **top ipTM decile is 26.2 %** [1
   the germline/CDR3 division of labour holds, and whether the footprint is one connected patch.
   No potential, no reference structure, no fitted parameter.
   CLI: `tcren features -s <in> -i topology -o <out>`, then `tcren recognize --features <out>`
-  for the cohort-standardised shape posterior `T`. (`tcren footprint` is the same code path,
-  now hidden and superseded; its `--score` no longer emits the removed `fp_score` z-sum but the
-  same `T` posterior, so there is no reason to prefer it.)
+  for the shape block `T`. (`tcren footprint` is the same code path, now hidden and superseded;
+  since 2.26.0 its `--score` emits the fit-free `reliability.t_score` in place of the removed
+  `fp_score` z-sum, so there is no reason to prefer it.)
 - **The MHC pass must run AFTER chain typing, and it is not optional.** `classify_chains` leaves an
   MHC chain typed generically `"MHC"`; `interface("tcr_mhc")` matches the supertype `annotate_mhc`
   assigns. Skip it and six of the twelve cells are structurally unreachable with no error —
@@ -736,8 +816,9 @@ actionable one: on the balanced VDJdb panel the **top ipTM decile is 26.2 %** [1
   the whole set. Do not call `classify_chains` per structure here (that is what `tcren surface`
   does, and it is an order of magnitude slower over a cohort).
 - `footprint_features(s) -> dict` (29 features at the default two radii), `footprint_batch(paths_or_structures) -> pl.DataFrame`.
-  For the cohort-standardised shape score use `cohort.p_native(table, channels=("topology",))` (`T`);
-  the old `footprint_score` z-sum was removed at 2.12.
+  For the shape score use `reliability.t_score(table)` (`T`), which fits nothing at call time;
+  the old `footprint_score` z-sum was removed at 2.12 and the latent-class `T` posterior that
+  briefly replaced it went with `P_native` at 2.26.0.
 - **Coverage**: cells are the 6 CDR loops × {peptide, MHC} (12) or with the peptide split into
   thirds (24). `H_cell` is the normalised Shannon entropy, `D1`/`D2` the Hill numbers — `D2`, the
   *effective number of engaged cells*, separates better because it discounts the rare cells a decoy
@@ -756,9 +837,13 @@ actionable one: on the balanced VDJdb panel the **top ipTM decile is 26.2 %** [1
   are **not** restricted this way: they use every contacted pMHC residue.
 - **It is not `n_contacts`, and the distinction is load-bearing.** `n_contacts` belongs to the
   `potts` family — the available pairs that engaged, 29 on 1ao7 against this module's 66 — and it
-  is the column `tcren diagnose` standardizes against the frozen Potts moments. Through 2.19.0 both
-  passes wrote the one name and the later pass won; a stale table carrying the loop tally as
-  `n_contacts` is now refused by `reliability.correct_confidence` rather than corrected.
+  is the column the frozen Potts moments in `data/reliability_moments.json` are standardized on.
+  Through 2.19.0 both passes wrote the one name and the later pass won, so a table carrying the
+  loop tally under `n_contacts` is off by a factor of two to four with no error and no NaN. The
+  guard `reliability._check_potts_contacts` was written for `correct_confidence` and **lost its
+  only caller when that went at 2.28.0**; what refuses a stale table now is the provenance digest
+  (`tcren.provenance.check`), which rejects any feature table written under a different catalogue
+  and names the command that regenerates it.
 
 ## Surface topology — `tcren.surface` / `tcren surface`
 
@@ -878,62 +963,56 @@ actionable one: on the balanced VDJdb panel the **top ipTM decile is 26.2 %** [1
   frame); the graft copies chains with no per-pair alignment, so each grafted TCR keeps its native MHC–TCR
   docking angle → the decoy set spans the real docking-angle variance (substitute_tcr would collapse every
   donor onto the host's MHC pose). CLI: `tcren orient -s natives/ -o oriented/ && tcren shuffle -s oriented/ -o shuffled/ --n 10`.
-- **Finding (2026-07-05):** real-vs-shuffled is learnable at **AUC 0.876** (RF; F_tcr_pep the top feature).
+- **Finding (2026-07-05):** real-vs-shuffled is learnable at **AUC 0.876** (RF; `Phi_tcr_pep` the top feature).
   But a shuffled-trained (crystal) model does **not** transfer to AF-modeled TCRvdb (0.55–0.62 vs AF 0.79) —
   crystal→AF distribution shift. Use it as a label-free recognition prior / supplementary benchmark, not as a
   drop-in TCRvdb scorer.
-- **BN classifier** (`tcren.recognition.GaussianBNClassifier`): pure-numpy conditional-linear-Gaussian Bayes
-  net — DAG over standardized features (BIC hill-climb on within-class-centred data) + class `y` and MHC class
-  as discrete parent nodes; classifies by the Gaussian log-likelihood ratio. `fit/predict_proba`, gzip-JSON
-  `save/load`, `to_dot` (graphviz). Trained model shipped at `src/tcren/data/shuffle_bn.json.gz`; the
-  reproducible appendix (train+eval, gnuplot ROC/PR + balanced metrics, graphviz BN, marginals) is
-  `shuffle_bn/` in the technical appendix (`make`) — moved to the manuscript repo 2026-07-28,
-  `2026-tcren/archive/tcren-appendix/`; still in this repo's git history. Decoys are regenerable (`tcren shuffle --seed 0 --n 10`); manifest committed,
-  full PDBs belong on HF (351 MB).
-- **Distribution-aware logistic** (`tcren.recognition.BayesianLogisticRecognizer` + `encode_features`): a
-  *discriminative* alternative to the BN. `encode_features` maps each feature by its natural family — circular
-  `dock_torsion` → (cos, sin) von-Mises stats, `chain_balance` → logit, counts/continuous linear, drops the
-  duplicate `n_hbond` — then a Bayesian logistic (PyMC NUTS, weakly-informative or horseshoe prior) is fit and
-  its posterior mean frozen into `src/tcren/data/shuffle_logistic.json.gz` (dep-light numpy `predict_proba`).
-  Real-vs-shuffled 5-fold CV **ROC-AUC 0.885** (matches RF, > BN 0.865 / raw-logistic 0.870). On TCRvdb a
-  *supervised* refit with the encoding gives **0.860** pooled (> AF 0.794, raw-feature logistic 0.855); the
-  frozen real-vs-shuffled transfer does NOT carry (0.53, crystal→AF shift, same as the BN). Appendix
-  `logistic_stan/` (`make PY=<pymc-venv>`; ROC/PR + posterior-forest gnuplot, encoding table).
+- **The two shuffle-trained recognizers are gone (2.26.0), with their shipped weights.**
+  `GaussianBNClassifier`, `BayesianLogisticRecognizer`, `encode_features`, `frozen_recognizers`,
+  `real_probability`, the `p_real` / `p_real_bn` columns and
+  `src/tcren/data/shuffle_{bn,logistic}.json.gz` were removed in one release: their coefficients
+  were frozen against training sets nobody could reconstruct. **What they measured stands and is
+  the reason to keep the decoy set**: real-vs-shuffled 5-fold CV ROC-AUC **0.885** for the
+  distribution-aware logistic, 0.865 BN, 0.870 raw logistic, and on TCRvdb a *supervised* refit
+  with the same encoding reads **0.860** pooled against TCRmodel2 confidence's 0.794. The frozen
+  crystal-trained transfer does **not** carry to AF-modelled TCRvdb (0.53). Decoys are regenerable
+  (`tcren shuffle --seed 0 --n 10`); the manifest is committed, the full PDBs live on HF (351 MB).
 - **`tcren recognize` / `recognition_features` (2026-07-06):** `recognition.recognition_features(struct)`
-  ports the manuscript's 34-descriptor extractor into tcren (docking geometry + TCRen/MJ F & poly-Ala dF +
-  contact tallies + biopython ΔSASA `burial` + `mhc_class_bin`) — verified **byte-exact** vs
-  `canonical2026_features.csv` (burial max diff 4e-11). Uses `import_structure` (C-gene trimmed) to match
-  training; **no `_geom` C-ext needed** (only arda for annotation). `frozen_recognizers()` loads both
-  shipped models; `real_probability(rows)` → `{"logistic","bn"}` P(real). CLI `tcren recognize -s pdbs/ -o
-  out.tsv` writes one TSV row/PDB = 34 descriptors + `p_real` + `p_real_bn` (`--features-only` skips models).
-  The user-facing "one TSV for a/b/d" answer; koff joins it under `--mechanics` (2026-07-28), and only
-  ddF (ala), which is per-residue rather than per-structure, stays its own command `tcren ddg`.
+  ports the manuscript's descriptor extractor into tcren (docking geometry + TCRen/MJ Φ & poly-Ala
+  ΔΦ + contact tallies + biopython ΔSASA `burial` + `mhc_class_bin`) — verified **byte-exact** vs
+  `canonical2026_features.csv` (burial max diff 4e-11). Uses `import_structure` (C-gene trimmed);
+  **no `_geom` C-ext needed** (only arda for annotation). CLI `tcren recognize -s pdbs/ -o out.tsv`
+  writes one TSV row per PDB, **descriptors only — no fitted composite**; `--features` instead
+  turns an existing `tcren features` table into `Q`, `T` and `S`. The `--scores` and
+  `--features-only` flags went at 2.26.0 with the models they switched. koff joins the same rows
+  under `--mechanics` (2026-07-28), and only the alanine ΔΔG, which is per-residue rather than
+  per-structure, stays its own command `tcren ddg`.
 - **`--full` feature table (2026-07-13, audited 2026-07-28):** `recognition_features(struct, full=True)` /
   `tcren recognize --full` append the **18 CDR3-frame** descriptors
   (`cdr3{a,b}_{reach,ou,ow,on,au,aw,an,topep,ext}`, FramePose groove-frame projection — the `cdr3b_*`
-  strain signal) → 52 features total. Tuples: `RECOGNITION_FEATURES` (34), `CDR3_FRAME_FEATURES` (18),
-  `FULL_FEATURES` (52).
-- **Descriptor audit (2026-07-28):** every energy column is `F_*` (`e_cdr12`/`e_cdr3a`/`e_cdr3b` →
-  `F_cdr12`/`F_cdr3a`/`F_cdr3b`); the duplicate `e_tcr_mhc` and `ct_tp_hydrogen_bond` columns are gone
-  (they equalled `F_tcr_mhc` and `n_hbond`); the **12 matrix-swap** columns
-  (`{tcren,mj,d}_{tp,cdr12,cdr3a,cdr3b}`) were **removed** — `tcren_*` duplicated `F_*`, and MJ is not the
-  potential used on TCR:peptide. New: `crossing_signed` (signed scanning angle, carries docking polarity)
-  and `DESCRIPTORS` / `descriptors(family, tcr_only=)` — the catalogue giving each column's family
-  (`placement`/`interface`/`topology`/`energetics`/`kinetics`/`score`, with `geometry` and
-  `physics` surviving as aliases) and whether the receptor enters it. Five columns do not —
-  `F_pep_mhc`, `dF_pep_mhc`, `mhc_class_bin`, `F_pep_int` and `n_pep_int`; they carry cohort identity, so receptor questions must use
-  `tcr_only=True`. Frozen recognizers verified **bit-identical** through `_FROZEN_ALIASES`.
-- **`--scores` — LEGACY, v1 reproduction only.** Emits the frozen `p_bind` (`binder.binder_score`)
-  and `p_forced` (`recognition.forced_pose_score`). Both are fitted, neither is used anywhere in the
-  TCRen2 manuscript, and `p_forced`'s coefficients are not re-derivable. Use `reliability.s_free`
-  for binder ranking and `cohort.strain_z` for forced-pose grading; both are fit-free.
+  strain signal). Tuples: `RECOGNITION_FEATURES` (**40**), `CDR3_FRAME_FEATURES` (18),
+  `FULL_FEATURES` (**58**). The 34 / 52 recorded here were the pre-2.26.0 counts.
+- **Descriptor audit (2026-07-28):** every energy column is `Phi_*` (`e_cdr12`/`e_cdr3a`/`e_cdr3b` →
+  `Phi_cdr12`/`Phi_cdr3a`/`Phi_cdr3b`); the duplicate `e_tcr_mhc` and `ct_tp_hydrogen_bond` columns
+  are gone (they equalled `Phi_tcr_mhc` and `n_hbond`); the **12 matrix-swap** columns
+  (`{tcren,mj,d}_{tp,cdr12,cdr3a,cdr3b}`) were **removed** — `tcren_*` duplicated `Phi_*`, and MJ is
+  not the potential used on TCR:peptide. New: `crossing_signed` (signed scanning angle, carries
+  docking polarity) and `DESCRIPTORS` / `descriptors(family, tcr_only=)` — the catalogue giving each
+  column's family (`placement`/`interface`/`topology`/`energetics`/`potts`/`kinetics`, with
+  `geometry` and `physics` surviving as aliases) and whether the receptor enters it. **The `score`
+  family and the `score` invariance class went at 2.26.0 — the catalogue is descriptors only**, and
+  `descriptors("score")` now raises. Five columns do not involve the receptor —
+  `Phi_pep_mhc`, `dPhi_pep_mhc`, `mhc_class_bin`, `Phi_pep_int` and `n_pep_int`; they carry cohort
+  identity, so receptor questions must use `tcr_only=True`.
 - **`-t/--threads` on `tcren scoring` and `tcren recognize` (2026-07-26):** both accept a file, a
   directory, a `.tar.gz`, a quoted glob or a `.txt` manifest; `-t N` runs N concurrent workers (`-t 0`
-  = all cores). Cohort-relative scores (`Q`, `P_native`, and the legacy `q_bind`/`s_strain` under
-  `--scores`) are still computed over the **whole** set, never per batch. `scoring` gains ~7.6x on 8 threads; `recognize` less (its cost is Python
+  = all cores). The cohort-relative `Q` is still computed over the **whole** set, never per batch.
+  `scoring` gains ~7.6x on 8 threads; `recognize` less (its cost is Python
   featurisation, not mmseqs), so batch its annotation rather than expecting linear scaling.
 
-- **`cohort.q_coupled` / `cohort.coupling` — DEPRECATED at 2.12, superseded by `p_native` (2026-07-26):**
+- **`cohort.q_coupled` / `cohort.coupling` — DEPRECATED at 2.12 (2026-07-26).** Both survive as
+  functions; what replaced them is the score set's `binder_score`, whose weights between geometry
+  and energy come from one covariance rather than from a cohort correlation:
   `q_coupled(q, energy)` = `¼[1+erf(z(Q)/√2)]·[1+erf(r·z(ΔΦ)/√2)]` with `r = coupling(q, energy)`, the
   cohort correlation between the geometry and energy channels. Two Gaussian tail probabilities multiplied
   — binding needs both an interface and favourable residues in it — with the energy admitted in
@@ -946,13 +1025,12 @@ actionable one: on the balanced VDJdb panel the **top ipTM decile is 26.2 %** [1
   For receptor ranking pass the **TCR**-referenced ΔΦ (the peptide is fixed, so the peptide reference
   carries nothing); for peptide ranking pass `reference_delta`'s peptide-referenced ΔΦ.
 
-- **`cohort.f_score` — the contact-energy channel (2026-07-24):** `f_score(table)` =
-  `z(-(F_tcr_pep+F_tcr_mhc))`, binder-oriented (`cohort.F_TERMS`). F reads contact chemistry but is
-  **pose-conditional**: it inverts on forced poses, which is the whole reason the shape channel
-  exists. It **no longer feeds `P_native`**: since 2.17.0 the `energetics` channel draws on the
-  `potts` family (`neg_energy`, `log_z`, `log_lik`), not on `F_TERMS`. Either way EM fits that
-  channel's sign per cohort rather than being told it. Do not hand-combine `f_score` with Q — that
-  is what `p_native` is for.
+- **`cohort.phi_score` — the contact-energy channel (2026-07-24, renamed from `f_score` at 2.26.0):**
+  `phi_score(table)` = `z(-(Phi_tcr_pep + Phi_tcr_mhc))`, binder-oriented (`cohort.PHI_TERMS`, the
+  default `terms=` argument). Φ reads contact chemistry but is **pose-conditional**: it inverts on
+  forced poses, which is the whole reason the shape channel exists. Do not hand-combine
+  `phi_score` with `Q` — the score set's `energetics` channel is what weights them, and it does so
+  from the covariance rather than from a choice.
 
 ## MHC allele reference — `tcren build-mhc-ref`, built on demand
 
@@ -1069,7 +1147,7 @@ sym = derive_tcren(contacts, variant="classic", symmetric=True)   # exactly symm
 
 ```python
 from tcren.project2d import region_pair_contacts, region_pair_summary  # needs chain-typed + MHC-annotated structure
-from tcren.orient import docking_angles
+from tcren.docking import docking_angles
 ```
 
 - `region_pair_summary(s, kind="closest"|"cb"|"ca")` — inter-chain contact counts for **every**
