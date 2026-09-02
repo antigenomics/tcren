@@ -177,7 +177,11 @@ def test_refitting_the_committed_slice_reproduces_the_frozen_arrays():
     means duly differ, by at most 6.0e-9 absolute on 18 of the 149 coordinates and 1.4e-7 relative
     -- so the earlier rtol of 1e-9 on the means asserted a tolerance the fit never promised, passed
     on the machine it was written on and failed on CI. The covariances are stored float32, which
-    costs at most 5.9e-8 relative, so 1e-6 is a hundredfold above their storage floor. Every
+    costs at most 5.9e-8 relative, so 1e-6 is a hundredfold above their storage floor. They also
+    carry an atol of 1e-7, because the same lambda term moves 50 of the 22,201 covariance entries
+    by up to 2.5e-8 absolute, and those 50 sit near zero (magnitude about 9e-5) -- where a purely
+    relative bound is meaningless and reports 2.9e-4 for a difference smaller in absolute terms
+    than the one the means survive. Every
     tolerance here is orders of magnitude below what a change to the epitope weighting, the
     Yeo-Johnson fit or the Ledoit-Wolf shrinkage would move these arrays by.
     """
@@ -205,7 +209,7 @@ def test_refitting_the_committed_slice_reproduces_the_frozen_arrays():
                                    rtol=1e-6, atol=1e-7, err_msg=k)
     for k in ("cov0", "cov1"):
         np.testing.assert_allclose(got[k], np.asarray(ref[k], float),
-                                   rtol=1e-6, atol=1e-9, err_msg=k)
+                                   rtol=1e-6, atol=1e-7, err_msg=k)
     for k in ("lam", "loc", "scale"):
         assert set(meta[k]) == set(rmeta[k]), k
         np.testing.assert_allclose([meta[k][n] for n in rmeta[k]],
