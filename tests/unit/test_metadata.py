@@ -64,3 +64,34 @@ def test_clashing_column_is_prefixed_not_dropped(tmp_path):
     t = pl.DataFrame({"complex.id": ["a"], "iptm": [0.1]})
     j = join_metadata(t, d)
     assert j["iptm"][0] == 0.1 and j["meta.iptm"][0] == 0.8
+
+
+@pytest.mark.parametrize("meta_cols,expect_hits", [
+    # `id` second: join_metadata renames it to the key, so indexing the joined table by the
+    # metadata's second column name raised ColumnNotFoundError -- after the whole featurisation
+    # pass and before write_csv, which lost the run.
+    ({"epitope": ["E1", "E2"], "id": ["a", "z"], "iptm": [0.8, 0.4]}, 1),
+    # a name that clashes with a feature column is prefixed `meta.`, so the bare name was absent.
+    ({"id": ["a", "z"], "burial": [1.0, 2.0]}, 1),
+    # and where the clashing name DID survive, the count came off the feature column and read 2/2.
+    ({"id": ["a", "b"], "iptm": [0.8, 0.4]}, 2),
+])
+def test_the_join_hit_count_comes_from_a_column_the_join_added(tmp_path, meta_cols, expect_hits):
+    """The CLI reports how many rows the metadata matched; it must count on an ADDED column.
+
+    Counting on `m.columns[1]` -- the metadata's second column by position -- is wrong three ways:
+    that name may be `id` (renamed to the join key), may have been prefixed `meta.` for clashing
+    with a feature column, or may BE a feature column and give a silently false hit rate.
+    """
+    d = _set(tmp_path, meta_cols)
+    table = pl.DataFrame({"complex.id": ["a", "b"], "burial": [1.0, 2.0]})
+
+    before = set(table.columns)
+    joined = join_metadata(table, d)
+    added = [c for c in joined.columns if c not in before]
+
+    assert added, "the join added no column, so there is nothing to count on"
+    for c in added:
+        assert c in joined.columns          # would have raised for `id` / a `meta.`-renamed clash
+    hit = int(joined[added[0]].is_not_null().sum())
+    assert hit == expect_hits

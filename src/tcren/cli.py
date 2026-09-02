@@ -893,6 +893,11 @@ def recognize(
                              threads=threads if threads > 0 else (_os.cpu_count() or 1))
     table = pl.DataFrame(rows)
     table.write_csv(str(out), separator="\t")
+    # stamped like `tcren features`: without this the same binary's `--features` reader refuses
+    # its own output as written by something that does not stamp.
+    from .provenance import stamp
+    stamp(out, command=f"tcren recognize -s {structures} -o {out}", columns=table.columns,
+          extra={"structures": table.height})
     typer.echo(f"wrote {out} ({len(rows)} rows)")
 
 
@@ -902,7 +907,7 @@ def fit_holdout_cmd(
     manifest_file: Path = typer.Option(None, "--manifest", help="id, y, epitope (and optionally iptm) for those structures; defaults to the manifest shipped in the package"),
     out: Path = typer.Option("holdout_model.npz", "-o", "--out", help="where to write the frozen model"),
 ) -> None:
-    """Refit the frozen model behind `tcren score` from its hold-out, and write it out.
+    """Refit the frozen model behind `tcren assess` from its hold-out, and write it out.
 
     The earlier fitted read-out in this project was withdrawn because its coefficients were frozen
     against a training set nobody could reconstruct. These are frozen against one that is named:
@@ -914,8 +919,11 @@ def fit_holdout_cmd(
         tcren features -s <those structures> -o hold.tsv  # the descriptors
         tcren fit-holdout --features hold.tsv -o refit.npz
 
-    and ``refit.npz`` matches the shipped model bit for bit. Pass your own ``--manifest`` to fit a
-    different hold-out, then read it back with ``tcren assess --model``.
+    and ``refit.npz`` matches the shipped model to a relative 1e-5, the bound the test suite
+    asserts. It is not bit-identical across platforms: the Yeo-Johnson lambda comes from a Brent
+    search that stops at its own tolerance of about 1.5e-8, and every array fitted through the
+    transform inherits that. Pass your own ``--manifest`` to fit a different hold-out, then read it
+    back with ``tcren assess --model``.
     """
     from .score import holdout_manifest
     from .score.fit import fit_holdout
@@ -1371,7 +1379,7 @@ def _score_feature_table(path: Path, out: Path) -> None:
 
 @app.command(rich_help_panel=_P_SCORE)
 def assess(
-    features_table: Path = typer.Option(..., "--features", "-f", help="a `tcren features` table (TSV/CSV)"),
+    features_table: Path = typer.Option(None, "--features", "-f", help="a `tcren features` table (TSV/CSV); required unless --list-bands"),
     out: Path = typer.Option("assess.tsv", "-o", "--out", help="per-structure assessment (TSV)"),
     peptide: bool = typer.Option(False, "--peptide", help="the peptide varies across these structures (a combinatorial library or a mutational scan), so the presentation descriptors are signal rather than the cohort's name"),
     model_file: Path = typer.Option(None, "--model", help="an alternative frozen model, e.g. one you refitted with `tcren fit-holdout`"),
@@ -1463,6 +1471,8 @@ def assess(
         for k in available_bands():
             typer.echo(f"  {k}")
         return
+    if features_table is None:
+        raise typer.BadParameter("--features is required (or pass --list-bands on its own)")
 
     from .provenance import StaleTableError, check
     try:
@@ -1543,7 +1553,7 @@ def features(
     autodetect_species: bool = typer.Option(True, "--autodetect-species/--no-autodetect-species", help="also search mouse to catch a mis-declared organism; --no- halves the annotation cost"),
     metadata: bool = typer.Option(True, "--metadata/--no-metadata", help="join the set's metadata.tsv (label, epitope, allele, ipTM/pLDDT) when one ships beside the structures"),
 ) -> None:
-    """Raw per-structure descriptors, one row per structure, in the four (+1) feature families.
+    """Raw per-structure descriptors, one row per structure, in six feature families.
 
     This command emits **features only** — no model, no probability, no cohort score. Its companion
     is ``tcren recognize``, which turns a feature table into scores and can read this file back with
@@ -1564,6 +1574,8 @@ def features(
       preference.
     * ``energetics`` -- statistical-potential interface energies Phi and their poly-alanine
       reference differences dPhi. The ``d`` is the reference difference, never a derivative.
+    * ``potts`` -- the same interface read against the partition function of the coupled contact
+      model rather than against a poly-alanine one. Off by default; add it with --all or -i.
     * ``kinetics`` -- the interface as a spring network: stiffness, rupture, coupling residues.
       Off by default (it is the most expensive family); add it with --all or -i.
 
@@ -1605,11 +1617,14 @@ def features(
         from .metadata import join_metadata, read_metadata
         m = read_metadata(structures)
         if m is not None:
-            before = len(table.columns)
+            before = set(table.columns)
             table = join_metadata(table, structures)
-            n_meta = len(table.columns) - before
-            hit = int(table[m.columns[1] if len(m.columns) > 1 else "id"].is_not_null().sum()) \
-                if len(m.columns) > 1 else table.height
+            # count on a column the join actually ADDED: join_metadata renames `id` to the key and
+            # prefixes any clashing name with `meta.`, so the metadata's own column names are not
+            # the joined table's.
+            added = [c for c in table.columns if c not in before]
+            n_meta = len(added)
+            hit = int(table[added[0]].is_not_null().sum()) if added else table.height
             typer.echo(f"  metadata.tsv: +{n_meta} columns, {hit}/{table.height} rows matched")
     table.write_csv(str(out), separator="\t")
     from .provenance import stamp

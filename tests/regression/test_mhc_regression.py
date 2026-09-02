@@ -22,8 +22,9 @@ from tcren.mhc import map_mhc
 
 REPO = Path(__file__).resolve().parents[2]
 PDB_DIR = REPO / "tests" / "assets" / "pdb"
-SUMMARY = REPO / "legacy" / "data" / "summary_PDB_structures.csv"
-PDB_MHC = REPO / "legacy" / "data" / "PDB_MHC_annotation.csv"
+ORACLE = REPO / "tests" / "assets" / "oracle" / "data"
+SUMMARY = ORACLE / "summary_PDB_structures.csv"
+PDB_MHC = ORACLE / "PDB_MHC_annotation.csv"
 
 _HAVE_REF = (REPO / "database" / "mhc" / "alleles.aa.fasta").exists()
 needs_ref = pytest.mark.skipif(not _HAVE_REF, reason="MHC reference not built")

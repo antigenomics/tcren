@@ -9,7 +9,7 @@ repeated for nothing.
 
 .. code-block:: console
 
-   # every descriptor, in the four families (add kinetics with --all):
+   # the four default families (--all adds potts and kinetics):
    tcren features -s structures/ -i placement,interface,topology,energetics -o feats.tsv
    # one family only -- and only that family is computed:
    tcren features -s structures/ -i topology -o shape.tsv

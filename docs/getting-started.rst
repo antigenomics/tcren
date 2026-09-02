@@ -106,8 +106,8 @@ Two options change what is reported:
    adds the interface descriptors (``burial``, ``n_pep_contacted``, ``chain_balance``, ``n_hbond``,
    ``pitch``, ``crossing``) and ``Q``, the directional decorrelated interface-quality score
    (:func:`tcren.q_score`), standardised against the native-crystal reference so it is defined for a
-   single structure. For the complete descriptor catalogue plus ``P(real)``, use
-   ``tcren recognize``.
+   single structure. For the complete descriptor catalogue use ``tcren features``, and for the
+   score set read off the frozen model use ``tcren assess``.
 
 Columns are named as in ``tcren recognize`` (``Phi_tcr_pep``, ``dPhi_pep_mhc``, …), but the key is
 not: ``tcren scoring`` emits ``pdb.id`` and ``tcren recognize`` emits ``complex.id``, so rename

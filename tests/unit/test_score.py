@@ -141,8 +141,11 @@ def test_every_channel_is_populated_and_they_are_not_the_same_number():
     assert set(ch) == set(CHANNELS)
     for name, v in ch.items():
         assert np.isfinite(v).sum() > 100, name
-    vals = np.array([v[np.isfinite(v)][:50] for v in ch.values()])
-    assert np.abs(np.corrcoef(vals) - np.eye(len(ch))).max() > 0.05
+    names = list(ch)
+    for i, a in enumerate(names):
+        for b in names[i + 1:]:
+            ok = np.isfinite(ch[a]) & np.isfinite(ch[b])
+            assert not np.allclose(ch[a][ok], ch[b][ok]), f"{a} and {b} are the same vector"
 
 
 @pytestmark_model

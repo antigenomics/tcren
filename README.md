@@ -39,7 +39,7 @@ way it does.
 
 | block | the question | entry points |
 |---|---|---|
-| **Combinatorial peptide libraries** | which peptides does this receptor read? | `tcren pipeline --delta`, `tcren.ddg.neoantigen_ddg` |
+| **Combinatorial peptide libraries** | which peptides does this receptor read? | `tcren features`, `tcren assess` (`peptide_score`), `tcren.ddg.neoantigen_ddg` |
 | **A functionally validated repertoire screen** | which receptors read this epitope? | `tcren features`, `tcren recognize` |
 | **A balanced epitope panel, template-stratified** | the same, where no related complex has been solved | as above, with template availability reported rather than inferred |
 | **Molecular dynamics with measured kinetics** | may a single static structure be scored at all, and what does its energy reach? | the three interface energies, `tcren.potts` contact marginals |
@@ -287,7 +287,7 @@ Two commands, two jobs. **`tcren features` reads structures and writes descripto
 runs once and the scoring pass can be repeated for nothing.
 
 ```bash
-tcren features  -s my_pdbs/ -o feats.tsv                   # the four default families (--all adds kinetics)
+tcren features  -s my_pdbs/ -o feats.tsv                   # the four default families (--all adds potts and kinetics)
 tcren features  -s my_pdbs/ -o shape.tsv -i topology       # one family -- and only it is computed
 tcren recognize --features feats.tsv -o scores.tsv         # Q, T, S
 ```

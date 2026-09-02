@@ -25,7 +25,7 @@ Reproduce the core stages with::
    * - ΔΔG alanine scan (9-mer)
      - ~11 ms
      - virtual-matrix path; no atoms move
-   * - binder P(bind) (features + model)
+   * - binder_score (features + model)
      - ~49 ms
      - native geometry, no external tool
    * - peptide refine (2000-step DOPE MC)

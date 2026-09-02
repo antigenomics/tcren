@@ -47,16 +47,22 @@ From the command line
 .. code-block:: console
 
    $ tcren features -s models/ -i placement,interface,topology,energetics -o feats.tsv
+   $ tcren recognize --features feats.tsv -o scores.tsv
+
+     S: Q + T in native-sd units, 618 of 618 finite
+
    $ tcren assess --features feats.tsv -o assessed.tsv --band 'tcrvdb|ipTM'
 
-   618 structures; S = Q + T in native-sd units, 618 finite
-     top 50% of the set (309 structures): mean S 0.737 against 0.562 overall
-     generator diagnostic (tcrvdb|ipTM): 60 of 618 structures sit in the top confidence decile,
-     where 15.3% [8.2%, 26.5%] of benchmark models are NON-binders and S still reads 0.773
-     ROC-AUC
+Two commands, because they answer different questions and print different lines. ``recognize
+--features`` is what emits ``S`` and reports how many rows it is finite on. ``assess`` reads the
+frozen model, ranks on ``binder_score``, and — when the table carries a confidence column — adds
+the band diagnostic: for the ``tcrvdb|ipTM`` table the top decile is one where 15.3 %
+[8.2 %, 26.5 %] of benchmark models are non-binders and ``S`` still separates them at 0.773
+ROC-AUC. Without a confidence column ``assess`` says so and skips that block rather than imputing
+one.
 
-Add the energy term by joining ``tcren potts score``'s ``neg_energy``; without it ``assess`` emits
-the two-block form and says so rather than imputing.
+Add the energy term by joining ``tcren potts score``'s ``neg_energy``; without it ``recognize``
+emits the two-block form and says so rather than imputing.
 
 API
 ---

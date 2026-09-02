@@ -21,8 +21,9 @@ arda = pytest.importorskip("arda")
 
 REPO = Path(__file__).resolve().parents[2]
 PDB_DIR = REPO / "tests" / "assets" / "pdb"
-CONTACT_MAPS = REPO / "legacy" / "data" / "contact_maps_PDB.csv"
-SUMMARY = REPO / "legacy" / "data" / "summary_PDB_structures.csv"
+ORACLE = REPO / "tests" / "assets" / "oracle" / "data"
+CONTACT_MAPS = ORACLE / "contact_maps_PDB.csv"
+SUMMARY = ORACLE / "summary_PDB_structures.csv"
 
 # invokes arda / mmseqs per structure, and compares against the legacy mir oracle CSVs; skip
 # (do not fail) when those un-fetched reference files are absent from the checkout, mirroring the

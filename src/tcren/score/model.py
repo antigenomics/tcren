@@ -18,7 +18,7 @@ algebra operation on that one object, with no further fitting:
 `P(binder|PCA) -> Jacobian * P(binder|descriptors)`. For a POSTERIOR the Jacobian cancels: PCA is
 affine, `|det dz/dx|` is a constant independent of x, and it appears identically in numerator and
 denominator. `P(c|z) == P(c|x)` exactly whenever W is square and invertible, and
-``tests/unit/test_score_identities.py`` asserts it to 1e-13 rather than taking it on faith. The Jacobian is real for
+``tests/unit/test_score.py`` asserts it to 1e-9 rather than taking it on faith. The Jacobian is real for
 the DENSITY; what happens under truncation is not a Jacobian but a marginalization, which for a
 Gaussian is the sub-block above.
 
@@ -100,6 +100,12 @@ class Joint:
         """
         j = self._idx(subset)
         if subset is not None and X.shape[1] == len(j):
+            # `_idx` returns indices in `self.names` order, so the sub-blocks below are in that
+            # order; permute X's columns to match the docstring's promise rather than silently
+            # pairing coordinate k of X with coordinate k of a differently-ordered sub-block.
+            # `anomaly_on` already honours caller order; this makes the two agree.
+            want = set(subset)
+            X = X[:, [subset.index(n) for n in self.names if n in want]]
             out = {}
             for c in (0, 1):
                 S = self.cov[c][np.ix_(j, j)]
@@ -162,7 +168,7 @@ class Joint:
 
         `W' Sigma_c W` is exact, so this is a projection of the fitted object and not a second fit.
         At m = p with W orthonormal it is a rotation, and the posterior is unchanged -- the
-        identity `test_identities.py` asserts.
+        identity `tests/unit/test_score.py` asserts.
         """
         Sw = sum(self.prior[c] * self.cov[c] for c in self.cov)
         lam, U = np.linalg.eigh(Sw)
