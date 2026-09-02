@@ -170,11 +170,16 @@ def test_refitting_the_committed_slice_reproduces_the_frozen_arrays():
     carries -- that one needs the 19 MB table, and
     `test_the_shipped_model_is_reproducible_from_the_full_hold_out_table` is where it is checked.
 
-    **To what tolerance.** Means, transform parameters and the ipTM row refit bit-identically and
-    are checked at rtol 1e-9 only to leave room for a different BLAS. The covariances are stored
-    float32, which costs at most 5.9e-8 relative, so they are checked at rtol 1e-6: a hundredfold
-    above the storage floor and orders of magnitude below what any change to the epitope weighting,
-    the Yeo-Johnson fit or the Ledoit-Wolf shrinkage would move them by.
+    **To what tolerance.** Everything is checked at rtol 1e-6. The binding term is not BLAS:
+    `Transformer.fit` takes each Yeo-Johnson lambda from `scipy.stats.yeojohnson_normmax`, whose
+    Brent search converges only to its own default tolerance of about 1.5e-8, and a lambda wobble
+    that size moves a column mean by about 9e-9. Between macOS arm64 and Linux x86_64 the refit
+    means duly differ, by at most 6.0e-9 absolute on 18 of the 149 coordinates and 1.4e-7 relative
+    -- so the earlier rtol of 1e-9 on the means asserted a tolerance the fit never promised, passed
+    on the machine it was written on and failed on CI. The covariances are stored float32, which
+    costs at most 5.9e-8 relative, so 1e-6 is a hundredfold above their storage floor. Every
+    tolerance here is orders of magnitude below what a change to the epitope weighting, the
+    Yeo-Johnson fit or the Ledoit-Wolf shrinkage would move these arrays by.
     """
     import json
     import tempfile
@@ -197,7 +202,7 @@ def test_refitting_the_committed_slice_reproduces_the_frozen_arrays():
 
     for k in ("mu0", "mu1", "conf_cov"):
         np.testing.assert_allclose(got[k], np.asarray(ref[k], float),
-                                   rtol=1e-9, atol=1e-12, err_msg=k)
+                                   rtol=1e-6, atol=1e-7, err_msg=k)
     for k in ("cov0", "cov1"):
         np.testing.assert_allclose(got[k], np.asarray(ref[k], float),
                                    rtol=1e-6, atol=1e-9, err_msg=k)
