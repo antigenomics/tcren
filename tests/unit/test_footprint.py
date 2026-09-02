@@ -232,3 +232,23 @@ def test_batch_over_structures_yields_one_row_each():
 def test_batch_of_nothing_is_an_empty_frame_not_an_error():
     assert footprint_batch([]).height == 0
 
+
+
+def test_footprint_fallback_returns_nan_row_not_nameerror():
+    """The except branch in _footprint_columns must be reachable.
+
+    It names FOOTPRINT_SIZE_FEATURES and footprint_topology_features, and until 3.0.0 neither was
+    imported into that scope: any structure footprint_features could not handle raised NameError
+    instead of returning the NaN row the fallback exists to return. Ruff caught it as F821; nothing
+    else did, because no test drove a structure through the failure path.
+    """
+    import math
+
+    from tcren.descriptors.compute import _footprint_columns
+
+    class _Unusable:
+        """Stands in for a structure with no peptide or receptor chain."""
+
+    row = _footprint_columns(_Unusable())
+    assert row, "fallback returned an empty row"
+    assert all(math.isnan(v) for v in row.values())

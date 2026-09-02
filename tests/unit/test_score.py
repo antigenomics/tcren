@@ -129,7 +129,6 @@ def test_the_shipped_model_loads_and_declares_what_it_was_fitted_on():
 @pytestmark_model
 def test_every_channel_is_populated_and_they_are_not_the_same_number():
     """Five named channels, each a real sub-block. Identical values would mean the index is wrong."""
-    import polars as pl
 
     m = holdout_model()
     t = _holdout_features()
@@ -144,7 +143,6 @@ def test_every_channel_is_populated_and_they_are_not_the_same_number():
 @pytestmark_model
 def test_scores_do_not_depend_on_what_was_scored_alongside_them():
     """The single-structure claim. Scoring one row must give what scoring 300 gave for that row."""
-    import polars as pl
 
     from tcren.score import score_table
     t = _holdout_features()

@@ -29,7 +29,6 @@ from .catalogue import (
     TCR_PLACEMENT_FEATURES,
     _CDR3_FRAME_KEYS,
     _CT_TYPES,
-    _EPS,
     _TCR_TYPES,
 )
 
@@ -300,7 +299,11 @@ def _footprint_columns(s, radii=(7.0, 8.0)) -> dict[str, float]:
 
     Rigid-motion invariant, so the structure does not need orienting; it needs only chain typing and
     CDR markup, which the batch annotation has already done by the time this runs."""
-    from ..topology.footprint import footprint_features
+    # The except branch below names the other two, so they are imported here as well; without
+    # them a structure that fails footprint_features raised NameError instead of returning the
+    # NaN row this fallback exists to return.
+    from ..topology.footprint import (FOOTPRINT_SIZE_FEATURES, footprint_features,
+                                      footprint_topology_features)
     try:
         return footprint_features(s, radii=radii)
     except Exception:  # noqa: BLE001 - no peptide/receptor chain etc.

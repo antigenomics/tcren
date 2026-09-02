@@ -917,7 +917,7 @@ def fit_holdout_cmd(
     and ``refit.npz`` matches the shipped model bit for bit. Pass your own ``--manifest`` to fit a
     different hold-out, then read it back with ``tcren assess --model``.
     """
-    from .score import MANIFEST_FILE, holdout_manifest
+    from .score import holdout_manifest
     from .score.fit import fit_holdout
 
     if not features_table.exists():
@@ -1202,7 +1202,7 @@ def _annotate_set(structs, *, organism: str, autodetect_species: bool) -> None:
     from .annotation import classify_chains
     from .annotation.arda_adapter import _import_arda
     from .mhc import annotate_mhc_batch
-    from .annotation.batch import iter_typed, annotate_batch
+    from .annotation.batch import annotate_batch
 
     structs = [s for s in structs if s is not None]
     if not structs:

@@ -13,7 +13,7 @@ from dataclasses import dataclass
 import polars as pl
 
 from ..structure.model import Structure
-from ..structure.model import PEPTIDE_TYPE, RECEPTOR_TYPES, Structure
+from ..structure.model import PEPTIDE_TYPE, RECEPTOR_TYPES
 from .geometry import all_atom_contacts, representative_atom_contacts
 
 # Long side chains (Arg, Lys, Trp) put two heavy atoms within 5 A while their Calpha atoms sit far

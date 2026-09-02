@@ -43,13 +43,12 @@ import numpy as np
 import polars as pl
 
 
-from ..contacts.definitions import ContactDefinition, multi_contacts
 # Both moved to the layer that owns them on 2026-09-01: `_interface_layers` builds the
 # d1/d2/d3 contact layers (contacts), `_double_centred` operates on a potential matrix
 # (hamiltonian). `potts` was reaching UP into this module for each of them.
 from ..contacts.definitions import _KEY, _REP_BUILD_CUTOFF, _interface_layers  # noqa: F401
 from ..potential.model import _double_centred  # noqa: F401
-from ..structure.model import MHC_TYPES, PEPTIDE_TYPE, RECEPTOR_TYPES, Structure
+from ..structure.model import MHC_TYPES, Structure
 
 __all__ = ["pose_consistency", "POSE_FEATURES", "POSE_FEATURES_CONTACT",
            "POSE_FEATURES_SHELL", "POSE_FEATURES_DEGREE"]

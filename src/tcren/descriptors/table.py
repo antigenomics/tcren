@@ -8,10 +8,9 @@ and the process pool that featurises it. Which columns each family contributes i
 """
 from __future__ import annotations
 
-import math
 from collections.abc import Sequence
 
-from .catalogue import DESCRIPTORS, FAMILIES, PEPTIDE_INTERNAL_FEATURES
+from .catalogue import DESCRIPTORS, FAMILIES
 from .compute import (
     _footprint_columns,
     _peptide_internal_columns,

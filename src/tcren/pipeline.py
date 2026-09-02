@@ -18,7 +18,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import numpy as np
 import polars as pl
 
 from .annotation import classify_chains
@@ -26,7 +25,7 @@ from .contactmap import ContactMap
 from .contacts.table import residue_annotation
 from .mhc import MhcCall, annotate_mhc
 from .potential import Potential, keskin, mj, tcren, tcren2
-from .energetics.scoring import _contact_weights, _interface_energy, _phi_scale
+from .energetics.scoring import _interface_energy, _phi_scale
 from .structure.io import import_structure
 from .structure.model import PEPTIDE_TYPE, Structure
 

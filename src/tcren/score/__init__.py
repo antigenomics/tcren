@@ -69,9 +69,9 @@ from ..recognition import DESCRIPTORS
 from .model import Joint
 from .transform import Transformer, kind, working_set
 
-__all__ = ["CHANNELS", "CHANNEL_OF", "MODEL_FILE", "ScoreModel", "binder_score",
+__all__ = ["CHANNELS", "CHANNEL_OF", "MODEL_FILE", "ScoreModel", "Transformer", "binder_score",
            "channel_scores", "confidence_residual", "holdout_manifest", "holdout_model",
-           "peptide_score", "pose_score", "score_table"]
+           "kind", "peptide_score", "pose_score", "score_table", "working_set"]
 
 #: descriptor family -> the plain-language channel a reader is given. ``potts`` joins
 #: ``energetics`` because both are contact energies in kT and splitting them helps nobody.

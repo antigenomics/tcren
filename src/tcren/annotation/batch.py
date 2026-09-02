@@ -15,7 +15,6 @@ re-exports every name, so callers written against the old location keep working.
 """
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
 from pathlib import Path
 
 import polars as pl
