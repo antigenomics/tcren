@@ -71,7 +71,8 @@ from .transform import Transformer, kind, working_set
 
 __all__ = ["CHANNELS", "CHANNEL_OF", "MODEL_FILE", "ScoreModel", "Transformer", "binder_score",
            "channel_scores", "confidence_residual", "holdout_manifest", "holdout_model",
-           "kind", "peptide_score", "pose_score", "score_table", "working_set"]
+           "kind", "peptide_score", "pose_score", "residue_deltas", "score_table",
+           "working_set"]
 
 #: descriptor family -> the plain-language channel a reader is given. ``potts`` joins
 #: ``energetics`` because both are contact energies in kT and splitting them helps nobody.
@@ -370,3 +371,6 @@ def score_table(table, *, receptor: bool = True, iptm=None, model: ScoreModel | 
         out["confidence_residual"] = m.confidence_residual(table, iptm)
         out["binder_iptm"] = out["binder_score"] + _logit(np.asarray(iptm, float))
     return pl.DataFrame(out)
+
+
+from .explain import residue_deltas  # noqa: E402  (see __all__)

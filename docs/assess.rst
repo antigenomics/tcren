@@ -84,6 +84,33 @@ sometimes, a better instrument. A channel beats the whole model where the whole 
 on template-free cohorts ``channel_shape`` reads 0.637 against the full posterior's 0.615, and on a
 combinatorial peptide library ``channel_energetics`` reads 0.700 against 0.542.
 
+Which residue carries it
+------------------------
+
+The five channels say which *part of the structure* a score comes from. ``residue_deltas`` says
+which **residue**::
+
+    tcren explain -s model.pdb --score binder -o deltas.tsv
+
+Each row is one interface residue, and ``delta`` is
+
+.. math:: \Delta_i = L(x) - L(x_{\setminus i})
+
+the score of the complex minus the score of the same complex with that residue's atoms removed.
+Positive means the residue carries the score. It is defined for every read-out and every channel,
+so one table colours a figure by any of them — pass it straight to
+:func:`tcren.viz.pymol.importance_scene`.
+
+``peptide_score`` is the exception and does not need it: that score is a sum over contacts, so
+:func:`tcren.energetics.scoring.position_profile` already returns an **exact** per-position
+decomposition that sums back to the score. Use the exact one where it exists. Leave-one-out is for
+the four read-outs that have no exact split, because each is a function of ~149 whole-structure
+scalars through a full covariance and no residue owns a share of one.
+
+Cost is one descriptor pass per interface residue — a few minutes for a complex. Chain typing and
+the MHC call are mmseqs searches and run **once** for the whole structure, never per mask. A masked
+row whose descriptors go undefined is reported as a null delta rather than imputed.
+
 Reproducing the frozen model
 ----------------------------
 
@@ -115,6 +142,7 @@ API
 .. autofunction:: channel_scores
 .. autofunction:: confidence_residual
 .. autofunction:: peptide_score
+.. autofunction:: residue_deltas
 .. autofunction:: score_table
 .. autofunction:: holdout_model
 .. autofunction:: holdout_manifest

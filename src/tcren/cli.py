@@ -2049,3 +2049,33 @@ def potts_scan_cmd(
 # script, which imports the module first, saw all nine.
 if __name__ == "__main__":
     main()
+
+@app.command(rich_help_panel=_P_SCORE)
+def explain(
+    structures: Path = typer.Option(..., "-s", "--structures", help="ONE structure file (.pdb/.cif/.pdb.gz/.cif.gz)"),
+    out: Path = typer.Option("residue_deltas.tsv", "-o", "--out", help="output per-residue TSV"),
+    score: str = typer.Option("binder", "--score", help="binder|pose|peptide or a channel: placement|interface|shape|energetics|mechanics"),
+    chain_types: str = typer.Option("", "--chain-types", help="restrict to these chain types, comma separated, e.g. PEPTIDE"),
+    interfaces: str = typer.Option("tcr_peptide,tcr_mhc", "--interfaces", help="which interfaces define the residue set"),
+    organism: str = typer.Option("human", "--organism"),
+) -> None:
+    """Per-residue leave-one-out contribution to a whole-structure score.
+
+    Writes one row per interface residue with ``delta`` = score(complex) - score(complex without
+    that residue), which is what a per-residue confidence colouring shows: how much this residue
+    carries. Defined for every read-out and every channel, so the same table colours a figure by
+    any of them --- feed it to ``tcren.viz.pymol.importance_scene``.
+
+    The peptide read-out has an EXACT decomposition already
+    (``tcren.energetics.scoring.position_profile``, which sums to the score); prefer it there and
+    use this for the read-outs that do not decompose. Chain typing and the MHC call run once for
+    the whole structure, so cost is one descriptor pass per interface residue, a few minutes.
+    """
+    from .score.explain import residue_deltas
+
+    ct = tuple(x.strip() for x in chain_types.split(",") if x.strip()) or None
+    d = residue_deltas(structures, score=score, organism=organism, chain_types=ct,
+                       interfaces=tuple(x.strip() for x in interfaces.split(",") if x.strip()))
+    d.write_csv(out, separator="\t")
+    typer.echo(f"wrote {out}  ({d.height} residues, score={score}, "
+               f"full={d['score.full'][0]:.4f})")

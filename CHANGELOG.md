@@ -3,6 +3,36 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
+## [3.2.0] — 2026-09-04
+
+**Which residue carries a score.** The five channels say which *part of the structure* a read-out
+comes from; `residue_deltas` says which **residue**, for any read-out and any channel:
+
+```
+tcren explain -s model.pdb --score binder -o deltas.tsv
+```
+
+Each row is one interface residue and `delta` is `L(x) - L(x_without_i)` — the score of the complex
+minus the score of the same complex with that residue's atoms removed. Positive means the residue
+carries the score. The table feeds `tcren.viz.pymol.importance_scene` unchanged, so one
+implementation colours a structure by `binder_score`, `pose_score` or any single channel, where
+before only the peptide read-out had a colouring at all.
+
+Why it is leave-one-out and not a decomposition: `peptide_score` is a sum over contacts and
+`energetics.scoring.position_profile` already splits it **exactly**. The other four are functions of
+~149 whole-structure scalars through a full covariance per class, so no residue owns a share of one
+and there is nothing to split. The leave-one-out difference is defined for all of them.
+
+* Chain typing and the MHC call run **once** for the whole structure; every masked copy is
+  featurised with `annotate=False` against that one annotation. No mmseqs call is made per residue.
+* Only residues touching a requested interface are masked — a residue making no contact moves no
+  descriptor, and a test asserts its delta is exactly zero rather than assuming it.
+* A masked row whose descriptors go undefined is reported as a **null** delta, never imputed:
+  `ScoreModel.coordinates` drops such a row on purpose, and that is surfaced rather than filled in.
+* Cost is one descriptor pass per interface residue, about 2 s; a complex is a few minutes.
+
+Additive only: no signature changed and nothing was removed.
+
 ## [3.1.0] — 2026-09-04
 
 **Structure sets are annotated once, not once per structure.** Every CLI command that iterates a
