@@ -72,6 +72,25 @@ paper_app = typer.Typer(add_completion=False, help="Nat Comput Sci 2022 reproduc
 app.add_typer(paper_app, name="paper")
 
 
+
+def _typed_batch(structures, organism: str, mhc: bool = True) -> list:
+    """Every structure of ``structures``, chain-typed and (optionally) MHC-annotated, BATCHED.
+
+    Two mmseqs searches for the whole set, never two per structure. Calling ``classify_chains`` or
+    ``annotate_mhc`` inside a ``for`` loop spawns one ``mmseqs easy-search`` per structure and the
+    process startup dominates -- it is the single most repeated performance defect in this package
+    and the reason ``tcren.annotation.batch`` exists. Any command that iterates a structure set
+    goes through here.
+    """
+    structs = list(_iter_typed(structures, organism))
+    if structs and mhc:
+        import os as _os
+
+        from .mhc import annotate_mhc_batch
+        annotate_mhc_batch(structs, threads=max(1, _os.cpu_count() or 1))
+    return structs
+
+
 @paper_app.command("bootstrap")
 def paper_bootstrap(
     structures: bool = typer.Option(True, "--structures/--no-structures"),
@@ -155,11 +174,8 @@ def annotate(
     keep = None if regions == "all" else _REGION_CHAINS[regions]
 
     frames = []
-    for s in _iter_typed(structures, organism):
+    for s in _typed_batch(structures, organism, mhc=want_mhc):
         pid = s.pdb_id
-        if want_mhc:
-            from .mhc import annotate_mhc
-            annotate_mhc(s)
         if pseudo:
             from .mhc import annotate_pseudo
             annotate_pseudo(s)
@@ -189,9 +205,7 @@ def contacts(
     # the unrefined table is missing every MHC-side row without saying so.
     need_mhc = interface in ("tcr_mhc", "peptide_mhc", "all")
     frames = []
-    for s in _iter_typed(structures, organism):
-        if need_mhc:
-            annotate_mhc(s)
+    for s in _typed_batch(structures, organism, mhc=need_mhc):
         cm = ContactMap.from_structure(s, cutoff=cutoff)
         frames.append(
             (cm.contacts if interface == "all" else cm.interface(interface, tcr_regions=regions))
@@ -518,12 +532,10 @@ def score(
     pot = _load_potential(potential)
     cands = _read_candidates(candidates)
     frames = []
-    for s in _iter_typed(structures, organism):
+    for s in _typed_batch(structures, organism, mhc=soft):
         cm = ContactMap.from_structure(s, cutoff=cutoff, peptide_internal=bool(intra_weight))
         if soft:
-            from .mhc import annotate_mhc
             from .energetics.rotamers import contact_probabilities
-            annotate_mhc(s)
             frames.append(_soft_score(s, cands, pot, interface, cutoff, contact_probabilities))
             continue
         w = _score_weights(s, cm, interface, regions, drop_untyped, position_scheme)
@@ -580,12 +592,12 @@ def ddg_cmd(
 
     pot = _load_potential(potential)
     frames = []
-    for _pid, s in iter_structures(structures, importer=parse_structure):
-        classify_chains(s, organism=organism)
-        # Without this the peptide:MHC interface comes out EMPTY, so `--interface peptide_mhc`
-        # returned 0.0 for every mutant and `complex` would silently be the receptor term alone --
-        # the same silent-zero the `cpl` command annotates against.
-        annotate_mhc(s)
+    # Batched: chain typing AND the MHC pass, two searches for the set. Without the MHC pass the
+    # peptide:MHC interface comes out EMPTY, so `--interface peptide_mhc` returned 0.0 for every
+    # mutant and `complex` would silently be the receptor term alone -- the same silent-zero the
+    # `cpl` command annotates against.
+    for s in _typed_batch(structures, organism):
+        _pid = s.pdb_id
         cm = ContactMap.from_structure(s, cutoff=cutoff)
         if alanine_scan:
             parts = []
@@ -662,11 +674,10 @@ def cpl_cmd(
     pot = _load_potential(potential)
     mhc_pot = _load_potential(mhc_potential) if mhc_potential else mj()
     frames = []
-    for _pid, s in iter_structures(structures, importer=parse_structure):
-        classify_chains(s, organism=organism)
-        # the peptide:MHC interface comes out EMPTY without this second pass, which would silently
-        # reduce every anchor cell to zero rather than failing
-        annotate_mhc(s)
+    # Batched; the MHC pass is not optional here -- the peptide:MHC interface comes out EMPTY
+    # without it, which would silently reduce every anchor cell to zero rather than failing.
+    for s in _typed_batch(structures, organism):
+        _pid = s.pdb_id
         cm = ContactMap.from_structure(s, cutoff=cutoff)
         rm = response_matrix(cm, peptide, tcr_potential=pot, mhc_potential=mhc_pot,
                              tcr_regions=regions)
