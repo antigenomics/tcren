@@ -43,6 +43,7 @@ import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass
+import math
 from pathlib import Path
 
 __all__ = [
@@ -450,7 +451,7 @@ def overlay_scene(ids, canon_dir, *, limit: int = 8, transparency: float = 0.55)
         A PyMOL scene body for :func:`render`.
     """
     ids = list(ids)[:limit]
-    loads = "\n".join(f'cmd.load(r"{Path(canon_dir) / f"{p}.pdb.gz"}", "{p}")' for p in ids)
+    loads = "\n".join(f'cmd.load(r"{_struct(canon_dir, p)}", "{p}")' for p in ids)
     body = f'{_STYLE}\ncmd.set("cartoon_transparency", {transparency})'
     return _scene(loads, body, VIEW_SIDE, 'cmd.zoom("all", buffer=6, complete=1)')
 
@@ -469,7 +470,7 @@ def groove_scene(pid, canon_dir, *, surface: bool = False) -> str:
     Returns:
         A PyMOL scene body for :func:`render`.
     """
-    loads = f'cmd.load(r"{Path(canon_dir) / f"{pid}.pdb.gz"}", "m")'
+    loads = f'cmd.load(r"{_struct(canon_dir, pid)}", "m")'
     body = "\n".join([
         'cmd.hide("everything")',
         'cmd.show("cartoon", "chain D+E")',
@@ -557,6 +558,18 @@ def residue_importance(structure, *, interface: str = "tcr_peptide", cutoff: flo
             .sort("phi"))
 
 
+
+def _struct(canon_dir, pid) -> Path:
+    """The structure file for ``pid``, gzipped or not.
+
+    The canonical directories hold ``.pdb.gz``; a deposited model set holds plain ``.pdb``. Both are
+    loaded rather than making a caller re-compress a file just to draw it. A missing file still
+    resolves to the ``.pdb.gz`` name, so PyMOL reports the path it actually looked for.
+    """
+    d = Path(canon_dir)
+    return next((q for q in (d / f"{pid}.pdb.gz", d / f"{pid}.pdb") if q.exists()),
+                d / f"{pid}.pdb.gz")
+
 def importance_scene(pid, canon_dir, importance, *, by: str = "phi",
                      regions=("CDR3", "PEPTIDE"), spectrum: str = "blue_white_red") -> str:
     """Colour the recognition interface by each residue's share of it.
@@ -597,10 +610,21 @@ def importance_scene(pid, canon_dir, importance, *, by: str = "phi",
               or (("PEPTIDE" in regions) and not r.get("region.type"))]
     if not wanted:
         wanted = rows
+    # A non-finite value is DROPPED, not drawn. `cmd.alter` takes a Python expression, so a bare
+    # nan reaches PyMOL as `b=nan` and raises NameError there -- and PyMOL's own error printer
+    # swallows the reason, so the caller sees an empty traceback. A residue can legitimately have
+    # no value (a leave-one-out mask that leaves a descriptor undefined), and the honest rendering
+    # of "not measured" is pale cartoon like every other unscored residue, never a colour.
+    wanted = [r for r in wanted if math.isfinite(float(r[by]))]
+    if not wanted:
+        raise ValueError(f"no residue has a finite {by!r} to colour by")
     values = [float(r[by]) for r in wanted]
-    # Only the energy share is signed, so only it gets a ramp centred on zero; a one-sided
-    # quantity (a contact count, a predicted engagement) is ramped over its own range.
-    if by == "phi":
+    # A signed quantity gets a ramp centred on zero, so blue and red read favourable against
+    # unfavourable rather than merely less against more; a one-sided quantity (a contact count,
+    # a predicted engagement) is ramped over its own range. Decided by the VALUES and not only
+    # by the column name: `phi` was the only signed column when this was written, and the
+    # leave-one-out delta of :func:`tcren.score.residue_deltas` is a second one.
+    if by == "phi" or min(values, default=0.0) < 0.0:
         lim = max(abs(min(values, default=0.0)), abs(max(values, default=0.0)), 1e-6)
         lo, hi = -lim, lim
     else:
@@ -611,7 +635,7 @@ def importance_scene(pid, canon_dir, importance, *, by: str = "phi",
         for r in wanted
     )
     sel = " or ".join(f'(chain {r["chain.id"]} and resi {r["residue.index"]})' for r in wanted)
-    loads = f'cmd.load(r"{Path(canon_dir) / f"{pid}.pdb.gz"}", "m")'
+    loads = f'cmd.load(r"{_struct(canon_dir, pid)}", "m")'
     body = "\n".join([
         'cmd.hide("everything")',
         'cmd.show("cartoon")',
@@ -676,7 +700,7 @@ def groove_importance_scene(pid, canon_dir, importance, *, by: str = "p_expected
         f'cmd.alter("chain {r["chain.id"]} and resi {r["residue.index"]}", "b={float(r[by]):.4f}")'
         for r in rows)
 
-    loads = f'cmd.load(r"{Path(canon_dir) / f"{pid}.pdb.gz"}", "m")'
+    loads = f'cmd.load(r"{_struct(canon_dir, pid)}", "m")'
     body = "\n".join([
         'cmd.hide("everything")',
         'cmd.show("cartoon", "chain D+E")',
@@ -714,7 +738,7 @@ def interface_scene(pid, canon_dir, cdr_resi) -> str:
     ra = "+".join(str(i) for i in cdr_resi.get("TRA", [])) or "0"
     rb = "+".join(str(i) for i in cdr_resi.get("TRB", [])) or "0"
     sel = f'(chain A and resi {ra}) or (chain B and resi {rb})'
-    loads = f'cmd.load(r"{Path(canon_dir) / f"{pid}.pdb.gz"}", "m")'
+    loads = f'cmd.load(r"{_struct(canon_dir, pid)}", "m")'
     body = "\n".join([
         'cmd.hide("everything")',
         'cmd.show("cartoon", "chain D+E")',
