@@ -316,6 +316,11 @@ def derive_potential(
              "still counts (requires --structure-dir)",
     ),
     loo: bool = typer.Option(False, "--loo", help="NOT USED FOR TCRen2. emit leave-one-out potentials instead"),
+    keep_withdrawn: bool = typer.Option(
+        False, "--keep-withdrawn",
+        help="keep PDB entries the RCSB has withdrawn. Off by default and only for auditing the "
+             "difference; see data/pdb_withdrawn.csv for what is dropped and why",
+    ),
 ) -> None:
     """Derive a TCRen potential from observed contacts.
 
@@ -360,6 +365,27 @@ def derive_potential(
         )
         if markup.height < before:
             typer.echo(f"alpha-beta TCR:pMHC only: {markup.height} of {before} structures kept")
+
+        # A withdrawn PDB entry is not a judgement call. Two kinds are dropped and they fail
+        # differently. A SUPERSEDED entry whose successor is also in the set puts one complex in
+        # twice, which is precisely what a set built to be non-redundant must not contain, and the
+        # redundancy weighting cannot see it because the two carry different ids. An entry
+        # withdrawn WITHOUT a successor was withdrawn for a reason, and for 4euq that reason is a
+        # TCR alpha chain modelled from the wrong gene at positions 93-98 -- the CDR3a region this
+        # potential reads. Neither is correctable, so both are removed and the list says why.
+        if not keep_withdrawn:
+            from importlib.resources import files as _files
+            wd = pl.read_csv(str(_files("tcren") / "data" / "pdb_withdrawn.csv"))
+            drop = set(wd["pdb.id"].str.to_lowercase())
+            present = markup.filter(pl.col("pdb.id").str.to_lowercase().is_in(drop))
+            if present.height:
+                before_w = markup.height
+                markup = markup.filter(~pl.col("pdb.id").str.to_lowercase().is_in(drop))
+                names = ", ".join(sorted(present["pdb.id"].str.to_lowercase().to_list()))
+                typer.echo(f"withdrawn PDB entries dropped: {before_w - markup.height} "
+                           f"({names}); {markup.height} structures kept. "
+                           f"--keep-withdrawn restores them")
+
         keep = set(markup["pdb.id"])
         include = sorted(keep) if include is None else [i for i in include if i in keep]
 
@@ -2043,13 +2069,6 @@ def potts_scan_cmd(
                f"{table['pdb.id'].n_unique()} structures)")
 
 
-# The __main__ guard belongs at the END of the module. It used to sit just after `main()`,
-# roughly two thirds up, so `python -m tcren.cli` ran the app before the `potts` subcommands
-# below were registered and reported "No such command 'potts'" -- while the `tcren` console
-# script, which imports the module first, saw all nine.
-if __name__ == "__main__":
-    main()
-
 @app.command(rich_help_panel=_P_SCORE)
 def explain(
     structures: Path = typer.Option(..., "-s", "--structures", help="ONE structure file (.pdb/.cif/.pdb.gz/.cif.gz)"),
@@ -2079,3 +2098,14 @@ def explain(
     d.write_csv(out, separator="\t")
     typer.echo(f"wrote {out}  ({d.height} residues, score={score}, "
                f"full={d['score.full'][0]:.4f})")
+
+# The __main__ guard belongs at the VERY END of the module, below the last @app.command.
+# It has been moved twice for the same reason. It first sat just after `main()`, two thirds up,
+# so `python -m tcren.cli` ran the app before the `potts` subcommands were registered and
+# reported "No such command 'potts'"; it was then moved down only as far as `potts`, and the
+# next command added below it, `explain`, was invisible to the module form in exactly the same
+# way. The console script imports the module first and so never sees either failure, which is
+# why this survives review. tests/unit/test_cli_entrypoints.py now asserts the two entry points
+# expose identical command sets, so a third recurrence fails the build instead of shipping.
+if __name__ == "__main__":
+    main()

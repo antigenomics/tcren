@@ -25,7 +25,7 @@
     },
     "tcren2": {
       "file": "TCRen2_potential.csv",
-      "description": "TCRen2: the default TCR:peptide potential. Redundancy-balanced derivation over the fully annotated alpha-beta TCR:pMHC crystals of Native2026 -- 362 of 374; derive-potential admits nothing else, by design -- each structure weighted by the mean of 1/(structures sharing its epitope) and 1/(structures sharing its CDR3a/CDR3b pair).",
+      "description": "TCRen2: the default TCR:peptide potential. Redundancy-balanced derivation over the fully annotated alpha-beta TCR:pMHC crystals of Native2026 that the RCSB still holds -- 359 of 374. derive-potential admits nothing else, by design: the alpha-beta restriction is unconditional, and entries the RCSB has withdrawn are dropped against data/pdb_withdrawn.csv, which names each one and its reason. Three are dropped here: 1jtr and 4zez are superseded by 1mwa and 5jzi, both already in the set, so keeping them counted one complex twice in a set built to be non-redundant; 4euq was withdrawn with no successor because its TCR alpha chain was modelled from the wrong gene at positions 93-98, the CDR3a region this potential reads. Each surviving structure is weighted by the mean of 1/(structures sharing its epitope) and 1/(structures sharing its CDR3a/CDR3b pair). Against the 362-structure derivation this replaces, the matrix agrees at r = 0.9996 over all 380 cells with a largest shift of 0.104 on a range of 2.95, so the correction is a provenance fix and not a change of instrument.",
       "source": "structure-dir",
       "structure_dir": "Native2026",
       "flags": [

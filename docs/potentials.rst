@@ -35,7 +35,8 @@ Shipped matrices
      - ``TCRen2_potential.csv``
      - 380
      - **TCRen2 — the default TCR:peptide potential since 2.11.0.** Redundancy-balanced
-       derivation over the **362 fully annotated αβ** ``Native2026`` crystals — the only
+       derivation over the **359 fully annotated αβ** ``Native2026`` crystals the RCSB still
+       holds — the only
        kind ``derive-potential`` accepts — weighting each structure on both the epitope and
        the receptor axis (``--balance both``). This is the matrix the TCRen2 manuscript
        reports.
@@ -68,8 +69,11 @@ Shipped matrices
 shared cells, with a maximum absolute difference of 0.943 on a TCRen2 range of
 2.95 (-1.25 to +1.70).
 They are not interchangeable, and a score computed under one cannot be compared with a
-score computed under the other. ``tcren2`` also changed at 2.11.0 (374 → 362 structures),
-so scores are not comparable across that boundary either.
+score computed under the other. ``tcren2`` also changed at 2.11.0 (374 → 362 structures) and
+again at 3.3.0 (362 → 359, when three withdrawn PDB entries were dropped), so scores are not
+strictly comparable across either boundary. The second change is small — the two matrices agree
+at *r* = 0.9996 over all 380 cells with a largest shift of 0.104 — but it is still a different
+matrix.
 
 Cysteine is dropped from the ``from`` axis as a data convention, which is why the TCRen
 matrices carry 380 cells (19 × 20) rather than 400.
@@ -94,12 +98,22 @@ Reproducing them
    $ tcren derive-potential \
        --structure-dir "$TCREN_DATA_DIR/Native2026" \
        --balance both \
-       --ab-only \
        -o TCRen2_potential.csv
 
-``--ab-only`` keeps the 362 complexes that carry both CDR3s and a peptide. Without it the 12
-single-chain, γδ and pMHC-only files are kept, and because ``--balance`` skips a structure with a
-null on any axis, each of those would enter at weight 1.0 — the maximum.
+That is the whole command, and it is the one the released matrix was derived with. There is no
+flag controlling the α:β restriction because it is unconditional: a structure missing either CDR3
+or the peptide is out of scope for this potential, and the command says so as it drops them. On
+``Native2026`` it keeps **362 of 374** — the 12 it drops are 3 pMHC-only, 8 single-chain and one
+γδ. It then drops the PDB entries the RCSB has withdrawn, listed with their reasons in
+``data/pdb_withdrawn.csv``, which removes three more and leaves **359**. Two of those three,
+``1jtr`` and ``4zez``, are superseded by ``1mwa`` and ``5jzi``, both already in the set, so keeping
+them counted one complex twice in a set built to be non-redundant, and the redundancy weighting
+cannot see it because the two carry different ids. The third, ``4euq``, has no successor: the RCSB
+records that its TCR α chain was modelled from the wrong gene at positions 93–98, which is the
+CDR3α region this potential reads. ``--keep-withdrawn`` restores all three, for auditing the
+difference and nothing else. Making it optional would be a trap rather than a convenience, because ``--balance`` skips a
+structure carrying a null on any weighting axis and the derivation then defaults it to weight 1.0,
+the maximum, so the least usable files would have counted for the most.
 
 The second command runs the whole pipeline — parse, annotate, contacts, derive — over all
 374 structures in roughly 20 seconds, so there is no reason to cache a derived matrix

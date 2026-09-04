@@ -1,0 +1,5 @@
+pdb.id,status,superseded_by,reason,checked
+1jtr,OBS,1mwa,"Superseded 2002-11-27. 2C/H-2Kbm3/dEV8. Its successor is already in Native2026, so keeping both counts one complex twice in a set built to be non-redundant.",2026-09-04
+4zez,OBS,5jzi,"Superseded 2017-05-31. HCV 1406 TCR/HLA-A2. Its successor is already in Native2026, so keeping both counts one complex twice in a set built to be non-redundant.",2026-09-04
+4euq,OBS,,"Withdrawn 2014-07-09 with no successor. RCSB records the reason: the TCR alpha chain was incorrectly modelled from the wrong gene at positions 93-98 in chains G and I. That is the CDR3a region, which is exactly what the TCR:peptide potential reads, so this entry cannot be corrected, only removed.",2026-09-04
+3nfj,OBS,3nfn,"Superseded 2011-07-13. A gamma-delta receptor, so the unconditional alpha-beta filter already excludes it; listed here for completeness of the audit.",2026-09-04

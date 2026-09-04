@@ -82,8 +82,25 @@ def test_the_hot_limit_is_the_distance_from_the_best_residue(cm, pot):
     got = smoothed_reference(cm, pot, side="peptide", beta=beta)
     n = got["n_positions"]
     want = _min_field(cm, pot, "peptide") - n * np.log(20.0) / beta
-    assert got["dPhi"] == pytest.approx(want, abs=1e-4)
-    assert got["varPhi"] == pytest.approx(0.0, abs=1e-6)      # the tilted weight is a point mass
+
+    # The residual is the runner-up term, and it is bounded rather than free: at each position the
+    # log-sum-exp sits at most log(1 + sum_{a != a*} exp(-beta * gap_a)) / beta above the minimum.
+    # Deriving the tolerance from the matrix's own gaps is what makes this a test of the identity
+    # instead of a test of one matrix's spacing. A hard-coded 1e-4 held only while the smallest gap
+    # stayed where it was, and it failed the moment the potential was re-derived on the corrected
+    # 359-structure set -- a defect in the assertion, not in the quantity.
+    phi, _ = _fields(cm, pot, "peptide")
+    gaps = phi - np.nanmin(phi, axis=1, keepdims=True)
+    tol = float(np.nansum(np.log1p(np.nansum(np.exp(-beta * gaps), axis=1) - 1.0)) / beta)
+    assert tol < 1e-2, f"runner-up term {tol:.2e} is too large for beta={beta} to be the hot limit"
+    assert got["dPhi"] == pytest.approx(want, abs=max(tol, 1e-9) * 1.5 + 1e-9)
+
+    # The curvature is not identically zero at finite beta either, and it is bounded by the same
+    # runner-up weight: with mass w on a residue a gap g above the best one, the variance it adds
+    # is at most w * g^2. Summing that bound over positions gives the tolerance below.
+    w = np.nansum(np.exp(-beta * gaps), axis=1) - 1.0
+    var_tol = float(np.nansum(w * np.nanmax(gaps, axis=1) ** 2))
+    assert got["varPhi"] == pytest.approx(0.0, abs=max(var_tol, 1e-9) * 1.5 + 1e-9)
 
 
 def test_the_two_chains_partition_the_receptor_direction(cm, pot):
