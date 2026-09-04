@@ -197,7 +197,6 @@ def contacts(
     organism: str = typer.Option("human", "--organism"),
 ) -> None:
     """Compute and emit an annotated contact table."""
-    from .mhc import annotate_mhc
     if regions not in TCR_REGIONS:
         raise typer.BadParameter("--regions must be one of all|cdr|cdr+fr")
     # An MHC-side interface selects nothing until annotate_mhc splits "MHC" into MHCa/MHCb, and
@@ -588,7 +587,6 @@ def ddg_cmd(
         )
     from .energetics.mutation import alanine_scan as run_scan, neoantigen_ddg, tcr_alanine_scan
 
-    from .mhc import annotate_mhc
 
     pot = _load_potential(potential)
     frames = []
@@ -668,7 +666,6 @@ def cpl_cmd(
     if mutation and to_mixture:
         raise typer.BadParameter("pass at most one of --mutation or --to-mixture")
     from .cpl import equimolar_effect, mutation_effect, position_scan, response_matrix
-    from .mhc import annotate_mhc
     from .potential import mj
 
     pot = _load_potential(potential)
