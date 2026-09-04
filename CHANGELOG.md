@@ -3,6 +3,38 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
+## [3.1.0] — 2026-09-04
+
+**Structure sets are annotated once, not once per structure.** Every CLI command that iterates a
+structure set was calling `classify_chains` and/or `annotate_mhc` inside the loop, each spawning an
+`mmseqs easy-search`; `scoring` did it *twice* per structure, because `pipeline.run` annotates and
+then calls `superimpose(annotate=True)`, which annotates again. A four-structure `scoring` run made
+**48 mmseqs subprocess calls and spent 91% of its wall time in `select.poll`**.
+
+Measured on the 374-structure Native2026 set, `tcren scoring` end to end:
+
+| | before | after |
+|---|--:|--:|
+| wall time | **1,032 s** | **145 s** |
+| output | — | identical, max abs difference **1.1e-16** (on `rmsd`; every Φ column exact) |
+
+Fixed:
+
+* `pipeline.run` passes `annotate=False` to `superimpose` — the structure it hands over is already
+  chain-typed and MHC-annotated.
+* `Structure.mhc_calls` caches the `MhcCall` list both annotation paths already compute, so
+  `typed=True` now means chain-typed **and** MHC-annotated and nothing downstream re-derives it.
+* `scoring` calls `annotate_mhc_batch` once over the whole input set.
+* New internal `_typed_batch()`: two mmseqs searches for a whole set, mmseqs threading internally.
+  `annotate`, `contacts`, `score`, `ddg`, `cpl`, `energy`, `refine` and the score-background path
+  all take it. No command types or MHC-annotates per structure any more.
+* `-t/--threads` on `scoring` no longer exists to hide annotation cost behind concurrent mmseqs
+  processes: it sets the thread count of the two batched searches and the worker count for the
+  contact maps and energy sums. The docstring said the opposite.
+
+No behavioural change and no API removal — this is a performance release. Output is byte-comparable
+to 3.0.1 within float noise.
+
 ## [3.0.0] — 2026-09-03
 
 **The score layer is rebuilt. One frozen object — a transform and a Gaussian per class over the
