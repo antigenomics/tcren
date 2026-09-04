@@ -726,8 +726,8 @@ def rank(
     cands = _read_candidates(candidates) if candidates is not None else None
     src = str(background_source) if background_source is not None else None
     rows = []
-    for _pid, s in iter_structures(structures, importer=parse_structure):
-        classify_chains(s, organism=organism)
+    for s in _typed_batch(structures, organism, mhc=False):   # batched typing, not one per PDB
+        _pid = s.pdb_id
         cm = ContactMap.from_structure(s, cutoff=cutoff)
         if cands is not None:
             peptides = cands
@@ -1134,12 +1134,13 @@ def energy(
     single-structure scorer behind the ΔΔG benchmark (``e_native``/``e_relax``).
     """
     from .refine import interface_energy, refine_peptide
-    from .structure.io import import_structure
 
     rows = []
-    for pid, s in iter_structures(structures, importer=import_structure):
+    # Batched typing: `classify_chains` here spawned one mmseqs per structure. No MHC pass is
+    # needed -- the DOPE kernel reads the peptide and its partner atoms, not the groove split.
+    for s in _typed_batch(structures, organism, mhc=False):
+        pid = s.pdb_id
         try:
-            classify_chains(s, organism=organism)
             row = {"pdb.id": pid, "e_native": interface_energy(s, shell=shell)}
             if relax:
                 row["e_relax"] = interface_energy(refine_peptide(s, seed=seed)[0], shell=shell)
@@ -1275,13 +1276,13 @@ def refine(
     """
     from .refine import refine_peptide, substitute_peptide
     from .energetics.rotamers import repack as repack_sidechains
-    from .structure.io import import_structure, structure_output_path, write_structure
+    from .structure.io import structure_output_path, write_structure
 
     out.mkdir(parents=True, exist_ok=True)
     rows = []
-    for pid, s in iter_structures(structures, importer=import_structure):
+    for s in _typed_batch(structures, organism, mhc=False):   # batched typing, not one per PDB
+        pid = s.pdb_id
         try:
-            classify_chains(s, organism=organism)
             if substitute:
                 s = substitute_peptide(s, substitute)
             oriented, energy = refine_peptide(s, restraint_w=restraint_w, n_steps=n_steps, seed=seed)
