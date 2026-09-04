@@ -29,6 +29,10 @@ PAPER_DIR = _REPO / "notebooks" / "natcompsci2022"
 DATA_DIR = _REPO / "notebooks" / "data"
 
 HF_REPO = "isalgo/tcren_structures"
+# The derived-table deposit: the outputs of the corpus-scale featurisations that cannot fit
+# inside the manuscript's 30-minute reproduction budget. Every file there carries the verbatim
+# command, the released version and the descriptor-catalogue digest that produced it.
+HF_TABLES_REPO = "isalgo/tcren2_reproduce"
 # Native2022 = original 2022 paper PDB set (oracle); Native2026 = the comprehensive 2026
 # TCR:pMHC set the new TCRen is derived from; Canonical2026 = Native2026 after canonical
 # re-orientation (tcren orient). All structures on the Hub are gzipped (*.pdb.gz / *.cif.gz).
@@ -69,15 +73,63 @@ def _gzip_copy(src: Path, dest: Path) -> None:
         shutil.copyfileobj(fi, fo)
 
 
-def _hf_files(folder: str, timeout: float) -> list[str]:
-    resp = requests.get(_HF_TREE.format(repo=HF_REPO, folder=folder), timeout=timeout)
-    resp.raise_for_status()
-    return [e["path"] for e in resp.json() if e.get("type") == "file"]
+def _hf_tree(folder: str, timeout: float, repo: str = HF_REPO) -> list[dict]:
+    """Every entry under ``folder``, following the API's cursor to the end.
+
+    The tree endpoint pages at 1000 entries and hands the next cursor back in the ``Link`` header.
+    Reading only the first page is a silent truncation, which is the worst kind: a folder of 3,212
+    files reports 1000, the caller downloads 1000, and nothing errors. Native2026 reported 346 of
+    374 through this path before the cursor was followed.
+    """
+    url = _HF_TREE.format(repo=repo, folder=folder)
+    entries: list[dict] = []
+    while url:
+        resp = requests.get(url, timeout=timeout)
+        resp.raise_for_status()
+        entries.extend(e for e in resp.json() if isinstance(e, dict))
+        link = resp.headers.get("link") or resp.headers.get("Link") or ""
+        nxt = ""
+        for part in link.split(","):
+            if 'rel="next"' in part and "<" in part and ">" in part:
+                nxt = part[part.index("<") + 1:part.index(">")]
+                break
+        url = nxt
+    return entries
 
 
-def _download_with_requests(path: str, dest: Path, timeout: float, retries: int = 5) -> None:
+def _hf_files(folder: str, timeout: float, repo: str = HF_REPO) -> list[str]:
+    return [e["path"] for e in _hf_tree(folder, timeout, repo) if e.get("type") == "file"]
+
+
+def hf_listing(repo: str = HF_REPO, timeout: float = 60.0) -> dict[str, dict]:
+    """Every top-level folder in the dataset repository, with its file count and size.
+
+    HF_FOLDERS is a constant naming five of the seventeen sets that exist, which is why every
+    other set has been fetched by ad-hoc curl in a SOURCES file rather than by this package.
+    Hard rule 2 of the manuscript manifest says the data is bootstrapped from HuggingFace, and a
+    command cannot honour that while it can only name a third of the deposit. Discovering the
+    listing rather than hard-coding it means a set added to the Hub is fetchable the same day.
+
+    ``_HF_TREE`` already carries ``?recursive=true``, and ``_hf_tree`` follows the cursor to the
+    end, so the folders are the first path segment of every file in the repository.
+    """
+    folders: dict[str, dict] = {}
+    for e in _hf_tree("", timeout, repo):
+        if e.get("type") != "file":
+            continue
+        parts = e.get("path", "").split("/")
+        if len(parts) < 2:
+            continue                      # a file at the repository root belongs to no set
+        meta = folders.setdefault(parts[0], {"files": 0, "bytes": 0})
+        meta["files"] += 1
+        meta["bytes"] += int(e.get("size") or 0)
+    return folders
+
+
+def _download_with_requests(path: str, dest: Path, timeout: float, retries: int = 5,
+                            repo: str = HF_REPO) -> None:
     """Robust single-file download (handles transient SSL/CDN drops with backoff)."""
-    url = _HF_RESOLVE.format(repo=HF_REPO, path=path)
+    url = _HF_RESOLVE.format(repo=repo, path=path)
     for attempt in range(retries):
         try:
             with requests.get(url, stream=True, timeout=timeout) as r:
@@ -108,8 +160,12 @@ def fetch_hf_structures(
     out.mkdir(parents=True, exist_ok=True)
 
     def _present(folder: str) -> bool:
+        # "Present" cannot mean "holds a loose .pdb": of the seventeen sets on the Hub, several
+        # ship a single .tar.gz (cpl, atlas_ala, immrep23_negatives, the three vdjdb deposits) and
+        # one ships a table (pdb_catalogue). Requiring a structure file made every one of those
+        # re-download on every run.
         d = out / folder
-        return d.is_dir() and any(p.is_file() and is_structure_file(p) for p in d.glob("*"))
+        return d.is_dir() and any(p.is_file() and not p.name.startswith(".") for p in d.glob("*"))
 
     # Skip-if-present: only hit the network for folders that are missing locally. (Otherwise
     # snapshot_download HEADs every one of ~800 files each run — the dominant bootstrap cost.)
@@ -130,10 +186,40 @@ def fetch_hf_structures(
                         continue
                     dest.parent.mkdir(parents=True, exist_ok=True)
                     _download_with_requests(path, dest, timeout)
-    return {
-        f: sum(1 for p in (out / f).glob("*") if p.is_file() and is_structure_file(p))
-        for f in folders if (out / f).is_dir()
-    }
+    def _count(folder: str) -> int:
+        d = out / folder
+        n = sum(1 for p in d.rglob("*") if p.is_file() and is_structure_file(p))
+        return n or sum(1 for p in d.glob("*") if p.is_file() and not p.name.startswith("."))
+
+    return {f: _count(f) for f in folders if (out / f).is_dir()}
+
+
+def fetch_hf_tables(data_dir: Path, force: bool = False, timeout: float = 300.0) -> int:
+    """Fetch the derived-table deposit into ``<data_dir>/tables/``.
+
+    These are the outputs of the featurisations that cannot fit inside the manuscript's
+    reproduction budget -- the corpus pass alone runs for over two hours across more than twenty
+    thousand structures. Publishing them with the command that made each one is what keeps the
+    budget honest: the reproduction fetches them and then re-runs the command live on a small
+    deterministic slice, asserting the two agree, so what is fetched is precomputed rather than
+    unreproducible.
+    """
+    out = data_dir / "tables"
+    if out.is_dir() and any(out.iterdir()) and not force:
+        return sum(1 for p in out.rglob("*") if p.is_file())
+    out.mkdir(parents=True, exist_ok=True)
+    try:
+        from huggingface_hub import snapshot_download  # noqa: PLC0415
+
+        snapshot_download(repo_id=HF_TABLES_REPO, repo_type="dataset", local_dir=str(out))
+    except ImportError:
+        for path in _hf_files("", timeout, repo=HF_TABLES_REPO):
+            dest = out / path
+            if dest.exists() and not force:
+                continue
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            _download_with_requests(path, dest, timeout, repo=HF_TABLES_REPO)
+    return sum(1 for p in out.rglob("*") if p.is_file())
 
 
 def fetch_vdjdb(data_dir: Path, date: str = VDJDB_DATE, timeout: float = 300.0) -> Path:

@@ -415,20 +415,76 @@ def derive_potential(
 @app.command("fetch-data", rich_help_panel=_P_DATA)
 def fetch_data(
     canonical: bool = typer.Option(True, "--canonical/--no-canonical", help="also fetch Canonical2026"),
+    sets: str = typer.Option(
+        "", "--sets",
+        help="comma-separated set names, or 'all'. Default: Native2026 (+ Canonical2026). "
+             "Use --list to see what exists",
+    ),
+    list_only: bool = typer.Option(False, "--list", help="list every set on the Hub and exit"),
+    tables: bool = typer.Option(
+        False, "--tables",
+        help="also fetch the derived-table deposit: the outputs of the corpus-scale featurisations "
+             "that do not fit in the reproduction budget",
+    ),
+    dest: Path = typer.Option(None, "--dest", help="where to put it (default: $TCREN_DATA_DIR)"),
+    force: bool = typer.Option(False, "--force", help="re-fetch sets already present"),
 ) -> None:
     """Populate ``data/`` with the reference structure sets from the HF dataset.
 
-    Run once at install (``setup.sh`` does this). Fetches ``Native2026`` (orientation
-    references) and, by default, ``Canonical2026`` (the default ``superimpose`` database) into
-    ``$TCREN_DATA_DIR`` / repo ``data/``. Skips folders already present.
+    Run once at install (``setup.sh`` does this). With no options it fetches ``Native2026`` (the
+    orientation references) and ``Canonical2026`` (the default ``superimpose`` database) into
+    ``$TCREN_DATA_DIR``, skipping what is already there.
+
+    ``--sets`` reaches the rest of the deposit. The listing is read from the Hub rather than
+    hard-coded, so a set added there is fetchable at once::
+
+        tcren fetch-data --list
+        tcren fetch-data --sets all
+        tcren fetch-data --sets cpl,tcrvdb,garcia_b27
+
+    ``--tables`` adds the derived-table deposit. Those files are the outputs of featurisations
+    that take hours over tens of thousands of structures, and each carries the verbatim command,
+    the released version and the descriptor-catalogue digest that produced it, so fetching them is
+    a shortcut through work that is published rather than a substitute for it.
     """
-    from .paper.bootstrap import fetch_hf_structures
+    import importlib
+
+    bootstrap = importlib.import_module(".paper.bootstrap", __package__)
     from .paths import data_dir
 
-    folders = ("Native2026",) + (("Canonical2026",) if canonical else ())
-    summary = fetch_hf_structures(data_dir(), folders=folders)
+    out = dest or data_dir()
+
+    if list_only:
+        listing = bootstrap.hf_listing()
+        width = max(len(k) for k in listing) if listing else 10
+        typer.echo(f"{bootstrap.HF_REPO}:")
+        for name, meta in sorted(listing.items()):
+            typer.echo(f"  {name:<{width}}  {meta['files']:>5} files  "
+                       f"{meta['bytes'] / 1e6:>8.1f} MB")
+        typer.echo(f"\nfetch with: tcren fetch-data --sets {','.join(sorted(listing)[:3])}  "
+                   f"(or --sets all)")
+        return
+
+    if sets.strip().lower() == "all":
+        folders = tuple(sorted(bootstrap.hf_listing()))
+    elif sets.strip():
+        folders = tuple(x.strip() for x in sets.split(",") if x.strip())
+        known = set(bootstrap.hf_listing())
+        unknown = [f for f in folders if f not in known]
+        if unknown:
+            raise typer.BadParameter(
+                f"no such set on {bootstrap.HF_REPO}: {', '.join(unknown)}. "
+                f"Run `tcren fetch-data --list` to see what exists")
+    else:
+        folders = ("Native2026",) + (("Canonical2026",) if canonical else ())
+
+    summary = bootstrap.fetch_hf_structures(out, folders=folders, force=force)
     for k, v in summary.items():
-        typer.echo(f"{k}: {v} structures")
+        typer.echo(f"{k}: {v} files")
+
+    if tables:
+        n = bootstrap.fetch_hf_tables(out, force=force)
+        typer.echo(f"derived tables: {n} files from {bootstrap.HF_TABLES_REPO}")
 
 
 @app.command("build-mhc-ref", rich_help_panel=_P_DATA)
@@ -1596,6 +1652,17 @@ def features(
     threads: int = typer.Option(1, "-t", "--threads", help="worker processes for featurisation (0 = all cores); annotation is always one batched call"),
     autodetect_species: bool = typer.Option(True, "--autodetect-species/--no-autodetect-species", help="also search mouse to catch a mis-declared organism; --no- halves the annotation cost"),
     metadata: bool = typer.Option(True, "--metadata/--no-metadata", help="join the set's metadata.tsv (label, epitope, allele, ipTM/pLDDT) when one ships beside the structures"),
+    chunk: int = typer.Option(
+        0, "--chunk",
+        help="featurise this many structures at a time, writing one part file each. 0 (default) "
+             "holds the whole set in memory, which is fine to a few thousand structures and is "
+             "not fine at twenty thousand",
+    ),
+    resume: bool = typer.Option(
+        False, "--resume",
+        help="with --chunk, keep part files and skip the ones already written; a run that dies "
+             "half way then costs one chunk rather than the whole set",
+    ),
 ) -> None:
     """Raw per-structure descriptors, one row per structure, in six feature families.
 
@@ -1651,11 +1718,51 @@ def features(
     except ValueError as exc:
         raise typer.BadParameter(f"--radii must be comma-separated numbers, got {radii!r}") from exc
 
-    items = list(iter_structures(structures, importer=import_structure))
-    rows = recognition_table(items, organism=organism, include=fams, radii=rr,
-                             autodetect_species=autodetect_species,
-                             threads=threads if threads > 0 else (_os.cpu_count() or 1))
-    table = pl.DataFrame(rows)
+    n_threads = threads if threads > 0 else (_os.cpu_count() or 1)
+
+    def _featurise(batch: list) -> pl.DataFrame:
+        return pl.DataFrame(recognition_table(
+            batch, organism=organism, include=fams, radii=rr,
+            autodetect_species=autodetect_species, threads=n_threads))
+
+    if chunk > 0:
+        # Chunking exists for memory, not for speed. A parsed complex is about a megabyte, so a
+        # twenty-thousand-structure corpus projects past ten gigabytes if the whole set is held at
+        # once. Annotation is still ONE batched call per chunk -- never one per structure -- which
+        # is the property that must not be traded away for smaller chunks.
+        parts: list[pl.DataFrame] = []
+        batch, index = [], 0
+        part_dir = out.parent / f"{out.stem}.parts"
+        part_dir.mkdir(parents=True, exist_ok=True)
+
+        def _flush(batch: list, index: int) -> None:
+            part = part_dir / f"{index:04d}.tsv"
+            if resume and part.exists():
+                parts.append(pl.read_csv(part, separator="\t", infer_schema_length=None))
+                typer.echo(f"  chunk {index}: {parts[-1].height} rows, resumed")
+                return
+            df = _featurise(batch)
+            df.write_csv(str(part), separator="\t")
+            parts.append(df)
+            typer.echo(f"  chunk {index}: {df.height} structures -> {part.name}")
+
+        for item in iter_structures(structures, importer=import_structure):
+            batch.append(item)
+            if len(batch) >= chunk:
+                _flush(batch, index)
+                batch, index = [], index + 1
+        if batch:
+            _flush(batch, index)
+        if not parts:
+            raise typer.BadParameter(f"no structures found in {structures!r}")
+        table = pl.concat(parts, how="diagonal_relaxed")
+        if not resume:
+            for f in sorted(part_dir.glob("*.tsv")):
+                f.unlink()
+            part_dir.rmdir()
+    else:
+        items = list(iter_structures(structures, importer=import_structure))
+        table = _featurise(items)
     n_meta = 0
     if metadata:                      # the set's own labels and generator confidences, if it ships them
         from .metadata import join_metadata, read_metadata
@@ -1674,7 +1781,8 @@ def features(
     from .provenance import stamp
     stamp(out, command=f"tcren features -s {structures} -i {','.join(fams)} -o {out}",
           columns=table.columns,
-          extra={"structures": table.height, "families": list(fams), "radii": list(rr)})
+          extra={"structures": table.height, "families": list(fams), "radii": list(rr),
+                 "chunk": chunk or None})
     n_err = int(table["error"].is_not_null().sum()) if "error" in table.columns else 0
     typer.echo(f"features [{','.join(fams)}]: {table.height} structures, "
                f"{len(table.columns) - 1 - n_meta} descriptors -> {out}"
@@ -1860,6 +1968,40 @@ def _potts_pairs(structures: Path, partner: str, *, radius: float, cutoff: float
                f"; {df.height} available pairs, {int(df['sigma'].sum())} contacts at "
                f"{cutoff:.0f} A")
     return df, pl.DataFrame(markup)
+
+
+@potts_app.command("pairs")
+def potts_pairs_cmd(
+    structures: Path = typer.Option(..., "-s", "--structures", help="structure file, folder or glob"),
+    out: Path = typer.Option("potts_pairs.tsv", "-o", "--out", help="output pair table"),
+    partner: str = typer.Option("peptide", "--partner", help="peptide|mhc|both"),
+    receptor: str = typer.Option("tcr", "--receptor", help="tcr|mhc"),
+    radius: float = typer.Option(15.0, "--radius", help="availability radius, A (Calpha-Calpha)"),
+    cutoff: float = typer.Option(5.0, "--cutoff", help="contact definition, A (closest heavy atom)"),
+    organism: str = typer.Option("human", "--organism"),
+) -> None:
+    """The residue pairs available to the coupled model, one row per pair per structure.
+
+    This is the first and most expensive stage of ``potts fit``: it parses and annotates the whole
+    set, builds each contact map and enumerates the pairs within the availability radius. Fitting,
+    scoring and every downstream read-out consume that table and nothing else, so emitting it once
+    and reusing it turns a repeated corpus pass into a single one.
+
+    It was already the shape the work took --- two benchmark modules import the private helper
+    behind this command directly --- and a private import is not a supported interface. Publishing
+    the table makes the availability caches reproducible from a released command instead of from a
+    checkout, which is what lets them be deposited alongside the other derived tables.
+    """
+    from .provenance import stamp
+
+    pairs, _ = _potts_pairs(structures, partner, radius=radius, cutoff=cutoff,
+                            receptor=receptor, organism=organism)
+    pairs.write_csv(out, separator="\t")
+    n_struct = pairs["pdb.id"].n_unique() if "pdb.id" in pairs.columns else 0
+    typer.echo(f"wrote {out} ({pairs.height} pairs over {n_struct} structures, "
+               f"receptor={receptor}, partner={partner}, radius={radius} A)")
+    stamp(out, command="potts pairs", extra={"partner": partner, "receptor": receptor,
+                                             "radius": radius, "cutoff": cutoff})
 
 
 @potts_app.command("fit")
