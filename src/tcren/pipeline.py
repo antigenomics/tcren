@@ -172,15 +172,23 @@ def run(
     if contact_weight not in ("residue", "atomic"):
         raise ValueError(f"contact_weight must be 'residue' or 'atomic', got {contact_weight!r}")
     s = structure if isinstance(structure, Structure) else import_structure(structure)
+    # `typed` means chain-typed AND MHC-annotated already, by the batched path
+    # (`tcren.annotation.batch.iter_typed` + `tcren.mhc.annotate_mhc_batch`). Both spawn mmseqs,
+    # so repeating either here is one process per structure -- see CLAUDE.md 0-mmseqs.
     if not typed:
         classify_chains(s, organism=organism)
-    calls = annotate_mhc(s)
+    calls = getattr(s, "mhc_calls", None) if typed else None
+    if calls is None:
+        calls = annotate_mhc(s)
 
     oriented = rmsd = None
     if superimpose:
         from .docking import superimpose as _superimpose
 
-        oriented, info = _superimpose(s, db_dir=db_dir, organism=organism)
+        # annotate=False: `s` is chain-typed and MHC-annotated above. Leaving it True made
+        # superimpose run classify_chains AND annotate_mhc a SECOND time per structure -- two more
+        # mmseqs processes each, and 8.0 s of the 10.1 s a four-structure run spent.
+        oriented, info = _superimpose(s, db_dir=db_dir, organism=organism, annotate=False)
         rmsd = info.rmsd
 
     cm = ContactMap.from_structure(

@@ -87,6 +87,7 @@ def annotate_mhc(structure: Structure) -> list[MhcCall]:
     calls = map_mhc(structure)
     apply_mhc_calls(structure, calls)
     partition_mhc(structure, calls)
+    structure.mhc_calls = calls
     return calls
 
 
@@ -125,3 +126,6 @@ def annotate_mhc_batch(structures: list[Structure], sensitivity: float = 5.7,
         calls = calls_from_hits(_candidate_chains(s), best, key=lambda c, i=i: f"{i}|{c.chain_id}")
         apply_mhc_calls(s, calls)
         partition_mhc(s, calls)
+        # Keep them. `pipeline.run(typed=True)` needs the call list and used to get it by calling
+        # `annotate_mhc` again -- one more mmseqs search per structure, undoing this whole batch.
+        s.mhc_calls = calls

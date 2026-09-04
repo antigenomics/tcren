@@ -126,6 +126,9 @@ class Structure:
     chains: list[Chain]
     complex_species: str | None = None
     cell_type: str | None = None  # "ab" | "gd" | "unknown" (from the TCR constant region)
+    #: MhcCall list, cached by annotate_mhc / annotate_mhc_batch so the batched path does not have
+    #: to be repeated per structure downstream (CLAUDE.md 0-mmseqs). None until annotated.
+    mhc_calls: list | None = None
 
     def chain(self, chain_id: str) -> Chain:
         """Return the chain with the given id (raises ``KeyError`` if absent)."""

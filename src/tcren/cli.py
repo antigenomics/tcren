@@ -1003,9 +1003,10 @@ def scoring(
         tcren scoring -s models.txt --delta                    # one path per line
         tcren scoring -s models.tar.gz --regions cdr           # CDR contacts only
 
-    Scoring a cohort is embarrassingly parallel and dominated by the per-structure mmseqs
-    annotation, so ``-t`` is worth setting for anything above a handful of structures
-    (``-t 0`` uses every core).
+    Chain typing and MHC annotation are done ONCE for the whole input set, in one mmseqs search
+    each, with mmseqs threading internally -- never per structure and never inside a worker pool.
+    ``-t`` sets the mmseqs thread count for those two searches and the worker count for what is
+    left, which is contact-map construction and the energy sums in numpy (``-t 0`` uses every core).
     """
     from .pipeline import run as run_pipeline, score_row
     from .structure.io import resolve_sources
@@ -1030,6 +1031,14 @@ def scoring(
     # told not to repeat it -- threads only ever hid that cost behind more concurrent mmseqs
     # processes, each of which defaults to every core.
     structs = [s for src in resolve_sources(structures) for s in _iter_typed(src, organism)]
+    # ... and MHC annotation the same way: ONE mmseqs search over every candidate MHC chain of
+    # every structure, mmseqs threading internally. Without this `pipeline.run` called
+    # `annotate_mhc` per structure and `superimpose` re-ran BOTH annotations again, so a
+    # four-structure run made 48 mmseqs calls and spent 91% of its time in subprocess.poll.
+    if structs:
+        import os as _os
+        from .mhc import annotate_mhc_batch
+        annotate_mhc_batch(structs, threads=(threads if threads > 0 else (_os.cpu_count() or 1)))
 
     rows, failed, first_error = [], 0, None
     def one(s):
