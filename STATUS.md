@@ -1,8 +1,11 @@
 # tcren — project status & TODO
 
 Status of the Python re-implementation of TCRen (`src/tcren/`). The legacy R/Java pipeline
-is preserved (tag `legacy-r-1.0`) and serves as the numerical oracle. Current release: **v3.0.0**, published to PyPI on 2026-09-02 as 12 wheels
-(cp310-cp313 x macOS arm64 / manylinux x86_64 / win_amd64) plus the sdist.
+is preserved (tag `legacy-r-1.0`) and serves as the numerical oracle. This tree is **v3.3.0**,
+tagged locally on 2026-09-05 and **not published**. The newest release on PyPI is **v3.0.1**,
+uploaded 2026-09-02 as 12 wheels (cp310-cp313 x macOS arm64 / manylinux x86_64 / win_amd64) plus
+the sdist. Three releases therefore exist in the checkout only: 3.1.0 (batched annotation), 3.2.0
+(`tcren explain`) and 3.3.0 (the TCRen2 matrix re-derived on 359 crystals).
 
 The recommended read-out is the **score set** (`tcren.score`), and it is two commands:
 
@@ -77,7 +80,7 @@ for achieved accuracy, and `docs/` (`assess.rst`, `features.rst`, `kit.rst`) for
 | **Native DB** | `recent.py`, `docking/align.py`, `potential/derive.py` | RCSB fetch/discover (`tcren fetch-recent`), align-to-canonical, potential re-derivation. The `native/` package that once held all three is gone |
 | **2D maps** | `project2d/`, `viz/` | groove-plane projection, canonical tables, metadata-rich SVG, py3Dmol pocket+CDR |
 | **Analysis** | `analysis.py` | potential heatmaps/compare, contact distributions (per-structure/region/position) |
-| **CLI** | `cli.py` | `annotate`, `assess`, `build-mhc-ref`, `contacts`, `cpl`, `ddg`, `derive-potential`, `energy`, `features`, `fetch-data`, `fetch-recent`, `fit-holdout`, `info`, `mechanics`, `orient`, `rank`, `recognize`, `refine`, `score`, `scoring`, `shuffle`, `substitute-tcr`, `superimpose`, `surface`, plus a `potts` sub-app. `footprint` and `pipeline` are hidden; `binder` and `diagnose` were removed in 2.26.0 and 2.28.0 |
+| **CLI** | `cli.py` | `annotate`, `assess`, `build-mhc-ref`, `contacts`, `cpl`, `ddg`, `derive-potential`, `energy`, `explain`, `features`, `fetch-data`, `fetch-recent`, `fit-holdout`, `info`, `mechanics`, `orient`, `rank`, `recognize`, `refine`, `score`, `scoring`, `shuffle`, `substitute-tcr`, `superimpose`, `surface`, plus the `potts` and `paper` sub-apps — 27 in all, and `tests/unit/test_cli_entrypoints.py` asserts `python -m tcren.cli` and the console script expose the same 27. `footprint` and `pipeline` are hidden; `binder` and `diagnose` were removed in 2.26.0 and 2.28.0 |
 | **Docs** | `docs/` | Sphinx + 11 tutorial notebooks (`notebooks/`, all in the `docs/index.rst` toctree); zero-warning build |
 
 ## Shipped in v2.9.0

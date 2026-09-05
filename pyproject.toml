@@ -4,7 +4,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "tcren"
-version = "3.2.0"
+version = "3.3.0"
 description = "Structure-based prediction of TCR recognition of epitopes via residue-level statistical potentials"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -42,7 +42,7 @@ viz = ["matplotlib>=3.8", "py3Dmol>=2.0", "pillow>=10"]
 # The marimo render explorer (notebooks/pymol_interactive.py). PyMOL itself is not a Python
 # dependency -- it is a separate binary the module shells out to, so it cannot be pinned here.
 marimo = ["marimo>=0.16", "matplotlib>=3.8", "py3Dmol>=2.0", "pillow>=10"]
-docs = ["sphinx", "pydata-sphinx-theme", "nbsphinx"]
+docs = ["sphinx", "pydata-sphinx-theme", "nbsphinx", "myst-parser"]
 test = ["pytest", "pytest-cov"]
 # ruff is pinned to a minor series: its default rule set grows between releases, so an unpinned
 # linter turns a green gate red on its own schedule rather than on a regression. Raise it

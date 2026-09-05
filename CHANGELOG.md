@@ -3,6 +3,126 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
+## [3.3.0] — 2026-09-05
+
+**The shipped TCRen2 matrix is re-derived on the 359 `Native2026` crystals the RCSB still holds**,
+`python -m tcren.cli explain` reaches a command that the module entry point could not see, and
+`fetch-data` reaches the whole HuggingFace deposit rather than five named folders of it.
+
+### Changed
+- **The default TCR:peptide potential is derived on 359 of the 374 `Native2026` structures, where
+  every release from 2.11.0 through 3.2.0 shipped a matrix derived on 362.** Two filters now run rather than one: the
+  alpha-beta restriction drops 12 files (3 pMHC-only, 8 single-chain, 1 gamma-delta), and the
+  withdrawn-entry rule drops 3 more against the new bundled `data/pdb_withdrawn.csv`. `1jtr` and
+  `4zez` are superseded by `1mwa` and `5jzi`, both already in the set, so one complex was entering
+  twice in a set built to be non-redundant and the redundancy weighting could not see it because the
+  two carry different PDB ids. `4euq` was withdrawn with no successor: the RCSB records that its TCR
+  alpha chain was modelled from the wrong gene at positions 93-98, which is the CDR3alpha region this
+  potential reads.
+
+  **This is a provenance correction, not a change of instrument.** Against the 362-structure matrix
+  it replaces, the new matrix agrees at Pearson *r* = 0.9996 over all 380 cells (19 x 20, cysteine
+  dropped from the `from` axis), with a largest absolute shift of 0.104 on a TCRen2 range of 2.95
+  (-1.25 to +1.70) and exactly one cell moving by more than 0.10. Scores computed under the two are
+  still not strictly comparable; `data/potentials.json` records the new recipe and
+  `tests/regression/test_shipped_potentials.py` reproduces the file from it.
+
+### Added
+- **`potential.withdrawn_entries()` and `potential.withdrawn_ids()`** — the bundled withdrawn-entry
+  table (4 rows) and the set of its PDB ids, lowercased. The rule lived inline in the
+  `derive-potential` CLI body, so nothing outside the CLI could apply it: the benchmark's
+  epitope-weighted evaluation ran on 370 structures while the matrix it evaluates was derived on 359,
+  and no gate could see the gap. `--keep-withdrawn` restores all 4 for auditing that difference;
+  3 of the 4 change the derivation set, the fourth (`3nfj`) being a gamma-delta receptor the
+  unconditional alpha-beta filter already excludes.
+- **`derive-potential --contacts-out`** — write the contact table the matrix was derived from,
+  **after** every filter. It reports 7,816 TCR:peptide contacts over 358 structures, one fewer than
+  the 359 the derivation keeps, because one kept structure makes no TCR:peptide contact at all. A
+  downstream analysis that wants to count the structures or contacts behind the shipped matrix had to
+  assemble its own table, and that table held 370 structures.
+- **`fetch-data` reaches the whole deposit.** `HF_FOLDERS` was a constant naming 5 sets against the
+  14 the Hub lists today, so every other set was fetched by ad-hoc `curl`. The listing is now read from the Hub:
+  `--list` shows what exists, `--sets` takes names or `all`, `--tables` adds the derived-table
+  deposit, and a set added to the deposit is fetchable the same day.
+- **`features --chunk N --resume`** — chunked featurisation with resumable parts, replacing three
+  hand-rolled chunk-split-concatenate loops in the benchmark repository. Chunking is for memory, not
+  speed: a parsed complex is about 1 MB, so a 20,000-structure corpus does not fit in one pass. The
+  property that must not be traded away is the batched annotation — one arda call and one MHC search
+  per chunk, never one per structure — so `tests/unit/test_features_chunking.py` asserts the chunked
+  table equals the whole-set table exactly, that `--resume` reuses its parts, and that a run without
+  `--resume` leaves none behind.
+- **`potts pairs`** — the availability enumeration promoted from a private helper to documented
+  surface. Two benchmark modules already imported the private form, and a private import is not an
+  interface. It is also the first and most expensive stage of `potts fit`, so emitting it once and
+  reusing it turns a repeated corpus pass into a single one; it stamps provenance like every other
+  emitter.
+
+### Fixed
+- **`python -m tcren.cli explain` reported "No such command".** The `if __name__ == "__main__":`
+  guard sat above the `explain` registration, so the module form ran the app before that command was
+  registered while the console script, which imports the module first, saw it. **This was the second
+  occurrence** — the comment above the guard already documented the identical failure for `potts`,
+  and that fix moved the guard only as far as `potts` rather than to the end of the file, so the next
+  command added below it inherited the bug. The guard is now the last statement in the module, and
+  `tests/unit/test_cli_entrypoints.py` asserts the two entry points expose identical command sets
+  (27 today), so a third recurrence fails the build. That test resolves the console script beside
+  `sys.executable` rather than by `shutil.which("tcren")`, which had resolved to a stale `uv tool`
+  install several versions behind the checkout and read as a difference between entry points when it
+  was a difference between builds.
+- **The HuggingFace tree endpoint pages at 1,000 entries** and hands the next cursor back in a `Link`
+  header; `_hf_files` read the first page only. `Native2026` reported 346 files of 374 through that
+  path, and a folder of 3,212 would have reported 1,000, downloaded 1,000 and raised nothing.
+  `_hf_tree` now follows the cursor to the end. The skip-if-present check had a matching defect: it
+  required a loose `.pdb`, so the 6 sets that ship a `.tar.gz` rather than loose structures — `cpl`,
+  `as_case`, `atlas_ala`, `immrep23_negatives` and the two vdjdb benchmarks — were re-downloaded on
+  every run.
+- **`viz.pymol.importance_scene` crashed on a non-finite value** — it was formatted straight into
+  `cmd.alter` as `b=nan`, which PyMOL evaluates as Python and raises `NameError` on, and PyMOL's own
+  error printer then swallows the reason so the caller sees an empty traceback. A residue can
+  legitimately have no value, because masking it can leave a descriptor undefined; those rows are now
+  dropped and drawn as pale cartoon like any other unscored residue. The zero-centred ramp was gated
+  on `by == "phi"`, the only signed column when it was written, and is now gated on the values, so
+  `residue_deltas` colours correctly and `phi` is unchanged. The loader took `.pdb.gz` only, where a
+  deposited model set holds plain `.pdb`; one `_struct()` helper resolves either at all 5 call sites.
+- **`docs/potentials.rst` documented a `--ab-only` flag for `derive-potential` that does not exist.**
+  The alpha-beta restriction is unconditional. The fix is to delete the flag from the documentation
+  rather than add it to the command: making it optional would be a trap, because `--balance` skips a
+  structure carrying a null on any weighting axis and the derivation then defaults it to weight 1.0,
+  the maximum, so the least usable files would have counted for the most.
+- **`test_the_hot_limit_is_the_distance_from_the_best_residue` hard-coded a tolerance of 1e-4** where
+  its own docstring says the residual is the runner-up residue's `exp(-beta * gap)`. That held only
+  while the smallest gap stayed where it was, so it failed on the re-derived matrix — and it was the
+  assertion that was wrong, not the quantity. Both tolerances are now derived from the matrix's own
+  gaps: log-sum-exp above the minimum for the delta, and the runner-up weight times the squared gap
+  for the curvature. It is now a test of the identity rather than of one matrix's spacing.
+
+### Documentation and reproduction
+- **`bootstrap.sh` and `reproduce.sh` at the repository root**, and the split between them is the
+  point. `bootstrap.sh` is the environment and the data — it wraps `setup.sh`, fetches the whole
+  HuggingFace deposit (about 620 MB across 14 sets) through `tcren fetch-data`, and builds the
+  28,579-allele MHC reference — and is **deliberately outside any time budget**, because how long a
+  download and an `mmseqs` index take is a property of the machine. `reproduce.sh` assumes both are
+  on disk and runs four library stages — the version and catalogue digest, the potential re-derived
+  and asserted against the shipped matrix, the frozen score model refitted from its committed
+  slice, and the whole score set computed live over all 374 `Native2026` crystals — then hands off
+  to `$TCREN2_BENCH/recompute.sh` and `$TCREN2_MS/make`, each located by an environment variable
+  with a documented default. Measured 2026-09-05 on macOS arm64: `--library-only` is **106 s**
+  (env 1 s, potential 24 s, model 1 s, scores 80 s).
+
+  **Neither script has a `--skip-slow` flag and neither should get one.** Both fail loudly, by
+  name, on a missing input: a bad set name, an absent `Native2026`, an unbuilt MHC reference or an
+  absent sibling repository is an exit code with the fix in the message, never a warning.
+- **`docs/reproduction.rst`** — the recipe walked end to end, from `fetch-data` through `features`
+  and `assess` to the figure and table build, naming the released version and the two provenance
+  stamps that decide whether any number is comparable. Until now it lived only in a CLI docstring.
+- **`docs/rederivation.md` renders at all.** It is 238 lines in Markdown, was in no toctree, and
+  `conf.py` had no Markdown parser, so Sphinx never saw it. `myst-parser` is registered (two lines,
+  against retyping eight tables in reStructuredText) and the page carries a dated banner: the
+  candidate matrix it names, `TCRen_potential_rederived.csv`, was removed on 2026-08-22, and the
+  default potential it calls `classic` has been `tcren2` since 2.11.0.
+- `SOURCES` carried an entry for that removed file and none for `TCRen2_potential.csv`, which is the
+  default. Both fixed, and `pdb_withdrawn.csv` added.
+
 ## [3.2.0] — 2026-09-04
 
 **Which residue carries a score.** The five channels say which *part of the structure* a read-out
@@ -65,7 +185,47 @@ Fixed:
 No behavioural change and no API removal — this is a performance release. Output is byte-comparable
 to 3.0.1 within float noise.
 
-## [3.0.0] — 2026-09-03
+## [3.0.1] — 2026-09-02
+
+A packaging fix and a test-tolerance correction. **The frozen model is untouched** and no score
+moves; this is the release that made a clean `pip install tcren` able to refit it.
+
+### Fixed
+- **`scikit-learn` was an undeclared runtime dependency.** `score.model._shrink` imports
+  `sklearn.covariance.ledoit_wolf_shrinkage` and it sits on `Joint.fit`'s path, but scikit-learn was
+  listed only under the `notebooks` extra, so a clean install of the 3.0.0 wheel raised
+  `ModuleNotFoundError` inside `Joint.fit`:
+  `test_refitting_the_committed_slice_reproduces_the_frozen_arrays` — the reproducibility contract
+  the manuscript's Code availability paragraph names — **failed** rather than skipped. Declared as
+  `scikit-learn>=1.3` under `[project] dependencies`, which is what it is, and added to the tests
+  workflow's hand-maintained lean install list. Scoring from the frozen model was never affected.
+- **`tests/unit/test_smoothed_reference.py` errored instead of skipping without `arda`.** It reaches
+  `classify_chains` from a module-scoped fixture, so all 7 of its tests **errored at setup** on a CI
+  runner with no arda reference database. Guarded with the `pytest.importorskip("arda")` the other 5
+  arda-backed test modules already use. Verified in a venv built to the workflow's exact recipe
+  (Python 3.12, `pip install -e . --no-deps` plus the explicit list, no arda):
+  `pytest -m "not slow" --cov-fail-under=50` goes from 1 failed and 7 errors to **662 passed, 82
+  skipped**, exit 0.
+- **The refit reproducibility test asserted a tolerance the optimiser never promised.** It checked
+  the two class means and the ipTM covariance row at rtol 1e-9, on a docstring premise that they
+  "refit bit-identically". `Transformer.fit` takes each of its 55 Yeo-Johnson lambdas from
+  `scipy.stats.yeojohnson_normmax`, whose Brent search stops at its own default tolerance of about
+  1.5e-8, so a lambda is only ever determined to that precision and every array fitted through the
+  transform inherits it. Measured between macOS arm64 and Linux x86_64: one lambda differs by
+  8.4e-8 absolute (1.3e-6 relative), the refit class means by at most 6.0e-9 absolute on 18 of the
+  149 coordinates, and the covariances by at most 2.5e-8 absolute on 50 of the 22,201 entries. The
+  test passed on the machine it was written on and failed on CI. All the float comparisons now share
+  one `_TOL` of rtol 1e-5 / atol 1e-6, declared once beside the fixture paths with the reason. The
+  absolute part is needed because those 50 covariance entries sit near zero, at a magnitude of about
+  9e-5, where a relative bound reports 2.9e-4 for a difference smaller than the one the means
+  survive.
+
+### Changed
+- `appendix/generated/counts.tex` defines `\tcrenVersion`, so a version bump makes the generated
+  appendix layer stale and `test_the_generated_appendix_layer_is_current` fails. Regenerated with
+  `scripts/gen_appendix.py`.
+
+## [3.0.0] — 2026-09-02
 
 **The score layer is rebuilt. One frozen object — a transform and a Gaussian per class over the
 transformed descriptor coordinates — and five named read-outs that are all projections of it, with

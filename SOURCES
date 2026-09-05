@@ -23,11 +23,32 @@ side, so it must not be symmetrised or decomposed.
   the published 2024 derivation, not a re-run.
 - Loader: `tcren.potential.tcren()`.
 
-## `TCRen_potential_rederived.csv` — derived
+## `TCRen2_potential.csv` — derived
 
-The same quantity re-derived on Native2026. Shipped for comparison; no scoring path defaults to it.
+The **default** TCR↔peptide potential since 2.11.0, and the matrix the TCRen2 manuscript reports.
+**Directed**, like `TCRen_potential.csv`: rows are the TCR side, columns the peptide side.
 
-- Regenerate: `tcren derive-potential` over Native2026.
+- Origin: derived by us from the `Native2026` TCR:pMHC crystals, redundancy-balanced on both the
+  epitope and the receptor axis. Since 3.3.0 the derivation runs on **359 of the 374** deposited
+  structures — the unconditional αβ filter drops 12 (3 pMHC-only, 8 single-chain, 1 γδ) and the
+  withdrawn-entry rule drops 3 more.
+- Regenerate: `tcren fetch-data`, then
+  `tcren derive-potential --structure-dir "$TCREN_DATA_DIR/Native2026" --balance both -o TCRen2_potential.csv`.
+  `data/potentials.json` records the recipe verbatim and
+  `tests/regression/test_shipped_potentials.py` reproduces the file from it.
+- Loader: `tcren.potential.tcren2()`; it is the default the TCR:peptide interface scores under.
+
+## `pdb_withdrawn.csv` — curated (2026-09-04)
+
+The PDB entries the RCSB has withdrawn that appear in a bundled structure set: 4 rows, each with
+its status, its successor if it has one, the reason, and the date the RCSB holdings endpoint was
+checked. `derive-potential` drops them unless `--keep-withdrawn` is passed.
+
+- Origin: verified one id at a time against the RCSB holdings endpoint
+  (`https://data.rcsb.org/rest/v1/holdings/removed/<id>`), not taken on trust.
+- Regenerate: re-query that endpoint for every id in the structure set; the file is hand-curated
+  from its replies, so there is no single command.
+- Loader: `tcren.potential.withdrawn_entries()` / `withdrawn_ids()`.
 
 ## `MJ_Keskin_potentials.csv` — published (identified 2026-08-29)
 
