@@ -316,6 +316,12 @@ def derive_potential(
              "still counts (requires --structure-dir)",
     ),
     loo: bool = typer.Option(False, "--loo", help="NOT USED FOR TCRen2. emit leave-one-out potentials instead"),
+    contacts_out: Path | None = typer.Option(
+        None, "--contacts-out",
+        help="also write the contact table the derivation actually used. Any downstream analysis "
+             "of the derivation must read THIS, not a separately assembled table, or the two "
+             "describe different structure sets under one name",
+    ),
     keep_withdrawn: bool = typer.Option(
         False, "--keep-withdrawn",
         help="keep PDB entries the RCSB has withdrawn. Off by default and only for auditing the "
@@ -409,6 +415,16 @@ def derive_potential(
                            pseudocount=pseudocount, weights=weights)
         pot.to_csv(out)
     typer.echo(f"wrote {out}")
+
+    if contacts_out is not None:
+        # The contact table AFTER every filter, so a downstream count of structures or contacts is
+        # a count of what the shipped matrix was derived from. Assembling a second table by hand and
+        # counting that is how a manuscript comes to report a derivation set the matrix never saw.
+        used = contacts if include is None else contacts.filter(pl.col("pdb.id").is_in(include))
+        used.write_csv(str(contacts_out))
+        typer.echo(f"wrote {contacts_out} ({used.height} contacts over "
+                   f"{used['pdb.id'].n_unique()} structures) -- the table the matrix was derived "
+                   f"from, for any downstream count")
 
 
 
