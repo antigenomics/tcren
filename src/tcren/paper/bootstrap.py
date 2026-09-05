@@ -104,8 +104,9 @@ def _hf_files(folder: str, timeout: float, repo: str = HF_REPO) -> list[str]:
 def hf_listing(repo: str = HF_REPO, timeout: float = 60.0) -> dict[str, dict]:
     """Every top-level folder in the dataset repository, with its file count and size.
 
-    HF_FOLDERS is a constant naming five of the seventeen sets that exist, which is why every
-    other set has been fetched by ad-hoc curl in a SOURCES file rather than by this package.
+    HF_FOLDERS is a constant naming five sets, against the fourteen the Hub listed on 2026-09-05,
+    which is why every other set has been fetched by ad-hoc curl in a SOURCES file rather than by
+    this package.
     Hard rule 2 of the manuscript manifest says the data is bootstrapped from HuggingFace, and a
     command cannot honour that while it can only name a third of the deposit. Discovering the
     listing rather than hard-coding it means a set added to the Hub is fetchable the same day.
@@ -160,10 +161,10 @@ def fetch_hf_structures(
     out.mkdir(parents=True, exist_ok=True)
 
     def _present(folder: str) -> bool:
-        # "Present" cannot mean "holds a loose .pdb": of the seventeen sets on the Hub, several
-        # ship a single .tar.gz (cpl, atlas_ala, immrep23_negatives, the three vdjdb deposits) and
-        # one ships a table (pdb_catalogue). Requiring a structure file made every one of those
-        # re-download on every run.
+        # "Present" cannot mean "holds a loose .pdb": six of the fourteen sets on the Hub ship a
+        # .tar.gz rather than loose structures -- cpl, as_case, atlas_ala, immrep23_negatives and
+        # the two vdjdb deposits -- and immrep23_negatives ships tables beside it. Requiring a
+        # structure file made every one of those re-download on every run.
         d = out / folder
         return d.is_dir() and any(p.is_file() and not p.name.startswith(".") for p in d.glob("*"))
 

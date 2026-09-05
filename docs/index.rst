@@ -69,11 +69,13 @@ What tcren does
    :caption: Contents
 
    getting-started
+   reproduction
    assess
    features
    descriptor_table
    oracle
    potentials
+   rederivation
    potts
    beyond-the-contact-sum
    reliability
