@@ -36,6 +36,47 @@ when writing new code, since that is where the docstrings and the layering audit
 of the same name on the package. Section headings below still use several of the deprecated names;
 they resolve, and this table is the map.
 
+## What moved after 3.0.0 — 3.1.0, 3.2.0, 3.3.0
+
+The score set of 3.0.0 is unchanged and every 3.0.0 entry point still returns what it returned.
+Four things were added on top of it and one shipped number moved.
+
+| release | what to know |
+|---|---|
+| **3.1.0** | **A structure set is annotated once, not once per structure.** Every CLI command that iterates a set was calling `classify_chains` and/or `annotate_mhc` inside the loop; `scoring` did it twice. Over the 374-structure `Native2026` set `tcren scoring` went from **1,032 s to 145 s** with identical output (max abs difference 1.1e-16, on `rmsd`). `-t/--threads` on `scoring` now sets the thread count of the two batched searches, not a worker pool around them. |
+| **3.2.0** | **`tcren.score.residue_deltas` / `tcren explain`** — which residue carries a score, for the four read-outs that do not decompose. See the section below. |
+| **3.3.0** | **The shipped TCRen2 matrix is re-derived on 359 of 374 `Native2026` structures**, where every release from 2.11.0 through 3.2.0 shipped a 362-structure derivation. Three withdrawn PDB entries are dropped (`potential.withdrawn_ids()`, `data/pdb_withdrawn.csv`). The two matrices agree at Pearson *r* = 0.9996 over all 380 cells with a largest shift of 0.104 on a range of 2.95 — a provenance correction, not a change of instrument — but a Φ computed under one is still not comparable with one computed under the other. |
+| **3.3.0** | **`python -m tcren.cli explain` used to report "no such command"**, because the `__main__` guard sat above the registration. The guard is now the last statement in `cli.py` and `tests/unit/test_cli_entrypoints.py` asserts the two entry points expose identical command sets (27 today). This was the second recurrence; do not move the guard. |
+
+New surface in 3.3.0, all of it bootstrap and batching rather than analysis:
+
+- **`tcren fetch-data` reaches the whole deposit.** The listing is read from the Hub rather than
+  hard-coded, so `--list` shows what exists, `--sets` takes names or `all`, and `--tables` adds the
+  derived-table deposit. Two silent defects went with it: the HF tree endpoint pages at 1,000
+  entries and only the first page was read (`Native2026` reported 346 files of 374), and
+  skip-if-present required a loose `.pdb`, so the sets that ship one `.tar.gz` re-downloaded every
+  run. **`--tables` targets `isalgo/tcren2_reproduce`, which is not published yet** and therefore
+  fails; nothing in the reproduction path depends on it.
+- **`tcren features --chunk N --resume`** — chunked featurisation with resumable parts. **Chunking
+  is for memory, not speed**: a parsed complex is about 1 MB, so a 20,000-structure corpus does not
+  fit in one pass. The batched annotation is preserved per chunk — one arda call and one mmseqs
+  search per chunk, never one per structure — and a test asserts the chunked table equals the
+  whole-set table exactly.
+- **`tcren potts pairs`** — the availability enumeration, promoted from a private helper. It is the
+  first and most expensive stage of `potts fit`, so emitting it once and reusing it turns a
+  repeated corpus pass into a single one.
+- **`tcren derive-potential --contacts-out`** — the contact table the matrix was derived from,
+  written **after** every filter: 7,816 TCR:peptide contacts over 358 structures, one fewer than
+  the 359 the derivation keeps, because one kept structure makes no TCR:peptide contact at all.
+  `--keep-withdrawn` restores all 4 listed entries, for auditing the difference and nothing else;
+  3 of the 4 change the derivation set, the fourth (`3nfj`) being a γδ receptor the unconditional
+  αβ filter already excludes.
+- **`bootstrap.sh` and `reproduce.sh`** at the repository root. `bootstrap.sh` is the environment
+  and the ~620 MB of structures and is deliberately outside any time budget; `reproduce.sh` runs
+  the four library stages and then hands off to the benchmark and manuscript repositories, located
+  by `$TCREN2_BENCH` and `$TCREN2_MS`. **Neither has a `--skip-slow` flag, on purpose.**
+  `docs/reproduction.rst` is the prose version.
+
 ## Batch annotation — never loop (mmseqs2 is the parallel layer)
 
 **All structure annotation (TCR chain typing AND MHC allele mapping) must gather every
@@ -538,6 +579,14 @@ interfaces of different size.
   residue even in an all-stabilising interface. **Each contact is attributed to BOTH residues it
   joins, so the per-residue phi sums to 2x the interface total** — an attribution, not a partition;
   a test pins that factor of two.
+- **`groove_importance_scene(pid, canon_dir, importance, by='p_expected', spectrum=..., surface=False)`**
+  is `groove_scene`'s framing — peptide threaded along the cleft, seen from above, helices and floor
+  kept as furniture — with the peptide coloured by a per-residue value carried in on the B-factor
+  column. Two differences from `importance_scene` and both matter: it **zooms the groove, not the
+  coloured selection**, so several complexes rendered this way are directly comparable; and it ramps
+  over the column's own range, which is right for a one-sided quantity such as
+  `potts.contact_map(by="position")`. Use `importance_scene` for a signed share, which centres on
+  zero.
 - Chain roles after `tcren orient`: A=Vα, B=Vβ, C=peptide, D=MHCα, E=MHCβ/β2m — `CHAIN_COLOURS`.
 - Notebooks: `notebooks/pymol_canonical_figures.ipynb` (static gallery) and
   `notebooks/pymol_interactive.py` (**marimo**, `pip install 'tcren[marimo]'`). marimo is reactive,
@@ -602,6 +651,26 @@ interfaces of different size.
   because they are constant across every structure of one epitope on one allele and a model
   reading them reaches the cohort's name without reading an interface.
 
+- **Which read-out answers which question.** There are **two ranking tasks**, and magnitude is a
+  level rather than a third task. Read down this list and stop at the first row that matches:
+
+  | the question you are actually asking | what to read | how to get it |
+  |---|---|---|
+  | *Which peptide does this fixed receptor read?* | `peptide_score` | `tcren assess --peptide`, or `tcren ddg` / `tcren cpl` directly |
+  | *Which receptor recognises this fixed epitope?* | `binder_iptm` if the table carries ipTM, else `binder_score`, reported beside `S` | `tcren assess` |
+  | *Is this pose real at all — I have no label and no cohort?* | `pose_score` | `tcren assess` |
+  | *Is the generator's confidence warranted?* | `confidence_residual`, then `p_nonbinder_af` | `tcren assess` on a table with an `iptm` column |
+  | *Which part of the structure says so?* | `channel_*` | `tcren assess` |
+  | *Which residue carries it?* | `residue_deltas` `delta` | `tcren explain --score <read-out>` |
+  | *How fast does it come apart?* | the mechanics read-outs — a bound structure reaches the **off-rate**, not the equilibrium constant | `tcren mechanics` |
+
+  Two traps this ordering exists to avoid. `peptide_score` **reads below chance on a receptor
+  benchmark**, and that is a property of its poly-alanine reference frame rather than a fault — it
+  is the wrong instrument for the second row, not a broken one. And the two composite arms
+  (`S` + `binder_score`) z-sum quantities on different natural scales, so they need a **cohort** to
+  set that scale; every other read-out above is defined for one structure on its own. Report the
+  two modes apart.
+
 - **The fit-free predecessor tier is still shipped**, and `tcren recognize --features feats.tsv`
   emits it: `complex.id` + **`Q`** (interface quality), **`T`** (the shape block) and **`S`**
   (their composition with the energy block). `S` leads the functionally validated receptor screen
@@ -615,9 +684,11 @@ interfaces of different size.
   `tcren diagnose` command, went at **2.28.0**, because the Platt links and the four correction
   coefficients were fitted out of fold. None of them returns.
 
-- **`tcren fit-holdout` reproduces the frozen model bit for bit** from the shipped manifest plus a
-  descriptor table you regenerate with `tcren features`. The 19 MB descriptor table does not ship;
-  the 8,292-row manifest does. This is the contract that `P_native` could not offer.
+- **`tcren fit-holdout` reproduces the frozen model to a relative 1e-5** — not bit for bit — from
+  the shipped manifest plus a descriptor table you regenerate with `tcren features`. The 19 MB
+  descriptor table does not ship; the 8,292-row manifest does. This is the contract that `P_native`
+  could not offer, and 1e-5 is the bound the optimiser earns rather than a round number (see the
+  reliability section for the measured spreads).
 
 - **Six families, split by invariance** (`tcren.recognition.DESCRIPTORS`, `FAMILIES`); a
   *family* is a slice of the descriptor table and a **channel is one of the five score channels**
@@ -695,7 +766,13 @@ r   = confidence_residual(features, iptm)        # reported logit(ipTM) - E[logi
   = 20 usable coordinates the model raises and names the `tcren features` call that fixes it.
 - `holdout_manifest()` returns the 8,292 structures the fit used with dataset, epitope, label and
   ipTM. The descriptors do not ship (8,292 × 147 is 19 MB); `tcren fetch-data` → `tcren features` →
-  `tcren fit-holdout` returns the shipped arrays bit for bit.
+  `tcren fit-holdout` returns the shipped arrays to **a relative 1e-5, not bit for bit**. That
+  bound is what the optimiser earns rather than a round number: each of the 55 Yeo-Johnson lambdas
+  comes from `scipy.stats.yeojohnson_normmax`, whose Brent search stops at its own tolerance of
+  about 1.5e-8, and every array fitted through the transform inherits it. Measured between macOS
+  arm64 and Linux x86_64: one lambda differs by 8.4e-8 absolute, the class means by at most 6.0e-9
+  on 18 of the 149 coordinates, the covariances by at most 2.5e-8 on 50 of the 22,201 entries. A
+  test that asserted rtol 1e-9 was green locally and red on CI, which is how this was found.
 
 **The fit-free predecessor tier**, still shipped and still reported:
 
@@ -789,6 +866,45 @@ the actionable one: on the balanced VDJdb panel the **top ipTM decile is 26.2 %*
 `--iptm-column`, `--band`, `--budget`, `--list-bands`. **`--link` and `--list-links` went with
 `p_binder` at 2.28.0**, and there is no `tcren diagnose` — `confidence_residual` replaced the
 fitted confidence correction at tier 1, reading no label anywhere.
+
+## Per-residue attribution — `tcren.score.residue_deltas` / `tcren explain` (3.2.0)
+
+The five channels say which *part of the structure* a read-out comes from; this says which
+**residue**, for any read-out and any channel.
+
+```python
+from tcren.score import residue_deltas
+d = residue_deltas("model.pdb", score="binder")          # or "pose", "peptide", or a channel name
+```
+
+```bash
+tcren explain -s model.pdb --score binder -o deltas.tsv
+tcren explain -s model.pdb --score energetics --chain-types PEPTIDE -o pep.tsv
+```
+
+One row per interface residue: `chain.id, residue.index, residue.pdb, residue.aa, score.full,
+score.without, delta`, where **`delta` = L(x) − L(x without residue i)** — the score of the complex
+minus the score of the same complex with that residue's atoms removed. Positive means the residue
+carries the score. The table feeds `viz.pymol.importance_scene` unchanged, so one implementation
+colours a structure by `binder_score`, `pose_score` or any single channel; before this, only the
+peptide read-out had a colouring at all.
+
+- **Why leave-one-out and not a decomposition.** `peptide_score` is a sum over contacts and
+  `energetics.scoring.position_profile` already splits it **exactly** — prefer that one there. The
+  other four are functions of ~149 whole-structure scalars through a full covariance per class, so
+  no residue owns a share of one and there is nothing to split. The leave-one-out difference is
+  defined for all of them.
+- **Chain typing and the MHC call run once for the whole structure.** Every masked copy is
+  featurised with `annotate=False` against that one annotation, so **no mmseqs call is made per
+  residue.** Cost is one descriptor pass per interface residue, about 2 s each, so a complex is a
+  few minutes.
+- Only residues touching a requested interface are masked. A residue making no contact moves no
+  descriptor, and a test asserts its delta is **exactly zero** rather than assuming it.
+- A masked row whose descriptors go undefined is reported as a **null** delta, never imputed:
+  `ScoreModel.coordinates` drops such a row on purpose, and that is surfaced rather than filled in.
+- `importance_scene` handles the null: since 3.3.0 a non-finite value is dropped and drawn as pale
+  cartoon rather than formatted into `cmd.alter` as `b=nan`, which PyMOL evaluates as Python and
+  raises `NameError` on — with its own error printer swallowing the reason.
 
 ## Footprint shape — `tcren.footprint` / `tcren footprint`
 
