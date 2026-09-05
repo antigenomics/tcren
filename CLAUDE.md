@@ -105,6 +105,16 @@ stale, as for `gen_descriptor_table` and `gen_family_graph`. Never edit `appendi
 ## Working here
 
 `./setup.sh` creates the venv and installs editable; `./setup.sh --test` runs the suite. Docs build
-with `-W`, so a warning is a failure. Update `skills/tcren/SKILL.md` and `docs/` in the same change
+with `-W`, so a warning is a failure.
+
+**Two scripts sit above `setup.sh` and the split between them is the point.** `./bootstrap.sh` is
+the environment and the data — it wraps `setup.sh`, fetches every set of the HuggingFace deposit
+(about 620 MB) and builds the MHC allele reference — and is **deliberately outside any time
+budget**. `./reproduce.sh` assumes both are on disk and runs everything the manuscript prints:
+four library stages here (106 s measured, 2026-09-05, macOS arm64), then a handoff to
+`$TCREN2_BENCH/recompute.sh` and `$TCREN2_MS/make`. **Neither script has a `--skip-slow` flag and
+neither should get one** — the benchmark repository's equivalent claims it drops only stages no
+reported table reads, which is false for four of the eight it names. Both fail loudly, by name, on
+a missing input. `docs/reproduction.rst` is the prose version. Update `skills/tcren/SKILL.md` and `docs/` in the same change
 as any new public capability, and `CHANGELOG.md` before any release. A new descriptor also needs
 `python scripts/gen_appendix.py` — the whitepaper's tables come from the catalogue, not from prose.
