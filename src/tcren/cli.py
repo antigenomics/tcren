@@ -380,9 +380,8 @@ def derive_potential(
         # TCR alpha chain modelled from the wrong gene at positions 93-98 -- the CDR3a region this
         # potential reads. Neither is correctable, so both are removed and the list says why.
         if not keep_withdrawn:
-            from importlib.resources import files as _files
-            wd = pl.read_csv(str(_files("tcren") / "data" / "pdb_withdrawn.csv"))
-            drop = set(wd["pdb.id"].str.to_lowercase())
+            from .potential import withdrawn_ids
+            drop = withdrawn_ids()
             present = markup.filter(pl.col("pdb.id").str.to_lowercase().is_in(drop))
             if present.height:
                 before_w = markup.height
@@ -422,9 +421,15 @@ def derive_potential(
         # counting that is how a manuscript comes to report a derivation set the matrix never saw.
         used = contacts if include is None else contacts.filter(pl.col("pdb.id").is_in(include))
         used.write_csv(str(contacts_out))
+        from .provenance import stamp
+        n_kept = len(include) if include is not None else contacts["pdb.id"].n_unique()
+        stamp(contacts_out, command="derive-potential --contacts-out",
+              extra={"structures_kept": int(n_kept),
+                     "structures_with_contacts": int(used["pdb.id"].n_unique()),
+                     "contacts": int(used.height), "balance": balance, "variant": variant})
         typer.echo(f"wrote {contacts_out} ({used.height} contacts over "
-                   f"{used['pdb.id'].n_unique()} structures) -- the table the matrix was derived "
-                   f"from, for any downstream count")
+                   f"{used['pdb.id'].n_unique()} of {n_kept} kept structures) -- the table the "
+                   f"matrix was derived from, for any downstream count")
 
 
 

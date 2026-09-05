@@ -194,6 +194,34 @@ def epitope_weights(markup: pl.DataFrame, field: str = "peptide") -> dict[str, f
     return balanced_weights(markup, axes=((field,),))
 
 
+def withdrawn_entries() -> pl.DataFrame:
+    """The PDB entries this package refuses, with the reason and the successor where there is one.
+
+    The derivation, every evaluation of the derived matrix, and any analysis that quotes a
+    structure count have to apply the SAME rule, or the counts drift apart and each one looks
+    right on its own. This function is that rule. It was inline in the CLI until 2026-09-05, and
+    in that time the shipped matrix moved to 359 structures while the epitope-weighted evaluation
+    stayed on 370 and no gate could see the difference.
+
+    Two kinds are listed and they fail differently. A SUPERSEDED entry whose successor is also in
+    the set puts one complex in twice, which is what a set built to be non-redundant must not
+    contain, and the weighting cannot see it because the two carry different accessions. An entry
+    withdrawn WITHOUT a successor was withdrawn for a reason, and the reason travels with it.
+
+    Returns:
+        The bundled ``data/pdb_withdrawn.csv``, one row per refused entry, with ``pdb.id``
+        lowercased so a caller can join on it without normalising first.
+    """
+    from importlib.resources import files as _files
+    wd = pl.read_csv(str(_files("tcren") / "data" / "pdb_withdrawn.csv"))
+    return wd.with_columns(pl.col("pdb.id").str.to_lowercase())
+
+
+def withdrawn_ids() -> set[str]:
+    """Lowercased ``pdb.id`` of every entry :func:`withdrawn_entries` refuses."""
+    return set(withdrawn_entries()["pdb.id"].to_list())
+
+
 def alphabeta_ids(contacts: pl.DataFrame) -> list[str]:
     """``pdb.id`` of complexes whose receptor contacts are exclusively TRA/TRB (αβ TCRs).
 
