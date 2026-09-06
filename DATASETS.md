@@ -21,7 +21,7 @@ provenance, aldan3 path, HF path).
 | `as_case` | native B\*27:05 cognate complexes — held-out ergodicity validation |
 | `vdjdb_positives`, `vdjdb_negatives` | TCRmodel2 real-versus-mock models; the 1,089-structure receptor-ranking panel (523 real / 566 mock, 22 epitopes) is assembled from these, and `data/datasets.csv` records the consolidated tarball as `vdjdb_binder_benchmark/` |
 | `garcia_b27` | HLA-B\*27:05 crystals with a measured EC50 substitution series |
-| `Bobisse`, `Bigot` | neoantigen cohorts (see below) |
+| `Bobisse`, `Bigot` | neoantigen cohorts (see below). **POLY-V homology models, no deposited TCR:pMHC crystal** — chain P is `VAL` at every position and 0 of 14 Bigot CDR3α/CDR3β occur in any Native2026 crystal, so these are template-scarce (block 3) and not CPL-tier |
 
 ## Legacy 2022 benchmarks (reproduced with the tcren pipeline)
 
