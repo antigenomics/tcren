@@ -62,14 +62,13 @@ fit-holdout` regenerates the shipped arrays from them, which is exactly the cont
 not offer. **Report the template split, never the pool.** On the 22-cohort VDJdb panel every arm
 divides under template coverage, and a macro number over the two strata is a Simpson artefact.
 
-**The neoantigen sets (Bigot, Bobisse) are block-3 tier, not block-1.** They carry no deposited
-TCR:pMHC crystal — 0 of 14 Bigot CDR3α and 0 of 14 CDR3β occur in any of the 362 Native2026 crystals
-— and their structures are poly-V homology models with `VAL` at every peptide position. CPL is the
-contrast: all 7 clones have their cognate complex deposited, so its models were built with templates
-in hand. A pure-potential arm on a poly-V template-free model is outside the regime a contact
-potential is measured in (the energetics channel reads 0.692 templated against 0.580 template-free,
-FINDINGS §2), so `tcren.ddg` / `peptide_score` results there are reported case by case beside a
-geometry channel, never as a peptide-ranking floor.
+**Bigot is block-3 tier; Bobisse is not.** Both score a poly-V placeholder peptide, but the
+templates are opposite. Bigot's 14 receptors have **no deposited ternary complex** — 0 of 14 CDR3α
+and 0 of 14 CDR3β occur in any of the 362 Native2026 crystals — so a pure-potential arm there is
+outside the regime a contact potential is measured in (energetics reads 0.692 templated against
+0.580 template-free, FINDINGS §2); report it case by case beside a geometry channel, never as a
+peptide-ranking floor. **Bobisse's receptor is 6UK4** (CDR3α `AFMDSNYQLI` / CDR3β `ASSRTSPTDTQY`,
+cognate KQWLVWLFL), so it is template-rich like CPL; its limit is being one ranking unit.
 
 ## Hard conventions
 
