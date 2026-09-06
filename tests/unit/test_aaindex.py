@@ -1,6 +1,6 @@
 """The bundled AAindex3 resource: parsing, the catalogue, identification, and the component split.
 
-The load-bearing claim these guard is that ``mj()`` and ``keskin()`` ARE named AAindex entries.
+The claim these guard is that ``mj()`` and ``keskin()`` ARE named AAindex entries.
 That identification is what lets the manuscript cite them, so a silent parser regression would be
 a citation defect, not just a test failure.
 """

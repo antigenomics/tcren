@@ -1,6 +1,6 @@
 """Monte-Carlo EM over the borderline contact calls — :mod:`tcren.potts.em`.
 
-Two claims are load-bearing and both are tested here. First, the latent band must reach BOTH ways
+Two claims are tested here. First, the latent band must reach BOTH ways
 around the cutoff, or the fit can only ever remove contacts; that needs `available_pairs(probe=...)`
 and the code refuses to run without it. Second, EM must reduce EXACTLY to the pseudolikelihood fit
 when nothing is latent, because it is an extension of that fit and not a replacement for it.

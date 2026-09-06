@@ -7,7 +7,7 @@ only symptom is that it does not match a fresh run.
 
 :func:`stamp` writes a sidecar JSON beside every table a command emits. :func:`check` reads it back
 and **raises** unless the installed package would produce the same columns from the same registry.
-The registry digest is the load-bearing part: it changes whenever any descriptor is added, dropped,
+The registry digest is what makes that work: it changes whenever any descriptor is added, dropped,
 or has its units or definition edited, so a table computed under a different catalogue cannot pass
 silently.
 """

@@ -59,7 +59,7 @@ __all__ = ["zscore", "q_score", "phi_score",
 #: (mean absolute Spearman 0.20).
 Q_FEATURES = ("burial", "n_pep_contacted", "chain_balance", "n_hbond", "pp_combo")
 
-#: The four load-bearing descriptors. ``n_pep_contacted`` is dropped: it is the weakest term and
+#: The four descriptors kept. ``n_pep_contacted`` is dropped: it is the weakest term and
 #: removing it *raises* macro AUROC 0.795 -> 0.801 on TCRvdb (benchmark ledger, energy memo). Pass
 #: ``features=Q_FEATURES_CORE`` to :func:`q_score` for the simpler, marginally better score.
 Q_FEATURES_CORE = ("burial", "chain_balance", "n_hbond", "pp_combo")

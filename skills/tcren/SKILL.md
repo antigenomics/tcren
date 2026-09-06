@@ -1291,7 +1291,7 @@ peptide read-out had a colouring at all.
 - `n_loop_contacts` counts only what the partition sees — the six CDR loops. Framework contacts are
   excluded by construction, so it is smaller than the full interface count. The topology features
   are **not** restricted this way: they use every contacted pMHC residue.
-- **It is not `n_contacts`, and the distinction is load-bearing.** `n_contacts` belongs to the
+- **It is not `n_contacts`, and the two are counted differently.** `n_contacts` belongs to the
   `potts` family — the available pairs that engaged, 29 on 1ao7 against this module's 66 — and it
   is the column the frozen Potts moments in `data/reliability_moments.json` are standardized on.
   Through 2.19.0 both passes wrote the one name and the later pass won, so a table carrying the

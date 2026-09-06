@@ -84,7 +84,7 @@ supersedes the mean-surface reading rather than qualifying it. `geom_tcr_peptide
 
 **What it does not buy is a count specific to one receptor** — Pearson +0.23 against the observed
 count, MAE 5.95 contacts against a population s.d. of 6.08 — because a linear average over
-reference geometries returns the level of a typical interface. That is rung 3 of the ladder in
+reference geometries returns the level of a typical interface. That is step 3 of the ladder in
 `ROADMAP.md` §1, a parametric loop with no crystal coordinates anywhere, and it is open. Record:
 `$TCREN2_BENCH/bench/eda/out/geom_ensemble.md`.
 
@@ -118,10 +118,10 @@ nine operators, every formula and its derivation, MHC class I/II, and all 164 ro
 `STATUS`. `make` in that directory rebuilds it. Three things not to relearn:
 
 - **The hierarchy is a chain of quotients**, $S \to C \to B \to T$, and $B \twoheadrightarrow T$ is
-  the load-bearing step. Every functional of the cell tally is a functional of the biadjacency
-  matrix and not the reverse, so **redundancy runs down the chain and never up it**. That orders a
-  redundancy screen's output before it is run, and it is why the parameter-free `g_*` forms are the
-  ones to prefer over the radius-tagged `fp_*` ones on parsimony grounds.
+  the step that loses information. Every functional of the cell tally is a functional of the
+  biadjacency matrix and not the reverse, so **redundancy runs down the chain and never up it**.
+  That orders a redundancy screen's output before it is run, and it is why the parameter-free
+  `g_*` forms are the ones to prefer over the radius-tagged `fp_*` ones on parsimony grounds.
 - **Nineteen descriptors are one formula.** The Hill number $D_q$ generates the whole `*_cell` /
   `*_loop` / `pep_cov_*` / `g_even_*` / `m_erank_*` / `partcoef_*` set. Two identities not in
   `STATUS`: the participation coefficient is Gini--Simpson $1 - 1/D_2$, and the participation ratio

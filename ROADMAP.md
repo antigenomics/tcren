@@ -71,12 +71,12 @@ Off this roadmap or off the manuscript's needs; [CHANGELOG.md](CHANGELOG.md) is 
   the complex**: `geom_tcr_peptide`, `tcren potts geom`, `tcren potts predict`. Held out by
   structure, the predicted 15 Å envelope holds 7,399 of 7,687 crystal contacts (96.25 %) and the
   coupled model reads the crystal's indicator inside it at median ROC-AUC 0.8310 over 361
-  structures. This is rung 2 of item 1 below.
+  structures. This is step 2 of item 1 below.
 - **v3.7.0** — **the predicted map recovers the contact count.** `predict_contact_map` /
   `potts predict --ensemble` score under each reference geometry and average the probabilities
   rather than scoring one map read off their mean; `geom_tcr_peptide_ens` keeps 2,154 surfaces at
   grid 32. Expected contacts 0.47× → 1.17× observed and contact ROC-AUC 0.9242 → 0.9325, held out
-  over 364 crystals. Rung 2b.
+  over 364 crystals. Step 2b.
 
 ## Open
 
@@ -84,39 +84,39 @@ Ranked by what each unblocks. Every row names what is missing, not what would be
 
 ## 1. Place the interface with no crystal anywhere in the chain
 
-**The ladder is what Cα geometry a reading is allowed**, and rung 3 is the open one:
+**The ladder is what Cα geometry a reading is allowed**, and step 3 is the open one:
 
-| rung | Cα geometry from | crystal of this complex? | state |
+| step | Cα geometry from | crystal of this complex? | state |
 |---|---|---|---|
 | 1 | the complex's own coordinates | **yes** | `available_pairs`, shipped |
 | 2 | superimposed crystals, graphon-averaged | no | `geom_tcr_peptide`, shipped in 3.6.0 |
 | 2b | superimposed crystals, scored one at a time and averaged | no | `geom_tcr_peptide_ens`, shipped in 3.7.0 |
 | 3 | a parametric loop, no crystal coordinates | no | **open** |
 
-Rung 2 already delivers "score from sequence", and 3.7.0 closed the level gap that rung 2 opened:
+Step 2 already delivers "score from sequence", and 3.7.0 closed the level gap that step 2 opened:
 averaging over the reference geometries rather than over their surfaces reads **24.62 expected
 contacts against 21.02 observed** (ratio 1.17, n = 364 held out by structure) where the averaged
 surface reads 9.80 (ratio 0.47), with the contact ROC-AUC rising 0.9242 → 0.9325.
 
-**What rung 3 is now for is the one thing rung 2b cannot do: a count specific to one receptor.**
+**What step 3 is now for is the one thing step 2b cannot do: a count specific to one receptor.**
 Because the average is linear, the expected count is the mean over reference geometries of each
 one's own total, so it necessarily returns the level of a typical interface — Pearson **+0.23**
 against the observed count, MAE **5.95** contacts against a population s.d. of **6.08**. A loop
 built from its own sequence, rather than read off crystals of other receptors, is the only thing
 that changes that. The four panel-c receptors sit at the 95th, 97th, 72nd and 67th percentile of
-the contact-count distribution and are exactly the case rung 2b under-shoots.
+the contact-count distribution and are exactly the case step 2b under-shoots.
 
-**Rung 3's target is now specified in geometry, not in scoring (2026-09-07).** The author's
+**Step 3's target is now specified in geometry, not in scoring (2026-09-07).** The author's
 criterion is that the expected contact count reproduce the crystal's within **±3**, and that a
-contact probability be Beta distributed rather than sitting at p ≈ 0.5. Both hold at rung 1 and
-neither survives rung 2b, and the reason is not a calibration that could be tuned out
+contact probability be Beta distributed rather than sitting at p ≈ 0.5. Both hold at step 1 and
+neither survives step 2b, and the reason is not a calibration that could be tuned out
 (`$TCREN2_BENCH/bench/eda/out/geom_sharpen.md`, 366 crystals held out by structure):
 
-- **Rung 1 meets it.** MAE **2.78 contacts** against a mean of 20.90 observed (s.d. 6.27), bias
+- **Step 1 meets it.** MAE **2.78 contacts** against a mean of 20.90 observed (s.d. 6.27), bias
   **−0.09**, **63.1 %** of crystals within ±3, Pearson **+0.856**. The map is Beta shaped there:
   **3,164 of 58,868 in-reach pairs sit at p ≥ 0.8 and 91.6 % of them contact**, while the top 500
   by probability carry mean p = 0.9890 against an observed rate of 0.9940.
-- **Rung 2b cannot be sharpened into it.** A logistic-power recalibration — monotone, so every
+- **Step 2b cannot be sharpened into it.** A logistic-power recalibration — monotone, so every
   ROC-AUC is untouched — fits **γ = 1.009**: the map is already calibrated. If anything the top is
   mildly over-confident, mean p 0.7040 against an observed 0.5880, so pushing it toward 1 would
   assert what the crystals do not support. A quenched energy average, Boltzmann reweighting of
@@ -124,17 +124,17 @@ neither survives rung 2b, and the reason is not a calibration that could be tune
   are recorded so they are not re-tried.
 - **It is the envelope and the distance inside it.** The predicted map spreads 20.90 contacts over
   **484 sites** where the crystal has **161**, prevalence 0.0477 against 0.1301. Truncating to the
-  top `0.8·Σp_avail` pairs reproduces rung 1's geometry almost exactly — 162 sites, prevalence
+  top `0.8·Σp_avail` pairs reproduces step 1's geometry almost exactly — 162 sites, prevalence
   0.129, 91.6 % of true contacts retained — and the MAE does not move, so size alone is not it.
 - **The ceiling without a structure is MAE 4.65 and 41.3 % within ±3**, leave-one-out from loop
   lengths, MHC class and envelope size together; `predict_contact_map` reaches 4.82 unaided. So ±3
-  is unreachable for any estimator built on an average over reference geometries, and rung 3 is the
+  is unreachable for any estimator built on an average over reference geometries, and step 3 is the
   only route to it.
 
-**So rung 3 has two quantitative targets, both geometric: place the interface in ~161 sites rather
+**So step 3 has two quantitative targets, both geometric: place the interface in ~161 sites rather
 than 484, and place a contacting pair to about 1 Å** (measured 7.94 Å, placed at 10.02 Å; `g_dist`
 swings +5.77 at 4.5–5.0 Å to −2.33 at 11.0–11.5 Å). **The potential itself needs no further work
-for this** — at rung 1 it is calibrated across the whole range, bin ratios 0.92–1.28 and 0.99 in the
+for this** — at step 1 it is calibrated across the whole range, bin ratios 0.92–1.28 and 0.99 in the
 top bin, with its level unbiased to −0.09 contacts.
 
 **How several lengths enter it is measured, not open (2026-09-07).** The registration question --
@@ -174,9 +174,9 @@ Three pieces, two of which exist:
 - **The placement.** The hard part, and the one with no prior art here: putting the built loop in
   the groove frame. `docking/align.py` and `data/canonical_frame.json` are the entry points.
 
-The gate is the one rung 2 already has a number for: held-out recall of the crystal's contacts
+The gate is the one step 2 already has a number for: held-out recall of the crystal's contacts
 inside the predicted envelope, and the area of `p_model` inside it
-(`$TCREN2_BENCH/bench/eda/geom_prior_recall.py`). Rung 3 has to beat 0.9625 and 0.8310 to be worth
+(`$TCREN2_BENCH/bench/eda/geom_prior_recall.py`). Step 3 has to beat 0.9625 and 0.8310 to be worth
 shipping, and it has to close the calibration gap to be worth preferring.
 
 ## 2. Make peptide stability a score, not a diagnostic
@@ -209,7 +209,7 @@ affordable — and it is the difference between a stability probe and a real Fle
 `repack` rotates the side chains a model **has**. `substitute_peptide` strips past Cβ by design, so
 that path still returns 44 of 77 heavy atoms and cannot be scored at atom level at all. Needs ideal
 internal geometry per residue type. AlphaFold/TCRmodel output is full-atom, so `repack` already
-covers the common case — this is what the *substitution* path is waiting on. Rung 3 of item 1 needs the same machinery on the receptor side.
+covers the common case — this is what the *substitution* path is waiting on. Step 3 of item 1 needs the same machinery on the receptor side.
 
 ## 5. De novo peptide placement — PART 2 of the review
 

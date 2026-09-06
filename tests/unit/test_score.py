@@ -9,7 +9,7 @@ invertible affine map. The Jacobian belongs to the density.
 
 **What loses information under truncation is marginalization, not a determinant**, and for a
 Gaussian a marginal is a sub-block of Sigma. Every ``channel_scores`` value is such a sub-block, so
-this identity is load-bearing rather than decorative: if it did not hold, the channels would be a
+this identity is not decorative: if it did not hold, the channels would be a
 second model wearing the first one's name.
 
 **The frozen coefficients are reproducible from inputs that ship beside them.** This is the test

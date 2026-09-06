@@ -112,7 +112,7 @@ def test_weighted_contacts_emits_the_schema_the_derivation_reads(sites, model):
 
 
 def test_the_reduction_gate_probability_weighting_reproduces_the_plain_derivation(sites, model):
-    """The load-bearing test. At margin 0 the soft tally IS the hard tally, cell for cell."""
+    """At margin 0 the soft tally IS the hard tally, cell for cell."""
     post = contact_posterior(sites, model, margin=0.0, workers=1)
     soft = derive_tcren(weighted_contacts(post), weight_col="p_post")
     hard = derive_tcren(post.filter(pl.col("sigma") == 1).select(

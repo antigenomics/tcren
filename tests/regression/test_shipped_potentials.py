@@ -51,8 +51,7 @@ def _cli() -> list[str]:
     that was a uv tool editable install of 2.11.0 pinned at this same checkout: eighteen versions
     stale, with an editable finder still mapping the pre-2.29.0 flat layout, so it raised
     FileNotFoundError on src/tcren/mechanics.py the moment `mechanics` became a package. The test
-    then reported that the shipped potential does not reproduce from its recipe, which is a
-    load-bearing claim, on evidence about an install this repo does not control. Whenever it passed
+    then reported that the shipped potential does not reproduce from its recipe, on evidence about an install this repo does not control. Whenever it passed
     it passed by accident.
     """
     return [sys.executable, "-m", "tcren"]

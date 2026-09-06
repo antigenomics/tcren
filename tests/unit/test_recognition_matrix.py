@@ -1,6 +1,6 @@
 """The per-position recognition matrix — the CPL/motif-matrix generalisation of score_peptides.
 
-The load-bearing correctness property: the matrix decomposes the full interface score exactly, so
+The correctness property: the matrix decomposes the full interface score exactly, so
 summing each position's native-amino-acid energy must equal :func:`score_peptides` on the native
 sequence. Everything else (shapes, sides) follows from that.
 """
