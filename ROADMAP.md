@@ -106,6 +106,37 @@ built from its own sequence, rather than read off crystals of other receptors, i
 that changes that. The four panel-c receptors sit at the 95th, 97th, 72nd and 67th percentile of
 the contact-count distribution and are exactly the case rung 2b under-shoots.
 
+**Rung 3's target is now specified in geometry, not in scoring (2026-09-07).** The author's
+criterion is that the expected contact count reproduce the crystal's within **±3**, and that a
+contact probability be Beta distributed rather than sitting at p ≈ 0.5. Both hold at rung 1 and
+neither survives rung 2b, and the reason is not a calibration that could be tuned out
+(`$TCREN2_BENCH/bench/eda/out/geom_sharpen.md`, 366 crystals held out by structure):
+
+- **Rung 1 meets it.** MAE **2.78 contacts** against a mean of 20.90 observed (s.d. 6.27), bias
+  **−0.09**, **63.1 %** of crystals within ±3, Pearson **+0.856**. The map is Beta shaped there:
+  **3,164 of 58,868 in-reach pairs sit at p ≥ 0.8 and 91.6 % of them contact**, while the top 500
+  by probability carry mean p = 0.9890 against an observed rate of 0.9940.
+- **Rung 2b cannot be sharpened into it.** A logistic-power recalibration — monotone, so every
+  ROC-AUC is untouched — fits **γ = 1.009**: the map is already calibrated. If anything the top is
+  mildly over-confident, mean p 0.7040 against an observed 0.5880, so pushing it toward 1 would
+  assert what the crystals do not support. A quenched energy average, Boltzmann reweighting of
+  members by `log Z_s`, and a near-end quantile surface were each tried and each is worse; all four
+  are recorded so they are not re-tried.
+- **It is the envelope and the distance inside it.** The predicted map spreads 20.90 contacts over
+  **484 sites** where the crystal has **161**, prevalence 0.0477 against 0.1301. Truncating to the
+  top `0.8·Σp_avail` pairs reproduces rung 1's geometry almost exactly — 162 sites, prevalence
+  0.129, 91.6 % of true contacts retained — and the MAE does not move, so size alone is not it.
+- **The ceiling without a structure is MAE 4.65 and 41.3 % within ±3**, leave-one-out from loop
+  lengths, MHC class and envelope size together; `predict_contact_map` reaches 4.82 unaided. So ±3
+  is unreachable for any estimator built on an average over reference geometries, and rung 3 is the
+  only route to it.
+
+**So rung 3 has two quantitative targets, both geometric: place the interface in ~161 sites rather
+than 484, and place a contacting pair to about 1 Å** (measured 7.94 Å, placed at 10.02 Å; `g_dist`
+swings +5.77 at 4.5–5.0 Å to −2.33 at 11.0–11.5 Å). **The potential itself needs no further work
+for this** — at rung 1 it is calibrated across the whole range, bin ratios 0.92–1.28 and 0.99 in the
+top bin, with its level unbiased to −0.09 contacts.
+
 **How several lengths enter it is measured, not open (2026-09-07).** The registration question --
 does a longer CDR3 contact through a proportionally longer run, or through a fixed contiguous
 stretch -- was settled on 692 CDR3 loops from 360 crystals
