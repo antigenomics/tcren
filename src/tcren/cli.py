@@ -2408,6 +2408,7 @@ def potts_geom_cmd(
     structures: Path = typer.Option(..., "-s", "--structures", help="structure file, folder or glob"),
     out: Path = typer.Option("geom_prior.json", "-o", "--out"),
     grid: int = typer.Option(12, "--grid", help="surface resolution per axis"),
+    keep_surfaces: bool = typer.Option(False, "--keep-surfaces", help="keep one surface per crystal, not only their mean; requires an .npz --out"),
     exclude: str | None = typer.Option(None, "--exclude", help="comma-separated pdb.id list to leave out"),
     organism: str = typer.Option("human", "--organism", help="human|mouse for V(D)J annotation"),
 ) -> None:
@@ -2440,13 +2441,20 @@ def potts_geom_cmd(
             skipped += 1
             continue
         kept.append(st)
-    prior = fit_geom_prior(kept, grid=grid, notes=f"{structures} | grid={grid}"
+    if keep_surfaces and out.suffix.lower() != ".npz":
+        raise typer.BadParameter("--keep-surfaces needs an .npz --out; a stack of surfaces does "
+                                 "not fit in JSON")
+    prior = fit_geom_prior(kept, grid=grid, keep_surfaces=keep_surfaces,
+                           notes=f"{structures} | grid={grid}"
+                           + (" | surfaces kept" if keep_surfaces else "")
                            + (f" | excluded {sorted(drop)}" if drop else ""))
-    prior.to_json(out)
+    prior.to_npz(out) if out.suffix.lower() == ".npz" else prior.to_json(out)
     typer.echo(f"{seen} structures seen"
                + (f", {skipped} dropped (withdrawn or --exclude)" if skipped else "")
                + f", {prior.n_structures} contributed a surface; "
-                 f"wrote {out} ({len(prior.keys())} surfaces at grid {grid})")
+                 f"wrote {out} ({len(prior.keys())} surfaces at grid {grid}"
+               + (f", {sum(v.shape[0] for v in prior.surfaces.values())} kept" if keep_surfaces
+                  else "") + ")")
 
 
 #: Loop columns a ``--sequences`` manifest may carry, in the order `predicted_sites` keys them.
@@ -2454,17 +2462,21 @@ _GEOM_LOOPS: tuple[str, ...] = tuple(f"{c}:{r}" for c in ("TRA", "TRB")
                                      for r in ("CDR1", "CDR2", "CDR3"))
 
 
-def _load_geom(spec):
+def _load_geom(spec, *, ensemble: bool = False):
     """Resolve ``--geom-prior`` from ``None`` (the bundled prior), a bundled name, or a path."""
-    from .potts import BUNDLED_PRIOR, GeomPrior
+    from .potts import BUNDLED_ENSEMBLE, BUNDLED_PRIOR, GeomPrior
 
-    if spec is None or str(spec) == BUNDLED_PRIOR:
-        return GeomPrior.bundled()
+    if spec is None:
+        return GeomPrior.bundled(BUNDLED_ENSEMBLE if ensemble else BUNDLED_PRIOR)
+    if str(spec) in (BUNDLED_PRIOR, BUNDLED_ENSEMBLE):
+        return GeomPrior.bundled(str(spec))
     path = Path(spec)
     if path.exists():
-        return GeomPrior.from_json(path)
+        return (GeomPrior.from_npz(path) if path.suffix.lower() == ".npz"
+                else GeomPrior.from_json(path))
     raise typer.BadParameter(
-        f"geometry prior not recognised: {spec!r} (use {BUNDLED_PRIOR!r} or an existing JSON path)")
+        f"geometry prior not recognised: {spec!r} (use {BUNDLED_PRIOR!r}, {BUNDLED_ENSEMBLE!r}, "
+        f"or an existing .json/.npz path)")
 
 
 @potts_app.command("predict")
@@ -2473,7 +2485,9 @@ def potts_predict_cmd(
     structures: Path | None = typer.Option(None, "-s", "--structures", help="structure file, folder or glob"),
     sequences: Path | None = typer.Option(None, "--sequences", help="TSV/CSV of loop and peptide sequences; no structure at all"),
     model: str | None = typer.Option(None, "-m", "--model", help="bundled name (potts_tcr_peptide|potts_tcr_peptide_sc) or a model JSON path; default: potts_tcr_peptide"),
-    geom_prior: str | None = typer.Option(None, "--geom-prior", help="bundled name (geom_tcr_peptide) or a prior JSON path"),
+    geom_prior: str | None = typer.Option(None, "--geom-prior", help="bundled name (geom_tcr_peptide|geom_tcr_peptide_ens) or a prior .json/.npz path"),
+    ensemble: bool = typer.Option(False, "--ensemble", help="average over the reference geometries instead of over their surfaces; needs a prior carrying surfaces"),
+    members: int | None = typer.Option(None, "--members", help="with --ensemble, score only the first N reference geometries"),
     organism: str = typer.Option("human", "--organism", help="human|mouse for V(D)J annotation"),
     chains: int = typer.Option(64, "--chains", help="parallel Gibbs chains"),
     burn: int = typer.Option(100, "--burn"),
@@ -2501,13 +2515,35 @@ def potts_predict_cmd(
     and ``feasible``, which is false where no loop of that length could span the distance
     predicted — checked in closed form against :func:`tcren.geometry.reach_max` rather than
     against the fit.
+
+    ``--ensemble`` scores the map under every reference geometry in turn and averages the contact
+    probabilities, rather than scoring one map under their average. The distinction is not a
+    refinement: a mean surface places a contacting pair about 4 A too far out, because such a pair
+    sits at the near end of the distribution being averaged, and no per-pair average is a geometry
+    a chain could adopt, since consecutive Ca atoms are a fixed virtual bond apart. Held out by
+    structure over 364 crystals the ensemble expects 24.62 contacts against 21.02 observed
+    (ratio 1.17) where the mean surface expects 9.80 (ratio 0.47), and the contact ROC-AUC rises
+    from 0.9242 to 0.9325. It adds a ``p_avail`` column — the fraction of reference geometries
+    placing the pair within the radius at all — and costs about 0.16 s per member.
     """
-    from .potts import contact_probabilities, loops_from_structure, predicted_sites
+    from .potts import (contact_probabilities, loops_from_structure, predict_contact_map,
+                        predicted_sites)
 
     if (structures is None) == (sequences is None):
         raise typer.BadParameter("pass exactly one of -s/--structures or --sequences")
     m = _load_potts(model)
-    prior = _load_geom(geom_prior)
+    prior = _load_geom(geom_prior, ensemble=ensemble)
+    if ensemble and not prior.surfaces:
+        raise typer.BadParameter("--ensemble needs a prior carrying per-crystal surfaces; fit one "
+                                 "with `tcren potts geom --keep-surfaces -o prior.npz`")
+    gibbs = dict(chains=chains, burn=burn, draws=draws, thin=thin, seed=seed, workers=workers)
+
+    def _one(loops, pep, cls, pid):
+        """One map, either estimator. The ensemble path scores and averages in the same call."""
+        if not ensemble:
+            return predicted_sites(prior, loops, pep, mhc_class=cls, pdb_id=pid)
+        return predict_contact_map(prior, loops, pep, m, mhc_class=cls, pdb_id=pid,
+                                   members=members, **gibbs)
     frames, obs = [], []
     if sequences is not None:
         if not sequences.exists():
@@ -2526,8 +2562,7 @@ def potts_predict_cmd(
             loops = {c: str(row[c]) for c in cols if row[c]}
             if not loops:
                 continue
-            frames.append(predicted_sites(prior, loops, str(row["peptide"]),
-                                          mhc_class=str(cls[k]), pdb_id=str(ids[k])))
+            frames.append(_one(loops, str(row["peptide"]), str(cls[k]), str(ids[k])))
     else:
         from .potts import available_pairs
         # The prior is keyed on MHC class, so the groove has to be annotated to read it back.
@@ -2540,16 +2575,20 @@ def potts_predict_cmd(
                 continue
             cls = "MHCII" if any(getattr(c, "mhc_class", None) == "MHCII"
                                  for c in getattr(st, "mhc_calls", []) or []) else "MHCI"
-            frames.append(predicted_sites(prior, loops, pep, mhc_class=cls, pdb_id=st.pdb_id))
+            frames.append(_one(loops, pep, cls, st.pdb_id))
             obs.append(available_pairs(st, "peptide"))
     frames = [f for f in frames if not f.is_empty()]
     if not frames:
         raise typer.BadParameter("no predicted residue pairs — were any loops and peptides found?")
     sites = pl.concat(frames)
-    probs = contact_probabilities(sites.drop("d_ca_sd", "feasible"), m, chains=chains, burn=burn,
-                                  draws=draws, thin=thin, seed=seed, workers=workers)
     key = ["pdb.id", "chain.rec", "region.rec", "pos.rec", "pos.par"]
-    probs = probs.join(sites.select(*key, "d_ca_sd", "feasible"), on=key, how="left")
+    if ensemble:
+        probs = sites          # already scored and averaged, one row per site
+    else:
+        probs = contact_probabilities(sites.drop("d_ca_sd", "feasible"), m, chains=chains,
+                                      burn=burn, draws=draws, thin=thin, seed=seed,
+                                      workers=workers)
+        probs = probs.join(sites.select(*key, "d_ca_sd", "feasible"), on=key, how="left")
     if obs:
         # `sigma` on a predicted frame is a placeholder; where a crystal was read, replace it with
         # what that crystal did, so the row scores itself instead of reporting a zero as a fact.

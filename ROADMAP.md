@@ -72,6 +72,11 @@ Off this roadmap or off the manuscript's needs; [CHANGELOG.md](CHANGELOG.md) is 
   structure, the predicted 15 Å envelope holds 7,399 of 7,687 crystal contacts (96.25 %) and the
   coupled model reads the crystal's indicator inside it at median ROC-AUC 0.8310 over 361
   structures. This is rung 2 of item 1 below.
+- **v3.7.0** — **the predicted map recovers the contact count.** `predict_contact_map` /
+  `potts predict --ensemble` score under each reference geometry and average the probabilities
+  rather than scoring one map read off their mean; `geom_tcr_peptide_ens` keeps 2,154 surfaces at
+  grid 32. Expected contacts 0.47× → 1.17× observed and contact ROC-AUC 0.9242 → 0.9325, held out
+  over 364 crystals. Rung 2b.
 
 ## Open
 
@@ -85,15 +90,21 @@ Ranked by what each unblocks. Every row names what is missing, not what would be
 |---|---|---|---|
 | 1 | the complex's own coordinates | **yes** | `available_pairs`, shipped |
 | 2 | superimposed crystals, graphon-averaged | no | `geom_tcr_peptide`, shipped in 3.6.0 |
+| 2b | superimposed crystals, scored one at a time and averaged | no | `geom_tcr_peptide_ens`, shipped in 3.7.0 |
 | 3 | a parametric loop, no crystal coordinates | no | **open** |
 
-Rung 2 already delivers "score from sequence"; what rung 3 changes is the parameterisation, and
-with it the two things rung 2 measurably gives up. It places a pair about **1.5 Å further out**
-than the crystal does (mean predicted d_Cα 12.46 Å against 10.87 Å on four receptors), so the
-distance term deflates the layer and the expected contact count on 2b4 falls 24.6 → 4.9: the
-**ordering** survives and the **level** does not. And a 12 × 12 averaged surface cannot represent a
-loop whose tip sits far from the mean, which is exactly the receptor a template-free method is
-wanted for.
+Rung 2 already delivers "score from sequence", and 3.7.0 closed the level gap that rung 2 opened:
+averaging over the reference geometries rather than over their surfaces reads **24.62 expected
+contacts against 21.02 observed** (ratio 1.17, n = 364 held out by structure) where the averaged
+surface reads 9.80 (ratio 0.47), with the contact ROC-AUC rising 0.9242 → 0.9325.
+
+**What rung 3 is now for is the one thing rung 2b cannot do: a count specific to one receptor.**
+Because the average is linear, the expected count is the mean over reference geometries of each
+one's own total, so it necessarily returns the level of a typical interface — Pearson **+0.23**
+against the observed count, MAE **5.95** contacts against a population s.d. of **6.08**. A loop
+built from its own sequence, rather than read off crystals of other receptors, is the only thing
+that changes that. The four panel-c receptors sit at the 95th, 97th, 72nd and 67th percentile of
+the contact-count distribution and are exactly the case rung 2b under-shoots.
 
 Three pieces, two of which exist:
 

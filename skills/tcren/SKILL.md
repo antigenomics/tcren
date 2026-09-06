@@ -50,6 +50,7 @@ Four things were added on top of it and one shipped number moved.
 | **3.4.0** | **The self-consistent arm became addressable from the command line.** `tcren2_em` resolves as a bundled potential name (`-p`, `--tcr-peptide-potential`, `--coupling-matrix`) and `potts_tcr_peptide_sc` as a bundled model name (`-m`); before this both shipped in the wheel with Python loaders only, so a three-matrix comparison could not be run from a shell script. `tcren score` gained `--delta` with `--reference structural|virtual`, and `-c` gained the per-template manifest. |
 
 | **3.5.0** | **`tcren potential-table -p <name\|path> -o <csv>`** writes out the residue-pair table behind `-p`, long form, resolved by the same name `score`/`ddg`/`cpl`/`rank` resolve. Nothing is computed; it is the shipped matrix. |
+| **3.7.0** | **The predicted map recovers the contact count.** `predict_contact_map` / `tcren potts predict --ensemble` average over the reference geometries instead of over their surfaces; the shipped `geom_tcr_peptide_ens` keeps 2,154 surfaces at grid 32. Expected contacts go from 0.47x observed to 1.17x and the contact ROC-AUC from 0.9242 to 0.9325, held out over 364 crystals. |
 | **3.6.0** | **A contact map can be scored with no structure of the complex.** The Ca geometry prior `geom_tcr_peptide` ships (359 alpha-beta `Native2026` crystals, twelve surfaces at grid 12), `tcren potts geom` fits one and `tcren potts predict` scores a map from it. `--sequences` reads no structure at all. See *Placing a contact without a structure* below. |
 
 New surface in 3.3.0, all of it bootstrap and batching rather than analysis:
@@ -414,6 +415,38 @@ prior = GeomPrior.bundled()                                  # or GeomPrior.from
 sites = predicted_sites(prior, loops_from_structure(s), peptide)
 contact_probabilities(sites.drop("d_ca_sd", "feasible"), PottsModel.bundled())
 ```
+
+**Average over geometries, not over surfaces (3.7.0).** Reading one map off the mean surface loses
+more than half the contacts, and the fix is an order of operations, not a parameter. A contacting
+pair sits at the near end of the distribution being averaged — the predicted distance runs 2.6–4.5 A
+long on the pairs that actually contact against 0.2–2.3 A over all of them — and the distances in
+one map are not independent, since consecutive Ca atoms are a fixed virtual bond apart, so no set
+of per-pair marginals recombines into a geometry a chain could adopt. `predict_contact_map` scores
+the map under **each** reference crystal's geometry and averages the probabilities; every member is
+a chain that was actually solved, so the constraint holds by construction.
+
+```
+tcren potts geom    -s structures/ --grid 32 --keep-surfaces -o prior.npz
+tcren potts predict --sequences loops.tsv --ensemble -m potts_tcr_peptide_sc -o pred.tsv
+```
+
+```python
+ens = GeomPrior.bundled("geom_tcr_peptide_ens")              # 2,154 surfaces, grid 32, 3.5 MB
+predict_contact_map(ens, loops, peptide, PottsModel.bundled("potts_tcr_peptide_sc"))
+```
+
+| estimator | mean sum p | ratio to observed | median contact ROC-AUC |
+|---|---|---|---|
+| mean surface | 9.80 | 0.466 | 0.9242 |
+| **geometry ensemble** | **24.62** | **1.171** | **0.9325** |
+
+Held out by structure over 364 `Native2026` crystals, against 21.02 contacts observed per structure
+on CDR1-CDR3 (median 21, s.d. 6.08). Both the level and the ordering improve. `--keep-surfaces`
+needs an `.npz` out; the scored table gains `p_avail`, the fraction of reference geometries placing
+the pair in reach at all. What it does **not** buy is receptor specificity: the predicted count
+correlates with the observed one at Pearson +0.23 only, and the per-structure MAE of 5.95 contacts
+is about the population spread. It places the typical interface at the right level, which is what
+loop lengths alone can carry.
 
 - **`-s` reads the structure for its loop sequences, its peptide and its MHC class only**, and
   joins the crystal's own `sigma` and `d_ca` back on so the table scores itself. **`--sequences`

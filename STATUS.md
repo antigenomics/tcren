@@ -21,7 +21,8 @@ per-release record and `data/potentials.json` the reproduction manifest.
 | `tcren2_em` | the same estimator over every **available** pair, each weighted by its contact probability | the self-consistent loop of `potts selfcon`, converged at step 9 | `TCRen2_sc_potential.csv` |
 | **`potts_tcr_peptide`** *(default)* | `P(sigma)` over the 15 A Ca site set: one-body field plus couplings between pairs sharing a residue | penalised pseudolikelihood, pair term pinned to `tcren2` | `potts_tcr_peptide.json` |
 | `potts_tcr_peptide_sc` | the same model, pair term pinned to `tcren2_em` | refitted at every step of the self-consistent loop | `potts_tcr_peptide_sc.json` |
-| `geom_tcr_peptide` | `P(d_ca \| loop, i, L, j, M, MHC class)` — the Ca distance matrix itself | graphon average over the same 359 crystals, superimposed; 12 surfaces at grid 12 | `geom_tcr_peptide.json` |
+| `geom_tcr_peptide` | `P(d_ca \| loop, i, L, j, M, MHC class)` — the Ca distance matrix itself | graphon **average** over the same 359 crystals, superimposed; 12 surfaces at grid 12 | `geom_tcr_peptide.json` |
+| **`geom_tcr_peptide_ens`** | the same distributions, **kept** rather than averaged | one registered surface per contributing crystal, same 359; 2,154 surfaces at grid 32 | `geom_tcr_peptide_ens.npz` |
 
 Two things not to relearn:
 
@@ -35,8 +36,20 @@ Two things not to relearn:
   recipe only under `RUN_BENCHMARK=1`; every other entry still reproduces at 1e-9.
 
 The geometry prior is what makes the site set itself reachable without a structure. `available_pairs`
-reads `d_ca` off the coordinates; `potts predict` reads it off `geom_tcr_peptide` instead, so a
+reads `d_ca` off the coordinates; `potts predict` reads it off the geometry prior instead, so a
 contact map can be placed and scored from loop and peptide sequences alone.
+
+**Average over geometries, not over surfaces (3.7.0).** The two geometry priors are one model used
+two ways, and the difference is the order of operations, not a parameter. Scoring one map read off
+the *mean* surface reads 9.80 expected contacts against 21.02 observed (ratio 0.47, n = 364 held-out
+crystals), because a contacting pair sits at the near end of the distribution being averaged --- 7.94 Å
+measured, placed at 10.90 Å over 7,651 contacting pairs --- and because per-pair averages need not
+describe a chain any loop could adopt, consecutive Ca atoms being a fixed virtual bond apart.
+Scoring under **each** reference geometry and averaging the probabilities (`predict_contact_map`,
+`potts predict --ensemble`) reads 24.62, a ratio of 1.17, and raises the contact ROC-AUC from
+0.9242 to 0.9325. It does not give a count specific to one receptor: Pearson +0.23 against the
+observed count, MAE 5.95 contacts against a population s.d. of 6.08. Record:
+`$TCREN2_BENCH/bench/eda/out/geom_ensemble.md`.
 
 
 The recommended read-out is the **score set** (`tcren.score`), and it is two commands:

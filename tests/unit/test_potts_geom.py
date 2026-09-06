@@ -200,3 +200,65 @@ def test_a_non_standard_residue_is_dropped_not_crashed_on(shipped):
     sites = predicted_sites(shipped, {"TRB:CDR3": "ASSXGELF"}, "GILXFVFTL")
     assert sites.height
     assert "X" not in set(sites["aa.rec"]) and "X" not in set(sites["aa.par"])
+
+
+@pytest.fixture(scope="module")
+def ens():
+    """The shipped ENSEMBLE prior: one surface per contributing crystal, not their mean."""
+    from tcren.potts import BUNDLED_ENSEMBLE, GeomPrior
+    return GeomPrior.bundled(BUNDLED_ENSEMBLE)
+
+
+def test_the_ensemble_prior_ships_and_keeps_one_surface_per_crystal(ens):
+    assert ens.surfaces is not None
+    assert ens.grid == 32
+    for chain in ("TRA", "TRB"):
+        for region in REGIONS_MODELLED:
+            for cls in ("MHCI", "MHCII"):
+                k = f"{chain}:{region}|{cls}"
+                assert ens.surfaces[k].shape == (ens.n[k], 32, 32)
+    assert ens.n["TRB:CDR3|MHCI"] == 265
+    assert ens.n["TRB:CDR3|MHCII"] == 94
+
+
+def test_the_ensemble_readback_is_one_geometry_per_member(ens):
+    """Each slice is one crystal carried to the target lengths, not a per-cell average."""
+    from tcren.potts import predicted_ensemble
+    d = predicted_ensemble(ens, "TRB", "CDR3", loop_len=13, pep_len=9, mhc_class="MHCI")
+    assert d.shape == (ens.n["TRB:CDR3|MHCI"], 13, 9)
+    # the mean of the members is the mean surface; no member is that mean
+    assert not np.allclose(d.min(axis=0), d.mean(axis=0))
+
+
+def test_averaging_over_geometries_beats_averaging_the_surfaces(ens, shipped, structures):
+    """The whole point: the mean surface loses the contact count, the ensemble keeps it.
+
+    Measured over 364 held-out crystals the ensemble expects 24.62 contacts against 21.02
+    observed and the mean surface 9.80; this asserts the direction and the rough scale on one
+    structure, which is what a unit test can carry.
+    """
+    from tcren.potts import contact_probabilities, predict_contact_map
+    m = PottsModel.bundled("potts_tcr_peptide_sc")
+    s = next(x for x in structures if x.pdb_id == "1ao7")
+    pep = next(c.sequence() for c in s.chains if c.chain_type == "PEPTIDE")
+    loops = loops_from_structure(s)
+
+    flat = predicted_sites(shipped, loops, pep)
+    flat = contact_probabilities(flat.drop("d_ca_sd", "feasible"), m, workers=1)
+    ens_map = predict_contact_map(ens, loops, pep, m, members=24, workers=1)
+
+    assert ens_map.height
+    assert ens_map["p_model"].is_between(0.0, 1.0).all()
+    assert ens_map["p_avail"].is_between(0.0, 1.0).all()
+    assert ens_map["p_model"].sum() > 2.0 * flat["p_model"].sum()
+
+
+def test_the_npz_round_trip_keeps_the_stack(tmp_path, ens):
+    from tcren.potts import GeomPrior
+    p = tmp_path / "g.npz"
+    ens.to_npz(p)
+    back = GeomPrior.from_npz(p)
+    assert sorted(back.surfaces) == sorted(ens.surfaces)
+    # stored as hundredths of an angstrom, so equality holds to the model's own resolution
+    for k, v in ens.surfaces.items():
+        assert np.allclose(back.surfaces[k], v, atol=0.01)

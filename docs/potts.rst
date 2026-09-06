@@ -444,6 +444,68 @@ The difference from :func:`tcren.potts.contact_probabilities` on ``available_pai
 model — it is the same Hamiltonian and the same block Gibbs — but **what the 15 A cut is applied
 to**: there, the Ca distance the complex was solved at; here, the distance the surface predicts.
 
+Average over geometries, not over surfaces
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Everything above scores **one** map, read off the mean surface. That is the wrong order of
+operations, and it costs most of the map. Two reasons, and neither is a matter of degree:
+
+* A contacting pair sits at the **near end** of the distribution being averaged. Over every pair
+  the measured and predicted geometries share, the predicted :math:`d_{\mathrm{C}\alpha}` runs
+  0.2–2.3 A long; over the pairs that actually contact it runs **2.6–4.5 A** long. The model's
+  distance term swings from :math:`+5.77` at 4.5–5.0 A to :math:`-2.33` at 11.0–11.5 A, so those
+  angstroms are worth about four natural-log units of one-body field.
+* **The distances in one map are not independent.** Consecutive C\ :math:`\alpha` atoms are a
+  fixed virtual bond apart and a loop cannot bend arbitrarily, so no set of per-pair marginals
+  recombines into a geometry a chain could adopt. Averaging them lets every pair be close at once.
+
+:func:`tcren.potts.predict_contact_map` averages the other way round. Every crystal in
+:attr:`tcren.potts.GeomPrior.surfaces` is read back at the target lengths, the map is scored under
+*that* geometry, and the contact probabilities are averaged:
+
+.. math::  \bar p_a = \frac{1}{S}\sum_{s} p_a\big(d^{(s)}\big)\,
+           \mathbb{1}\big[d^{(s)}_a \le r\big]
+
+Every member is a chain that was actually solved, so the virtual-bond constraint holds by
+construction. Held out by structure over **364** ``Native2026`` crystals:
+
+.. list-table::
+   :header-rows: 1
+
+   * - estimator
+     - mean :math:`\sum_a p_a`
+     - ratio to observed
+     - median contact ROC-AUC
+   * - mean surface
+     - 9.80
+     - 0.466
+     - 0.9242
+   * - **geometry ensemble**
+     - **24.62**
+     - **1.171**
+     - **0.9325**
+
+against **21.02** contacts observed per structure on CDR1–CDR3 (median 21, s.d. 6.08). Both the
+level and the ordering improve; the mean surface loses more than half the contacts.
+
+.. code-block:: console
+
+   tcren potts geom -s <structures> --grid 32 --keep-surfaces -o prior.npz
+   tcren potts predict --sequences loops.tsv --ensemble -m potts_tcr_peptide_sc -o predicted.tsv
+
+``--keep-surfaces`` needs an ``.npz`` output, because a stack of surfaces does not fit in JSON;
+distances are stored to 0.01 A as ``uint16``, four decimal places finer than the 0.5 A bin the
+model reads. The shipped ``geom_tcr_peptide_ens`` carries **2,154** surfaces from the same 359
+crystals at grid 32, 3.5 MB, and ``--ensemble`` selects it by default. The scored table gains
+``p_avail``, the fraction of reference geometries placing that pair within the radius at all, and
+costs about 0.16 s per member.
+
+What the ensemble does **not** buy is receptor specificity: the correlation between the predicted
+and the observed contact count across the 364 structures is Pearson :math:`+0.23`
+(Spearman :math:`+0.18`), and the per-structure mean absolute error, 5.95 contacts, is about the
+spread of the population itself. It predicts the typical interface at the right level, which is
+what loop lengths alone can carry.
+
 Reproducing a referenced score
 ------------------------------
 

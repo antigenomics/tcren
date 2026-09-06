@@ -3,6 +3,49 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
+## [3.7.0] — 2026-09-07
+
+**The predicted contact map recovers the contact count.** 3.6.0 scored one map read off the mean
+Cα surface, and that map carried a fifth of the contacts the crystal makes. The defect was the
+order of operations, not the parameterisation: a contacting pair sits at the near end of the
+distribution being averaged, so the mean places it **2.6–4.5 Å too far out** (against 0.2–2.3 Å
+over all pairs), and the distances within one map are not independent — consecutive Cα atoms are a
+fixed virtual bond apart — so no set of per-pair marginals recombines into a geometry a chain could
+adopt.
+
+### Added
+
+- `tcren.potts.predict_contact_map` — scores the map under **each** reference crystal's geometry
+  and averages the contact probabilities, rather than scoring one map under their average. Every
+  member is a chain that was actually solved, so the virtual-bond constraint holds by construction.
+  Held out by structure over 364 `Native2026` crystals, against 21.02 contacts observed per
+  structure on CDR1–CDR3 (median 21, s.d. 6.08):
+
+  | estimator | mean Σp | ratio to observed | median contact ROC-AUC |
+  |---|---|---|---|
+  | mean surface | 9.80 | 0.466 | 0.9242 |
+  | **geometry ensemble** | **24.62** | **1.171** | **0.9325** |
+
+  Both the level and the ordering improve. One batched `contact_probabilities` call scores every
+  member — the sampler already splits by structure, and a member is exactly a structure to it.
+- `geom_tcr_peptide_ens` ships in the wheel: 2,154 registered surfaces from the same 359 αβ
+  `Native2026` crystals at grid 32, 3.5 MB, distances stored to 0.01 Å as `uint16`.
+  `GeomPrior.bundled()` resolves `.npz` before `.json`, so an ensemble prior and a mean-only one
+  are asked for the same way.
+- `GeomPrior.surfaces`, `GeomPrior.ensemble`, `to_npz` / `from_npz`, `predicted_ensemble`, and
+  `fit_geom_prior(..., keep_surfaces=True)`.
+- `tcren potts geom --keep-surfaces` (requires an `.npz` `--out`) and
+  `tcren potts predict --ensemble [--members N]`. The scored table gains `p_avail`, the fraction of
+  reference geometries placing that pair within the radius at all.
+
+### Unchanged
+
+`geom_tcr_peptide` and `predicted_sites` are untouched and remain the default, so nothing fitted
+against 3.6.0 moves. What the ensemble does **not** buy is receptor specificity: the predicted
+count correlates with the observed one at Pearson +0.23 (Spearman +0.18) and the per-structure MAE
+of 5.95 contacts is about the spread of the population itself. It places the typical interface at
+the right level, which is what loop lengths alone can carry.
+
 ## [3.6.0] — 2026-09-06
 
 **A contact map can be scored without a structure of the complex.** `tcren.potts.geom` modelled the

@@ -45,7 +45,7 @@ should name the block it serves.
 | 1 | **CPL** | peptide ranking for a fixed receptor | `tcren.ddg` (`ddg`, `neoantigen_ddg`, `reference_delta`), `tcren pipeline --delta` |
 | 2 | **TCRvdb** | receptor ranking for a fixed epitope, functionally validated | `tcren features`, `tcren assess`, `tcren.score.binder_score`, and the fit-free tier `cohort.q_score` / `reliability.t_score` / `reliability.s_score` |
 | 3 | **VDJdb panel** | receptor ranking under template scarcity | the same, plus the template covariate being reportable rather than inferred |
-| 4 | **Kinetics / ergodicity** | the licence to score one static structure, and magnitude | the three per-interface contact energies, `tcren.potts` contact marginals, the occupancy law, and — since 3.6.0 — the same marginals with the Cα geometry *modelled*: `tcren potts geom`, `tcren potts predict`, `geom_tcr_peptide` |
+| 4 | **Kinetics / ergodicity** | the licence to score one static structure, and magnitude | the three per-interface contact energies, `tcren.potts` contact marginals, the occupancy law, and — since 3.6.0 — the same marginals with the Cα geometry *modelled*: `tcren potts geom`, `tcren potts predict --ensemble`, `geom_tcr_peptide_ens` |
 | 5 | **ipTM / pLDDT diagnostics** | which confident complexes are not real, and whether the confidence is warranted | `tcren assess`, `tcren.score.confidence_residual`, `tcren.score.pose_score`, `reliability.af_band` |
 
 Blocks 1-2 are the two ranking tasks; block 3 is the same task in the regime the applied question
@@ -68,11 +68,25 @@ divides under template coverage, and a macro number over the two strata is a Sim
 crystals `tcren2` is derived from — and `tcren potts predict --sequences` scores a map with **no
 structure read at all**. Held out by structure the predicted 15 Å envelope holds **7,399 of 7,687
 crystal contacts (96.25 %)** against the crystal's own envelope at 99.78 %, and the coupled model
-reads the crystal's indicator inside it at **median ROC-AUC 0.8310** over 361 structures. The
-ordering survives; the **level does not** — an averaged surface places a pair ~1.5 Å further out
-and the expected contact count on 2b4 falls 24.6 → 4.9, which is a calibration gap and not a
-ranking one. This is rung 2 of the ladder in `ROADMAP.md` §1; rung 3, a parametric loop with no
-crystal coordinates anywhere, is open.
+reads the crystal's indicator inside it at **median ROC-AUC 0.8310** over 361 structures.
+
+**Average over geometries, not over surfaces (3.7.0).** Scoring one map read off the *mean* surface
+recovered less than half the contacts, and the fix is an order of operations rather than a
+parameter. A contacting pair sits at the near end of the distribution being averaged — measured
+**7.94 Å**, placed at **10.90 Å** over 7,651 contacting pairs in 364 crystals — and per-pair
+averages need not describe a chain any loop could adopt, consecutive Cα atoms being a fixed virtual
+bond apart. `predict_contact_map` / `tcren potts predict --ensemble` score under **each** reference
+geometry and average the probabilities, which makes every sample a solved chain: **24.62 expected
+contacts against 21.02 observed** (ratio 1.17) where the mean surface reads 9.80 (ratio 0.47), and
+the contact ROC-AUC rises **0.9242 → 0.9325**. Both the level and the ordering improve, so this
+supersedes the mean-surface reading rather than qualifying it. `geom_tcr_peptide_ens` ships the
+2,154 kept surfaces; `geom_tcr_peptide` is untouched and still the default of `predicted_sites`.
+
+**What it does not buy is a count specific to one receptor** — Pearson +0.23 against the observed
+count, MAE 5.95 contacts against a population s.d. of 6.08 — because a linear average over
+reference geometries returns the level of a typical interface. That is rung 3 of the ladder in
+`ROADMAP.md` §1, a parametric loop with no crystal coordinates anywhere, and it is open. Record:
+`$TCREN2_BENCH/bench/eda/out/geom_ensemble.md`.
 
 **Bigot is block-3 tier; Bobisse is not.** Both score a poly-V placeholder peptide, but the
 templates are opposite. Bigot's 14 receptors have **no deposited ternary complex** — 0 of 14 CDR3α
