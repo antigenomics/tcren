@@ -1931,7 +1931,8 @@ def _potts_markup(s) -> dict:
 
 
 def _potts_pairs(structures: Path, partner: str, *, radius: float, cutoff: float,
-                 receptor: str = "tcr", organism: str = "human", alphabeta: bool = True):
+                 receptor: str = "tcr", organism: str = "human", alphabeta: bool = True,
+                 probe: float | None = None):
     """Available residue pairs for a structure, a folder or a glob — annotated in batches.
 
     ``partner="mhc"``, ``"both"`` and ``receptor="mhc"`` additionally need the MHC groove regions,
@@ -1944,6 +1945,7 @@ def _potts_pairs(structures: Path, partner: str, *, radius: float, cutoff: float
     """
     from .potts import available_pairs
     from .structure import structure_id_from_path, structure_paths
+    kw = {} if probe is None else {"probe": probe}
 
     paths = structure_paths(structures)
     need_mhc = partner in ("mhc", "both") or receptor == "mhc"
@@ -1972,7 +1974,7 @@ def _potts_pairs(structures: Path, partner: str, *, radius: float, cutoff: float
             seen += 1
             if alphabeta and not _is_alphabeta(s):
                 continue
-            fr = [available_pairs(s, pt, receptor=receptor, radius=radius, cutoff=cutoff)
+            fr = [available_pairs(s, pt, receptor=receptor, radius=radius, cutoff=cutoff, **kw)
                   for pt in parts]
             fr = [f for f in fr if not f.is_empty()]
             if not fr:
@@ -2044,6 +2046,13 @@ def potts_fit_cmd(
         None, "--balance", help="down-weight structure redundancy: epitope|tcr|both"),
     ridge: float = typer.Option(1.0, "--ridge", help="L2 penalty on every coefficient but the intercept"),
     pairs_out: Path | None = typer.Option(None, "--pairs-out", help="also write the site table"),
+    em: bool = typer.Option(False, "--em", help="treat the borderline contact calls as latent and "
+                                                "run Monte-Carlo EM around the pseudolikelihood fit"),
+    em_margin: float = typer.Option(0.5, "--em-margin", help="half-width of the latent band around --cutoff, A"),
+    em_draws: int = typer.Option(5, "--em-draws", help="completions per E-step"),
+    em_steps: int = typer.Option(10, "--em-steps", help="maximum EM iterations"),
+    em_trace_out: Path | None = typer.Option(None, "--em-trace-out", help="write the EM trace here"),
+    seed: int = typer.Option(0, "--seed"),
 ) -> None:
     """Fit the coupled contact-map model to a set of structures.
 
@@ -2062,8 +2071,11 @@ def potts_fit_cmd(
         raise typer.BadParameter("--receptor mhc pairs with --partner peptide")
     from .potts import MHC_RECEPTOR_REGIONS, fit_potts, kernel_table
 
+    # EM needs to know how far a NON-contact missed by, so the heavy-atom layer is measured past
+    # the cutoff. `sigma` is still called at `cutoff`, so the pair table is otherwise identical.
     pairs, markup = _potts_pairs(structures, partner, receptor=receptor,
-                                 radius=radius, cutoff=cutoff)
+                                 radius=radius, cutoff=cutoff,
+                                 probe=cutoff + em_margin if em else None)
     weights = None
     if balance is not None:
         axes = {"epitope": (("peptide",),), "tcr": (("cdr3a", "cdr3b"),),
@@ -2077,6 +2089,21 @@ def potts_fit_cmd(
                       joint=(partner == "both") or None,
                       regions=MHC_RECEPTOR_REGIONS if receptor == "mhc" else None,
                       notes=str(structures))
+    if em:
+        from .potts import consistency, fit_potts_em
+        pl_model = model
+        model, trace = fit_potts_em(
+            pairs, init=pl_model, margin=em_margin, draws=em_draws, steps=em_steps, seed=seed,
+            radius=radius, cutoff=cutoff, couplings=couplings, coupling_matrix=coupling_matrix,
+            weights=weights, ridge=ridge, joint=(partner == "both") or None,
+            regions=MHC_RECEPTOR_REGIONS if receptor == "mhc" else None, notes=str(structures))
+        with pl.Config(tbl_rows=25, tbl_hide_dataframe_shape=True):
+            typer.echo(str(trace))
+            typer.echo("EM against the pseudolikelihood fit, per parameter block:")
+            typer.echo(str(consistency(pl_model, model)))
+        if em_trace_out is not None:
+            trace.write_csv(em_trace_out, separator="\t")
+            typer.echo(f"wrote {em_trace_out}")
     model.to_json(out)
     if pairs_out is not None:
         pairs.write_csv(pairs_out, separator="\t")
@@ -2190,6 +2217,71 @@ def potts_map_cmd(
     table.write_csv(out, separator="\t")
     typer.echo(f"wrote {out} ({table.height} rows, --by {by}, over "
                f"{table['pdb.id'].n_unique()} structures)")
+
+
+@potts_app.command("ensemble")
+def potts_ensemble_cmd(
+    structures: Path = typer.Option(..., "-s", "--structures", help="structure file, folder or glob"),
+    out: Path = typer.Option("potts_ensemble.tsv", "-o", "--out"),
+    model: Path | None = typer.Option(None, "-m", "--model", help="model JSON; default: bundled"),
+    potential: Path | None = typer.Option(None, "-p", "--potential", help="TCR:peptide potential CSV; default TCRen2"),
+    maps: Path | None = typer.Option(None, "--maps", help="also write the ranked configurations here"),
+    by: str = typer.Option("position", "--by", help="configuration grouping: position|loop|pair"),
+    top_k: int = typer.Option(20, "-k", "--top-k", help="configurations kept per structure"),
+    beta: float = typer.Option(1.0, "--beta", help="inverse temperature in the free energy"),
+    anchor: str = typer.Option("observed", "--anchor", help="chain start: observed|random"),
+    partner: str = typer.Option("peptide", "--partner", help="peptide|mhc|both"),
+    chains: int = typer.Option(64, "--chains", help="parallel Gibbs chains"),
+    burn: int = typer.Option(100, "--burn"),
+    draws: int = typer.Option(100, "--draws"),
+    thin: int = typer.Option(3, "--thin"),
+    seed: int = typer.Option(0, "--seed"),
+    workers: int | None = typer.Option(None, "-w", "--workers", help="processes; default all cores"),
+) -> None:
+    """Ensemble read-outs of the interaction energy, and the contact configurations themselves.
+
+    ``tcren potts contacts`` gives the per-site marginal, which settles the *mean* interaction
+    energy and nothing else -- the energy is linear in the contact indicator, so
+    ``<Phi> = sum_a p_a phi_a`` exactly. This command carries what the marginals cannot determine:
+    ``phi_var``, the spread of the energy across the maps the interface actually visits;
+    ``phi_free``, the Boltzmann free energy ``-1/beta log <exp(-beta Phi)>``; and ``map_entropy``,
+    how many contact maps it is choosing between.
+
+    ``--maps`` additionally writes the ranked configurations with their probabilities. They are
+    coarse-grained by ``--by`` because a site-level map never recurs: on a 174-site interface every
+    one of 6,400 draws is distinct, while the peptide-position engagement pattern collapses to 41
+    with the most likely at 0.32.
+    """
+    from .potential import Potential, tcren2
+    from .potts import PottsModel, energy_ensemble, map_ensemble
+    from .provenance import stamp
+
+    if anchor not in ("observed", "random"):
+        raise typer.BadParameter("--anchor must be observed|random")
+    if by not in ("position", "loop", "pair"):
+        raise typer.BadParameter("--by must be one of position|loop|pair")
+    m = PottsModel.from_json(model) if model else PottsModel.bundled()
+    pot = Potential.from_csv(potential) if potential else tcren2()
+    pairs, _ = _potts_pairs(structures, partner, radius=m.radius, cutoff=m.cutoff)
+    table = energy_ensemble(pairs, m, pot, beta=beta, anchor=anchor, chains=chains, burn=burn,
+                            draws=draws, thin=thin, seed=seed, workers=workers)
+    if not table.height:
+        # Every row failing is an environment fault, not a data one; exiting 0 with an empty table
+        # makes the caller die on a missing column several stages downstream of the real cause.
+        typer.secho(f"no structure yielded an ensemble from {structures}", fg="red", err=True)
+        raise typer.Exit(1)
+    table.write_csv(out, separator="\t")
+    stamp(out, command="potts ensemble", columns=table.columns,
+          extra={"partner": partner, "beta": beta, "anchor": anchor, "potential": pot.name,
+                 "chains": chains, "burn": burn, "draws": draws, "thin": thin, "seed": seed})
+    typer.echo(f"wrote {out} ({table.height} structures)")
+    if maps is not None:
+        cfg = map_ensemble(pairs, m, pot, by=by, top_k=top_k, chains=chains, burn=burn,
+                           draws=draws, thin=thin, seed=seed, workers=workers)
+        cfg.write_csv(maps, separator="\t")
+        stamp(maps, command="potts ensemble --maps", columns=cfg.columns,
+              extra={"by": by, "top_k": top_k, "seed": seed})
+        typer.echo(f"wrote {maps} ({cfg.height} configurations, --by {by})")
 
 
 @potts_app.command("scan")

@@ -463,6 +463,158 @@ frame's own minimum, or a model fitted on one set indexes the wrong coefficients
 `psi` (log-likelihood per available pair), not `log_lik`, is the column to compare across
 interfaces of different size.
 
+## Placing a pair without a template — `tcren.potts.geom`
+
+`available_pairs` reads `d_ca` off a structure, so every Potts read-out is conditional on holding a
+template of the right shape — and lengths are not evenly covered. `tcren.potts.geom` models the
+distance matrix instead, `P(d_ca | loop, i, L, j, M, MHC class)`, and emits the SAME schema
+`available_pairs` emits, so `site_codes`, `eta` and every scoring function accept it unchanged.
+
+```python
+from tcren.potts import fit_geom_prior, loops_from_structure, predicted_sites, GeomPrior
+
+prior = fit_geom_prior(iter_annotated_set(struct_dir), grid=12)   # ONE batched annotation pass
+prior.to_json("geom_prior.json")
+loops = loops_from_structure(s)          # {"TRA:CDR3": "CAV...", "TRB:CDR1": "...", ...}
+sites = predicted_sites(prior, loops, peptide, mhc_class="MHCI", radius=15.0)
+```
+
+**Length generalisation is the normalised coordinate, not the parameterisation.** A loop of length
+`L` against a peptide of length `M` is resampled onto `(u, v) = (i/(L+1), j/(M+1))` — the graphon
+coordinates `tcren.contactmap.registered_map` already uses — so `L = 10` and `L = 17` land on one
+surface that reads back at any pair of lengths, including a pair the fit never saw. That is the
+whole mechanism; everything else is bookkeeping.
+
+**Three loops, not one, and this is why.** On the bundled crystals CDR3 carries **69.3% of
+TCR:peptide contacts**, CDR1 a further **26.5%**, CDR2 2.6%; CDR1+CDR2+CDR3 is **98.4%**. A
+CDR3-only prior caps its own recall below 0.70 by construction. CDR1/CDR2 are germline and barely
+vary in length — they need the surface, not the length generalisation.
+
+**Feasibility is checked against the loop physics, not the fit.** `tcren.geometry.reach_max` gives
+in closed form, from the discrete-Frenet virtual-bond chain, the maximum apex reach of a length-`L`
+Omega-loop pinned at neck separation `R`. A predicted distance beyond it is one no loop of that
+length can adopt; the emitted table flags it in `feasible` rather than scoring it silently.
+
+**Gotchas.** `sigma` on a predicted table is a **placeholder** — nothing here observed a contact, so
+it is 0 throughout and `d_heavy` is null. A caller that reads `sigma` off this frame as data is
+reading a zero as a fact, which is why `fit_potts` must never be pointed at one. `d_ca_sd` carries
+the surface's own spread at that cell and is what says how much to trust the placement. An MHC class
+the fit never saw falls back to whatever class the loop does have rather than raising — class II
+lives only in the crystals, so a modelled set has no class II surface to find.
+
+## EM over the borderline contact calls — `tcren.potts.em` / `tcren potts fit --em`
+
+`fit_potts` treats `sigma` as data. A contact is called by thresholding the closest heavy-atom
+distance at 5 A, so a pair within half an angstrom of that line is **a coin toss recorded as a
+fact**. Those sites are latent, and Monte-Carlo EM is what a latent indicator asks for.
+
+- **E-step** — sample `sigma_latent | sigma_observed` by block Gibbs with every confident site
+  CLAMPED. The couplings are why this is worth doing: a borderline pair beside three made contacts
+  is imputed differently from one standing alone.
+- **M-step** — the existing penalised pseudolikelihood on the completed data, `draws` completions
+  stacked at weight `1/draws` so the effective sample size, and therefore what the ridge means, is
+  unchanged. Each completion gets a `#m` suffix on its `pdb.id`, because every coupling edge in
+  `tcren.potts.kernel` joins on that column and unsuffixed copies would link sites across draws.
+
+```python
+from tcren.potts import available_pairs, fit_potts, fit_potts_em, latent_mask, consistency
+
+pairs = available_pairs(structure, probe=5.5)   # NOTE the probe -- see below
+ref   = fit_potts(pairs)
+model, trace = fit_potts_em(pairs, init=ref, draws=5, steps=10, seed=0)
+consistency(ref, model)                          # per block: how far it moved, in what units
+```
+
+```
+tcren potts fit -s <structures> -o potts_em.json --em --em-draws 5 --em-trace-out em_trace.tsv
+```
+
+**THE LATENT BAND MUST REACH BOTH WAYS, and by default it does not.** `available_pairs` measures
+`d_heavy` only out to its own `cutoff`, so every pair that MISSED carries a null distance. A band
+built on that table is one-sided: on the 17 bundled test structures it selects **44 sites, every
+one of them a contact**, so EM could remove contacts and never add them — a systematic bias, not a
+small one. Pass `probe=cutoff + margin` (which populates `d_heavy` past the cutoff and does NOT
+move `sigma`) and the same band selects **115 sites, 44 contacts and 71 near misses**.
+`latent_mask` raises rather than proceeding one-sided.
+
+**This adds a fit; it does not replace one.** The shipped pseudolikelihood models are unchanged and
+are the point of comparison. `consistency(reference, other)` scales each block's shift by the
+reference fit's own cluster-robust s.e. where it has one (`kernel`) and by the block s.d. where it
+does not; a block with no spread (`g_class` on a single-partner model) reads `degenerate` rather
+than being divided by ~0.
+
+**Gotchas.** MCEM with a fixed `draws` does NOT converge to a point — it random-walks in a ball
+whose radius is the Monte-Carlo noise, so `max_shift` has a floor `tol` may sit below. Read
+`max_shift_vs_init` beside it: a run that is only jittering has a flat one. Everything is seeded,
+so a run is exactly reproducible regardless. `margin=0` makes every site observed and reduces the
+whole thing to `fit_potts` exactly, which is the test that it is an extension and not a rewrite. A
+redundancy `weights` dict is keyed on the UNSUFFIXED `pdb.id` and is multiplied by the `1/draws`.
+
+## Contact ensembles — `tcren.potts.ensemble` / `tcren potts ensemble`
+
+The marginals settle the **mean** interaction energy and nothing else. `Phi(sigma) = sum_a sigma_a
+phi_a` is linear in `sigma`, so by linearity of expectation
+
+```
+<Phi> = sum_a <sigma_a> phi_a          for ANY joint over sigma, coupled or not
+```
+
+Dependence between sites does not break that. It fixes the two conditions, and **both are easy to
+violate**:
+
+1. `<sigma_a>` must be `p_model`, the marginal of the COUPLED model by block Gibbs — not
+   `p_independent`, the factorised `sigmoid(eta_a)`.
+2. It must be read **at the sequence being scored**. `ddg(weights=...)` and
+   `cpl.predict_response(tcr_weights=...)` take ONE weight vector computed on the template and
+   apply it to every threaded candidate. A candidate residue enters `eta_a` twice, through
+   `h_par` and through `J`, so the ensemble itself moves under substitution:
+   `sum_a p_a(template) phi_a(x)` is not `sum_a p_a(x) phi_a(x)`.
+
+```python
+from tcren.potts import PottsModel, available_pairs, energy_ensemble, map_ensemble, threaded_ensemble
+
+pairs = available_pairs(structure)              # the sites
+m     = PottsModel.bundled()
+energy_ensemble(pairs, m)                       # phi_mean, phi_var, phi_free, map_entropy, hamming_obs
+map_ensemble(pairs, m, by="position", top_k=20) # the configurations, ranked, with p_hat
+threaded_ensemble(pairs, m, candidates)         # per candidate; marginals RECOMPUTED
+threaded_ensemble(pairs, m, candidates, coupled=False)   # the shipped frozen-marginal approximation
+```
+
+```
+tcren potts ensemble -s <structures> -o ensemble.tsv --maps maps.tsv --by position -k 20
+```
+
+**What the joint buys over the marginals.** `phi_var` needs `<sigma_a sigma_b>` and is invisible to
+any set of marginals; `phi_free = -1/beta log <exp(-beta Phi)>` is a soft minimum over
+configurations (`beta -> 0` recovers the mean, `beta -> inf` the best map the geometry admits);
+`map_entropy = <E> + log Z` is how many maps the interface is choosing between. On the 14 alphabeta
+complexes in `tests/assets/pdb`, **Var Phi runs 0.341 to 1.286 squared TCRen units** — a 3.8-fold
+range, so plasticity varies between complexes as much as the mean energy does.
+
+**A configuration needs coarse-graining before it has a probability, and the granularity is
+measured.** On 1ao7 (174 available sites, 6,400 draws) the raw site-level map recurs NEVER — 6,400
+distinct configurations out of 6,400 draws, each at `p_hat = 1.6e-4`, because the space is `2^174`.
+Coarse-grained to which **peptide positions** are engaged, the same draws give **41 distinct
+patterns, the most likely at `p_hat` = 0.3219 — and that modal pattern is the crystal's own.**
+`by="loop"` (39 groups, 3,308 patterns, top 0.0216) is at the edge of what 6,400 draws resolve;
+`by="pair"` is only meaningful where `exact_log_z` can enumerate instead. Across the 14 complexes
+the modal pattern is the observed one in **6 of 14**.
+
+**The identity is the cheapest available correctness check.** `phi_mean` must equal
+`sum_a p_model_a * phi_a` from an independently seeded `contact_probabilities` run to within
+Monte-Carlo error; disagreement means one path is wrong or a chain has not mixed. `energy_ensemble`
+carries `phi_mean_from_marginals` so a caller can check it without a second Gibbs run.
+
+**Gotchas.** `anchor="observed"` starts the chains at the structure's own map — that is the
+"configurations that do not differ much from the observed one" ensemble, and it is NOT a
+Hamming-ball constraint: an unconstrained chain started there still samples `P(sigma)`, and
+`hamming_obs` reports how far it travels. A site the potential does not define (TCRen2 has no
+`from = C` row, so it is 380 cells and not 400) contributes **zero** and is counted in
+`n_undefined` per structure, never swallowed. `threaded_ensemble` is serial over structures and
+warm-starts the chain between candidates; `coupled=False` is there so the shipped approximation and
+the ensemble mean can be measured against each other on identical rows.
+
 ## Ring stacking — `tcren.stacking.ring_stacking` (geometry, NOT an energy)
 
 - A contact potential scores a pair by identity alone, so two rings face-to-face at 3.5 Å score the

@@ -78,6 +78,11 @@ def _init_workers(payload: dict) -> None:
 
 def _run_chunk(args):
     body, idx, kw = args
+    if body not in _BODIES:
+        # A spawned worker imports this module, not whatever registered the body. The ensemble
+        # bodies register themselves into `_BODIES` on import, so import them on demand rather
+        # than at module scope, which would be a cycle (`ensemble` imports from here).
+        from . import ensemble  # noqa: F401
     return [_BODIES[body](s, **kw) for s in idx]
 
 

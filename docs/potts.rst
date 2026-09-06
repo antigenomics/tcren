@@ -233,6 +233,175 @@ That is why the groove takes a fixed map and Miyazawa–Jernigan: it is already 
 limit, so smoothing it can only add noise. The receptor loops are not, which is what the smoothed
 limit is for.
 
+What the marginals settle, and what they do not
+-----------------------------------------------
+
+The interaction energy of a contact map is linear in the map,
+:math:`\Phi(\sigma) = \sum_a \sigma_a \varphi_a`, so by linearity of expectation
+
+.. math:: \langle\Phi\rangle \;=\; \sum_a \langle\sigma_a\rangle\, \varphi_a
+
+for **any** joint distribution over :math:`\sigma`, coupled or not. Dependence between sites does
+not break that identity. What it does is fix its two conditions, and both are easy to violate:
+
+1. :math:`\langle\sigma_a\rangle` must be the marginal of the **coupled** model — ``p_model``, by
+   block Gibbs — and not ``p_independent``, the factorised :math:`\sigma(\eta_a)`.
+2. It must be read **at the sequence being scored**. ``ddg(weights=...)`` and
+   ``cpl.predict_response(tcr_weights=...)`` take one weight vector computed on the template and
+   apply it to every threaded candidate, giving
+   :math:`\sum_a p_a(\text{template})\,\varphi_a(x)`. A candidate residue enters :math:`\eta_a`
+   twice, through :math:`h^{\mathrm{par}}` and through :math:`J`, so the contact ensemble itself
+   moves under substitution and the two are different numbers.
+
+:func:`tcren.potts.threaded_ensemble` recomputes the marginals per candidate.
+:func:`tcren.potts.energy_ensemble` carries the read-outs no set of marginals can determine:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 22 58
+
+   * - read-out
+     - units
+     - what it is
+   * - ``phi_var``
+     - (potential units)²
+     - :math:`\operatorname{Var}\Phi`, which needs the two-point function
+       :math:`\langle\sigma_a\sigma_b\rangle`. How much the energy depends on *which* of the maps
+       the interface admits is the one realised.
+   * - ``phi_free``
+     - potential units
+     - :math:`-\beta^{-1}\log\langle e^{-\beta\Phi}\rangle`, a soft minimum over configurations.
+       :math:`\beta \to 0` recovers :math:`\langle\Phi\rangle`; :math:`\beta \to \infty` the best
+       map the geometry admits.
+   * - ``map_entropy``
+     - nats
+     - :math:`\langle E\rangle + \log Z`, how many contact maps the interface is choosing between.
+   * - ``hamming_obs``
+     - count
+     - mean distance from the map the structure itself made.
+
+On the 14 αβ complexes in ``tests/assets/pdb`` the spread is not a rounding effect:
+:math:`\operatorname{Var}\Phi` runs **0.341 to 1.286 squared TCRen units**, a 3.8-fold range, so
+how plastic an interface is varies as much between complexes as its mean energy does.
+
+A configuration needs coarse-graining before it has a probability
+-----------------------------------------------------------------
+
+:func:`tcren.potts.map_ensemble` returns the contact configurations themselves, ranked, each with
+its probability. The granularity is not a free choice, and it is measured rather than assumed. On
+1ao7's TCR:peptide interface — 174 available sites, 6,400 draws — the raw site-level map recurs
+**never**: 6,400 distinct configurations out of 6,400 draws, every one at
+:math:`\hat p = 1.6\times10^{-4}`, because the state space is :math:`2^{174}`. Coarse-grained to
+which **peptide positions** are engaged at all, the same draws collapse to **41 distinct patterns
+with the most likely at** :math:`\hat p = 0.3219` — and that modal pattern is the one the crystal
+itself made.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 16 20 28 36
+
+   * - ``by``
+     - groups on 1ao7
+     - distinct patterns / 6,400
+     - reading
+   * - ``"pair"``
+     - 174
+     - 6,400, top :math:`\hat p` 0.0002
+     - unresolvable; use :func:`tcren.potts.exact_log_z` on an interface small enough to enumerate
+   * - ``"loop"``
+     - 39
+     - 3,308, top :math:`\hat p` 0.0216
+     - the granularity the molecular-dynamics validation works at; at the edge of resolvable
+   * - ``"position"``
+     - 9
+     - 41, top :math:`\hat p` 0.3219
+     - which peptide positions the receptor engages — the default
+
+Across those same 14 complexes the modal engagement pattern is the observed one in **6 of 14**,
+and ``n_distinct_total`` runs 37 to 556.
+
+When the contact indicator is not data
+--------------------------------------
+
+:func:`tcren.potts.fit_potts` treats :math:`\sigma` as observed. In a crystal it mostly is — but a
+contact is called by thresholding the closest heavy-atom distance at 5 Å, and a pair sitting within
+half an ångström of that line is a coin toss recorded as a fact. :mod:`tcren.potts.em` treats those
+sites as latent and runs Monte-Carlo EM around the existing fit.
+
+**E-step.** Sample :math:`\sigma_{\mathcal L}` from :math:`P(\sigma_{\mathcal L} \mid
+\sigma_{-\mathcal L})` by block Gibbs with every confident site **clamped** to what the structure
+did. The couplings are what make this worth doing: a borderline pair beside three made contacts is
+imputed differently from one standing alone.
+
+**M-step.** The existing penalised pseudolikelihood on the completed data, ``draws`` completions
+stacked at weight :math:`1/\text{draws}` so the effective sample size — and therefore what the ridge
+means — is unchanged. Each completion carries a ``#m`` suffix on its ``pdb.id``, because every
+coupling edge in :mod:`tcren.potts.kernel` joins on that column and unsuffixed copies would link
+sites across draws that never coexisted.
+
+.. warning::
+
+   **The latent band has to reach both ways.** ``available_pairs`` measures ``d_heavy`` only out to
+   its own ``cutoff``, so every pair that missed carries a null distance. A band built on that table
+   is one-sided: on the 17 bundled test structures it selects **44 sites, every one of them a
+   contact**, and an EM run on it could remove contacts and never add them. Build the table with
+   ``available_pairs(..., probe=cutoff + margin)`` — which populates ``d_heavy`` past the cutoff
+   without moving ``sigma`` — and the same band selects **115 sites, 44 contacts and 71 near
+   misses**. :func:`tcren.potts.latent_mask` raises rather than proceeding one-sided.
+
+This **adds** a fit; it does not replace one. The shipped pseudolikelihood models are unchanged and
+are the point of comparison. :func:`tcren.potts.consistency` reports how far a refit moved per
+parameter block, scaled by the reference fit's own cluster-robust standard errors where it has them
+(the coupling kernel) and by the block's own standard deviation where it does not. A block with no
+spread — ``g_class`` on a single-partner model — is reported as ``degenerate`` rather than divided
+by something near zero.
+
+.. note::
+
+   Monte-Carlo EM with a fixed ``draws`` does not converge to a point. It random-walks in a ball
+   around the optimum whose radius is set by the Monte-Carlo noise, so ``max_shift`` has a floor
+   that ``tol`` may sit below. Read ``max_shift_vs_init`` beside it: a run that is merely jittering
+   has a flat one. Raise ``draws`` to lower the floor. Every sampler is seeded, so a run is exactly
+   reproducible either way.
+
+.. code-block:: text
+
+   tcren potts fit -s <structures> -o potts_em.json --em --em-draws 5 --em-steps 10 \
+       --em-trace-out em_trace.tsv
+
+Placing a pair without a template
+---------------------------------
+
+:func:`tcren.potts.available_pairs` reads :math:`d_{\mathrm{C}\alpha}` off a structure, so every
+read-out above is conditional on holding a template of the right shape — and lengths are not evenly
+covered. :mod:`tcren.potts.geom` models the distance matrix instead,
+
+.. math::  P\big(d_{\mathrm{C}\alpha} \mid \text{loop},\, i,\, L,\ j,\, M,\ \text{MHC class}\big)
+
+and emits the same schema, so :func:`tcren.potts.site_codes`, :func:`tcren.potts.eta` and every
+scoring function accept it unchanged.
+
+**Length generalisation is the normalised coordinate, not the parameterisation.** A loop of length
+:math:`L` against a peptide of length :math:`M` is resampled onto :math:`(u, v) = (i/(L+1),
+j/(M+1))` — the graphon coordinates :func:`tcren.contactmap.registered_map` already uses — so
+:math:`L = 10` and :math:`L = 17` land on one surface that reads back at any pair of lengths,
+including a pair the fit never saw.
+
+**Three loops, not one.** On the bundled crystals CDR3 carries **69.3% of TCR:peptide contacts**
+and CDR1 a further **26.5%**; CDR1 + CDR2 + CDR3 is **98.4%**. A CDR3-only prior would cap its own
+recall below 0.70 by construction, so all three carry a surface. CDR1 and CDR2 are germline and
+barely vary in length — they need the surface, not the length generalisation.
+
+**Feasibility is checked against the loop physics, not against the fit.**
+:func:`tcren.geometry.reach_max` gives, in closed form from the discrete-Frenet virtual-bond chain,
+the maximum apex reach of a length-``L`` Ω-loop pinned at neck separation :math:`R`. A predicted
+distance beyond it is one no loop of that length can adopt, and the emitted table flags it in
+``feasible`` rather than scoring it silently.
+
+``sigma`` on a predicted table is a **placeholder**, not data: nothing here observed a contact, so
+it is zero throughout and ``d_heavy`` is null. ``d_ca_sd`` carries the surface's own spread at that
+cell, which is what says how much to trust the placement.
+
 Reproducing a referenced score
 ------------------------------
 

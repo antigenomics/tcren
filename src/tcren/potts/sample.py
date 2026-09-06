@@ -29,7 +29,7 @@ def factorised_log_z(eta: np.ndarray) -> float:
 
 
 def gibbs(eta: np.ndarray, A: np.ndarray, colours, rng, *, chains: int = 64,
-          burn: int = 100, draws: int = 100, thin: int = 3, observer=None):
+          burn: int = 100, draws: int = 100, thin: int = 3, observer=None, init=None):
     """Block Gibbs at ``beta = 1``.
 
     Args:
@@ -44,13 +44,20 @@ def gibbs(eta: np.ndarray, A: np.ndarray, colours, rng, *, chains: int = 64,
         observer: Optional callable invoked on each kept draw with the ``(chains, n)`` matrix of
             configurations. Use it to accumulate a statistic of whole configurations without
             materialising every draw — the matrix is reused between calls, so copy what you keep.
+        init: Optional starting configuration, broadcast to every chain. ``None`` (default) draws
+            the start from the factorised model, which is what every existing caller gets and
+            leaves the random stream untouched. Passing the observed map starts the chain at the
+            structure's own contact set; the stationary distribution is the same either way, so
+            this changes how fast the chain forgets its start and nothing else.
 
     Returns:
         ``(occupancy, totals)`` — the mean of ``sigma`` per site over all kept draws, and the
         contact total of every kept draw.
     """
     n = len(eta)
-    sig = (rng.random((chains, n)) < 1.0 / (1.0 + np.exp(-eta))).astype(np.float64)
+    sig = (np.repeat(np.asarray(init, dtype=np.float64)[None, :], chains, axis=0)
+           if init is not None
+           else (rng.random((chains, n)) < 1.0 / (1.0 + np.exp(-eta))).astype(np.float64))
     acc, tot, keep = np.zeros(n), 0, []
     coupled = A.any()
     for it in range(burn + draws * thin):

@@ -20,15 +20,34 @@ Typical use::
     score_sites(pairs, model)                              # energy, log Z, likelihood
     contact_probabilities(pairs, model)                    # per-site contact probability
     contact_map(pairs, model, by="loop")                   # loop x peptide-position frequency map
+    energy_ensemble(pairs, model)                          # <Phi>, Var Phi, free energy, entropy
+    map_ensemble(pairs, model)                             # the configurations, with probabilities
+    threaded_ensemble(pairs, model, candidates)            # the same per candidate sequence
+
+`available_pairs` needs a structure. :mod:`tcren.potts.geom` models the Ca distance matrix instead,
+in length-normalised coordinates, and emits the same schema — so a receptor:peptide pair can be
+placed from sequence and lengths alone, with no template of the right shape::
+
+    prior = fit_geom_prior(structures)                     # or GeomPrior.from_json(...)
+    predicted_sites(prior, loops, peptide)                 # the same columns available_pairs emits
+
+The marginals settle the *mean* interaction energy and nothing else: `Phi` is linear in `sigma`, so
+`<Phi> = sum_a p_a phi_a` exactly — but only with `p_model`, the coupled marginal, and only read at
+the sequence being scored. :mod:`tcren.potts.ensemble` carries the read-outs a set of marginals
+cannot determine, and re-reads the marginals per candidate.
 
 The CLI mirrors it: ``tcren potts fit``, ``tcren potts score``, ``tcren potts contacts``,
-``tcren potts map``.
+``tcren potts map``, ``tcren potts ensemble``.
 """
 
 from .fit import DEFAULT_RIDGE, cluster_se, design, fit_potts, gauge, irls, kernel_table
 from .kernel import (bucket_edges, colour, coupling_matrix, edges, neighbour_counts)
 from .model import (AA, CDR_LOOPS, CLASSES, CROSS_DJ, DBIN, OFFSETS, REGIONS, ROLES,
                     PottsModel, centred_potential, kernel_names)
+from .em import LATENT_MARGIN, consistency, fit_potts_em, impute, latent_mask
+from .geom import (REGIONS_MODELLED, GeomPrior, fit_geom_prior, loops_from_structure,
+                   predicted_distances, predicted_sites)
+from .ensemble import energy_ensemble, map_ensemble, site_energies, threaded_ensemble
 from .sample import (ais_log_z, count_free_energy, delta_f_empty, delta_f_threshold, energy,
                      exact_log_z, factorised_log_z, gibbs, mu_star, tilt_mean)
 from .score import (bound_unbound, connected_correlations, contact_map, contact_probabilities,
@@ -51,4 +70,8 @@ __all__ = [
     "peptide_free_energy", "connected_correlations",
     "sample_maps",
     "score_structure",
+    "energy_ensemble", "map_ensemble", "threaded_ensemble", "site_energies",
+    "LATENT_MARGIN", "latent_mask", "impute", "fit_potts_em", "consistency",
+    "GeomPrior", "REGIONS_MODELLED", "fit_geom_prior", "loops_from_structure",
+    "predicted_distances", "predicted_sites",
 ]

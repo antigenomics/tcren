@@ -36,12 +36,19 @@ SITE_COLUMNS: tuple[str, ...] = (
 
 
 def _sided(structure: Structure, partner: tuple[str, ...],
-           receptor: tuple[str, ...] | None = None) -> pl.DataFrame | None:
-    """``pose._interface_layers`` plus the normalised partner key and both annotation joins."""
+           receptor: tuple[str, ...] | None = None,
+           probe: float = 5.0) -> pl.DataFrame | None:
+    """``pose._interface_layers`` plus the normalised partner key and both annotation joins.
+
+    ``probe`` is the radius the **heavy-atom** layer is built at. It is not the contact definition:
+    ``available_pairs`` still calls a contact at ``cutoff``. Raising it only populates ``d_heavy``
+    for pairs that missed, which is the difference between "this pair did not contact" and "this
+    pair missed by 0.2 Å".
+    """
     from ..contacts.table import residue_annotation
     from ..contacts.definitions import _interface_layers
 
-    w = _interface_layers(structure, 5.0, partner=partner, receptor=receptor)
+    w = _interface_layers(structure, probe, partner=partner, receptor=receptor)
     if w.is_empty() or "d3" not in w.columns:
         return None
     # The partner-side key is whichever end of the pair the normalised receptor key is not. Chain
@@ -69,7 +76,8 @@ def _sided(structure: Structure, partner: tuple[str, ...],
 
 def available_pairs(structure: Structure, partner: str = "peptide", *,
                     receptor: str = "tcr",
-                    radius: float = 15.0, cutoff: float = 5.0) -> pl.DataFrame:
+                    radius: float = 15.0, cutoff: float = 5.0,
+                    probe: float | None = None) -> pl.DataFrame:
     """Every receptor:partner residue pair inside ``radius``, with whether it contacted.
 
     Three arms, and they are three **separate Hamiltonians**, not one field read three ways: the
@@ -89,6 +97,11 @@ def available_pairs(structure: Structure, partner: str = "peptide", *,
             model fitted here carries :data:`MHC_RECEPTOR_REGIONS`, not the TCR loop set.
         radius: Availability radius, Å, on the Cα–Cα distance.
         cutoff: Contact definition, Å, on the closest heavy-atom distance.
+        probe: Radius the heavy-atom layer is measured out to. ``None`` (default) uses ``cutoff``,
+            so ``d_heavy`` is null for every pair that did not contact — which is all any scoring
+            path needs. Pass a larger value to learn *how far* a non-contact missed by;
+            :mod:`tcren.potts.em` needs it, because a latent band around ``cutoff`` that only
+            reaches inwards can turn contacts off and never on. ``sigma`` is unchanged either way.
 
     Returns:
         One row per site: ``pdb.id``, the two residue types and positions, the receptor chain and
@@ -110,7 +123,8 @@ def available_pairs(structure: Structure, partner: str = "peptide", *,
         raise ValueError("receptor='mhc' pairs with partner='peptide' (the presentation arm); "
                          f"got partner={partner!r}")
     w = _sided(structure, ("PEPTIDE",) if partner == "peptide" else MHC_PARTNER,
-               receptor=MHC_PARTNER if receptor == "mhc" else None)
+               receptor=MHC_PARTNER if receptor == "mhc" else None,
+               probe=cutoff if probe is None else max(probe, cutoff))
     if w is None:
         return pl.DataFrame(schema={c: pl.Utf8 for c in SITE_COLUMNS})
     if receptor == "mhc":

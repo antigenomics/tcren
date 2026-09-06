@@ -3,6 +3,71 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
+## [Unreleased]
+
+### Added
+- **`tcren.potts.ensemble` — the contact map read as an ensemble rather than as a set of
+  marginals**, with `tcren potts ensemble` on the command line.
+
+  `contact_probabilities` settles the *mean* interaction energy and nothing else. `Phi` is linear
+  in the contact indicator, so `<Phi> = sum_a <sigma_a> phi_a` holds for any joint, coupled or not
+  — but only when `<sigma_a>` is the coupled marginal `p_model` and is read **at the sequence being
+  scored**. The shipped soft-contact path (`ddg(weights=...)`,
+  `cpl.predict_response(tcr_weights=...)`) takes one weight vector computed on the template and
+  applies it to every threaded candidate, so it computes `sum_a p_a(template) phi_a(x)` and not
+  `sum_a p_a(x) phi_a(x)`. `threaded_ensemble` recomputes the marginals per candidate;
+  `energy_ensemble` adds the read-outs no set of marginals determines — `phi_var` (needs the
+  two-point function), `phi_free = -1/beta log <exp(-beta Phi)>`, `map_entropy = <E> + log Z`, and
+  `hamming_obs`. Over the 14 alpha-beta complexes in `tests/assets/pdb`, Var Phi runs **0.341 to
+  1.286 squared TCRen units**, a 3.8-fold range.
+
+- **`map_ensemble` returns the contact configurations themselves, ranked, each with its
+  probability — coarse-grained, because a site-level map has none.** Measured on 1ao7's
+  TCR:peptide interface (174 available sites, 6,400 draws): the raw site-level map recurs never,
+  6,400 distinct configurations out of 6,400 draws at `p_hat = 1.6e-4` each, the state space being
+  `2^174`. Coarse-grained to which peptide positions are engaged, the same draws collapse to **41
+  distinct patterns with the most likely at `p_hat` = 0.3219, and that modal pattern is the one the
+  crystal made**. `by="position"` is therefore the default; `by="loop"` (39 groups, 3,308 patterns,
+  top 0.0216) is at the edge of what 6,400 draws resolve and `by="pair"` is only meaningful where
+  `exact_log_z` can enumerate instead. Across the 14 complexes the modal pattern is the observed
+  one in 6 of 14.
+
+- **`tcren.potts.em` — Monte-Carlo EM over the contact calls the 5 A threshold cannot resolve**,
+  reachable as `tcren potts fit --em`. A pair within half an angstrom of the cutoff is a coin toss
+  recorded as a fact; the E-step resamples those sites from their conditional with every confident
+  site clamped, and the M-step is the existing penalised pseudolikelihood on `draws` stacked
+  completions at weight `1/draws`, so the effective sample size and the meaning of the ridge are
+  unchanged. `consistency(reference, other)` reports how far a refit moved per parameter block,
+  scaled by the reference's own cluster-robust standard errors where it has them. **This adds a
+  fit; the shipped pseudolikelihood models are unchanged and are the comparison.** `margin=0`
+  reduces it to `fit_potts` exactly.
+
+- **`tcren.potts.geom` — a length-generalising prior over the receptor:peptide Ca distance
+  matrix**, so a pair can be placed from sequence and lengths alone with no template of the right
+  shape. `P(d_ca | loop, i, L, j, M, MHC class)` is averaged in graphon coordinates
+  `(u, v) = (i/(L+1), j/(M+1))` — the same normalisation `contactmap.registered_map` uses — so a
+  surface fitted at one set of lengths reads back at any other, including lengths the fit never
+  saw. `predicted_sites` emits the schema `available_pairs` emits, so every `tcren.potts` function
+  accepts it unchanged. All three hypervariable loops carry a surface, not just CDR3: on the
+  bundled crystals CDR3 is **69.3% of TCR:peptide contacts**, CDR1 a further **26.5%**, and
+  CDR1+CDR2+CDR3 **98.4%**, so a CDR3-only prior would cap its own recall below 0.70 by
+  construction. Feasibility is checked against `tcren.geometry.reach_max`, the closed-form maximum
+  apex reach of a length-`L` loop pinned at its neck, rather than against the fit. `sigma` on a
+  predicted table is a placeholder and is 0 throughout.
+
+### Changed
+- `tcren.potts.available_pairs` takes an optional `probe`, the radius the **heavy-atom** layer is
+  measured out to, defaulting to `cutoff` so every existing table is byte-identical. It is not the
+  contact definition — `sigma` is still called at `cutoff` — it only records how far a
+  non-contacting pair missed by. Without it `d_heavy` is null for every non-contact and a latent
+  band around the cutoff reaches only inwards: on the 17 bundled test structures the band selects
+  44 sites and every one is a contact, against 44 contacts and 71 near misses once `probe` is set.
+- `tcren.potts.gibbs` takes an optional `init` configuration, so a chain can be started at the
+  structure's own contact map instead of at a draw from the factorised model. `init=None` is the
+  default and leaves the random stream, and therefore every existing result, untouched. This is
+  **not** a Hamming-ball constraint — an unconstrained chain started at the observed map still
+  samples `P(sigma)`; `energy_ensemble`'s `hamming_obs` reports how far it travels.
+
 ## [3.3.0] — 2026-09-05
 
 **The shipped TCRen2 matrix is re-derived on the 359 `Native2026` crystals the RCSB still holds**,
