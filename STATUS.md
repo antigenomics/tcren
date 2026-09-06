@@ -1,11 +1,43 @@
 # tcren — project status & TODO
 
 Status of the Python re-implementation of TCRen (`src/tcren/`). The legacy R/Java pipeline
-is preserved (tag `legacy-r-1.0`) and serves as the numerical oracle. This tree is **v3.3.0**,
-tagged locally on 2026-09-05 and **not published**. The newest release on PyPI is **v3.0.1**,
-uploaded 2026-09-02 as 12 wheels (cp310-cp313 x macOS arm64 / manylinux x86_64 / win_amd64) plus
-the sdist. Three releases therefore exist in the checkout only: 3.1.0 (batched annotation), 3.2.0
-(`tcren explain`) and 3.3.0 (the TCRen2 matrix re-derived on 359 crystals).
+is preserved (tag `legacy-r-1.0`) and serves as the numerical oracle. This tree is **v3.6.0**
+(2026-09-06) and **not published**. The newest release on PyPI is **v3.0.1**, uploaded 2026-09-02
+as 12 wheels (cp310-cp313 x macOS arm64 / manylinux x86_64 / win_amd64) plus the sdist. Six
+releases therefore exist in the checkout only: 3.1.0 (batched annotation), 3.2.0 (`tcren explain`),
+3.3.0 (the TCRen2 matrix re-derived on 359 crystals), 3.4.0 (the self-consistent arm on the command
+line), 3.5.0 (`tcren potential-table`) and 3.6.0 (the Ca geometry prior and `tcren potts predict`).
+
+## The model lineage — six shipped objects, and how they relate
+
+**One estimator, counted three ways, and one contact model that reads whichever matrix it is
+pinned to.** This is the single place that relationship is stated; `CHANGELOG.md` is the
+per-release record and `data/potentials.json` the reproduction manifest.
+
+| name on the command line | what it is | how it is fitted | ships as |
+|---|---|---|---|
+| `karnaukhov2022` | the residue-pair contact log-odds, `-ln[n_ab N / (n_a. n_.b)]` | tallied over the crystals available in 2022, unweighted | `TCRen_potential.csv` |
+| **`tcren2`** *(default)* | the same estimator | the same tally over 359 alpha-beta `Native2026` crystals, weighted per structure by `--balance both` | `TCRen2_potential.csv` |
+| `tcren2_em` | the same estimator over every **available** pair, each weighted by its contact probability | the self-consistent loop of `potts selfcon`, converged at step 9 | `TCRen2_sc_potential.csv` |
+| **`potts_tcr_peptide`** *(default)* | `P(sigma)` over the 15 A Ca site set: one-body field plus couplings between pairs sharing a residue | penalised pseudolikelihood, pair term pinned to `tcren2` | `potts_tcr_peptide.json` |
+| `potts_tcr_peptide_sc` | the same model, pair term pinned to `tcren2_em` | refitted at every step of the self-consistent loop | `potts_tcr_peptide_sc.json` |
+| `geom_tcr_peptide` | `P(d_ca \| loop, i, L, j, M, MHC class)` — the Ca distance matrix itself | graphon average over the same 359 crystals, superimposed; 12 surfaces at grid 12 | `geom_tcr_peptide.json` |
+
+Two things not to relearn:
+
+- **Nothing was switched.** `tcren2()` is still the default potential and `PottsModel.bundled()`
+  still the default contact model: on one identical site table the pinned self-consistent model is
+  a *worse* pair term than a pin on TCRen2 at the same parameter count (k = 114 both). `tcren2_em`
+  ships beside, not instead.
+- **`tcren2_em` is the only shipped matrix that does not reproduce at 1e-9**, because its E-step is
+  a block-Gibbs sample. Its fixed point does reproduce: three runs at different sampling budgets
+  agree at Pearson *r* = 0.999997. The manifest records a 5e-3 tolerance for it and checks the
+  recipe only under `RUN_BENCHMARK=1`; every other entry still reproduces at 1e-9.
+
+The geometry prior is what makes the site set itself reachable without a structure. `available_pairs`
+reads `d_ca` off the coordinates; `potts predict` reads it off `geom_tcr_peptide` instead, so a
+contact map can be placed and scored from loop and peptide sequences alone.
+
 
 The recommended read-out is the **score set** (`tcren.score`), and it is two commands:
 

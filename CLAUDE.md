@@ -45,7 +45,7 @@ should name the block it serves.
 | 1 | **CPL** | peptide ranking for a fixed receptor | `tcren.ddg` (`ddg`, `neoantigen_ddg`, `reference_delta`), `tcren pipeline --delta` |
 | 2 | **TCRvdb** | receptor ranking for a fixed epitope, functionally validated | `tcren features`, `tcren assess`, `tcren.score.binder_score`, and the fit-free tier `cohort.q_score` / `reliability.t_score` / `reliability.s_score` |
 | 3 | **VDJdb panel** | receptor ranking under template scarcity | the same, plus the template covariate being reportable rather than inferred |
-| 4 | **Kinetics / ergodicity** | the licence to score one static structure, and magnitude | the three per-interface contact energies, `tcren.potts` contact marginals, the occupancy law |
+| 4 | **Kinetics / ergodicity** | the licence to score one static structure, and magnitude | the three per-interface contact energies, `tcren.potts` contact marginals, the occupancy law, and — since 3.6.0 — the same marginals with the Cα geometry *modelled*: `tcren potts geom`, `tcren potts predict`, `geom_tcr_peptide` |
 | 5 | **ipTM / pLDDT diagnostics** | which confident complexes are not real, and whether the confidence is warranted | `tcren assess`, `tcren.score.confidence_residual`, `tcren.score.pose_score`, `reliability.af_band` |
 
 Blocks 1-2 are the two ranking tasks; block 3 is the same task in the regime the applied question
@@ -61,6 +61,18 @@ deposited and shipped — `score.holdout_manifest()` returns its 8,292 structure
 fit-holdout` regenerates the shipped arrays from them, which is exactly the contract `P_native` could
 not offer. **Report the template split, never the pool.** On the 22-cohort VDJdb panel every arm
 divides under template coverage, and a macro number over the two strata is a Simpson artefact.
+
+**A contact map no longer needs a structure of the complex (3.6.0).** `available_pairs` reads
+`d_Cα` off the coordinates, so every contact read-out was conditional on holding a solved complex.
+`geom_tcr_peptide` models the distance matrix instead — a graphon average over the same 359
+crystals `tcren2` is derived from — and `tcren potts predict --sequences` scores a map with **no
+structure read at all**. Held out by structure the predicted 15 Å envelope holds **7,399 of 7,687
+crystal contacts (96.25 %)** against the crystal's own envelope at 99.78 %, and the coupled model
+reads the crystal's indicator inside it at **median ROC-AUC 0.8310** over 361 structures. The
+ordering survives; the **level does not** — an averaged surface places a pair ~1.5 Å further out
+and the expected contact count on 2b4 falls 24.6 → 4.9, which is a calibration gap and not a
+ranking one. This is rung 2 of the ladder in `ROADMAP.md` §1; rung 3, a parametric loop with no
+crystal coordinates anywhere, is open.
 
 **Bigot is block-3 tier; Bobisse is not.** Both score a poly-V placeholder peptide, but the
 templates are opposite. Bigot's 14 receptors have **no deposited ternary complex** — 0 of 14 CDR3α
