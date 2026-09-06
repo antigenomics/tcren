@@ -40,8 +40,15 @@ import polars as pl
 from ..geometry import BOND_CA, reach_max
 from .sites import SITE_COLUMNS
 
-__all__ = ["GeomPrior", "REGIONS_MODELLED", "fit_geom_prior", "loops_from_structure",
-           "predicted_distances", "predicted_sites", "region_peptide_dmap"]
+__all__ = ["GeomPrior", "REGIONS_MODELLED", "feasible", "fit_geom_prior",
+           "loops_from_structure", "predicted_distances", "predicted_sites",
+           "region_peptide_dmap"]
+
+#: The Ca-geometry prior shipped in the wheel. Averaged over the same 359 alpha-beta Native2026
+#: crystals `tcren2` is derived from, so a prediction and a potential see one structure set::
+#:
+#:     tcren potts geom -s "$TCREN_DATA_DIR/Native2026" -o geom_tcr_peptide.json --grid 12
+BUNDLED_PRIOR: str = "geom_tcr_peptide"
 
 #: Receptor regions the prior carries a surface for. Together 98.4% of TCR:peptide contacts on the
 #: bundled crystals; CDR3 alone is 69.3%.
@@ -133,6 +140,13 @@ class GeomPrior:
     @classmethod
     def from_json(cls, path: str | Path) -> "GeomPrior":
         return cls(**json.loads(Path(path).read_text()))
+
+    @classmethod
+    def bundled(cls, name: str = BUNDLED_PRIOR) -> "GeomPrior":
+        """A prior shipped in the wheel, by name. See :data:`BUNDLED_PRIOR`."""
+        from importlib.resources import files
+        return cls(**json.loads(
+            files("tcren.data").joinpath(f"{name}.json").read_text(encoding="utf-8")))
 
 
 def fit_geom_prior(structures, *, grid: int = 12, regions=REGIONS_MODELLED,
@@ -269,6 +283,7 @@ def predicted_sites(prior: GeomPrior, loops: dict[str, str], peptide: str, *,
         spread at that cell and ``feasible`` flagging cells beyond the loop's closed-form reach.
     """
     from ..refine.anchors import predict_anchors
+    from .model import AA
 
     try:
         anchors = set(predict_anchors(peptide).anchors)
@@ -284,7 +299,11 @@ def predicted_sites(prior: GeomPrior, loops: dict[str, str], peptide: str, *,
         mean, sd = predicted_distances(prior, chain, region, loop_len=L, pep_len=M,
                                        mhc_class=mhc_class)
         for i in range(L):
+            if seq[i] not in AA:
+                continue        # a non-standard residue has no code in the model's alphabet
             for j in range(M):
+                if peptide[j] not in AA:
+                    continue
                 d = float(mean[i, j])
                 if d > radius:
                     continue

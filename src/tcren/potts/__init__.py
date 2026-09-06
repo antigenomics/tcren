@@ -45,8 +45,8 @@ from .kernel import (bucket_edges, colour, coupling_matrix, edges, neighbour_cou
 from .model import (AA, CDR_LOOPS, CLASSES, CROSS_DJ, DBIN, OFFSETS, REGIONS, ROLES,
                     PottsModel, centred_potential, kernel_names)
 from .em import LATENT_MARGIN, consistency, fit_potts_em, impute, latent_mask
-from .geom import (REGIONS_MODELLED, GeomPrior, fit_geom_prior, loops_from_structure,
-                   predicted_distances, predicted_sites)
+from .geom import (BUNDLED_PRIOR, REGIONS_MODELLED, GeomPrior, feasible, fit_geom_prior,
+                   loops_from_structure, predicted_distances, predicted_sites)
 from .ensemble import energy_ensemble, map_ensemble, site_energies, threaded_ensemble
 from .sample import (ais_log_z, count_free_energy, delta_f_empty, delta_f_threshold, energy,
                      exact_log_z, factorised_log_z, gibbs, mu_star, tilt_mean)
@@ -76,6 +76,6 @@ __all__ = [
     "LOGIT_CLIP", "observation_field", "contact_posterior", "weighted_contacts",
     "fit_selfconsistent",
     "LATENT_MARGIN", "latent_mask", "impute", "fit_potts_em", "consistency",
-    "GeomPrior", "REGIONS_MODELLED", "fit_geom_prior", "loops_from_structure",
-    "predicted_distances", "predicted_sites",
+    "BUNDLED_PRIOR", "GeomPrior", "REGIONS_MODELLED", "feasible", "fit_geom_prior",
+    "loops_from_structure", "predicted_distances", "predicted_sites",
 ]

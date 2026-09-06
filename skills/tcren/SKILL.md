@@ -49,6 +49,9 @@ Four things were added on top of it and one shipped number moved.
 | **3.3.0** | **`python -m tcren.cli explain` used to report "no such command"**, because the `__main__` guard sat above the registration. The guard is now the last statement in `cli.py` and `tests/unit/test_cli_entrypoints.py` asserts the two entry points expose identical command sets (27 today). This was the second recurrence; do not move the guard. |
 | **3.4.0** | **The self-consistent arm became addressable from the command line.** `tcren2_em` resolves as a bundled potential name (`-p`, `--tcr-peptide-potential`, `--coupling-matrix`) and `potts_tcr_peptide_sc` as a bundled model name (`-m`); before this both shipped in the wheel with Python loaders only, so a three-matrix comparison could not be run from a shell script. `tcren score` gained `--delta` with `--reference structural|virtual`, and `-c` gained the per-template manifest. |
 
+| **3.5.0** | **`tcren potential-table -p <name\|path> -o <csv>`** writes out the residue-pair table behind `-p`, long form, resolved by the same name `score`/`ddg`/`cpl`/`rank` resolve. Nothing is computed; it is the shipped matrix. |
+| **3.6.0** | **A contact map can be scored with no structure of the complex.** The Ca geometry prior `geom_tcr_peptide` ships (359 alpha-beta `Native2026` crystals, twelve surfaces at grid 12), `tcren potts geom` fits one and `tcren potts predict` scores a map from it. `--sequences` reads no structure at all. See *Placing a contact without a structure* below. |
+
 New surface in 3.3.0, all of it bootstrap and batching rather than analysis:
 
 - **`tcren fetch-data` reaches the whole deposit.** The listing is read from the Hub rather than
@@ -391,6 +394,42 @@ tcren potts contacts -s complex.pdb -m potts_tcr_peptide_sc -o contacts.tsv   # 
 `-m/--model` takes a **bundled name** — `potts_tcr_peptide` (default), `potts_tcr_peptide_sc`,
 `potts_tcr_mhc`, `potts_pep_mhc` — or a JSON path, on `score` / `contacts` / `map` / `ensemble` /
 `scan`.
+
+### Placing a contact without a structure — `tcren potts geom` / `tcren potts predict`
+
+`potts contacts` reads the Ca distance matrix off the structure, so **both** its site set and its
+distance field come from coordinates the complex was solved at. `tcren.potts.geom` models that
+matrix instead, `P(d_ca | loop, i, L, j, M, MHC class)` averaged in graphon coordinates, and the
+fitted prior now ships as **`geom_tcr_peptide`** — `GeomPrior.bundled()`, twelve surfaces at grid
+12 over the same 359 alpha-beta `Native2026` crystals `tcren2` is derived from.
+
+```
+tcren potts geom    -s structures/ -o geom.json --grid 12 --exclude 3qib   # fit one
+tcren potts predict -s model.pdb.gz -m potts_tcr_peptide_sc -o pred.tsv    # sequences off a file
+tcren potts predict --sequences loops.tsv -m potts_tcr_peptide_sc -o pred.tsv   # no structure
+```
+
+```python
+prior = GeomPrior.bundled()                                  # or GeomPrior.from_json(path)
+sites = predicted_sites(prior, loops_from_structure(s), peptide)
+contact_probabilities(sites.drop("d_ca_sd", "feasible"), PottsModel.bundled())
+```
+
+- **`-s` reads the structure for its loop sequences, its peptide and its MHC class only**, and
+  joins the crystal's own `sigma` and `d_ca` back on so the table scores itself. **`--sequences`
+  reads no structure**: a TSV naming `id`, `peptide`, optionally `mhc_class`, and any of the six
+  loop columns `TRA:CDR1` ... `TRB:CDR3`. `sigma` is null there, because nothing observed a
+  contact — a caller that reads it as data is reading a placeholder as a fact.
+- The 15 A availability cut is applied to the **predicted** distance, so a pair the crystal has may
+  be absent and a pair it does not have may appear. `d_ca_sd` is the surface's own spread at that
+  cell and `feasible` is false where no loop of that length could span the distance predicted —
+  checked against `tcren.geometry.reach_max`, the closed-form discrete-Frenet reach bound, not
+  against the fit.
+- **`--exclude` on `potts geom` is the only held-out machinery the library offers.** Leaving a
+  structure out of the fit is a design decision, and the design belongs to whoever is evaluating.
+- **The MHC groove is annotated whether or not it is asked for.** The surface is keyed on MHC
+  class; without the groove pass every crystal reports class I and the prior silently ships six
+  surfaces instead of twelve.
 
 **Fitting needs no partition function.** `P(sigma_a | rest)` is logistic in
 `eta_a + sum_k K_k n_k(a)` with `n_k(a)` the count of contacting neighbours in coupling class `k`,

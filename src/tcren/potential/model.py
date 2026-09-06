@@ -428,7 +428,7 @@ def tcren() -> Potential:
 def tcren2() -> Potential:
     """Load the bundled TCRen2 potential (cached; treat as read-only).
 
-    The redundancy-balanced derivation over the **362 fully annotated αβ** ``Native2026``
+    The redundancy-balanced derivation over the **359 fully annotated αβ** ``Native2026``
     crystals, the default TCR:peptide potential since 2.11.0, and the matrix the TCRen2
     manuscript reports. It is **not** interchangeable with :func:`tcren`: the two correlate at
     Pearson *r* = 0.867 with a maximum absolute difference of 0.943 over a range of 2.95, so

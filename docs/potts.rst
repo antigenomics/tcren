@@ -414,6 +414,36 @@ distance beyond it is one no loop of that length can adopt, and the emitted tabl
 it is zero throughout and ``d_heavy`` is null. ``d_ca_sd`` carries the surface's own spread at that
 cell, which is what says how much to trust the placement.
 
+**The fitted prior ships.** ``geom_tcr_peptide`` is averaged over the same 359 alpha-beta
+``Native2026`` crystals :func:`tcren.potential.tcren2` is derived from, twelve surfaces at grid 12
+(TRA/TRB x CDR1/CDR2/CDR3 x MHCI/MHCII), and :meth:`tcren.potts.GeomPrior.bundled` loads it. Fit
+your own with
+
+.. code-block:: console
+
+   tcren potts geom -s <structures> -o geom.json --grid 12 --exclude 3qib,3qiu
+
+``--exclude`` is how a held-out prediction is built; the design belongs to whoever is evaluating,
+so the command only offers the exclusion. The MHC groove is annotated whether or not it is asked
+for, because the surface is keyed on MHC class and without it every crystal reports class I.
+
+Scoring a map with no structure of the complex is then one command:
+
+.. code-block:: console
+
+   tcren potts predict -s model.pdb.gz -m potts_tcr_peptide_sc -o predicted.tsv
+   tcren potts predict --sequences loops.tsv -m potts_tcr_peptide_sc -o predicted.tsv
+
+The first opens the structure for its loop sequences, its peptide and its MHC class **only**, and
+joins the crystal's own ``sigma`` and ``d_ca`` back on so the table can be scored against what the
+crystal did. The second reads no structure at all: a TSV naming ``id``, ``peptide``, optionally
+``mhc_class``, and any of the six loop columns ``TRA:CDR1`` ... ``TRB:CDR3``. Both emit the
+``potts contacts`` columns plus ``d_ca_sd`` and ``feasible``.
+
+The difference from :func:`tcren.potts.contact_probabilities` on ``available_pairs`` is not the
+model — it is the same Hamiltonian and the same block Gibbs — but **what the 15 A cut is applied
+to**: there, the Ca distance the complex was solved at; here, the distance the surface predicts.
+
 Reproducing a referenced score
 ------------------------------
 

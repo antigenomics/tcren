@@ -2027,6 +2027,44 @@ def _potts_markup(s) -> dict:
             "species": s.complex_species}
 
 
+def _potts_structures(structures: Path, *, organism: str = "human", need_mhc: bool = False,
+                      alphabeta: bool = True):
+    """Chain-typed structures from a file, a folder or a glob, annotated one batch at a time.
+
+    The single batched-annotation path every ``potts`` command shares. Annotating inside a
+    per-structure loop would run one mmseqs search per file; ``_batch_annotate`` runs one per
+    chunk, and ``annotate_mhc_batch`` (via ``_annotate_set``) is only paid when the groove
+    regions are actually needed.
+
+    Yields ``(structure, kept)`` for every structure that parsed, ``kept`` being False for one
+    dropped by the alpha-beta rule, so a caller can count what it saw as well as what it used.
+    """
+    from .structure import structure_id_from_path, structure_paths
+
+    paths = structure_paths(structures)
+    for i in range(0, len(paths), _POTTS_CHUNK):
+        batch = []
+        for p in paths[i:i + _POTTS_CHUNK]:
+            try:
+                batch.append(parse_structure(p, pdb_id=structure_id_from_path(p)))
+            except Exception:  # noqa: BLE001 - an unparseable file is skipped and counted
+                yield None, False
+        if need_mhc:
+            _annotate_set(batch, organism=organism, autodetect_species=True)
+        else:
+            from .annotation.arda_adapter import _import_arda
+            from .annotation.batch import _batch_annotate
+            recs = _batch_annotate(batch, _import_arda())
+            for k, s in enumerate(batch):
+                try:
+                    classify_chains(s, organism=organism, autodetect_species=True,
+                                    precomputed_records=recs[k])
+                except Exception:  # noqa: BLE001
+                    pass
+        for s in batch:
+            yield s, not (alphabeta and not _is_alphabeta(s))
+
+
 def _potts_pairs(structures: Path, partner: str, *, radius: float, cutoff: float,
                  receptor: str = "tcr", organism: str = "human", alphabeta: bool = True,
                  probe: float | None = None):
@@ -2041,45 +2079,25 @@ def _potts_pairs(structures: Path, partner: str, *, radius: float, cutoff: float
     second annotation of the whole set when ``--balance`` needs it.
     """
     from .potts import available_pairs
-    from .structure import structure_id_from_path, structure_paths
     kw = {} if probe is None else {"probe": probe}
 
-    paths = structure_paths(structures)
     need_mhc = partner in ("mhc", "both") or receptor == "mhc"
     parts = [partner] if partner != "both" else ["peptide", "mhc"]
     frames, markup, kept, seen, empty = [], [], 0, 0, 0
-    for i in range(0, len(paths), _POTTS_CHUNK):
-        batch = []
-        for p in paths[i:i + _POTTS_CHUNK]:
-            try:
-                batch.append(parse_structure(p, pdb_id=structure_id_from_path(p)))
-            except Exception:  # noqa: BLE001 - an unparseable file is skipped and counted
-                seen += 1
-        if need_mhc:
-            _annotate_set(batch, organism=organism, autodetect_species=True)
-        else:
-            from .annotation.arda_adapter import _import_arda
-            from .annotation.batch import _batch_annotate
-            recs = _batch_annotate(batch, _import_arda())
-            for k, s in enumerate(batch):
-                try:
-                    classify_chains(s, organism=organism, autodetect_species=True,
-                                    precomputed_records=recs[k])
-                except Exception:  # noqa: BLE001
-                    pass
-        for s in batch:
-            seen += 1
-            if alphabeta and not _is_alphabeta(s):
-                continue
-            fr = [available_pairs(s, pt, receptor=receptor, radius=radius, cutoff=cutoff, **kw)
-                  for pt in parts]
-            fr = [f for f in fr if not f.is_empty()]
-            if not fr:
-                empty += 1
-                continue
-            frames.append(pl.concat(fr))
-            markup.append(_potts_markup(s))
-            kept += 1
+    for s, ok in _potts_structures(structures, organism=organism, need_mhc=need_mhc,
+                                   alphabeta=alphabeta):
+        seen += 1
+        if s is None or not ok:
+            continue
+        fr = [available_pairs(s, pt, receptor=receptor, radius=radius, cutoff=cutoff, **kw)
+              for pt in parts]
+        fr = [f for f in fr if not f.is_empty()]
+        if not fr:
+            empty += 1
+            continue
+        frames.append(pl.concat(fr))
+        markup.append(_potts_markup(s))
+        kept += 1
     if not frames:
         raise typer.BadParameter(f"no available residue pairs found in {structures}")
     df = pl.concat(frames)
@@ -2383,6 +2401,173 @@ def potts_score_cmd(
     typer.echo(f"AIS effective sample size: median {med:.0f} of {particles}"
                + ("  [LOW -- raise --steps]" if med < 0.3 * particles else ""))
     typer.echo(f"wrote {out} ({scores.height} structures)")
+
+
+@potts_app.command("geom")
+def potts_geom_cmd(
+    structures: Path = typer.Option(..., "-s", "--structures", help="structure file, folder or glob"),
+    out: Path = typer.Option("geom_prior.json", "-o", "--out"),
+    grid: int = typer.Option(12, "--grid", help="surface resolution per axis"),
+    exclude: str | None = typer.Option(None, "--exclude", help="comma-separated pdb.id list to leave out"),
+    organism: str = typer.Option("human", "--organism", help="human|mouse for V(D)J annotation"),
+) -> None:
+    """Fit the receptor:peptide Ca-distance prior over a structure set.
+
+    Averages every CDR1/CDR2/CDR3-against-peptide Ca surface in graphon coordinates
+    ``(u, v) = (i/(L+1), j/(M+1))``, so a surface fitted at one set of lengths reads back at any
+    other. The result is what ``tcren potts predict`` places a pair with when there is no
+    structure to read the distance off.
+
+    ``--exclude`` leaves the named structures out of the fit. That is how a held-out prediction is
+    built: the design belongs to whoever is evaluating, so this command only offers the exclusion
+    and takes no view on it. Withdrawn PDB entries are dropped unconditionally, as they are by
+    ``derive-potential`` and ``potts selfcon``, so a prior and a potential rest on one set.
+    """
+    from .potential import withdrawn_ids
+    from .potts import fit_geom_prior
+
+    # `need_mhc=True` is not optional here. The surface is keyed on MHC class, and without the
+    # groove annotation every structure reports MHCI -- so a prior fitted without it silently
+    # carries six surfaces where it should carry twelve, and reads class II off a class I average.
+    drop = {x.strip().lower() for x in exclude.split(",")} if exclude else set()
+    drop |= withdrawn_ids()
+    kept, seen, skipped = [], 0, 0
+    for st, ok in _potts_structures(structures, organism=organism, need_mhc=True):
+        seen += 1
+        if st is None or not ok:
+            continue
+        if str(st.pdb_id).lower() in drop:
+            skipped += 1
+            continue
+        kept.append(st)
+    prior = fit_geom_prior(kept, grid=grid, notes=f"{structures} | grid={grid}"
+                           + (f" | excluded {sorted(drop)}" if drop else ""))
+    prior.to_json(out)
+    typer.echo(f"{seen} structures seen"
+               + (f", {skipped} dropped (withdrawn or --exclude)" if skipped else "")
+               + f", {prior.n_structures} contributed a surface; "
+                 f"wrote {out} ({len(prior.keys())} surfaces at grid {grid})")
+
+
+#: Loop columns a ``--sequences`` manifest may carry, in the order `predicted_sites` keys them.
+_GEOM_LOOPS: tuple[str, ...] = tuple(f"{c}:{r}" for c in ("TRA", "TRB")
+                                     for r in ("CDR1", "CDR2", "CDR3"))
+
+
+def _load_geom(spec):
+    """Resolve ``--geom-prior`` from ``None`` (the bundled prior), a bundled name, or a path."""
+    from .potts import BUNDLED_PRIOR, GeomPrior
+
+    if spec is None or str(spec) == BUNDLED_PRIOR:
+        return GeomPrior.bundled()
+    path = Path(spec)
+    if path.exists():
+        return GeomPrior.from_json(path)
+    raise typer.BadParameter(
+        f"geometry prior not recognised: {spec!r} (use {BUNDLED_PRIOR!r} or an existing JSON path)")
+
+
+@potts_app.command("predict")
+def potts_predict_cmd(
+    out: Path = typer.Option("potts_predicted.tsv", "-o", "--out"),
+    structures: Path | None = typer.Option(None, "-s", "--structures", help="structure file, folder or glob"),
+    sequences: Path | None = typer.Option(None, "--sequences", help="TSV/CSV of loop and peptide sequences; no structure at all"),
+    model: str | None = typer.Option(None, "-m", "--model", help="bundled name (potts_tcr_peptide|potts_tcr_peptide_sc) or a model JSON path; default: potts_tcr_peptide"),
+    geom_prior: str | None = typer.Option(None, "--geom-prior", help="bundled name (geom_tcr_peptide) or a prior JSON path"),
+    organism: str = typer.Option("human", "--organism", help="human|mouse for V(D)J annotation"),
+    chains: int = typer.Option(64, "--chains", help="parallel Gibbs chains"),
+    burn: int = typer.Option(100, "--burn"),
+    draws: int = typer.Option(100, "--draws"),
+    thin: int = typer.Option(3, "--thin"),
+    seed: int = typer.Option(0, "--seed"),
+    workers: int | None = typer.Option(None, "-w", "--workers", help="processes; default all cores"),
+) -> None:
+    """Contact probability per residue pair with the Ca distances *predicted*, not measured.
+
+    ``tcren potts contacts`` reads the Ca distance matrix off the structure, so its site set and
+    its distance field both come from coordinates this complex was solved at. Here the distances
+    come from :func:`tcren.potts.predicted_distances` — a surface averaged over superimposed
+    crystals and read back at the lengths asked for — and the 15 A availability cut is applied to
+    the *predicted* distance. **No coordinate of the complex being scored reaches the
+    prediction.**
+
+    With ``-s`` the structure is opened for its loop sequences, its peptide and its MHC class only
+    (``loops_from_structure``), and the crystal's own ``sigma`` and ``d_ca`` are joined back on so
+    the table can be scored against what the crystal did. With ``--sequences`` there is no
+    structure: a TSV naming ``id``, ``peptide``, optionally ``mhc_class``, and any of the six loop
+    columns ``TRA:CDR1 ... TRB:CDR3``. ``sigma`` is null there, because nothing observed a contact.
+
+    Emits the ``potts contacts`` columns plus ``d_ca_sd``, the surface's own spread at that cell,
+    and ``feasible``, which is false where no loop of that length could span the distance
+    predicted — checked in closed form against :func:`tcren.geometry.reach_max` rather than
+    against the fit.
+    """
+    from .potts import contact_probabilities, loops_from_structure, predicted_sites
+
+    if (structures is None) == (sequences is None):
+        raise typer.BadParameter("pass exactly one of -s/--structures or --sequences")
+    m = _load_potts(model)
+    prior = _load_geom(geom_prior)
+    frames, obs = [], []
+    if sequences is not None:
+        if not sequences.exists():
+            raise typer.BadParameter(f"--sequences not found: {sequences}")
+        tab = pl.read_csv(sequences, infer_schema_length=None,
+                          separator="," if sequences.suffix.lower() == ".csv" else "\t")
+        if "peptide" not in tab.columns:
+            raise typer.BadParameter(f"{sequences} has no 'peptide' column")
+        ids = tab["id"] if "id" in tab.columns else [f"seq{i}" for i in range(tab.height)]
+        cls = tab["mhc_class"] if "mhc_class" in tab.columns else ["MHCI"] * tab.height
+        cols = [c for c in _GEOM_LOOPS if c in tab.columns]
+        if not cols:
+            raise typer.BadParameter(
+                f"{sequences} carries none of the loop columns {list(_GEOM_LOOPS)}")
+        for k, row in enumerate(tab.iter_rows(named=True)):
+            loops = {c: str(row[c]) for c in cols if row[c]}
+            if not loops:
+                continue
+            frames.append(predicted_sites(prior, loops, str(row["peptide"]),
+                                          mhc_class=str(cls[k]), pdb_id=str(ids[k])))
+    else:
+        from .potts import available_pairs
+        # The prior is keyed on MHC class, so the groove has to be annotated to read it back.
+        for st, ok in _potts_structures(structures, organism=organism, need_mhc=True):
+            if st is None or not ok:
+                continue
+            pep = next((c.sequence() for c in st.chains if c.chain_type == "PEPTIDE"), "")
+            loops = loops_from_structure(st)
+            if not loops or not pep:
+                continue
+            cls = "MHCII" if any(getattr(c, "mhc_class", None) == "MHCII"
+                                 for c in getattr(st, "mhc_calls", []) or []) else "MHCI"
+            frames.append(predicted_sites(prior, loops, pep, mhc_class=cls, pdb_id=st.pdb_id))
+            obs.append(available_pairs(st, "peptide"))
+    frames = [f for f in frames if not f.is_empty()]
+    if not frames:
+        raise typer.BadParameter("no predicted residue pairs — were any loops and peptides found?")
+    sites = pl.concat(frames)
+    probs = contact_probabilities(sites.drop("d_ca_sd", "feasible"), m, chains=chains, burn=burn,
+                                  draws=draws, thin=thin, seed=seed, workers=workers)
+    key = ["pdb.id", "chain.rec", "region.rec", "pos.rec", "pos.par"]
+    probs = probs.join(sites.select(*key, "d_ca_sd", "feasible"), on=key, how="left")
+    if obs:
+        # `sigma` on a predicted frame is a placeholder; where a crystal was read, replace it with
+        # what that crystal did, so the row scores itself instead of reporting a zero as a fact.
+        o = pl.concat(obs).select(*key, pl.col("sigma").alias("sigma_obs"),
+                                  pl.col("d_ca").alias("d_ca_obs"))
+        probs = (probs.drop("sigma").join(o, on=key, how="left")
+                 .rename({"sigma_obs": "sigma", "d_ca": "d_ca_pred"}))
+    else:
+        probs = probs.with_columns(pl.lit(None, dtype=pl.Float64).alias("sigma")) \
+                     .rename({"d_ca": "d_ca_pred"})
+    # One column order whichever way the sites were built, or a downstream reader has to branch on
+    # how the table was made to know what column 13 is.
+    head = ["pdb.id", "aa.rec", "chain.rec", "region.rec", "pos.rec", "aa.par", "pos.par",
+            "par.len", "role.par", "cls", "d_ca_pred", "d_ca_sd", "feasible", "sigma"]
+    probs = probs.select(*head, *[c for c in probs.columns if c not in head])
+    probs.write_csv(out, separator="\t")
+    typer.echo(f"wrote {out} ({probs.height} predicted residue pairs over "
+               f"{probs['pdb.id'].n_unique()} units)")
 
 
 @potts_app.command("contacts")

@@ -150,3 +150,53 @@ def test_an_unseen_mhc_class_falls_back_rather_than_failing(prior):
 def test_fitting_on_nothing_is_an_error_not_an_empty_prior():
     with pytest.raises(ValueError, match="no structure yielded"):
         fit_geom_prior([])
+
+
+# --- the shipped prior -----------------------------------------------------------------------
+#
+# `fit_geom_prior` above is fitted on the 17 bundled crystals, which is enough to test the machinery
+# and far too few to ship. These check the artifact in the wheel: the object that lets a contact map
+# be scored with no structure of the complex at all.
+
+@pytest.fixture(scope="module")
+def shipped():
+    return GeomPrior.bundled()
+
+
+def test_the_prior_ships_and_loads_by_name(shipped):
+    from tcren.potts import BUNDLED_PRIOR
+    assert BUNDLED_PRIOR == "geom_tcr_peptide"
+    assert shipped.grid == 12
+    # The same 359 alpha-beta Native2026 crystals TCRen2 is derived from: 12 not alpha-beta and
+    # 3 withdrawn, of 374. A different count means the prior and the potential have drifted apart.
+    assert shipped.n_structures == 359
+
+
+def test_both_MHC_classes_carry_a_surface(shipped):
+    """Without the groove annotation every crystal reports class I and the split collapses."""
+    assert len(shipped.keys()) == 12
+    for chain in ("TRA", "TRB"):
+        for region in REGIONS_MODELLED:
+            for cls in ("MHCI", "MHCII"):
+                assert f"{chain}:{region}|{cls}" in shipped.mean
+    assert shipped.n["TRB:CDR3|MHCI"] == 265
+    assert shipped.n["TRB:CDR3|MHCII"] == 94
+
+
+def test_a_prediction_scores_under_the_shipped_potts_model(shipped, structures):
+    """Sequence in, contact probability out — no coordinate of the complex is read."""
+    from tcren.potts import contact_probabilities
+    s = next(x for x in structures if x.pdb_id == "1ao7")
+    pep = next(c.sequence() for c in s.chains if c.chain_type == "PEPTIDE")
+    sites = predicted_sites(shipped, loops_from_structure(s), pep)
+    assert sites.height > 50
+    probs = contact_probabilities(sites.drop("d_ca_sd", "feasible"),
+                                  PottsModel.bundled("potts_tcr_peptide_sc"), workers=1)
+    assert probs["p_model"].is_between(0.0, 1.0).all()
+
+
+def test_a_non_standard_residue_is_dropped_not_crashed_on(shipped):
+    """`X` has no code in the model's alphabet, and two Native2026 crystals carry one."""
+    sites = predicted_sites(shipped, {"TRB:CDR3": "ASSXGELF"}, "GILXFVFTL")
+    assert sites.height
+    assert "X" not in set(sites["aa.rec"]) and "X" not in set(sites["aa.par"])

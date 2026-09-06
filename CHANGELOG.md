@@ -3,6 +3,65 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
+## [3.6.0] — 2026-09-06
+
+**A contact map can be scored without a structure of the complex.** `tcren.potts.geom` modelled the
+receptor:peptide Cα distance matrix from sequence and lengths alone but had no fitted prior and no
+command; both now ship, so the site set a Potts model scores no longer has to be read off
+coordinates the complex was solved at.
+
+### Added
+- **`geom_tcr_peptide` — a fitted Cα geometry prior, in the wheel**, reachable as
+  `GeomPrior.bundled()`. Averaged in graphon coordinates over the **same 359 αβ `Native2026`
+  crystals `tcren2` is derived from** (12 not αβ and 3 withdrawn, of 374), so a prediction and a
+  potential rest on one structure set. Twelve surfaces at grid 12 — TRA/TRB × CDR1/CDR2/CDR3 ×
+  MHCI/MHCII, 265 class I and 94 class II crystals per key.
+
+- **`tcren potts geom -s <structures> -o <json> [--grid] [--exclude]`** — fits it. `--exclude`
+  leaves named `pdb.id`s out, which is how a held-out prediction is built; the held-out *design*
+  belongs to whoever is evaluating, so the command only offers the exclusion. Withdrawn PDB entries
+  are dropped unconditionally, as they are by `derive-potential` and `potts selfcon`.
+
+  **The MHC groove is annotated whether or not the caller asks.** The surface is keyed on MHC
+  class, and without the groove pass every crystal reports class I: a prior fitted without it
+  silently carries six surfaces where it should carry twelve and reads class II off a class I
+  average.
+
+- **`tcren potts predict`** — contact probability per residue pair with the Cα distances
+  *predicted* rather than measured. `potts contacts` reads the distance matrix off the structure,
+  so both its site set and its distance field come from solved coordinates; here the distances come
+  from the prior's surface read back at the lengths asked for, and the 15 Å availability cut is
+  applied to the **predicted** distance.
+
+  Two inputs, and the difference is the whole point. `-s` opens the structure for its loop
+  sequences, its peptide and its MHC class only, and joins the crystal's own `sigma` and `d_ca`
+  back on so the table can be scored against what the crystal did. `--sequences` takes a TSV of
+  `id`, `peptide`, optional `mhc_class` and any of the six loop columns `TRA:CDR1 … TRB:CDR3`, and
+  reads **no structure at all**; `sigma` is null there, because nothing observed a contact. One
+  column order either way, `d_ca_obs` appended only when a crystal was read.
+
+  Emits the `potts contacts` columns plus `d_ca_sd`, the surface's own spread at that cell, and
+  `feasible`, false where no loop of that length could span the distance predicted — checked
+  against `tcren.geometry.reach_max`, the closed-form discrete-Frenet reach bound, rather than
+  against the fit.
+
+- **`tcren.potts.feasible` is exported.** `predicted_sites` has always called it and written its
+  result into the emitted `feasible` column, but it was in neither `geom.__all__` nor
+  `potts.__all__`, so a caller could read the column and not the rule behind it.
+
+### Changed
+- **`_potts_structures` is the one batched-annotation path every `potts` command shares.** The loop
+  was inline in `_potts_pairs`; `potts geom` and `potts predict` need the same structures without
+  the pair table, and duplicating it would have meant a second place for an mmseqs-per-structure
+  regression to appear.
+
+### Fixed
+- **`predicted_sites` crashed on a non-standard residue.** `X` has no code in the model's alphabet
+  and two `Native2026` crystals carry one, so a set-wide prediction raised `KeyError: 'X'` rather
+  than dropping the cell. `available_pairs` has always filtered these; now both do.
+- `tcren2()`'s docstring said the matrix is derived over **362** crystals. It has been **359**
+  since 3.3.0; the manifest and the CHANGELOG were already right.
+
 ## [3.5.0] — 2026-09-06
 
 **The shipped residue-pair tables become readable from the command line**, so a figure or a table
