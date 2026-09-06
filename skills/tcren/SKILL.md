@@ -36,7 +36,7 @@ when writing new code, since that is where the docstrings and the layering audit
 of the same name on the package. Section headings below still use several of the deprecated names;
 they resolve, and this table is the map.
 
-## What moved after 3.0.0 — 3.1.0, 3.2.0, 3.3.0
+## What moved after 3.0.0 — 3.1.0, 3.2.0, 3.3.0, 3.4.0
 
 The score set of 3.0.0 is unchanged and every 3.0.0 entry point still returns what it returned.
 Four things were added on top of it and one shipped number moved.
@@ -47,6 +47,7 @@ Four things were added on top of it and one shipped number moved.
 | **3.2.0** | **`tcren.score.residue_deltas` / `tcren explain`** — which residue carries a score, for the four read-outs that do not decompose. See the section below. |
 | **3.3.0** | **The shipped TCRen2 matrix is re-derived on 359 of 374 `Native2026` structures**, where every release from 2.11.0 through 3.2.0 shipped a 362-structure derivation. Three withdrawn PDB entries are dropped (`potential.withdrawn_ids()`, `data/pdb_withdrawn.csv`). The two matrices agree at Pearson *r* = 0.9996 over all 380 cells with a largest shift of 0.104 on a range of 2.95 — a provenance correction, not a change of instrument — but a Φ computed under one is still not comparable with one computed under the other. |
 | **3.3.0** | **`python -m tcren.cli explain` used to report "no such command"**, because the `__main__` guard sat above the registration. The guard is now the last statement in `cli.py` and `tests/unit/test_cli_entrypoints.py` asserts the two entry points expose identical command sets (27 today). This was the second recurrence; do not move the guard. |
+| **3.4.0** | **The self-consistent arm became addressable from the command line.** `tcren2_em` resolves as a bundled potential name (`-p`, `--tcr-peptide-potential`, `--coupling-matrix`) and `potts_tcr_peptide_sc` as a bundled model name (`-m`); before this both shipped in the wheel with Python loaders only, so a three-matrix comparison could not be run from a shell script. `tcren score` gained `--delta` with `--reference structural|virtual`, and `-c` gained the per-template manifest. |
 
 New surface in 3.3.0, all of it bootstrap and batching rather than analysis:
 
@@ -267,6 +268,15 @@ QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses ar
   contact map the energy is additive over contacts, so the parts sum to the whole. Once atoms move
   they do not — truncating every side chain at once loses contacts each residue alone retains — so
   the 3D scan and the 3D reference are two different measurements. Both are correct; say which.
+- **CLI: `tcren score --delta [--reference structural|virtual]`**, one `dphi` column per candidate.
+  `structural` (the default) passes `structure=` and rebuilds the poly-Ala contact map;
+  `virtual` re-indexes poly-Ala on the template's map. **They are different quantities** — on
+  2b4/3QIB under `karnaukhov2022` the references read **-1.3916** and **-0.0166** natural-log units
+  against a scored energy of -2.3104, and poly-Ala keeps 62-85 % of the crystal's TCR:peptide
+  contacts. Φ(reference) is candidate-independent, so it is computed once per template.
+- **CLI: `-c` takes a per-template manifest**, a TSV/CSV headed `complex.id` + `peptide`; each
+  structure scores only its own rows. 204 units with their own pools = ONE call and ONE batched
+  mmseqs pass, not 204 of each. A plain one-per-line file is unchanged. `tcren rank` reads it too.
 - **`interface="complex"` sums both peptide-bearing interfaces** (TCR:peptide with `potential`,
   peptide:MHC with `mhc_potential=`, default MJ), matching `cpl.response_matrix`'s cell convention.
   `ddg`, `neoantigen_ddg` and `reference_delta` all take it; CLI is `tcren ddg --interface complex`.
@@ -371,7 +381,12 @@ contact_probabilities(pairs, model)                # p_independent / p_model / p
 tcren potts fit      -s structures/ -o potts.json --balance both
 tcren potts score    -s structures/ -o scores.tsv          # bundled model by default
 tcren potts contacts -s complex.pdb -o contacts.tsv
+tcren potts contacts -s complex.pdb -m potts_tcr_peptide_sc -o contacts.tsv   # a bundled name
 ```
+
+`-m/--model` takes a **bundled name** — `potts_tcr_peptide` (default), `potts_tcr_peptide_sc`,
+`potts_tcr_mhc`, `potts_pep_mhc` — or a JSON path, on `score` / `contacts` / `map` / `ensemble` /
+`scan`.
 
 **Fitting needs no partition function.** `P(sigma_a | rest)` is logistic in
 `eta_a + sum_k K_k n_k(a)` with `n_k(a)` the count of contacting neighbours in coupling class `k`,
@@ -552,6 +567,15 @@ redundancy `weights` dict is keyed on the UNSUFFIXED `pdb.id` and is multiplied 
 
 ## Self-consistent TCRen — `tcren.potts.selfcon` / `tcren potts selfcon`
 
+**The matrix it produces is shipped: `tcren.potential.tcren2_em()`, `data/TCRen2_sc_potential.csv`,
+manifest key `tcren2_em`, and the model pinned to it as `potts_tcr_peptide_sc`. Both are reachable
+by name from the CLI** — `-p tcren2_em`, `--tcr-peptide-potential tcren2_em`,
+`--coupling-matrix tcren2_em`, `-m potts_tcr_peptide_sc`. **`tcren2()` is still the default
+potential** — TCRen2-EM ships beside it,
+Pearson r = 0.944 against TCRen2 over the 380 cells against r = 0.867 between TCRen2 and the 2022
+matrix, so it is a smaller step than the re-derivation was and the two are still not
+interchangeable.
+
 `derive_tcren` tallies the amino-acid pairs of the contacts a crystal **shows**; `fit_potts` reads
 the finished matrix back as its pair term. The loop was never closed. `fit_selfconsistent` closes
 it: each step recomputes the contact posterior under the current model, re-derives the potential
@@ -572,6 +596,16 @@ pot.to_csv("TCRen_sc.csv")          # a drop-in Potential: -p TCRen_sc.csv anywh
 tcren potts selfcon -s <structures> --balance both --margin 0.5 \
     -o TCRen_sc.csv --model-out potts_sc.json --trace-out sc_trace.tsv
 ```
+
+**`--tol` sits on `max_abs_de`, which is a maximum over 380 cells and therefore has a high
+Monte-Carlo floor. Do not lower it without raising `draws`, and do not expect `draws` to rescue an
+arbitrarily small value.** Measured on Native2026: the plateau falls 0.00391 (`draws=100`) →
+0.00217 (`draws=400`), a ratio of 0.553 against the 0.500 that quartering the variance predicts, so
+1e-3 needs roughly 1,800 draws and would measure nothing — across those same steps `r_vs_initial`
+moves by 6.2e-5 and `beta_matrix` by 2.1e-4. Read **`rms_de`** instead when the question is whether
+the matrix is still moving; averaging over the cells rather than maximising puts its floor about
+`sqrt(380)` lower. The loop breaks the moment `max_abs_de <= tol`, so a tol near the floor also
+decides how many steps you get.
 
 **Weighting each configuration by its probability costs nothing.** The tally over whole contact
 configurations, `sum_delta P(delta | obs) * n_ab(delta)`, **equals** `sum_a p_a` by linearity of

@@ -124,8 +124,27 @@ def _load_potential(spec: str | None) -> Potential:
 
 
 
-def _read_candidates(path: Path) -> list[str]:
+def _read_candidates(path: Path) -> list[str] | dict[str, list[str]]:
+    """Candidate peptides: one flat list, or one list per template.
+
+    A plain file is one peptide per line and every structure scores every peptide. A **manifest**
+    is a TSV whose header names ``complex.id`` and ``peptide``, and each structure then scores only
+    its own rows -- which is what a benchmark of many templates each with its own candidate pool
+    needs. Without it that benchmark is one CLI call per unit, and each call re-runs the chain
+    typing: 204 units became 204 mmseqs searches where one batched call does.
+    """
     lines = [line.strip() for line in path.read_text().splitlines() if line.strip()]
+    if not lines:
+        return []
+    header = lines[0].lower().replace(",", "\t").split("\t")
+    if "complex.id" in header and "peptide" in header:
+        sep = "," if "," in lines[0] else "\t"
+        ic, ip = header.index("complex.id"), header.index("peptide")
+        pools: dict[str, list[str]] = {}
+        for line in lines[1:]:
+            f = line.split(sep)
+            pools.setdefault(f[ic].strip().lower(), []).append(f[ip].strip())
+        return pools
     return [line for line in lines if line.lower() != "peptide"]
 
 
@@ -595,11 +614,33 @@ def _score_weights(structure, cm, interface, regions, drop_untyped, position_sch
     return w
 
 
+def _reference_energy(structure, cm, potential, interface, regions, mode, reference_aa,
+                      cutoff, drop_untyped=False, position_scheme="uniform"):
+    """Φ of the poly-``reference_aa`` peptide — the constant ``--delta`` subtracts.
+
+    It does not depend on the candidate, so one call per template covers the whole pool. The two
+    modes are different quantities: ``virtual`` charges the reference for every contact the real
+    side chains make, ``structural`` truncates the peptide and lets the reference find its own
+    contacts, which is what a poly-alanine baseline is meant to mean.
+    """
+    from .energetics.mutation import _mutant_map, _score_one
+
+    ref = reference_aa * cm.peptide_length
+    if mode == "virtual":
+        w = _score_weights(structure, cm, interface, regions, drop_untyped, position_scheme)
+        return _score_one(cm, ref, potential, interface, regions, weights=w)
+    rcm = _mutant_map(structure, ref, cutoff, False)
+    # The rebuilt map has its own contacts, so a weight vector indexed on the template's would be
+    # the wrong length; the reference is reweighted against its own.
+    w = _score_weights(structure, rcm, interface, regions, drop_untyped, position_scheme)
+    return _score_one(rcm, ref, potential, interface, regions, weights=w)
+
+
 @app.command(rich_help_panel=_P_SCORE)
 def score(
     structures: Path = typer.Option(..., "-s", "--structures", help="structure file, directory, or .tar.gz (.pdb/.cif/.pdb.gz/.cif.gz)"),
     candidates: Path = typer.Option(..., "-c", "--candidates", help="candidate epitopes file"),
-    potential: str | None = typer.Option(None, "-p", "--potential", help="potential: bundled name (tcren2|karnaukhov2022|mj|keskin) or CSV path (default: tcren2)"),
+    potential: str | None = typer.Option(None, "-p", "--potential", help="potential: bundled name (tcren2|tcren2_em|karnaukhov2022|mj|keskin) or CSV path (default: tcren2)"),
     out: Path = typer.Option("candidate_epitopes_TCRen.csv", "-o", "--out"),
     interface: str = typer.Option("tcr_peptide", "--interface"),
     regions: str = typer.Option("all", "--regions", help="TCR regions on the TCR side: all|cdr|cdr+fr (default: all)"),
@@ -609,6 +650,9 @@ def score(
     drop_untyped: bool = typer.Option(False, "--drop-untyped", help="ignore contacts that are only proximity (no salt bridge / h-bond / stacking / hydrophobic / polar chemistry)"),
     position_scheme: str = typer.Option("uniform", "--position-weights", help="weight contacts by where they sit on the peptide: uniform|central|tcr_facing"),
     soft: bool = typer.Option(False, "--soft", help="rotamer-averaged contacts: replace the hard 5 A cutoff with a Boltzmann-weighted contact probability over chi rotamers"),
+    delta: bool = typer.Option(False, "--delta", help="also report ΔΦ, the poly-alanine-referenced energy"),
+    reference: str = typer.Option("structural", "--reference", help="how the poly-alanine baseline is built for --delta: structural (rebuild its own contacts) or virtual (re-index on the template map)"),
+    reference_aa: str = typer.Option("A", "--reference-aa", help="reference residue for --delta (default: alanine)"),
 ) -> None:
     """Score candidate epitopes against input structures (end-to-end pipeline).
 
@@ -617,6 +661,19 @@ def score(
     with **itself** (5 Å, sequence separation >= 3, MJ). It is off by default; a class-I 9-mer is
     extended and makes zero to two such contacts, so it separates candidates only where the peptide
     is genuinely bulged or self-packed.
+
+    ``--delta`` adds ``dphi`` = Φ(candidate) − Φ(poly-alanine), the referenced energy of
+    :func:`tcren.ddg.reference_delta`. Φ(reference) does not depend on the candidate, so it is
+    computed **once per template** and subtracted from every row. The two references are not the
+    same quantity and are not interchangeable. ``--reference structural`` (the default) truncates
+    the peptide and **recomputes the contact map**, so the baseline is what backbone plus Cβ alone
+    reach; ``--reference virtual`` re-indexes poly-alanine on the template's own map, so the
+    baseline is charged for every contact the real side chains make. On 2b4/3QIB under
+    ``karnaukhov2022`` the two read −1.3916 and −0.0166.
+
+    On a single template ΔΦ is Φ minus a constant and cannot change a ranking — it changes the
+    scale and the zero. It separates candidates only where each carries its **own** structure, and
+    across templates it is what makes two units commensurate.
 
     ``--drop-untyped``, ``--position-weights`` and ``--soft`` all reweight the same sum, and all
     default to off so the score is unchanged unless asked. The first uses the chemical typing to
@@ -631,18 +688,32 @@ def score(
     from .energetics.scoring import POSITION_SCHEMES
     if position_scheme not in POSITION_SCHEMES:
         raise typer.BadParameter(f"--position-weights must be one of {'|'.join(POSITION_SCHEMES)}")
+    if reference not in ("structural", "virtual"):
+        raise typer.BadParameter("--reference must be structural or virtual")
     pot = _load_potential(potential)
     cands = _read_candidates(candidates)
+    pools = cands if isinstance(cands, dict) else None
     frames = []
     for s in _typed_batch(structures, organism, mhc=soft):
+        # A manifest names the template each pool belongs to; without one every structure scores
+        # every candidate, which is the behaviour every existing caller has.
+        mine = pools.get(str(s.pdb_id).lower()) if pools is not None else cands
+        if not mine:
+            continue
         cm = ContactMap.from_structure(s, cutoff=cutoff, peptide_internal=bool(intra_weight))
         if soft:
             from .energetics.rotamers import contact_probabilities
-            frames.append(_soft_score(s, cands, pot, interface, cutoff, contact_probabilities))
+            frames.append(_soft_score(s, mine, pot, interface, cutoff, contact_probabilities))
             continue
         w = _score_weights(s, cm, interface, regions, drop_untyped, position_scheme)
-        frames.append(score_peptides(cm, cands, pot, interface=interface, tcr_regions=regions,
-                                     intra_weight=intra_weight, weights=w))
+        frame = score_peptides(cm, mine, pot, interface=interface, tcr_regions=regions,
+                               intra_weight=intra_weight, weights=w)
+        if delta:
+            frame = frame.with_columns(
+                (pl.col("score") - _reference_energy(
+                    s, cm, pot, interface, regions, reference, reference_aa, cutoff,
+                    drop_untyped, position_scheme)).alias("dphi"))
+        frames.append(frame)
     result = pl.concat(frames) if frames else pl.DataFrame()
     result.write_csv(str(out))
     typer.echo(f"The ranked list of candidate epitopes can be found in {out}")
@@ -656,7 +727,7 @@ def ddg_cmd(
     side: str = typer.Option("peptide", "--side", help="which side the alanine scan walks: peptide|tcr|both"),
     virtual: bool = typer.Option(False, "--virtual", help="alanine scan without moving atoms (fast; peptide side only)"),
     mutant: list[str] = typer.Option(None, "--mutant", help="mutant peptide(s); repeat for several (neoantigen mode)"),
-    potential: str | None = typer.Option(None, "-p", "--potential", help="potential: bundled name (tcren2|karnaukhov2022|mj|keskin) or CSV path (default: tcren2)"),
+    potential: str | None = typer.Option(None, "-p", "--potential", help="potential: bundled name (tcren2|tcren2_em|karnaukhov2022|mj|keskin) or CSV path (default: tcren2)"),
     out: Path = typer.Option("ddg.csv", "-o", "--out"),
     interface: str = typer.Option("tcr_peptide", "--interface", help="tcr_peptide|tcr_mhc|peptide_mhc|complex (both peptide-bearing interfaces summed)"),
     mhc_potential: str | None = typer.Option(None, "--mhc-potential", help="peptide:MHC potential for --interface complex (default: Miyazawa-Jernigan)"),
@@ -802,7 +873,7 @@ def cpl_cmd(
 def rank(
     structures: Path = typer.Option(..., "-s", "--structures", help="structure file, directory, or .tar.gz (.pdb/.cif/.pdb.gz/.cif.gz)"),
     candidates: Path = typer.Option(None, "-c", "--candidates", help="peptides to rank; default: each structure's native peptide"),
-    potential: str | None = typer.Option(None, "-p", "--potential", help="potential: bundled name (tcren2|karnaukhov2022|mj|keskin) or CSV path (default: tcren2)"),
+    potential: str | None = typer.Option(None, "-p", "--potential", help="potential: bundled name (tcren2|tcren2_em|karnaukhov2022|mj|keskin) or CSV path (default: tcren2)"),
     out: Path = typer.Option("rank.csv", "-o", "--out"),
     interface: str = typer.Option("tcr_peptide", "--interface", help="tcr_peptide|tcr_mhc|peptide_mhc"),
     regions: str = typer.Option("all", "--regions", help="TCR regions on the TCR side: all|cdr|cdr+fr (default: all)"),
@@ -827,12 +898,15 @@ def rank(
 
     pot = _load_potential(potential)
     cands = _read_candidates(candidates) if candidates is not None else None
+    pools = cands if isinstance(cands, dict) else None   # a per-template manifest, see _read_candidates
     src = str(background_source) if background_source is not None else None
     rows = []
     for s in _typed_batch(structures, organism, mhc=False):   # batched typing, not one per PDB
         _pid = s.pdb_id
         cm = ContactMap.from_structure(s, cutoff=cutoff)
-        if cands is not None:
+        if pools is not None:
+            peptides = pools.get(str(s.pdb_id).lower(), [])
+        elif cands is not None:
             peptides = cands
         else:
             native = next((c.sequence() for c in s.chains if c.chain_type == PEPTIDE_TYPE), None)
@@ -1065,7 +1139,7 @@ def scoring(
     db: Path = typer.Option(None, "--db", help="canonical database dir (default: data/Canonical2026)"),
     organism: str = typer.Option("human", "--organism"),
     cutoff: float = typer.Option(5.0, "--cutoff", help="heavy-atom contact distance threshold (Å)"),
-    tcr_peptide_potential: str = typer.Option(None, "--tcr-peptide-potential", help="potential for the TCR↔peptide interface: bundled name (tcren2|karnaukhov2022|mj|keskin) or CSV path (default: tcren2)"),
+    tcr_peptide_potential: str = typer.Option(None, "--tcr-peptide-potential", help="potential for the TCR↔peptide interface: bundled name (tcren2|tcren2_em|karnaukhov2022|mj|keskin) or CSV path (default: tcren2)"),
     tcr_mhc_potential: str = typer.Option(None, "--tcr-mhc-potential", help="potential for the TCR↔MHC interface: bundled name or CSV path (default: mj)"),
     peptide_mhc_potential: str = typer.Option(None, "--peptide-mhc-potential", help="potential for the peptide↔MHC interface: bundled name or CSV path (default: mj)"),
     regions: str = typer.Option("all", "--regions", help="TCR regions on the TCR side: all|cdr|cdr+fr (default: all)"),
@@ -1993,6 +2067,27 @@ def _potts_pairs(structures: Path, partner: str, *, radius: float, cutoff: float
     return df, pl.DataFrame(markup)
 
 
+#: The Potts models shipped in the wheel, addressable by name on the command line.
+_BUNDLED_POTTS = ("potts_tcr_peptide", "potts_tcr_peptide_sc", "potts_tcr_mhc",
+                  "potts_pep_mhc")
+
+
+def _load_potts(spec):
+    """Resolve ``-m`` from ``None`` (the default bundled model), a bundled name, or a JSON path."""
+    from .potts import PottsModel
+
+    if spec is None:
+        return PottsModel.bundled()
+    if str(spec) in _BUNDLED_POTTS:
+        return PottsModel.bundled(str(spec))
+    path = Path(spec)
+    if path.exists():
+        return PottsModel.from_json(path)
+    raise typer.BadParameter(
+        f"model not recognised: {spec!r} (use a bundled name {list(_BUNDLED_POTTS)} "
+        f"or an existing JSON path)")
+
+
 @potts_app.command("pairs")
 def potts_pairs_cmd(
     structures: Path = typer.Option(..., "-s", "--structures", help="structure file, folder or glob"),
@@ -2047,7 +2142,7 @@ def potts_fit_cmd(
                                         "factorised model, whose log Z is then exact"),
     coupling_matrix: str | None = typer.Option(
         None, "--coupling-matrix",
-        help="fix J to one scale on a bundled potential (tcren2|tcren|mj|mj1996|keskin) instead "
+        help="fix J to one scale on a bundled potential (tcren2|tcren2_em|tcren|mj|mj1996|keskin) instead "
              "of fitting 400 free cells; competing matrices then carry identical parameter counts"),
     balance: str | None = typer.Option(
         None, "--balance", help="down-weight structure redundancy: epitope|tcr|both"),
@@ -2218,7 +2313,7 @@ def potts_selfcon_cmd(
 
     pot.to_csv(out)
     model.to_json(model_out)
-    typer.echo(f"beta(TCRen-SC) = {model.beta_matrix:+.4f}, {model.n_parameters()} parameters, "
+    typer.echo(f"beta(TCRen2-EM) = {model.beta_matrix:+.4f}, {model.n_parameters()} parameters, "
                f"pseudo-logLik {model.pseudo_loglik:.1f}")
     typer.echo(f"wrote {out} ({pot.matrix.height} cells) and {model_out}")
     stamp(out, command="potts selfcon",
@@ -2239,7 +2334,7 @@ def potts_selfcon_cmd(
 def potts_score_cmd(
     structures: Path = typer.Option(..., "-s", "--structures", help="structure file, folder or glob"),
     out: Path = typer.Option("potts_scores.tsv", "-o", "--out"),
-    model: Path | None = typer.Option(None, "-m", "--model", help="model JSON; default: bundled"),
+    model: str | None = typer.Option(None, "-m", "--model", help="bundled name (potts_tcr_peptide|potts_tcr_peptide_sc) or a model JSON path; default: potts_tcr_peptide"),
     partner: str = typer.Option("peptide", "--partner", help="peptide|mhc|both"),
     particles: int = typer.Option(64, "--particles", help="AIS particles per structure"),
     steps: int = typer.Option(256, "--steps", help="AIS annealing steps"),
@@ -2256,7 +2351,7 @@ def potts_score_cmd(
     """
     from .potts import PottsModel, score_sites
 
-    m = PottsModel.from_json(model) if model else PottsModel.bundled()
+    m = _load_potts(model)
     pairs, _ = _potts_pairs(structures, partner, radius=m.radius, cutoff=m.cutoff)
     scores = score_sites(pairs, m, particles=particles, steps=steps, seed=seed,
                          workers=workers)
@@ -2271,7 +2366,7 @@ def potts_score_cmd(
 def potts_contacts_cmd(
     structures: Path = typer.Option(..., "-s", "--structures", help="structure file, folder or glob"),
     out: Path = typer.Option("potts_contacts.tsv", "-o", "--out"),
-    model: Path | None = typer.Option(None, "-m", "--model", help="model JSON; default: bundled"),
+    model: str | None = typer.Option(None, "-m", "--model", help="bundled name (potts_tcr_peptide|potts_tcr_peptide_sc) or a model JSON path; default: potts_tcr_peptide"),
     partner: str = typer.Option("peptide", "--partner", help="peptide|mhc|both"),
     chains: int = typer.Option(64, "--chains", help="parallel Gibbs chains"),
     burn: int = typer.Option(100, "--burn"),
@@ -2288,7 +2383,7 @@ def potts_contacts_cmd(
     """
     from .potts import PottsModel, contact_probabilities
 
-    m = PottsModel.from_json(model) if model else PottsModel.bundled()
+    m = _load_potts(model)
     pairs, _ = _potts_pairs(structures, partner, radius=m.radius, cutoff=m.cutoff)
     probs = contact_probabilities(pairs, m, chains=chains, burn=burn, draws=draws, thin=thin,
                                   seed=seed, workers=workers)
@@ -2301,7 +2396,7 @@ def potts_contacts_cmd(
 def potts_map_cmd(
     structures: Path = typer.Option(..., "-s", "--structures", help="structure file, folder or glob"),
     out: Path = typer.Option("potts_map.tsv", "-o", "--out"),
-    model: Path | None = typer.Option(None, "-m", "--model", help="model JSON; default: bundled"),
+    model: str | None = typer.Option(None, "-m", "--model", help="bundled name (potts_tcr_peptide|potts_tcr_peptide_sc) or a model JSON path; default: potts_tcr_peptide"),
     by: str = typer.Option("loop", "--by", help="grouping: loop|position|pair"),
     partner: str = typer.Option("peptide", "--partner", help="peptide|mhc|both"),
     chains: int = typer.Option(64, "--chains", help="parallel Gibbs chains"),
@@ -2326,7 +2421,7 @@ def potts_map_cmd(
 
     if by not in ("loop", "position", "pair"):
         raise typer.BadParameter("--by must be one of loop|position|pair")
-    m = PottsModel.from_json(model) if model else PottsModel.bundled()
+    m = _load_potts(model)
     pairs, _ = _potts_pairs(structures, partner, radius=m.radius, cutoff=m.cutoff)
     table = contact_map(pairs, m, by=by, chains=chains, burn=burn, draws=draws, thin=thin,
                         seed=seed, workers=workers)
@@ -2339,7 +2434,7 @@ def potts_map_cmd(
 def potts_ensemble_cmd(
     structures: Path = typer.Option(..., "-s", "--structures", help="structure file, folder or glob"),
     out: Path = typer.Option("potts_ensemble.tsv", "-o", "--out"),
-    model: Path | None = typer.Option(None, "-m", "--model", help="model JSON; default: bundled"),
+    model: str | None = typer.Option(None, "-m", "--model", help="bundled name (potts_tcr_peptide|potts_tcr_peptide_sc) or a model JSON path; default: potts_tcr_peptide"),
     potential: Path | None = typer.Option(None, "-p", "--potential", help="TCR:peptide potential CSV; default TCRen2"),
     maps: Path | None = typer.Option(None, "--maps", help="also write the ranked configurations here"),
     by: str = typer.Option("position", "--by", help="configuration grouping: position|loop|pair"),
@@ -2376,7 +2471,7 @@ def potts_ensemble_cmd(
         raise typer.BadParameter("--anchor must be observed|random")
     if by not in ("position", "loop", "pair"):
         raise typer.BadParameter("--by must be one of position|loop|pair")
-    m = PottsModel.from_json(model) if model else PottsModel.bundled()
+    m = _load_potts(model)
     pot = Potential.from_csv(potential) if potential else tcren2()
     pairs, _ = _potts_pairs(structures, partner, radius=m.radius, cutoff=m.cutoff)
     table = energy_ensemble(pairs, m, pot, beta=beta, anchor=anchor, chains=chains, burn=burn,
@@ -2404,7 +2499,7 @@ def potts_ensemble_cmd(
 def potts_scan_cmd(
     structures: Path = typer.Option(..., "-s", "--structures", help="structure file, folder or glob"),
     out: Path = typer.Option("potts_scan.tsv", "-o", "--out"),
-    model: Path | None = typer.Option(None, "-m", "--model", help="model JSON; default: bundled"),
+    model: str | None = typer.Option(None, "-m", "--model", help="bundled name (potts_tcr_peptide|potts_tcr_peptide_sc) or a model JSON path; default: potts_tcr_peptide"),
     partner: str = typer.Option("peptide", "--partner", help="peptide|mhc|both"),
     coupled: bool = typer.Option(False, "--coupled",
                                  help="linear response about the observed sequence"),
@@ -2429,7 +2524,7 @@ def potts_scan_cmd(
     """
     from .potts import PottsModel, contact_probabilities, peptide_free_energy
 
-    m = PottsModel.from_json(model) if model else PottsModel.bundled()
+    m = _load_potts(model)
     pairs, _ = _potts_pairs(structures, partner, radius=m.radius, cutoff=m.cutoff)
     marg = (contact_probabilities(pairs, m, chains=chains, burn=burn, draws=draws, thin=thin,
                                   seed=seed, workers=workers) if coupled else None)

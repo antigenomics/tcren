@@ -204,8 +204,14 @@ def _dense(pot: Potential) -> pl.DataFrame:
     return pot.matrix.select("residue.aa.from", "residue.aa.to", "value")
 
 
-def _blend(old: Potential, new: Potential, damping: float) -> tuple[Potential, float]:
-    """``(1 - damping) * old + damping * new``, and the largest cell movement it made."""
+def _blend(old: Potential, new: Potential,
+           damping: float) -> tuple[Potential, float, float]:
+    """``(1 - damping) * old + damping * new``, and how far it moved, two ways.
+
+    Returns the largest cell movement and the root-mean-square one. The max is the headline number
+    because it bounds every cell, but it is a maximum over 380 noisy quantities and so carries a
+    much higher Monte-Carlo floor than the r.m.s. does -- see :func:`fit_selfconsistent`'s note.
+    """
     j = (_dense(old).rename({"value": "v_old"})
          .join(_dense(new).rename({"value": "v_new"}),
                on=["residue.aa.from", "residue.aa.to"], how="inner"))
@@ -218,7 +224,8 @@ def _blend(old: Potential, new: Potential, damping: float) -> tuple[Potential, f
                       matrix=j.select("residue.aa.from", "residue.aa.to",
                                       pl.Series("value", mixed)),
                       alphabet=new.alphabet),
-            float(np.max(np.abs(mixed - a))))
+            float(np.max(np.abs(mixed - a))),
+            float(np.sqrt(np.mean((mixed - a) ** 2))))
 
 
 def fit_selfconsistent(sites: pl.DataFrame, *, potential: Potential | None = None,
@@ -278,7 +285,8 @@ def fit_selfconsistent(sites: pl.DataFrame, *, potential: Potential | None = Non
     Returns:
         ``(potential, model, trace)`` — the converged matrix, the model pinned to it, and one trace
         row per step carrying ``step``, ``max_abs_de``, ``r_vs_initial``, ``beta_matrix``,
-        ``contact_mass``, ``mass_from_uncertain``, ``pseudo_loglik``, ``n_sites``, ``converged``,
+        ``rms_de``, ``contact_mass``, ``mass_from_uncertain``, ``pseudo_loglik``, ``n_sites``,
+        ``converged``,
         and one column per coupling class of :func:`tcren.potts.kernel_names` — the loop
         re-estimates the matrix and the couplings together, so the trace carries both.
 
@@ -294,6 +302,16 @@ def fit_selfconsistent(sites: pl.DataFrame, *, potential: Potential | None = Non
         0.3499 -> 0.0033 over ten steps and then sits between 0.0033 and 0.0038 for the next five.
         Hence a default ``tol`` of 5e-3. Lower it only together with more ``draws`` or ``chains``,
         which is what lowers the floor; lowering ``tol`` alone buys a run that cannot converge.
+
+        **The floor scales as the sampler says it should, so raising ``draws`` cannot rescue an
+        arbitrarily small ``tol``.** Measured on the same set at ``draws=400``, 25 steps: the
+        plateau mean falls from 0.00391 (draws=100, steps 10-15) to 0.00217 (draws=400, steps
+        13-25), a ratio of 0.553 against the 0.500 that quartering the Monte-Carlo variance
+        predicts. Reaching 1e-3 on ``max_abs_de`` would take roughly 1,800 draws, and it would
+        measure nothing: over those same steps ``r_vs_initial`` moves by 6.2e-5 and
+        ``beta_matrix`` by 2.1e-4, so the matrix has long stopped. ``rms_de`` is the statistic to
+        watch when what you want to know is whether the matrix is still moving -- averaging over
+        the 380 cells rather than maximising, its floor is lower by about ``sqrt(380)``.
     """
     if steps < 1:
         raise ValueError(f"steps must be at least 1, got {steps}")
@@ -308,7 +326,7 @@ def fit_selfconsistent(sites: pl.DataFrame, *, potential: Potential | None = Non
         p = post["p_post"].to_numpy()
         derived = derive_tcren(weighted_contacts(post), weights=weights, weight_col="p_post",
                                pseudocount=pseudocount)
-        pot, de = _blend(pot, derived, damping)
+        pot, de, rms = _blend(pot, derived, damping)
         cur = _dense(pot)["value"].to_numpy()
         model = fit_potts(sites, coupling_matrix=pot, pin_centred=pin_centred, weights=weights,
                           ridge=ridge, notes=notes, **fit_kwargs)
@@ -316,6 +334,7 @@ def fit_selfconsistent(sites: pl.DataFrame, *, potential: Potential | None = Non
         row = {
             "step": step,
             "max_abs_de": de,
+            "rms_de": rms,
             "r_vs_initial": float(np.corrcoef(initial, cur)[0, 1]),
             "beta_matrix": float(model.beta_matrix),
             "contact_mass": mass,
@@ -333,7 +352,7 @@ def fit_selfconsistent(sites: pl.DataFrame, *, potential: Potential | None = Non
         rows.append(row)
         if de <= tol:
             break
-    pot = Potential(name="TCRen-SC", matrix=pot.matrix, alphabet=pot.alphabet)
+    pot = Potential(name="TCRen2-EM", matrix=pot.matrix, alphabet=pot.alphabet)
     model.notes = (f"{notes} | self-consistent: margin={margin}, damping={damping}, "
                    f"steps={len(rows)}, converged={rows[-1]['converged']}").strip(" |")
     return pot, model, pl.DataFrame(rows)

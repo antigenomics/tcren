@@ -3,9 +3,75 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
-## [Unreleased]
+## [3.4.0] — 2026-09-06
+
+**The self-consistent potential and the model pinned to it become addressable from the command
+line**, and `tcren score` gains the referenced energy the benchmark had been computing by hand.
 
 ### Added
+- **`tcren score --delta`, with `--reference structural|virtual`** — ΔΦ, the poly-alanine-referenced
+  energy, per candidate. It is what makes two ranking units commensurate, and no command emitted it
+  for a *candidate pool*: `tcren scoring --delta` scores a structure's own peptide, and `tcren score`
+  had no reference at all. Two poly-alanine baselines exist and they are **not** the same quantity.
+  `--reference virtual` re-indexes poly-alanine on the template's own contact map, so the baseline
+  is charged for every contact the real side chains make; `--reference structural` (the default)
+  truncates the peptide and **recomputes the map**, so the baseline is what backbone plus Cβ alone
+  reach. On 2b4/3QIB under `karnaukhov2022` the two references read **−1.3916** and **−0.0166**
+  natural-log units against a scored energy of −2.3104, and poly-alanine retains 62–85 % of the
+  crystal's TCR:peptide contacts across the templates measured.
+
+  Φ(reference) does not depend on the candidate, so it is computed **once per template** and
+  subtracted from every row: the cost is one rebuild per structure, not one per candidate. On a
+  single template ΔΦ is Φ minus a constant and cannot reorder anything — it changes the scale and
+  the zero, and it separates candidates only where each carries its own structure.
+
+- **`-c/--candidates` accepts a per-template manifest** — a TSV or CSV whose header names
+  `complex.id` and `peptide`. Each structure then scores only its own rows. A plain one-peptide-
+  per-line file is unchanged and every structure still scores every peptide. A benchmark of 204
+  units each with its own 1,001-peptide pool was 204 CLI calls and therefore **204 mmseqs
+  chain-typing searches**; it is now one call and one batched pass. `tcren rank` reads the same
+  manifest.
+
+- **`tcren2_em` resolves as a bundled potential name**, in `-p/--potential`,
+  `--tcr-peptide-potential` and `potts fit --coupling-matrix`. The matrix shipped in the previous
+  release with a Python loader only: `_BUNDLED_POTENTIALS` in `pipeline.py` and the loader dict
+  inside `potts.centred_potential` are what every option resolves against, and neither knew the
+  name, so the third arm of any three-matrix comparison was reachable from Python and nowhere else.
+
+- **`potts` `-m/--model` accepts a bundled name** — `potts_tcr_peptide` (the default),
+  `potts_tcr_peptide_sc`, `potts_tcr_mhc`, `potts_pep_mhc` — as well as a JSON path, across
+  `potts score`, `contacts`, `map`, `ensemble` and `scan`. `PottsModel.bundled(name)` always took a
+  name; the CLI could only pass a path, so the shipped self-consistent model had to be located
+  inside the wheel by hand before it could be used.
+
+- **`TCRen2-EM` ships: `data/TCRen2_sc_potential.csv`, `data/potts_tcr_peptide_sc.json`,
+  `tcren.potential.tcren2_em()`, manifest key `tcren2_em`.** The self-consistent matrix, derived
+  by `potts selfcon` over the same 359 `Native2026` crystals as `tcren2` with the same estimator,
+  reference state and pseudocount — what differs is that every AVAILABLE residue pair contributes,
+  weighted by the probability the coupled model gives it, rather than only the contacts one crystal
+  shows.
+
+  It is a **smaller** step from TCRen2 than the 2022 matrix is: Pearson r = 0.9444 against TCRen2
+  over the 380 cells (Spearman 0.9371, mean |delta| 0.1052, largest 0.8010 at K:T), against
+  r = 0.8670 between TCRen2 and the 2022 matrix. The movement lands where the crystal tally was
+  thin — mean |shift| 0.1599 in the quartile of cells whose median cell rests on 2 observed
+  contacts, 0.0564 in the quartile at 47.
+
+  **`tcren2()` remains the default potential and `PottsModel.bundled()` remains the default
+  contact model.** On one identical site table the pinned self-consistent model is a *worse* pair
+  term than a pin on TCRen2 at the same parameter count (k = 114 both), so nothing was switched;
+  see `Changed` below for the measurement.
+
+  Reproducibility: three independent runs at `draws` 100/400/400 and `steps` 15/25/9 agree at
+  **r = 0.999997**, mean |delta| 0.0008 — the fixed point does not depend on the sampling budget.
+  The shipped artifact is the converged one, `--tol 5e-3 --draws 400`, converging at step 9.
+
+  The manifest gains three optional keys for it, the first entry to use any: `command`
+  (default `derive-potential`), `structure_flag` (default `--structure-dir`; `potts selfcon` takes
+  `-s`), and `tolerance` / `reproduce`. **`tcren2_em` is the only shipped matrix that does not
+  reproduce at 1e-9**, because its E-step is sampled; its recipe is checked at 5e-3 under
+  `RUN_BENCHMARK=1`. Every other entry still reproduces at 1e-9 and must keep doing so.
+
 - **`tcren.potts.selfcon` — the potential re-derived from the contacts the model predicts, until
   it stops moving**, as `tcren potts selfcon`.
 
@@ -31,8 +97,10 @@ All notable changes to `tcren` are recorded here. Format follows
   **The reduction gate is exact.** At `margin = 0` the probability-weighted tally reproduces the
   plain unweighted derivation bit for bit — `max |soft - hard| = 0` over all 380 cells on the
   bundled crystals, weighted mass 309.000000 against 309 observed contacts. Over Native2026 with
-  `--balance both` it reaches its fixed point at step 2 with `max_abs_de = 0.0` exactly and reads
-  **R = 0.9977 against the shipped TCRen2**, mean |delta| 0.0075 over 380 cells. The residual is
+  `--margin 0 --balance both` it reaches its fixed point at step 2 with `max_abs_de = 0.0` exactly
+  and reads **R = 0.9977 against the shipped TCRen2**, mean |delta| 0.0075 over 380 cells. That is
+  the reduction run and not the production one: at `--margin 0.5` the loop moves the matrix to
+  R = 0.9439 and stops on the sampler's own noise, never on an exact fixed point. The residual is
   the availability set: the 15 A Ca radius holds **7,799 of the deposited derivation's 7,816
   TCR:peptide contacts (99.78 %)**, the 17 it misses spread one or two apiece over 17 structures,
   and they land in the thinnest cells — the largest single disagreement is K:K, the rarest pair.
@@ -103,6 +171,16 @@ All notable changes to `tcren` are recorded here. Format follows
   predicted table is a placeholder and is 0 throughout.
 
 ### Changed
+- **`fit_selfconsistent` and `potts selfcon` report `rms_de` beside `max_abs_de`, and the
+  Monte-Carlo floor is now measured rather than asserted.** `max_abs_de` is a maximum over 380
+  cells, so its floor is far above the r.m.s. of the same 380 numbers and no draw budget drives it
+  to zero: on `Native2026` the plateau falls 0.00391 (`draws=100`, steps 10-15) to 0.00217
+  (`draws=400`, steps 13-25), a ratio of **0.553 against the 0.500 that quartering the variance
+  predicts**. Reaching 1e-3 on it would take roughly 1,800 draws and would measure nothing —
+  across those same steps `r_vs_initial` moves by 6.2e-5 and `beta_matrix` by 2.1e-4, so the matrix
+  has long stopped. `rms_de` is the statistic to read for that question, and at the step the
+  default `tol` of 5e-3 trips it already reads 8.79e-4. `tol` still applies to `max_abs_de`, so no
+  existing run changes behaviour.
 - `tcren.potts.available_pairs` takes an optional `probe`, the radius the **heavy-atom** layer is
   measured out to, defaulting to `cutoff` so every existing table is byte-identical. It is not the
   contact definition — `sigma` is still called at `cutoff` — it only records how far a

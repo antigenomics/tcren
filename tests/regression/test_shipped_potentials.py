@@ -7,12 +7,22 @@ different flags, or an unrelated file is dropped into ``data/`` and nothing noti
 
 Entries whose ``source`` is ``structure-dir`` need the reference structures, which are
 fetched separately (``tcren fetch-data``); those skip when the folder is absent. An entry
-names its own CLI subcommand via ``command`` (default ``derive-potential``), because the
+names its own CLI subcommand via ``command`` (default ``derive-potential``), the flag that
+subcommand takes its structures on via ``structure_flag`` (default ``--structure-dir``), and the
+tolerance its recipe reproduces to via ``tolerance`` (default ``1e-9``).
+
+A tolerance above 1e-9 is only ever right for a recipe whose **estimator is sampled**. A closed-form
+derivation over a fixed contact table is deterministic and must reproduce bit for bit; loosening it
+there would hide exactly the drift this module exists to catch. ``tcren2_em`` re-derives from a
+block-Gibbs contact posterior, so its cells carry Monte-Carlo error and no seed makes that error
+zero across a re-run at different draw counts. Such an entry also sets ``reproduce: "benchmark"``,
+because re-running the fit costs minutes rather than seconds.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -104,6 +114,9 @@ def test_recipe_reproduces_the_shipped_matrix(name, tmp_path):
     shipped = DATA / e["file"]
     out = tmp_path / "derived.csv"
 
+    if e.get("reproduce") == "benchmark" and not os.getenv("RUN_BENCHMARK"):
+        pytest.skip(f"{name} re-runs a sampled fit; set RUN_BENCHMARK=1 to check it")
+
     cmd = [*_cli(), e.get("command", "derive-potential"), "-o", str(out)]
     for opt in ("variant", "pseudocount"):
         if opt in e:
@@ -119,7 +132,7 @@ def test_recipe_reproduces_the_shipped_matrix(name, tmp_path):
         if sdir is None:
             pytest.skip(f"{e['structure_dir']} not present; run `tcren fetch-data`")
         pytest.importorskip("arda")
-        cmd += ["--structure-dir", str(sdir)]
+        cmd += [e.get("structure_flag", "--structure-dir"), str(sdir)]
 
     r = subprocess.run(cmd, capture_output=True, text=True)
     assert r.returncode == 0, f"derive-potential failed for {name}:\n{r.stderr[-2000:]}"
@@ -130,5 +143,7 @@ def test_recipe_reproduces_the_shipped_matrix(name, tmp_path):
     assert j.filter(pl.col("v").is_null() | pl.col("v_want").is_null()).height == 0, (
         f"{name}: derived and shipped matrices cover different residue pairs")
     max_abs = j.select((pl.col("v") - pl.col("v_want")).abs().max()).item()
-    assert max_abs == pytest.approx(0.0, abs=1e-9), (
-        f"{name}: shipped {e['file']} is not what its recipe produces (max |d| = {max_abs})")
+    tol = float(e.get("tolerance", 1e-9))
+    assert max_abs == pytest.approx(0.0, abs=tol), (
+        f"{name}: shipped {e['file']} is not what its recipe produces "
+        f"(max |d| = {max_abs}, tolerance {tol})")

@@ -437,6 +437,25 @@ def tcren2() -> Potential:
     return Potential.from_csv(_bundled("TCRen2_potential.csv"), name="TCRen2")
 
 
+@lru_cache(maxsize=None)
+def tcren2_em() -> Potential:
+    """Load the bundled self-consistent TCRen2-EM potential (cached; treat as read-only).
+
+    Same estimator, same reference state and same pseudocount as :func:`tcren2`, over the same
+    ``Native2026`` crystals — what differs is *what is counted*. :func:`tcren2` tallies the
+    contacts the crystal shows; this tallies every available pair weighted by the probability the
+    coupled contact model gives it, re-derived and refitted until the matrix stops moving
+    (:func:`tcren.potts.fit_selfconsistent`).
+
+    It is a **smaller** perturbation of :func:`tcren2` than :func:`tcren` is: Pearson *r* = 0.944
+    against TCRen2 over the 380 cells, against *r* = 0.867 between TCRen2 and the 2022 matrix. The
+    movement concentrates where the crystal tally was thin — mean absolute shift 0.152 in the
+    quartile of cells holding a median of 2 observations, 0.057 in the quartile holding 47.
+
+    Scores under this matrix are still not comparable with scores under :func:`tcren2`; it ships
+    beside the default rather than replacing it.
+    """
+    return Potential.from_csv(_bundled("TCRen2_sc_potential.csv"), name="TCRen2-EM")
 
 
 @lru_cache(maxsize=None)

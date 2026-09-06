@@ -40,6 +40,18 @@ Shipped matrices
        kind ``derive-potential`` accepts — weighting each structure on both the epitope and
        the receptor axis (``--balance both``). This is the matrix the TCRen2 manuscript
        reports.
+   * - ``tcren2_em``
+     - ``TCRen2_sc_potential.csv``
+     - 380
+     - **TCRen2-EM — the self-consistent matrix, shipped beside TCRen2 and not in place of
+       it.** The same estimator, reference state, pseudocount and crystals as ``tcren2``;
+       what changes is what is counted. Every *available* residue pair contributes, weighted
+       by the probability the coupled contact model gives it, and the matrix is re-derived and
+       refitted until it stops moving
+       (:func:`tcren.potts.fit_selfconsistent`, :func:`tcren.potential.tcren2_em`). It moves
+       TCRen2 less than the 2022 → 2026 re-derivation did — Pearson *r* = 0.944 against
+       TCRen2, against *r* = 0.867 between TCRen2 and ``classic`` — and the movement lands in
+       the cells the crystal tally left thin.
    * - ``mj1996``
      - ``MJ1996_contact_energies.csv``
      - 400
@@ -118,6 +130,29 @@ the maximum, so the least usable files would have counted for the most.
 The second command runs the whole pipeline — parse, annotate, contacts, derive — over all
 374 structures in roughly 20 seconds, so there is no reason to cache a derived matrix
 rather than rebuild it.
+
+``tcren2_em``, from the same crystals, through the self-consistent loop:
+
+.. code-block:: console
+
+   $ tcren potts selfcon \
+       -s "$TCREN_DATA_DIR/Native2026" \
+       --balance both --margin 0.5 --damping 0.5 \
+       --steps 25 --tol 5e-3 --draws 400 \
+       -o TCRen2_sc_potential.csv \
+       --model-out potts_tcr_peptide_sc.json \
+       --trace-out TCRen2_sc_trace.tsv
+
+This one is **minutes rather than seconds**, and it is the only shipped matrix that does not
+reproduce bit for bit. Its E-step is a block-Gibbs sample, so the derived cells carry
+Monte-Carlo error that no seed removes across a re-run at a different draw count; the manifest
+records a ``tolerance`` of 5e-3 for it and ``reproduce: benchmark``, so
+:mod:`tests.regression.test_shipped_potentials` checks it only under ``RUN_BENCHMARK=1``. Every
+other entry still reproduces at 1e-9 and must keep doing so — a loose tolerance is right for a
+sampled estimator and wrong for a closed-form one, where it would hide exactly the drift that
+test exists to catch. :doc:`potts` derives the loop and states the reduction gate:
+at ``--margin 0`` the crystal pins every site and the probability-weighted tally reproduces the
+plain one exactly.
 
 Weighting
 ---------
@@ -273,3 +308,18 @@ two must carry the flags that reproduce the file; the regression test will run t
 entry with source ``unknown`` fails the suite unless it is also listed under
 ``known_unresolved``, which exists to record historical files whose provenance cannot be
 recovered — not as a place to put new ones.
+
+Three optional keys exist for recipes that are not ``derive-potential`` over a fixed table, and
+``tcren2_em`` is the first entry to use any of them:
+
+``command``
+    The CLI subcommand, default ``derive-potential``.
+``structure_flag``
+    The flag that subcommand takes its structure directory on, default ``--structure-dir``.
+    ``potts selfcon`` takes ``-s``.
+``tolerance`` and ``reproduce``
+    How close the rebuild has to land, default ``1e-9``, and whether the check is deferred to
+    ``RUN_BENCHMARK=1``. **Set a tolerance above 1e-9 only when the estimator itself is
+    sampled.** A closed-form derivation over a fixed contact table is deterministic and must
+    reproduce bit for bit; loosening it there hides drift instead of tolerating noise. State the
+    measured floor in ``tolerance_reason`` so the number is auditable rather than chosen.

@@ -24,7 +24,7 @@ from .annotation import classify_chains
 from .contactmap import ContactMap
 from .contacts.table import residue_annotation
 from .mhc import MhcCall, annotate_mhc
-from .potential import Potential, keskin, mj, tcren, tcren2
+from .potential import Potential, keskin, mj, tcren, tcren2, tcren2_em
 from .energetics.scoring import _interface_energy, _phi_scale
 from .structure.io import import_structure
 from .structure.model import PEPTIDE_TYPE, Structure
@@ -41,6 +41,7 @@ _INTERFACE_POTENTIAL = {"tcr_peptide": "tcren2", "tcr_mhc": "mj", "peptide_mhc":
 # `tcren` is deliberately absent: it read as "the TCRen potential" while meaning the 2022 matrix.
 _BUNDLED_POTENTIALS = {
     "tcren2": tcren2,
+    "tcren2_em": tcren2_em,
     "karnaukhov2022": tcren,
     "mj": mj,
     "keskin": keskin,

@@ -70,6 +70,30 @@ End-to-end candidate-epitope scoring from a structure:
 
    $ tcren score -s complex.pdb -c candidates.txt -o ranked.csv
 
+``--delta`` adds ``dphi``, the poly-alanine-referenced energy
+:math:`\Delta\Phi = \Phi(\text{peptide}) - \Phi(\text{poly-Ala})`. **Two poly-alanine baselines
+exist and they are not the same quantity.** ``--reference virtual`` re-indexes poly-alanine on the
+template's own contact map, so the baseline is charged for every contact the real side chains make;
+``--reference structural`` (the default) truncates the peptide and *recomputes* the map, so the
+baseline is what backbone plus C\ :math:`\beta` alone reach — which is what a poly-alanine
+reference is meant to mean, and which keeps 62--85\ % of the crystal's TCR:peptide contacts. On
+2b4/3QIB under ``karnaukhov2022`` the two references read :math:`-1.3916` and :math:`-0.0166`
+natural-log units.
+
+:math:`\Phi(\text{reference})` does not depend on the candidate, so it is computed **once per
+template**. On a single template :math:`\Delta\Phi` is :math:`\Phi` minus a constant and cannot
+reorder anything — it fixes the scale and the zero, and it separates candidates only where each
+carries its own structure.
+
+``-c`` also takes a **per-template manifest**: a TSV or CSV whose header names ``complex.id`` and
+``peptide``, where each structure scores only its own rows. A benchmark of many templates each with
+its own candidate pool is then one call and one batched chain-typing pass, rather than one call —
+and one ``mmseqs`` search — per unit:
+
+.. code-block:: console
+
+   $ tcren score -s templates/ -c pools.tsv --delta -p tcren2_em -o ranked.csv
+
 Scoring structures
 ------------------
 

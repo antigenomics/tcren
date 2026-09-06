@@ -157,6 +157,13 @@ Shipped models
      - **The default.** TCR:peptide over the 362 αβ ``Native2026`` crystals, redundancy-balanced
        on both axes. Reproduce with
        ``tcren potts fit -s data/Native2026 -o potts_tcr_peptide.json --balance both``.
+   * - ``potts_tcr_peptide_sc``
+     - 64,064
+     - 7,799
+     - The same interface with the pair term **pinned on** :func:`tcren.potential.tcren2_em` rather
+       than on TCRen2, over the 359 crystals that survive the withdrawn-entry rule;
+       ``beta_matrix`` +0.7629. Reproduce with ``tcren potts selfcon`` (see :doc:`potentials`) —
+       it is the model that loop leaves behind, not a separate fit.
    * - ``potts_tcr_mhc``
      - 239,093
      - 15,451
@@ -171,7 +178,12 @@ Shipped models
        :data:`tcren.potts.MHC_RECEPTOR_REGIONS` rather than the TCR loop set. Reproduce with
        ``tcren potts fit -s data/Native2026 --receptor mhc --partner peptide --balance both -o …``.
 
-Load any of them with :meth:`tcren.potts.PottsModel.bundled`.
+Load any of them with :meth:`tcren.potts.PottsModel.bundled`, or by name on the command line —
+``-m/--model`` on ``potts score``, ``contacts``, ``map``, ``ensemble`` and ``scan`` takes a
+bundled name as well as a JSON path::
+
+   tcren potts contacts -s complex.pdb.gz -m potts_tcr_peptide_sc -o contacts.tsv
+
 
 The three arms are three separate Hamiltonians, not one field read three ways, and the fit says so:
 the peptide:MHC coupling block correlates with the shipped TCRen2 at **r = +0.017** and with
@@ -515,7 +527,7 @@ is the block :math:`\beta_\Phi` ties to TCRen2 above.
           \;+\; \underbrace{J}_{\text{complementarity}} \;+\; \underbrace{g}_{\text{geometry}}
 
 Closing the loop: the potential re-derived from the contacts the model predicts
-------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
 
 Everything above reads a **finished** potential. :func:`tcren.derive_tcren` tallies the amino-acid
 pairs of the contacts a crystal *shows*, and :func:`tcren.potts.fit_potts` reads the resulting

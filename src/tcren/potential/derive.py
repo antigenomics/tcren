@@ -113,25 +113,6 @@ def derive_tcren(
             bundled Miyazawa–Jernigan matrix, and therefore directly comparable to it.
             Default ``False`` keeps the directed TCR→peptide potential, which is the
             shipped ``TCRen_potential.csv``.
-        smooth_beta: Substitution-matrix pseudocount weight
-            (:func:`tcren.potential.smoothing.smooth_counts`), applied to the pair counts before
-            the log-odds. A cell holding ``smooth_beta`` observations is pulled halfway to the
-            prior its chemically similar cells imply; a well-observed cell is left alone. This is
-            aimed at the rare residues -- tryptophan, cysteine, methionine -- whose cells are
-            otherwise set by the flat pseudocount. ``0.0`` (default) is off and byte-identical to
-            the unsmoothed derivation.
-        smooth_matrix: Substitution matrix behind that prior, and behind the imputation.
-        impute_min_count: Rebuild cells holding fewer than this many observations from their
-            nearest substitutable neighbours
-            (:func:`tcren.potential.smoothing.impute_thin_cells`), leaving every other cell
-            untouched. ``0`` disables it. Applied after ``smooth_beta`` when both are given, so
-            the imputation sees the smoothed counts. NOT USED FOR TCRen2.
-        impute_donors: How many nearest donor cells that imputation averages over.
-        prior: A ``(20, 20)`` array summing to 1 that redistributes the ``pseudocount`` mass over
-            the grid instead of spreading it uniformly -- see
-            :func:`tcren.potential.smoothing.composition_prior`. The total mass added is
-            unchanged, so ``pseudocount`` means the same thing either way. ``None`` keeps the flat
-            prior. NOT USED FOR TCRen2.
 
     Returns:
         The derived :class:`Potential`. For ``"am"`` the long matrix additionally

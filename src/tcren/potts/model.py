@@ -101,7 +101,7 @@ class PottsModel:
             ``coupling_matrix_name`` is set.
         beta_matrix: Scale on the named potential when ``J`` is not free.
         coupling_matrix_name: Bundled potential the coupling is fixed to (``tcren2``, ``mj``,
-            ``mj1996``, ``keskin``, ``tcren``), or ``None`` for a free ``J`` or for a pin on a
+            ``mj1996``, ``keskin``, ``tcren``, ``tcren2_em``), or ``None`` for a free ``J`` or for a pin on a
             matrix that is not one of the bundled five.
         coupling_pinned: Whether ``coupling`` holds a **pinned** matrix rather than a free ``J``.
             A pin on an unnamed matrix — one derived in this session rather than shipped — has to
@@ -206,7 +206,7 @@ def centred_potential(name, alphabet: tuple[str, ...] = AA, *,
     uncentred, the model's referenced energy equals the potential's own up to the fitted scale.
 
     Args:
-        name: One of ``tcren2``, ``tcren``, ``mj``, ``mj1996``, ``keskin``; or a
+        name: One of ``tcren2``, ``tcren2_em``, ``tcren``, ``mj``, ``mj1996``, ``keskin``; or a
             :class:`~tcren.potential.Potential` — including one derived in this session, which is
             what :func:`tcren.potts.selfcon.fit_selfconsistent` pins on each step and is the
             reason this is not a name-only lookup.
@@ -222,11 +222,11 @@ def centred_potential(name, alphabet: tuple[str, ...] = AA, *,
     if isinstance(name, Potential):
         pot = name
     else:
-        loader = {"tcren2": _m.tcren2, "tcren": _m.tcren, "mj": _m.mj,
-                  "mj1996": _m.mj1996, "keskin": _m.keskin}.get(name)
+        loader = {"tcren2": _m.tcren2, "tcren2_em": _m.tcren2_em, "tcren": _m.tcren,
+                  "mj": _m.mj, "mj1996": _m.mj1996, "keskin": _m.keskin}.get(name)
         if loader is None:
             raise ValueError(f"unknown potential {name!r}; expected a Potential or one of "
-                             f"tcren2, tcren, mj, mj1996, keskin")
+                             f"tcren2, tcren2_em, tcren, mj, mj1996, keskin")
         pot = loader()
     M, index = _double_centred(pot) if centre else pot.as_matrix()
     out = np.zeros((len(alphabet), len(alphabet)))

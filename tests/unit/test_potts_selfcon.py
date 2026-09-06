@@ -180,6 +180,22 @@ def test_damping_makes_the_cell_movement_decay(sites):
     assert de[1] / de[0] == pytest.approx(0.5, rel=1e-6), "the rate IS the damping"
 
 
+def test_rms_movement_is_bounded_by_the_max_and_contracts_with_it(sites):
+    """`rms_de` is the same movement averaged rather than maximised, and it is why it is there.
+
+    `max_abs_de` is a maximum over 380 cells, so its Monte-Carlo floor is far higher than the
+    r.m.s. of the same 380 numbers -- measured on Native2026, raising draws 100 -> 400 moves the
+    max's plateau 0.00391 -> 0.00217 (ratio 0.553 against the 0.500 that quartering the variance
+    predicts), which is a floor no draw budget drives to zero. The r.m.s. is what to read when the
+    question is whether the matrix is still moving. Both must contract under damping.
+    """
+    _, _, trace = fit_selfconsistent(sites, margin=0.0, damping=0.5, steps=4, tol=0.0, workers=1)
+    mx, rms = trace["max_abs_de"].to_numpy(), trace["rms_de"].to_numpy()
+    assert np.all(rms > 0) and np.all(rms <= mx + 1e-12), "an r.m.s. cannot exceed the max"
+    assert np.all(np.diff(rms) < 0), "the r.m.s. must contract with the iteration"
+    assert rms[1] / rms[0] == pytest.approx(0.5, rel=1e-6), "damping sets the rate for both"
+
+
 def test_a_positive_margin_moves_the_matrix_and_records_the_uncertain_mass(sites):
     pot, model, trace = fit_selfconsistent(sites, margin=MARGIN, steps=2, chains=16, draws=20,
                                            workers=1, notes="assets")
@@ -187,7 +203,7 @@ def test_a_positive_margin_moves_the_matrix_and_records_the_uncertain_mass(sites
     assert trace["contact_mass"][0] > 0.0
     assert model.coupling_pinned and np.isfinite(model.beta_matrix)
     assert "self-consistent" in model.notes
-    assert pot.name == "TCRen-SC" and pot.matrix.height == tcren2().matrix.height
+    assert pot.name == "TCRen2-EM" and pot.matrix.height == tcren2().matrix.height
 
 
 def test_steps_must_be_at_least_one(sites):
