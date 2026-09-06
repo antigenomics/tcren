@@ -2479,6 +2479,49 @@ def _load_geom(spec, *, ensemble: bool = False):
         f"or an existing .json/.npz path)")
 
 
+@potts_app.command("agreement")
+def potts_agreement_cmd(
+    table: Path = typer.Option(..., "-i", "--table", help="a scored site table from `potts contacts` or `potts predict`"),
+    out: Path | None = typer.Option(None, "-o", "--out", help="TSV; prints to the terminal when omitted"),
+    column: str = typer.Option("p_model", "--column", help="probability column to score"),
+) -> None:
+    """How well a scored contact map agrees with the contacts the structure actually made.
+
+    Reads any table carrying `sigma` and a probability column — `potts contacts` and
+    `potts predict` both emit one — and reports, per `pdb.id`:
+
+    - ``ratio`` -- sum(p) / sum(sigma): the LEVEL, one is the contact count reproduced.
+    - ``js`` -- Jensen-Shannon similarity of the two maps normalised to distributions over sites,
+      in bits, so 0 to 1: the PLACEMENT, and scale-free in the level.
+    - ``auc`` -- the ordering read alone.
+
+    Two numbers and not one because they answer different questions. `js = 1` needs the model to
+    put all its mass on exactly the contacting cells in equal proportion — a deterministic map —
+    so a calibrated probabilistic model cannot reach it against a single realisation. Read it
+    against the same model on the structure's OWN Ca geometry, not against 1.
+
+    R-squared is deliberately not offered: on a binary outcome it is the Brier skill score, so it
+    is one number reported twice, and it scales with prevalence, which makes two maps of different
+    site counts incomparable under it — exactly the comparison this command exists for.
+    """
+    from .potts import map_agreement
+
+    if not table.exists():
+        raise typer.BadParameter(f"table not found: {table}")
+    sep = "," if table.suffix.lower() == ".csv" else "\t"
+    d = pl.read_csv(table, separator=sep, infer_schema_length=None)
+    for need in ("pdb.id", "sigma", column):
+        if need not in d.columns:
+            raise typer.BadParameter(f"{table} has no {need!r} column")
+    res = map_agreement(d, column=column)
+    if out is not None:
+        res.write_csv(out, separator="\t")
+        typer.echo(f"wrote {out} ({res.height} maps)")
+    else:
+        with pl.Config(tbl_rows=200, tbl_cols=10, float_precision=4):
+            typer.echo(str(res))
+
+
 @potts_app.command("predict")
 def potts_predict_cmd(
     out: Path = typer.Option("potts_predicted.tsv", "-o", "--out"),

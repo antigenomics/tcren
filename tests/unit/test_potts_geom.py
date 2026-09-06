@@ -262,3 +262,35 @@ def test_the_npz_round_trip_keeps_the_stack(tmp_path, ens):
     # stored as hundredths of an angstrom, so equality holds to the model's own resolution
     for k, v in ens.surfaces.items():
         assert np.allclose(back.surfaces[k], v, atol=0.01)
+
+
+def test_map_agreement_reports_placement_and_level_separately(ens, structures):
+    """`js` is scale-free in the level and `ratio` carries it; neither substitutes for the other."""
+    from tcren.potts import map_agreement, predict_contact_map
+    m = PottsModel.bundled("potts_tcr_peptide_sc")
+    s = next(x for x in structures if x.pdb_id == "1ao7")
+    pep = next(c.sequence() for c in s.chains if c.chain_type == "PEPTIDE")
+    d = predict_contact_map(ens, loops_from_structure(s), pep, m, members=16, workers=1)
+    # sigma is a placeholder on a predicted frame, so score it against a map we control
+    d = d.with_columns((pl.col("p_model") > 0.5).cast(pl.Float64).alias("sigma"))
+    r = map_agreement(d).row(0, named=True)
+    assert 0.0 <= r["js"] <= 1.0
+    assert r["sites"] == d.height and r["contacts"] == int(d["sigma"].sum())
+    assert abs(r["ratio"] - d["p_model"].sum() / d["sigma"].sum()) < 1e-9
+    # doubling every probability leaves the placement untouched and doubles the level
+    doubled = d.with_columns((pl.col("p_model") * 2).alias("p_model"))
+    r2 = map_agreement(doubled).row(0, named=True)
+    assert abs(r2["js"] - r["js"]) < 1e-9
+    assert abs(r2["ratio"] - 2 * r["ratio"]) < 1e-9
+
+
+def test_map_agreement_is_one_when_the_map_matches_exactly():
+    """The ceiling is a deterministic map; anything smooth reads below it, by construction."""
+    from tcren.potts import map_agreement
+    base = dict(**{"pdb.id": "x"})
+    d = pl.DataFrame({"pdb.id": ["x"] * 4, "sigma": [1.0, 1.0, 0.0, 0.0],
+                      "p_model": [0.5, 0.5, 0.0, 0.0]})
+    assert abs(map_agreement(d).row(0, named=True)["js"] - 1.0) < 1e-9
+    spread = pl.DataFrame({"pdb.id": ["x"] * 4, "sigma": [1.0, 1.0, 0.0, 0.0],
+                           "p_model": [0.25, 0.25, 0.25, 0.25]})
+    assert map_agreement(spread).row(0, named=True)["js"] < 0.7

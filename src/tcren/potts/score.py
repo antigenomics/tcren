@@ -641,3 +641,95 @@ def score_structure(structure, model: PottsModel | None = None, *, partner: str 
     if pairs.is_empty():
         return {"pdb.id": structure.pdb_id, "n_sites": 0, "n_contacts": 0}
     return score_sites(pairs, model, **kwargs).to_dicts()[0]
+
+
+def map_agreement(sites: pl.DataFrame, *, column: str = "p_model",
+                  observed: str = "sigma") -> pl.DataFrame:
+    r"""How well a predicted contact map agrees with the one a structure actually made.
+
+    Two numbers, because they answer different questions and no single one answers both:
+
+    ``js``
+        **Placement.** Jensen--Shannon similarity between the two maps read as distributions over
+        sites, :math:`q_a = \sigma_a / \sum \sigma` and :math:`r_a = p_a / \sum p`:
+
+        .. math:: \mathrm{js} = 1 - \tfrac12 D_{\mathrm{KL}}(q \| m)
+                                  - \tfrac12 D_{\mathrm{KL}}(r \| m),
+                  \qquad m = \tfrac12 (q + r)
+
+        in bits, so it lies in :math:`[0, 1]`: 1 is identical placement, 0 disjoint support. It is
+        **scale-free in the level** by construction --- normalising divides the total out --- which
+        is why ``ratio`` is reported beside it and not folded in.
+
+        :math:`\mathrm{js} = 1` requires the model to put *all* its mass on exactly the contacting
+        cells in equal proportion, which is a deterministic map. A calibrated probabilistic model
+        cannot reach it against a single realisation, so the right reference is the same model read
+        on the structure's own C\ :math:`\alpha` geometry, not 1.
+
+    ``ratio``
+        **Level.** :math:`\sum_a p_a / \sum_a \sigma_a`. One is the count reproduced.
+
+    ``auc`` is reported too, as the ordering read alone.
+
+    **Not R².** On a binary outcome ``1 - SS_res/SS_tot`` *is* the Brier skill score --- they agree
+    to three decimals on every map we have checked --- so reporting both is reporting one number
+    twice. It is also dominated by the many easy zeros and scales with prevalence, so two maps with
+    different site counts are not comparable under it. That is exactly the comparison this function
+    exists for, which is why the placement read-out here is normalised and symmetric instead.
+
+    Args:
+        sites: A scored site table --- from :func:`contact_probabilities`,
+            :func:`tcren.potts.predict_contact_map`, or ``tcren potts contacts``/``predict``.
+            Grouped by ``pdb.id``; rows with a null ``observed`` are read as non-contacts.
+        column: The probability column to score.
+        observed: The observed indicator column.
+
+    Returns:
+        One row per ``pdb.id``: ``sites``, ``contacts``, ``expected``, ``ratio``, ``js``, ``auc``.
+    """
+    if column not in sites.columns:
+        raise ValueError(f"no {column!r} column; scored tables carry p_model, p_independent and "
+                         f"p_conditional")
+    out = []
+    for pid, d in sites.group_by("pdb.id", maintain_order=True):
+        y = d[observed].fill_null(0).to_numpy().astype(float)
+        p = d[column].fill_null(0.0).to_numpy().astype(float)
+        n_obs, n_exp = float(y.sum()), float(p.sum())
+        out.append({
+            "pdb.id": pid[0] if isinstance(pid, tuple) else pid,
+            "sites": int(d.height), "contacts": int(n_obs), "expected": n_exp,
+            "ratio": n_exp / n_obs if n_obs else float("nan"),
+            "js": _js_similarity(y, p),
+            "auc": _rank_auc(p, y > 0.5),
+        })
+    return pl.DataFrame(out)
+
+
+def _js_similarity(y: np.ndarray, p: np.ndarray, eps: float = 1e-12) -> float:
+    """1 - JSD in bits between the two maps normalised to distributions over sites."""
+    if y.sum() <= 0 or p.sum() <= 0:
+        return float("nan")
+    q, r = y / y.sum(), p / p.sum()
+    m = 0.5 * (q + r)
+    kl = lambda a, b: float(np.sum(np.where(a > 0, a * np.log2((a + eps) / (b + eps)), 0.0)))
+    return 1.0 - 0.5 * (kl(q, m) + kl(r, m))
+
+
+def _rank_auc(score: np.ndarray, truth: np.ndarray) -> float:
+    """ROC-AUC by rank sum, ties averaged. A flat predictor must read 0.5, not better."""
+    pos, neg = int(truth.sum()), int((~truth).sum())
+    if not pos or not neg:
+        return float("nan")
+    order = np.argsort(score, kind="mergesort")
+    ranks = np.empty(len(score), float)
+    ranks[order] = np.arange(1, len(score) + 1)
+    srt = score[order]
+    i = 0
+    while i < len(srt):
+        j = i
+        while j + 1 < len(srt) and srt[j + 1] == srt[i]:
+            j += 1
+        if j > i:
+            ranks[order[i:j + 1]] = ranks[order[i:j + 1]].mean()
+        i = j + 1
+    return float((ranks[truth].sum() - pos * (pos + 1) / 2) / (pos * neg))

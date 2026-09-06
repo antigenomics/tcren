@@ -50,6 +50,7 @@ Four things were added on top of it and one shipped number moved.
 | **3.4.0** | **The self-consistent arm became addressable from the command line.** `tcren2_em` resolves as a bundled potential name (`-p`, `--tcr-peptide-potential`, `--coupling-matrix`) and `potts_tcr_peptide_sc` as a bundled model name (`-m`); before this both shipped in the wheel with Python loaders only, so a three-matrix comparison could not be run from a shell script. `tcren score` gained `--delta` with `--reference structural|virtual`, and `-c` gained the per-template manifest. |
 
 | **3.5.0** | **`tcren potential-table -p <name\|path> -o <csv>`** writes out the residue-pair table behind `-p`, long form, resolved by the same name `score`/`ddg`/`cpl`/`rank` resolve. Nothing is computed; it is the shipped matrix. |
+| **3.7.1** | **`map_agreement` / `tcren potts agreement`** score a contact map against the one a structure made: `ratio` for the level, `js` (Jensen-Shannon similarity, 0-1) for the placement. R-squared is not offered -- on a binary outcome it is the Brier skill score and it scales with prevalence, so maps of different site counts are incomparable under it. |
 | **3.7.0** | **The predicted map recovers the contact count.** `predict_contact_map` / `tcren potts predict --ensemble` average over the reference geometries instead of over their surfaces; the shipped `geom_tcr_peptide_ens` keeps 2,154 surfaces at grid 32. Expected contacts go from 0.47x observed to 1.17x and the contact ROC-AUC from 0.9242 to 0.9325, held out over 364 crystals. |
 | **3.6.0** | **A contact map can be scored with no structure of the complex.** The Ca geometry prior `geom_tcr_peptide` ships (359 alpha-beta `Native2026` crystals, twelve surfaces at grid 12), `tcren potts geom` fits one and `tcren potts predict` scores a map from it. `--sequences` reads no structure at all. See *Placing a contact without a structure* below. |
 
@@ -415,6 +416,19 @@ prior = GeomPrior.bundled()                                  # or GeomPrior.from
 sites = predicted_sites(prior, loops_from_structure(s), peptide)
 contact_probabilities(sites.drop("d_ca_sd", "feasible"), PottsModel.bundled())
 ```
+
+**Scoring the agreement (3.7.1).** Two numbers, not one:
+
+```
+tcren potts agreement -i predicted.tsv          # ratio (level), js (placement), auc (ordering)
+```
+
+`js` is Jensen-Shannon similarity of the two maps normalised to distributions over sites, in bits,
+so 0-1 and scale-free in the level -- `ratio` carries that. **Read `js` against the same model on
+the structure's own Ca geometry, never against 1**: reaching 1 needs a deterministic map, and a
+calibrated probabilistic one cannot against a single realisation. On the Figure 2c receptors the
+crystal's own geometry reads 0.75-0.81 and the predicted geometry 0.42-0.58. R-squared is not
+offered -- on a binary outcome it equals the Brier skill score, and it scales with prevalence.
 
 **Average over geometries, not over surfaces (3.7.0).** Reading one map off the mean surface loses
 more than half the contacts, and the fix is an order of operations, not a parameter. A contacting

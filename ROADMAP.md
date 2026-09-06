@@ -106,6 +106,31 @@ built from its own sequence, rather than read off crystals of other receptors, i
 that changes that. The four panel-c receptors sit at the 95th, 97th, 72nd and 67th percentile of
 the contact-count distribution and are exactly the case rung 2b under-shoots.
 
+**How several lengths enter it is measured, not open (2026-09-07).** The registration question --
+does a longer CDR3 contact through a proportionally longer run, or through a fixed contiguous
+stretch -- was settled on 692 CDR3 loops from 360 crystals
+(`$TCREN2_BENCH/bench/eda/out/cdr3_registration.md`):
+
+- The footprint **is** a contiguous run: 470 of 692 loops (67.9 %) exactly unbroken, 83.1 % at
+  least 0.8 contiguous, mean 3.96 contacting residues over a span of 4.48.
+- It is **not** fixed-size: `n_contact = 0.361*L - 0.238`, against 0.341 for strict proportionality
+  through the origin. A CDR3 contacts a constant **34 %** of its residues at any length.
+- The patch centre is **fractionally pinned** at the loop midpoint -- mean `u_centre` 0.472 (TRA)
+  and 0.476 (TRB), slope with L +0.013 and -0.000 (Pearson -0.004 for TRB, flat to three decimals).
+- Fractional wins the matched test on 121 same-epitope pairs with dL >= 2: Jaccard 0.448 against
+  0.403 from Cys104, 0.408 from Phe118, 0.414 apex-centred.
+
+So **lengths enter through the chain and not through the registration**: a longer loop is built
+with more virtual bonds and a larger apex reach -- which `reach_max` already gives in closed form --
+and read back in the same graphon coordinate. Two leads that looked real and did not survive are
+recorded there too, so they are not re-tried: a chain-specific registration (TRA's C-terminal margin
+is genuinely flat, slope +0.044, but swapping it gains +0.003 mean Jaccard, better on 16 pairs and
+worse on 21 of 121) and length-weighted ensemble members (CDR3 length explains the contact count at
+Pearson +0.16, R^2 0.026, less than `predict_contact_map` already achieves at +0.23).
+
+**TRB is the loop to place first.** Its footprints are far more reproducible across receptors for a
+fixed epitope than TRA's, Jaccard 0.561 against 0.357.
+
 Three pieces, two of which exist:
 
 - **The chain model.** `geometry.reach_max` is already the closed-form maximum reach of a length-`L`

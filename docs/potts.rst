@@ -506,6 +506,46 @@ and the observed contact count across the 364 structures is Pearson :math:`+0.23
 spread of the population itself. It predicts the typical interface at the right level, which is
 what loop lengths alone can carry.
 
+Scoring the agreement: placement and level
+------------------------------------------
+
+:func:`tcren.potts.map_agreement` reads any scored site table --- from
+:func:`contact_probabilities`, :func:`predict_contact_map`, ``tcren potts contacts`` or
+``tcren potts predict`` --- and reports **two** numbers per map, because no single one answers
+both questions:
+
+``ratio``
+    The **level**, :math:`\sum_a p_a / \sum_a \sigma_a`. One is the contact count reproduced.
+
+``js``
+    The **placement**, Jensen--Shannon similarity of the two maps read as distributions over sites,
+    :math:`q_a = \sigma_a/\sum\sigma` against :math:`r_a = p_a/\sum p`, in bits:
+
+    .. math::  \mathrm{js} = 1 - \tfrac12 D_{\mathrm{KL}}(q\|m) - \tfrac12 D_{\mathrm{KL}}(r\|m),
+               \qquad m = \tfrac12(q+r)
+
+    Bounded in :math:`[0, 1]`, symmetric, and **scale-free in the level** --- normalising divides
+    the total out, which is why ``ratio`` sits beside it rather than being folded in.
+
+.. code-block:: console
+
+   tcren potts agreement -i predicted.tsv
+   tcren potts agreement -i contacts.tsv --column p_independent -o agreement.tsv
+
+**Read ``js`` against the same model on the structure's own geometry, not against 1.**
+:math:`\mathrm{js} = 1` requires the model to put all its mass on exactly the contacting cells in
+equal proportion, which is a deterministic map; a calibrated probabilistic model cannot reach it
+against a single realisation. On the four receptors of the manuscript's Figure 2c the crystal's own
+C\ :math:`\alpha` geometry reads 0.75--0.81 and the predicted geometry 0.42--0.58, so the first is
+the ceiling the second is measured against.
+
+**R² is deliberately not offered.** On a binary outcome ``1 - SS_res/SS_tot`` *is* the Brier skill
+score --- the two agree to three decimals on every map checked here --- so reporting both is
+reporting one number twice. It is also dominated by the many easy zeros and scales with prevalence,
+which makes two maps of different site counts incomparable under it; that is exactly the comparison
+the predicted and measured geometries require, since the predicted site set is roughly twice the
+size.
+
 Reproducing a referenced score
 ------------------------------
 

@@ -287,6 +287,23 @@ same ``$TCREN_DATA_DIR`` this page sets, and it calls the **installed** ``tcren`
 that produced a number is whatever ``tcren info`` reported when it ran, not whatever is checked out
 here.
 
+The ``contacts`` stage is the one to run if what you want checked is that a contact map can be
+placed **and scored with no structure of the complex**. It fits a geometry prior with the target
+crystal excluded, writes a TSV of six loop sequences and a peptide, scores that with
+``tcren potts predict --sequences --ensemble``, and then scores the same map off the structure so
+``tcren potts agreement`` can compare both against what the crystal did:
+
+.. code-block:: console
+
+   $ ./reproduce.sh contacts
+   from sequences alone: 468 sites, expected contacts 20.66 -- no structure was read
+   geometry              sites  contacts  expected  ratio     js    auc
+   the crystal's own       231        32     29.68   0.93  0.760  0.972
+   predicted               468        32     20.66   0.65  0.468  0.901
+
+``ratio`` is the level and ``js`` the placement; the stage exits non-zero if the predicted geometry
+does not read below the crystal's own, which is the ordering Figure 2c reports. About 33 s.
+
 .. note::
 
    **The corpus-scale featurisations do not fit in a 30-minute budget.** A single pass over the

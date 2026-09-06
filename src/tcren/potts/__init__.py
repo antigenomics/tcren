@@ -52,7 +52,7 @@ from .ensemble import energy_ensemble, map_ensemble, site_energies, threaded_ens
 from .sample import (ais_log_z, count_free_energy, delta_f_empty, delta_f_threshold, energy,
                      exact_log_z, factorised_log_z, gibbs, mu_star, tilt_mean)
 from .score import (bound_unbound, connected_correlations, contact_map, contact_probabilities,
-                    peptide_free_energy,
+                    map_agreement, peptide_free_energy,
                     count_profile, sample_maps, score_sites, score_structure)
 from .selfcon import (LOGIT_CLIP, contact_posterior, fit_selfconsistent, observation_field,
                       weighted_contacts)
@@ -69,7 +69,7 @@ __all__ = [
     "gibbs", "ais_log_z", "exact_log_z", "factorised_log_z", "energy",
     "tilt_mean", "mu_star", "count_free_energy", "delta_f_empty", "delta_f_threshold",
     "bound_unbound", "count_profile",
-    "score_sites", "contact_probabilities", "contact_map",
+    "score_sites", "contact_probabilities", "map_agreement", "contact_map",
     "peptide_free_energy", "connected_correlations",
     "sample_maps",
     "score_structure",

@@ -3,6 +3,30 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
+## [3.7.1] — 2026-09-07
+
+### Added
+
+- **A `contacts` stage in `reproduce.sh`** — the 3.7.x claim end to end through released commands
+  in 33 s: a leave-one-out geometry prior, a TSV of six loop sequences and a peptide, `tcren potts
+  predict --sequences --ensemble`, and `tcren potts agreement` against the crystal the prior was
+  held out of. It exits non-zero if the predicted geometry does not read below the crystal's own.
+
+
+- `tcren.potts.map_agreement` and `tcren potts agreement` — score a contact map against the one a
+  structure actually made, reporting the **level** (`ratio` = Σp/Σσ) and the **placement** (`js`,
+  Jensen–Shannon similarity of the two maps normalised to distributions over sites, in bits, so
+  0–1 and scale-free in the level) separately, plus `auc` for the ordering alone.
+
+  `js = 1` requires a deterministic map, so it is read against the same model on the structure's
+  own Cα geometry and not against 1: on the four Figure 2c receptors the crystal's own geometry
+  reads 0.75–0.81 and the predicted geometry 0.42–0.58.
+
+  **R² is deliberately not offered.** On a binary outcome `1 - SS_res/SS_tot` *is* the Brier skill
+  score — they agree to three decimals on every map checked — so it is one number reported twice;
+  and it scales with prevalence, which makes maps of different site counts incomparable, exactly
+  the comparison the predicted and measured geometries require.
+
 ## [3.7.0] — 2026-09-07
 
 **The predicted contact map recovers the contact count.** 3.6.0 scored one map read off the mean
