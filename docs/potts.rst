@@ -514,6 +514,90 @@ is the block :math:`\beta_\Phi` ties to TCRen2 above.
 .. math:: \text{eta} \;=\; \underbrace{h^{\mathrm{rec}} + h^{\mathrm{par}}}_{\text{composition}}
           \;+\; \underbrace{J}_{\text{complementarity}} \;+\; \underbrace{g}_{\text{geometry}}
 
+Closing the loop: the potential re-derived from the contacts the model predicts
+------------------------------------------------------------------------------
+
+Everything above reads a **finished** potential. :func:`tcren.derive_tcren` tallies the amino-acid
+pairs of the contacts a crystal *shows*, and :func:`tcren.potts.fit_potts` reads the resulting
+matrix back as the pair term in its field. Nothing carries the model's own view of which contacts
+formed into the tally. :mod:`tcren.potts.selfcon` closes that loop.
+
+.. math::
+
+    \eta_a^{\mathrm{post}} &= \eta_a(\theta^{(t)})
+        + \operatorname{clip}\!\left(\frac{c - d_a}{m},\ \pm K\right) \\
+    p_a^{(t)} &= \langle \sigma_a \rangle_{P(\sigma \mid \mathrm{obs},\, \theta^{(t)})} \\
+    N^{(t)}(a,b) &= \sum_s w_s \sum_{a\,:\,\mathrm{pair}(a)=(a,b)} p_a^{(t)} \\
+    e^{(t+1)}(a,b) &= -\ln \frac{N^{(t)}(a,b)\,N_{\mathrm{tot}}}
+                                {N_{\mathrm{row}}(a)\,N_{\mathrm{col}}(b)}, \qquad
+    \theta^{(t+1)} = \arg\max\ \mathrm{PL}\big(\theta \mid e^{(t+1)}\big)
+
+with :math:`c` the 5 Å cutoff, :math:`d_a` the site's closest-heavy-atom distance, :math:`m` the
+margin, :math:`K` the logit clip and :math:`w_s` the structure's redundancy weight.
+
+**Weighting each conformation by its probability costs nothing.** The tally over whole contact
+configurations, :math:`\sum_\delta P(\delta \mid \mathrm{obs})\, n_{ab}(\delta)`, **equals**
+:math:`\sum_a p_a` by linearity of expectation — the same identity that governs
+:func:`tcren.potts.energy_ensemble`. So the configurations never have to be enumerated to get the
+counts; :func:`tcren.potts.map_ensemble` lists them as a read-out, not as a dependency.
+
+**The estimator does not change; only the counts it is fed.** :func:`tcren.derive_tcren` already
+accepts a per-contact fractional weight, documented there as the way to let a pair that "will only
+sample an interacting geometry some of the time" cast a fractional vote. The log-odds, the
+contact-fraction reference state and the pseudocount are the shipped ones, untouched.
+
+**The observation enters as one additive field.** Conditioning on the crystal through
+:math:`P(\sigma_a{=}1 \mid d_a) = \operatorname{sigmoid}((c - d_a)/m)` puts a per-site constant into
+:math:`\eta`, so the E-step is the existing block-Gibbs sampler called with a modified vector — no
+clamping machinery, no second code path. One knob spans the family: ``margin`` → 0 pins the crystal
+map, ``margin`` = 0.5 Å releases the threshold band alone, and a large ``margin`` lets the crystal
+enter only through the fit.
+
+**The pair term is pinned, not free.** ``J`` carries one coefficient — ``beta_matrix``, the scale on
+the current matrix — rather than 400 cells. That is what closes the loop: a free ``J`` would absorb
+the pair structure and leave the re-derived matrix no route back into :math:`P(\sigma)`. It also
+makes ``beta_matrix`` reportable as the inverse temperature relating TCRen units to contact
+log-odds. :func:`tcren.potts.fit_potts` accepts a :class:`~tcren.potential.Potential` object for
+``coupling_matrix``, not only one of the five bundled names, and a model pinned that way stores the
+matrix itself so it round-trips.
+
+.. warning::
+
+   **The heavy-atom layer has to reach past the cutoff**, exactly as for
+   :mod:`tcren.potts.em`. Build the table with ``available_pairs(..., probe=cutoff + 3*margin)``, or
+   ``d_heavy`` is null for every non-contact and the observation field can only ever *remove*
+   contacts. ``tcren potts pairs --probe`` and ``tcren potts selfcon`` both do this.
+
+.. note::
+
+   **This is EM-shaped but it is not EM.** The E-step is a genuine conditional expectation, but the
+   potential update is the shipped log-odds re-derivation applied to expected counts, not the
+   maximiser of any one objective — so the pseudo-log-likelihood need not rise, and on the 17
+   bundled crystals it does not (:math:`-337.94` then :math:`-335.05`, drifting to :math:`-335.74`
+   over six steps at ``damping=0.5``). Convergence is declared on ``max_abs_de``, the largest cell
+   movement in natural-log units, which contracts at the damping rate. ``pseudo_loglik`` rides along
+   as a diagnostic.
+
+**The reduction gate.** At ``margin = 0`` the crystal's distance read pins every site, the posterior
+is the observed map exactly, and the probability-weighted tally reproduces the plain unweighted one
+**bit for bit** — on the bundled crystals, ``max |soft − hard| = 0`` over all 380 cells and a
+weighted mass of 309.000000 against 309 observed contacts. That is the check that the two halves of
+the loop are wired to the same contacts, and it is a test rather than an approximation.
+
+.. note::
+
+   That gate is exact **on one site table**, and the Potts availability set is not quite the
+   derivation's contact set. Over Native2026 the 15 Å Cα radius holds **7,799 of the deposited
+   derivation's 7,816 TCR:peptide contacts (99.78 %)**; the 17 it misses are spread over 17
+   structures at one or two each, side chains touching while their Cα sit further apart than the
+   radius. So ``margin = 0`` reproduces the derivation *from the availability set*, not the shipped
+   ``TCRen2_potential.csv`` — which is derived over the full contact map.
+
+.. code-block:: text
+
+   tcren potts selfcon -s <structures> --balance both --margin 0.5 \
+       -o TCRen_sc.csv --model-out potts_sc.json --trace-out sc_trace.tsv
+
 API
 ---
 

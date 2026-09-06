@@ -550,6 +550,70 @@ so a run is exactly reproducible regardless. `margin=0` makes every site observe
 whole thing to `fit_potts` exactly, which is the test that it is an extension and not a rewrite. A
 redundancy `weights` dict is keyed on the UNSUFFIXED `pdb.id` and is multiplied by the `1/draws`.
 
+## Self-consistent TCRen — `tcren.potts.selfcon` / `tcren potts selfcon`
+
+`derive_tcren` tallies the amino-acid pairs of the contacts a crystal **shows**; `fit_potts` reads
+the finished matrix back as its pair term. The loop was never closed. `fit_selfconsistent` closes
+it: each step recomputes the contact posterior under the current model, re-derives the potential
+from those contacts **weighted by their probability**, damps it against the previous matrix, and
+refits with the new matrix pinned as the pair term.
+
+```python
+from tcren.potts import available_pairs, fit_selfconsistent
+from tcren.potential import balanced_weights
+
+pairs = pl.concat([available_pairs(s, probe=6.5) for s in structures])   # NOTE the probe
+pot, model, trace = fit_selfconsistent(pairs, margin=0.5, damping=0.5, steps=15,
+                                       weights=balanced_weights(markup))
+pot.to_csv("TCRen_sc.csv")          # a drop-in Potential: -p TCRen_sc.csv anywhere
+```
+
+```
+tcren potts selfcon -s <structures> --balance both --margin 0.5 \
+    -o TCRen_sc.csv --model-out potts_sc.json --trace-out sc_trace.tsv
+```
+
+**Weighting each configuration by its probability costs nothing.** The tally over whole contact
+configurations, `sum_delta P(delta | obs) * n_ab(delta)`, **equals** `sum_a p_a` by linearity of
+expectation — the same identity behind `energy_ensemble`. So configurations never have to be
+enumerated to get the counts; `map_ensemble` lists them as a read-out, not as a dependency.
+
+**The estimator is untouched.** `derive_tcren(weight_col=...)` already took a per-contact fractional
+weight, so the log-odds, its contact-fraction reference state and its pseudocount are the shipped
+ones. Only the counts change.
+
+**The observation is one additive field on `eta`**, `logit = (5 - d_heavy)/margin`, clipped at +-40.
+So the E-step is the existing block-Gibbs sampler with a modified vector — no clamping machinery,
+no second code path. One knob spans the family: `margin -> 0` pins the crystal map, `0.5 A` releases
+the threshold band, a large margin lets the crystal enter only through the fit.
+
+**The pair term is PINNED, not free** — `J` carries one coefficient (`beta_matrix`) instead of 400.
+That is what closes the loop: a free `J` absorbs the pair structure and leaves the re-derived matrix
+no route back into `P(sigma)`. `fit_potts(coupling_matrix=)` now accepts a `Potential` object, not
+only one of the five bundled names, and a model pinned that way stores the matrix so it round-trips
+(`PottsModel.coupling_pinned`).
+
+**THE SAME PROBE RULE AS EM.** Build the table with `probe = cutoff + 3*margin` or `d_heavy` is null
+for every non-contact and the field can only ever REMOVE contacts. `tcren potts pairs --probe` and
+`tcren potts selfcon` both handle it.
+
+**Measured, Native2026, `--balance both`, 359 structures after the withdrawn drop.** At `margin = 0`
+the loop reaches its fixed point at step 2 with `max_abs_de = 0.0` **exactly**, contact mass
+7,799.0, and reads **R = 0.9977 against the shipped TCRen2** (mean |delta| 0.0075 over 380 cells,
+largest 0.53 on K:K, the rarest pair). The residual is the availability set, not the loop: the 15 A
+Ca radius holds **7,799 of the deposited derivation's 7,816 TCR:peptide contacts (99.78 %)** — the
+17 it misses sit one or two apiece across 17 structures, side chains touching while their Ca sit
+further apart than the radius.
+
+**Gotchas.** This is EM-SHAPED BUT IS NOT EM: the potential update is a re-derivation, not the
+maximiser of one objective, so `pseudo_loglik` need not rise and on the bundled crystals it does not
+(-337.94, -335.05, then drifting to -335.74 over six steps). Convergence is declared on
+`max_abs_de`, which contracts at the damping rate. Read `contact_mass` against the crystal's own
+contact total — a loop inventing contacts shows up there — and `mass_from_uncertain` for how much of
+the tally came from sites the crystal did not settle. Never mutate a `Potential` in place:
+`as_matrix()` caches with no invalidation and the bundled loaders are `lru_cache`d, so build a fresh
+one each step (`fit_selfconsistent` does).
+
 ## Contact ensembles — `tcren.potts.ensemble` / `tcren potts ensemble`
 
 The marginals settle the **mean** interaction energy and nothing else. `Phi(sigma) = sum_a sigma_a

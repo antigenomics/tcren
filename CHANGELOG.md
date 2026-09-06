@@ -6,6 +6,53 @@ All notable changes to `tcren` are recorded here. Format follows
 ## [Unreleased]
 
 ### Added
+- **`tcren.potts.selfcon` — the potential re-derived from the contacts the model predicts, until
+  it stops moving**, as `tcren potts selfcon`.
+
+  `derive_tcren` tallies the amino-acid pairs of the contacts a crystal *shows*; `fit_potts` reads
+  the finished matrix back as its pair term. Nothing carried the model's own view of which contacts
+  formed into the tally, and the two halves never met. Each step now recomputes the contact
+  posterior under the current model, re-derives the potential from those contacts **weighted by
+  their probability**, damps it against the previous matrix, and refits with the new matrix pinned
+  as the pair term.
+
+  **Weighting whole configurations by their probability costs nothing.** The tally
+  `sum_delta P(delta | obs) n_ab(delta)` **equals** `sum_a p_a` by linearity of expectation, so the
+  configurations never have to be enumerated to get the counts. And the estimator is untouched:
+  `derive_tcren` already took a per-contact fractional weight, so the log-odds, its
+  contact-fraction reference state and its pseudocount are the shipped ones.
+
+  **The observation enters as one additive field.** `P(sigma_a = 1 | d_a) = sigmoid((5 - d_a)/m)`
+  is a per-site constant on `eta`, so the E-step is the existing block-Gibbs sampler called with a
+  modified vector — no clamping machinery and no second code path. One knob spans the family:
+  `margin = 0` pins the crystal map, `margin = 0.5 A` releases the threshold band, a large margin
+  lets the crystal enter only through the fit.
+
+  **The reduction gate is exact.** At `margin = 0` the probability-weighted tally reproduces the
+  plain unweighted derivation bit for bit — `max |soft - hard| = 0` over all 380 cells on the
+  bundled crystals, weighted mass 309.000000 against 309 observed contacts. Over Native2026 with
+  `--balance both` it reaches its fixed point at step 2 with `max_abs_de = 0.0` exactly and reads
+  **R = 0.9977 against the shipped TCRen2**, mean |delta| 0.0075 over 380 cells. The residual is
+  the availability set: the 15 A Ca radius holds **7,799 of the deposited derivation's 7,816
+  TCR:peptide contacts (99.78 %)**, the 17 it misses spread one or two apiece over 17 structures,
+  and they land in the thinnest cells — the largest single disagreement is K:K, the rarest pair.
+
+  **This is EM-shaped but it is not EM**, and the docs say so. The E-step is a genuine conditional
+  expectation, but the potential update is a re-derivation rather than the maximiser of one
+  objective, so the pseudo-log-likelihood need not rise and on the bundled crystals it does not.
+  Convergence is declared on `max_abs_de`, which contracts at the damping rate.
+
+- **`fit_potts(coupling_matrix=...)` accepts a `Potential`, not only one of five bundled names.**
+  It resolved through a hardcoded dict of `lru_cache`d loaders, and `coupling_matrix_name` was what
+  serialised, so a model could not be pinned to a matrix derived in the same session — which is
+  exactly what the loop above does on every step. `PottsModel` gains `coupling_pinned`; a pin on an
+  unnamed matrix stores the matrix itself and round-trips, and `n_parameters()` still counts it as
+  the single scale it is (1, not 400).
+
+- **`tcren potts pairs --probe`**, so the published pair table can carry a heavy-atom layer measured
+  past the cutoff. Without it `d_heavy` is null for every non-contact and both `potts fit --em` and
+  `potts selfcon` can only ever remove contacts, never add them.
+
 - **`tcren.potts.ensemble` — the contact map read as an ensemble rather than as a set of
   marginals**, with `tcren potts ensemble` on the command line.
 

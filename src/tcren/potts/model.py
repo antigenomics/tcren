@@ -101,7 +101,12 @@ class PottsModel:
             ``coupling_matrix_name`` is set.
         beta_matrix: Scale on the named potential when ``J`` is not free.
         coupling_matrix_name: Bundled potential the coupling is fixed to (``tcren2``, ``mj``,
-            ``mj1996``, ``keskin``, ``tcren``), or ``None`` for a free ``J``.
+            ``mj1996``, ``keskin``, ``tcren``), or ``None`` for a free ``J`` or for a pin on a
+            matrix that is not one of the bundled five.
+        coupling_pinned: Whether ``coupling`` holds a **pinned** matrix rather than a free ``J``.
+            A pin on an unnamed matrix — one derived in this session rather than shipped — has to
+            store the matrix itself to round-trip, so it lands in ``coupling`` and this flag is
+            what tells the two apart. ``beta_matrix`` is its single fitted scale either way.
         g_dist: Cα-distance-bin coefficients, bin ``b`` covering ``[b*DBIN, (b+1)*DBIN)`` Å.
         g_region: Receptor-region coefficients over :data:`REGIONS`.
         g_role: Partner-role coefficients over :data:`ROLES`.
@@ -128,6 +133,7 @@ class PottsModel:
     coupling: list[list[float]] | None = None
     beta_matrix: float | None = None
     coupling_matrix_name: str | None = None
+    coupling_pinned: bool = False
     kernel_se: list[float] = field(default_factory=list)
     radius: float = 15.0
     cutoff: float = 5.0
@@ -146,9 +152,10 @@ class PottsModel:
     # -- coupling -----------------------------------------------------------------------------
 
     def coupling_array(self) -> np.ndarray:
-        """``J`` as a 20x20 array, whether it was fitted freely or fixed to a named potential."""
+        """``J`` as a 20x20 array, whether it was fitted freely or fixed to a matrix."""
         if self.coupling is not None:
-            return np.asarray(self.coupling, dtype=float)
+            J = np.asarray(self.coupling, dtype=float)
+            return float(self.beta_matrix) * J if self.coupling_pinned else J
         if self.coupling_matrix_name is None:
             raise ValueError("model has neither a free coupling nor a coupling_matrix_name")
         return float(self.beta_matrix) * centred_potential(self.coupling_matrix_name,
@@ -158,7 +165,7 @@ class PottsModel:
         """Free parameters, counting a fixed-matrix coupling as the single scale it is."""
         n = 1 + len(self.h_rec) + len(self.h_par) + len(self.g_dist) + len(self.g_region)
         n += len(self.g_role) + len(self.g_class) + len(self.kernel)
-        return n + (400 if self.coupling is not None else 1)
+        return n + (1 if self.coupling_pinned or self.coupling is None else 400)
 
     # -- serialisation ------------------------------------------------------------------------
 
@@ -178,7 +185,7 @@ class PottsModel:
         return cls(**json.loads(text))
 
 
-def centred_potential(name: str, alphabet: tuple[str, ...] = AA, *,
+def centred_potential(name, alphabet: tuple[str, ...] = AA, *,
                       centre: bool = True) -> np.ndarray:
     """``-M`` onto ``alphabet``, double-centred by default — positive means more contact.
 
@@ -199,22 +206,28 @@ def centred_potential(name: str, alphabet: tuple[str, ...] = AA, *,
     uncentred, the model's referenced energy equals the potential's own up to the fitted scale.
 
     Args:
-        name: One of ``tcren2``, ``tcren``, ``mj``, ``mj1996``, ``keskin``.
+        name: One of ``tcren2``, ``tcren``, ``mj``, ``mj1996``, ``keskin``; or a
+            :class:`~tcren.potential.Potential` — including one derived in this session, which is
+            what :func:`tcren.potts.selfcon.fit_selfconsistent` pins on each step and is the
+            reason this is not a name-only lookup.
         alphabet: Residue order of the returned array.
         centre: Double-centre the matrix. See above for which setting a task wants.
 
     Returns:
         A ``(len(alphabet), len(alphabet))`` array; cells absent from the potential are ``0``.
     """
-    from ..potential.model import _double_centred
+    from ..potential.model import Potential, _double_centred
     from ..potential import model as _m
 
-    loader = {"tcren2": _m.tcren2, "tcren": _m.tcren, "mj": _m.mj,
-              "mj1996": _m.mj1996, "keskin": _m.keskin}.get(name)
-    if loader is None:
-        raise ValueError(f"unknown potential {name!r}; expected one of tcren2, tcren, mj, "
-                         f"mj1996, keskin")
-    pot = loader()
+    if isinstance(name, Potential):
+        pot = name
+    else:
+        loader = {"tcren2": _m.tcren2, "tcren": _m.tcren, "mj": _m.mj,
+                  "mj1996": _m.mj1996, "keskin": _m.keskin}.get(name)
+        if loader is None:
+            raise ValueError(f"unknown potential {name!r}; expected a Potential or one of "
+                             f"tcren2, tcren, mj, mj1996, keskin")
+        pot = loader()
     M, index = _double_centred(pot) if centre else pot.as_matrix()
     out = np.zeros((len(alphabet), len(alphabet)))
     for i, a in enumerate(alphabet):

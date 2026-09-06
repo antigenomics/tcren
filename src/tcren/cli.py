@@ -2001,6 +2001,12 @@ def potts_pairs_cmd(
     receptor: str = typer.Option("tcr", "--receptor", help="tcr|mhc"),
     radius: float = typer.Option(15.0, "--radius", help="availability radius, A (Calpha-Calpha)"),
     cutoff: float = typer.Option(5.0, "--cutoff", help="contact definition, A (closest heavy atom)"),
+    probe: float | None = typer.Option(
+        None, "--probe",
+        help="measure the heavy-atom layer out to this radius, A, so d_heavy says how far a "
+             "NON-contact missed by; sigma is still called at --cutoff. Needed by potts fit --em "
+             "and potts selfcon, which cannot tell 'did not contact' from 'missed by 0.2 A' "
+             "without it (default: --cutoff, so d_heavy is null for every non-contact)"),
     organism: str = typer.Option("human", "--organism"),
 ) -> None:
     """The residue pairs available to the coupled model, one row per pair per structure.
@@ -2018,13 +2024,14 @@ def potts_pairs_cmd(
     from .provenance import stamp
 
     pairs, _ = _potts_pairs(structures, partner, radius=radius, cutoff=cutoff,
-                            receptor=receptor, organism=organism)
+                            receptor=receptor, organism=organism, probe=probe)
     pairs.write_csv(out, separator="\t")
     n_struct = pairs["pdb.id"].n_unique() if "pdb.id" in pairs.columns else 0
     typer.echo(f"wrote {out} ({pairs.height} pairs over {n_struct} structures, "
                f"receptor={receptor}, partner={partner}, radius={radius} A)")
     stamp(out, command="potts pairs", extra={"partner": partner, "receptor": receptor,
-                                             "radius": radius, "cutoff": cutoff})
+                                             "radius": radius, "cutoff": cutoff,
+                                             "probe": probe})
 
 
 @potts_app.command("fit")
@@ -2117,6 +2124,115 @@ def potts_fit_cmd(
         with pl.Config(tbl_rows=25, tbl_hide_dataframe_shape=True):
             typer.echo(str(kernel_table(model)))
     typer.echo(f"wrote {out}")
+
+
+@potts_app.command("selfcon")
+def potts_selfcon_cmd(
+    structures: Path = typer.Option(..., "-s", "--structures", help="structure file, folder or glob"),
+    out: Path = typer.Option("TCRen_sc_potential.csv", "-o", "--out", help="the re-derived potential"),
+    model_out: Path = typer.Option("potts_sc.json", "--model-out", help="the model pinned to it"),
+    trace_out: Path | None = typer.Option(None, "--trace-out", help="per-step convergence trace, TSV"),
+    margin: float = typer.Option(0.5, "--margin", help="resolution of the 5 A distance call, A; 0 is the hard crystal map and reproduces the plain derivation"),
+    damping: float = typer.Option(0.5, "--damping", help="mixing weight on the newly derived matrix each step"),
+    steps: int = typer.Option(15, "--steps", help="maximum iterations"),
+    tol: float = typer.Option(5e-3, "--tol", help="convergence on the largest cell movement, natural-log units; the sampled E-step gives this a noise floor (~3.5e-3 on Native2026 at the default Gibbs settings), so lower it only alongside more --draws"),
+    pseudocount: int = typer.Option(1, "--pseudocount", help="added to every aa-pair count; 1 is the shipped value"),
+    radius: float = typer.Option(15.0, "--radius", help="availability radius, A (Calpha-Calpha)"),
+    cutoff: float = typer.Option(5.0, "--cutoff", help="contact definition, A (closest heavy atom)"),
+    balance: str | None = typer.Option(None, "--balance", help="down-weight structure redundancy: epitope|tcr|both (--balance both is what ships TCRen2)"),
+    ridge: float = typer.Option(1.0, "--ridge", help="L2 penalty on the pseudolikelihood fit"),
+    chains: int = typer.Option(64, "--chains", help="Gibbs chains per structure in the E-step"),
+    burn: int = typer.Option(100, "--burn"),
+    draws: int = typer.Option(100, "--draws"),
+    thin: int = typer.Option(3, "--thin"),
+    seed: int = typer.Option(0, "--seed"),
+    workers: int | None = typer.Option(None, "-w", "--workers", help="processes for the E-step; default every core"),
+    pairs_out: Path | None = typer.Option(None, "--pairs-out", help="also write the site table"),
+) -> None:
+    """Re-derive the potential from the contacts the model predicts, until it stops moving.
+
+    The shipped potential is tallied from the contacts a crystal shows, and the contact model reads
+    that finished matrix back as its pair term. Nothing carries the model's own view of which
+    contacts formed into the tally. This closes the loop: each step recomputes the contact
+    posterior under the current model, re-derives the potential from those contacts **weighted by
+    their probability**, damps it against the previous matrix, and refits with the new matrix
+    pinned as the pair term.
+
+    Weighting whole contact configurations by their probability and tallying the amino-acid pairs
+    they carry is, by linearity of expectation, exactly the sum of the per-site marginals — so no
+    enumeration is needed to get the counts, and the log-odds estimator, its contact-fraction
+    reference state and its pseudocount are the shipped ones, unchanged.
+
+    ``--margin`` is the one knob. At ``0`` the crystal's distance read pins every site, the
+    posterior is the observed map exactly, and the output reproduces ``derive-potential`` — which
+    is the check that the two halves are wired to the same contacts, not an approximation of it.
+
+    The αβ TCR:pMHC HARD RULE applies, as in ``derive-potential``, and withdrawn PDB entries are
+    dropped by the same list.
+
+    Convergence is declared on the largest cell movement, not on the pseudo-log-likelihood: the
+    potential update is a re-derivation rather than the maximiser of any one objective, so this is
+    EM-shaped but is not EM and the likelihood need not rise. The trace carries both.
+    """
+    from .potential import withdrawn_ids
+    from .potts import fit_selfconsistent
+    from .provenance import stamp
+
+    if margin < 0:
+        raise typer.BadParameter("--margin cannot be negative")
+    if not 0.0 < damping <= 1.0:
+        raise typer.BadParameter("--damping must be in (0, 1]")
+
+    # The heavy-atom layer has to reach past the cutoff or `d_heavy` is null for every non-contact
+    # and the observation field can only ever REMOVE contacts -- the same one-sidedness
+    # `potts.em.latent_mask` refuses to fit. Three margins out, the field is already below -3.
+    pairs, markup = _potts_pairs(structures, "peptide", radius=radius, cutoff=cutoff,
+                                 probe=cutoff + 3.0 * margin if margin > 0 else None)
+    drop = withdrawn_ids() & set(pairs["pdb.id"].unique())
+    if drop:
+        pairs = pairs.filter(~pl.col("pdb.id").is_in(list(drop)))
+        markup = markup.filter(~pl.col("pdb.id").is_in(list(drop)))
+        typer.echo(f"dropped {len(drop)} withdrawn PDB entries: {', '.join(sorted(drop))}")
+
+    weights = None
+    if balance is not None:
+        axes = {"epitope": (("peptide",),), "tcr": (("cdr3a", "cdr3b"),),
+                "both": (("peptide",), ("cdr3a", "cdr3b"))}.get(balance)
+        if axes is None:
+            raise typer.BadParameter("--balance must be one of: epitope, tcr, both")
+        from .potential import balanced_weights
+        weights = balanced_weights(markup, axes=axes)   # markup came out of the same pass
+
+    pot, model, trace = fit_selfconsistent(
+        pairs, margin=margin, damping=damping, steps=steps, tol=tol, pseudocount=pseudocount,
+        weights=weights, ridge=ridge, chains=chains, burn=burn, draws=draws, thin=thin,
+        seed=seed, workers=workers, radius=radius, cutoff=cutoff, notes=str(structures))
+
+    with pl.Config(tbl_rows=40, tbl_cols=-1, tbl_hide_dataframe_shape=True):
+        typer.echo(str(trace))
+    last = trace.row(-1, named=True)
+    if not last["converged"]:
+        typer.secho(f"did not converge in {steps} steps: largest cell movement still "
+                    f"{last['max_abs_de']:.4f} natural-log units (--tol {tol}). The matrix written "
+                    f"is the last iterate, not a fixed point.", fg="yellow")
+
+    pot.to_csv(out)
+    model.to_json(model_out)
+    typer.echo(f"beta(TCRen-SC) = {model.beta_matrix:+.4f}, {model.n_parameters()} parameters, "
+               f"pseudo-logLik {model.pseudo_loglik:.1f}")
+    typer.echo(f"wrote {out} ({pot.matrix.height} cells) and {model_out}")
+    stamp(out, command="potts selfcon",
+          extra={"margin": margin, "damping": damping, "steps": int(last["step"]),
+                 "converged": bool(last["converged"]), "max_abs_de": last["max_abs_de"],
+                 "balance": balance, "pseudocount": pseudocount, "radius": radius,
+                 "cutoff": cutoff, "structures": model.n_structures, "sites": model.n_sites,
+                 "contact_mass": last["contact_mass"], "seed": seed})
+    if trace_out is not None:
+        trace.write_csv(trace_out, separator="\t")
+        typer.echo(f"wrote {trace_out}")
+    if pairs_out is not None:
+        pairs.write_csv(pairs_out, separator="\t")
+        typer.echo(f"wrote {pairs_out}")
 
 
 @potts_app.command("score")

@@ -53,6 +53,8 @@ from .sample import (ais_log_z, count_free_energy, delta_f_empty, delta_f_thresh
 from .score import (bound_unbound, connected_correlations, contact_map, contact_probabilities,
                     peptide_free_energy,
                     count_profile, sample_maps, score_sites, score_structure)
+from .selfcon import (LOGIT_CLIP, contact_posterior, fit_selfconsistent, observation_field,
+                      weighted_contacts)
 from .sites import (GROOVE_REGIONS, MHC_PARTNER, MHC_RECEPTOR_REGIONS, available_pairs, eta,
                     site_codes)
 
@@ -71,6 +73,8 @@ __all__ = [
     "sample_maps",
     "score_structure",
     "energy_ensemble", "map_ensemble", "threaded_ensemble", "site_energies",
+    "LOGIT_CLIP", "observation_field", "contact_posterior", "weighted_contacts",
+    "fit_selfconsistent",
     "LATENT_MARGIN", "latent_mask", "impute", "fit_potts_em", "consistency",
     "GeomPrior", "REGIONS_MODELLED", "fit_geom_prior", "loops_from_structure",
     "predicted_distances", "predicted_sites",

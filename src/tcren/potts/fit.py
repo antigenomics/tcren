@@ -121,7 +121,7 @@ def cluster_se(X, resid: np.ndarray, gid: np.ndarray, n_groups: int, H) -> np.nd
 
 
 def fit_potts(sites: pl.DataFrame, *, radius: float = 15.0, cutoff: float = 5.0,
-              couplings: bool = True, coupling_matrix: str | None = None,
+              couplings: bool = True, coupling_matrix: "str | object | None" = None,
               pin_centred: bool = True,
               weights: dict[str, float] | None = None, ridge: float = DEFAULT_RIDGE,
               joint: bool | None = None, regions: tuple[str, ...] | None = None,
@@ -134,7 +134,9 @@ def fit_potts(sites: pl.DataFrame, *, radius: float = 15.0, cutoff: float = 5.0,
         cutoff: Contact definition, Å — recorded on the model; ``sigma`` is already computed.
         couplings: Fit the ``sigma``–``sigma`` kernel. ``False`` gives the factorised model, whose
             partition function is then exact.
-        coupling_matrix: Fix ``J`` to one scale on this bundled potential (``tcren2``, ``mj``, …)
+        coupling_matrix: Fix ``J`` to one scale on this potential — a bundled name (``tcren2``,
+            ``mj``, …) or a :class:`~tcren.potential.Potential` object, which is how a matrix
+            derived in this session gets pinned
             instead of fitting 400 free cells. Competing matrices fitted this way carry identical
             parameter counts, so their pseudo-log-likelihoods compare directly.
         pin_centred: Double-centre ``coupling_matrix`` before pinning (default). ``False`` pins the
@@ -177,7 +179,10 @@ def fit_potts(sites: pl.DataFrame, *, radius: float = 15.0, cutoff: float = 5.0,
     counts = (neighbour_counts(edge_lists, sigma, q.height) if edge_lists
               else np.zeros((q.height, 0)))
     fixed = (centred_potential(coupling_matrix, centre=pin_centred)
-             if coupling_matrix else None)
+             if coupling_matrix is not None else None)
+    # A pin on a bundled matrix serialises as its name and is rebuilt on load; a pin on a matrix
+    # derived in this session has no name to rebuild from, so the array itself is stored.
+    named = coupling_matrix if isinstance(coupling_matrix, str) else None
     X, slices, k0 = design(codes, sizes, counts, fixed)
     b, H = irls(X, sigma, w, ridge)
     bg, J = gauge(b, slices, fixed is None)
@@ -194,9 +199,11 @@ def fit_potts(sites: pl.DataFrame, *, radius: float = 15.0, cutoff: float = 5.0,
         g_dist=bg[slices[2]].tolist(), g_region=bg[slices[3]].tolist(),
         g_role=bg[slices[4]].tolist(), g_class=bg[slices[5]].tolist(),
         kernel=bg[k0:].tolist(), kernel_se=se[k0:].tolist(),
-        coupling=(J.tolist() if J is not None else None),
+        coupling=(J.tolist() if J is not None
+                  else (fixed.tolist() if named is None and fixed is not None else None)),
         beta_matrix=(None if fixed is None else float(bg[slices[-1]][0])),
-        coupling_matrix_name=coupling_matrix,
+        coupling_matrix_name=named,
+        coupling_pinned=bool(fixed is not None and named is None),
         regions=list(regions) if regions else list(REGIONS),
         radius=radius, cutoff=cutoff, joint=bool(joint),
         n_structures=int(len(upid)), n_sites=int(q.height), n_contacts=int(sigma.sum()),
