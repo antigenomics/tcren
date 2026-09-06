@@ -66,6 +66,10 @@ New surface in 3.3.0, all of it bootstrap and batching rather than analysis:
 - **`tcren potts pairs`** — the availability enumeration, promoted from a private helper. It is the
   first and most expensive stage of `potts fit`, so emitting it once and reusing it turns a
   repeated corpus pass into a single one.
+- **`tcren potential-table -p <name|path> -o <csv>`** — the residue-pair table behind `-p`, long
+  form, resolved by the name every scoring command resolves. Nothing is computed. All three TCRen
+  matrices are 380 pairs over 20 residues; cysteine never appears on the receptor axis, so 20 of
+  the 400 cells are absent.
 - **`tcren derive-potential --contacts-out`** — the contact table the matrix was derived from,
   written **after** every filter: 7,816 TCR:peptide contacts over 358 structures, one fewer than
   the 359 the derivation keeps, because one kept structure makes no TCR:peptide contact at all.

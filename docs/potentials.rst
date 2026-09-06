@@ -90,6 +90,19 @@ matrix.
 Cysteine is dropped from the ``from`` axis as a data convention, which is why the TCRen
 matrices carry 380 cells (19 × 20) rather than 400.
 
+Reading one out
+---------------
+
+Any table the scoring commands resolve can be written to a CSV under the same name:
+
+.. code-block:: console
+
+   $ tcren potential-table -p tcren2_em -o TCRen2_sc_potential.csv
+   TCRen2-EM: 380 pairs over 20 residues -> TCRen2_sc_potential.csv
+
+``-p`` takes a bundled name or a path, exactly as it does on ``score``, ``ddg``, ``cpl`` and
+``rank``, and nothing is computed — the output is the shipped matrix in long form.
+
 Reproducing them
 ----------------
 

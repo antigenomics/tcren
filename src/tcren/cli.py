@@ -457,6 +457,24 @@ def derive_potential(
 
 
 
+@app.command("potential-table", rich_help_panel=_P_DATA)
+def potential_table(
+    potential: str | None = typer.Option(
+        None, "-p", "--potential",
+        help="bundled name or a CSV path; default TCRen2",
+    ),
+    out: Path = typer.Option("potential.csv", "-o", "--out"),
+) -> None:
+    """Write out the residue-pair energy table behind ``-p``, as a long-form CSV.
+
+    Nothing is computed: this is the shipped matrix, resolved by the same name every scoring
+    command resolves, so a figure or a table can be drawn from the command line rather than from
+    a file path into the installed wheel.
+    """
+    pot = _load_potential(potential)
+    pot.to_csv(out)
+    typer.echo(f"{pot.name}: {pot.matrix.height} pairs over {len(pot.alphabet)} residues -> {out}")
+
 @app.command("fetch-data", rich_help_panel=_P_DATA)
 def fetch_data(
     canonical: bool = typer.Option(True, "--canonical/--no-canonical", help="also fetch Canonical2026"),

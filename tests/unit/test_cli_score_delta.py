@@ -136,3 +136,32 @@ def test_batched_ids_are_resolved_for_the_set_not_per_file(tmp_path):
     got = [s.pdb_id for s in iter_typed(tmp_path, "human")]
     assert len(set(got)) == 3, got
     assert all(g.startswith("302TIL_") for g in got), got
+
+
+def test_potential_table_writes_the_shipped_matrix(tmp_path):
+    """`potential-table` resolves the same names `score -p` does, and computes nothing."""
+    import polars as pl
+    from typer.testing import CliRunner
+
+    from tcren.cli import app
+    from tcren.potential import tcren2_em
+
+    out = tmp_path / "em.csv"
+    r = CliRunner().invoke(app, ["potential-table", "-p", "tcren2_em", "-o", str(out)])
+    assert r.exit_code == 0, r.output
+    got = pl.read_csv(out)
+    want = tcren2_em().matrix
+    assert got.height == want.height == 380
+    assert set(got["residue.aa.from"]) == set(want["residue.aa.from"])
+    # cysteine is a peptide-side residue only, so 20 of the 400 cells never exist
+    assert "C" not in set(got["residue.aa.from"])
+    assert "C" in set(got["residue.aa.to"])
+
+
+def test_potential_table_rejects_an_unknown_name(tmp_path):
+    from typer.testing import CliRunner
+
+    from tcren.cli import app
+
+    r = CliRunner().invoke(app, ["potential-table", "-p", "nope", "-o", str(tmp_path / "x.csv")])
+    assert r.exit_code != 0

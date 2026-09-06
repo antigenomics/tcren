@@ -3,6 +3,21 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
+## [3.5.0] — 2026-09-06
+
+**The shipped residue-pair tables become readable from the command line**, so a figure or a table
+can be drawn from the matrix the scoring commands resolve rather than from a file path into the
+installed wheel.
+
+### Added
+- **`tcren potential-table -p <name|path> -o <csv>`** — writes out the residue-pair energy table
+  behind `-p`, long form (`residue.aa.from, residue.aa.to, value`). Nothing is computed: it is the
+  shipped matrix, resolved by the same name `score`, `ddg`, `cpl` and `rank` resolve, which is what
+  lets `bench/figures/fig2/make_fig2_tables.sh` draw main-text Figure 2a from `tcren2`, `tcren2_em`
+  and `karnaukhov2022` without reaching into `src/tcren/data/`. All three are 380 pairs over 20
+  residues: cysteine appears on the peptide axis and never on the receptor axis, so 20 of the 400
+  cells are absent in every one of them.
+
 ## [3.4.0] — 2026-09-06
 
 **The self-consistent potential and the model pinned to it become addressable from the command
