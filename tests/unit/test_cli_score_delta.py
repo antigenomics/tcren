@@ -116,3 +116,23 @@ def test_bundled_potts_model_resolves_by_name():
     assert sc.coupling_pinned and sc.beta_matrix != default.beta_matrix
     with pytest.raises(Exception):
         _load_potts("no_such_model")
+
+
+def test_batched_ids_are_resolved_for_the_set_not_per_file(tmp_path):
+    """Seven files sharing a prefix are seven structures, not one.
+
+    `structure_id_from_path` takes the part before the first underscore, which is right for
+    `4x5w_renumbered.cif` and wrong for a cohort whose names carry metadata there --
+    `302TIL_A0206_9_TCR-pMHC` and its six siblings all came back as `302TIL`. `iter_structures`
+    has always decided per SET (`resolve_structure_ids`); the batched annotation path did not, so
+    `tcren scoring` and `tcren score` disagreed about what a structure is called.
+    """
+    import shutil
+
+    from tcren.annotation.batch import iter_typed
+
+    for tag in ("A0206_9", "B3501_10", "C0303_9"):
+        shutil.copy(_FIXTURE, tmp_path / f"302TIL_{tag}_TCR-pMHC.pdb")
+    got = [s.pdb_id for s in iter_typed(tmp_path, "human")]
+    assert len(set(got)) == 3, got
+    assert all(g.startswith("302TIL_") for g in got), got

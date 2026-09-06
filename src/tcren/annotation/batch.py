@@ -40,13 +40,20 @@ def iter_annotated_set(struct_dir: str | Path, on_error: str = "skip"):
     """
     from ..annotation import classify_chains
     from ..annotation.arda_adapter import _import_arda
-    from ..structure import parse_structure, structure_id_from_path, structure_paths
+    from ..structure import parse_structure, structure_paths
+    from ..structure.io import resolve_structure_ids
 
+    paths = structure_paths(Path(struct_dir))
+    # Ids are resolved for the SET, not per file: the prefix rule that turns "1ao7.pdb.gz" and
+    # "4x5w_renumbered.cif" into PDB ids collapses "302TIL_A0206_9_TCR-pMHC" and its six siblings
+    # onto one id, and every row of seven structures then lands under it. `iter_structures` has
+    # always decided per set; this path did not, so `tcren scoring` and `tcren score` disagreed
+    # about what a structure is called.
+    ids = resolve_structure_ids(paths)
     structures: list[Structure] = []
-    for path in structure_paths(Path(struct_dir)):
-        # id resolved from the filename (handles "<id>.pdb(.gz)" and "<id>_renumbered.cif").
+    for path in paths:
         try:
-            structures.append(parse_structure(path, pdb_id=structure_id_from_path(path)))
+            structures.append(parse_structure(path, pdb_id=ids[str(path)]))
         except Exception:
             if on_error == "raise":
                 raise
@@ -133,18 +140,20 @@ def mhc_annotation(
     from ..mhc import reference
     from ..mhc.mapper import MhcCall, _best_hits, _candidate_chains, _reconcile_class
     from ..structure import parse_structure, structure_id_from_path, structure_paths
+    from ..structure.io import resolve_structure_ids
 
     struct_dir = Path(struct_dir)
     paths = structure_paths(struct_dir)
+    resolved = resolve_structure_ids(paths)      # per SET, see iter_annotated_set
     if ids is not None:
         keep = set(ids)
-        paths = [p for p in paths if structure_id_from_path(p) in keep]
+        paths = [p for p in paths if resolved[str(p)] in keep
+                 or structure_id_from_path(p) in keep]
 
     structures: list[Structure] = []
     for path in paths:
-        pdb_id = structure_id_from_path(path)
         try:
-            structures.append(parse_structure(path, pdb_id=pdb_id))
+            structures.append(parse_structure(path, pdb_id=resolved[str(path)]))
         except Exception:
             if on_error == "raise":
                 raise

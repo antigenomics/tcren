@@ -82,7 +82,12 @@ def _typed_batch(structures, organism: str, mhc: bool = True) -> list:
     and the reason ``tcren.annotation.batch`` exists. Any command that iterates a structure set
     goes through here.
     """
-    structs = list(_iter_typed(structures, organism))
+    # `structures` is a CLI -s spec: one path, a repeated flag, a comma-separated list, a glob or
+    # a manifest. Resolving it here is what makes a repeated -s mean what it says -- `tcren score`
+    # declared it as a single Path and silently kept only the last one.
+    from .structure.io import resolve_sources
+
+    structs = [st for src in resolve_sources(structures) for st in _iter_typed(src, organism)]
     if structs and mhc:
         import os as _os
 
@@ -638,7 +643,7 @@ def _reference_energy(structure, cm, potential, interface, regions, mode, refere
 
 @app.command(rich_help_panel=_P_SCORE)
 def score(
-    structures: Path = typer.Option(..., "-s", "--structures", help="structure file, directory, or .tar.gz (.pdb/.cif/.pdb.gz/.cif.gz)"),
+    structures: list[str] = typer.Option(..., "-s", "--structures", help="structure file(s), directory, .tar.gz, glob, or a .txt manifest of paths; repeatable and comma-separable"),
     candidates: Path = typer.Option(..., "-c", "--candidates", help="candidate epitopes file"),
     potential: str | None = typer.Option(None, "-p", "--potential", help="potential: bundled name (tcren2|tcren2_em|karnaukhov2022|mj|keskin) or CSV path (default: tcren2)"),
     out: Path = typer.Option("candidate_epitopes_TCRen.csv", "-o", "--out"),

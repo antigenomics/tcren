@@ -170,7 +170,23 @@ line**, and `tcren score` gains the referenced energy the benchmark had been com
   apex reach of a length-`L` loop pinned at its neck, rather than against the fit. `sigma` on a
   predicted table is a placeholder and is 0 throughout.
 
+### Fixed
+- **A batched structure set is identified per SET, not per file.** `tcren.annotation.batch`
+  resolved every `pdb.id` through `structure_id_from_path`, which takes the part before the first
+  underscore — right for `4x5w_renumbered.cif`, wrong for any cohort whose names carry metadata
+  there. The seven Bobisse models `302TIL_A0206_9_TCR-pMHC` … all came back as `302TIL`, so seven
+  distinct structures landed under one id and a per-template candidate pool could not be addressed
+  at all. `tcren.structure.io.resolve_structure_ids` has always made this decision for the set and
+  `iter_structures` has always used it; `iter_annotated_set` and `annotate_batch` now do too, which
+  is why `tcren scoring` and `tcren score` used to disagree about what a structure is called.
+  **A set whose prefixes are already unique is unaffected** — all 374 `Native2026` ids are
+  byte-identical either way.
+
 ### Changed
+- **`-s/--structures` is resolved the same way by every command.** `_typed_batch` now runs the
+  spec through `resolve_sources`, so a repeated `-s`, a comma-separated list, a glob and a manifest
+  mean the same thing everywhere. `tcren score` declared `-s` as a single path and silently kept
+  only the last one.
 - **`fit_selfconsistent` and `potts selfcon` report `rms_de` beside `max_abs_de`, and the
   Monte-Carlo floor is now measured rather than asserted.** `max_abs_de` is a maximum over 380
   cells, so its floor is far above the r.m.s. of the same 380 numbers and no draw budget drives it
