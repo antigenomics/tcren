@@ -527,6 +527,182 @@ and the observed contact count across the 364 structures is Pearson :math:`+0.23
 spread of the population itself. It predicts the typical interface at the right level, which is
 what loop lengths alone can carry.
 
+Every TCR against every pMHC: the cross product
+-----------------------------------------------
+
+The prior above sees one geometry per crystal, covering whichever ``(loop length, peptide length)``
+pairs happen to have been solved. ``Canonical2026`` is ``Native2026`` after canonical MHC
+superposition, so **every complex already sits in one frame** --- which is why
+:func:`tcren.shuffle.graft_tcr` can splice a pMHC and a foreign TCR with no transform at all.
+Reading the TCR of one crystal against the pMHC of another is therefore a legitimate
+pseudo-complex, and within MHC class there are :math:`265^2 + 94^2 = 79{,}061` of them.
+
+.. code-block:: console
+
+   tcren potts cross -o cross/                      # 36,269,320 rows, 246 MB, 31 s
+
+There is no loop over the 79,061 pairs: the cross product over *structures* is the cross product
+over *residues*, so the two residue tables are grouped by
+``(class, chain, region, len.rec, par.len)`` and each group is one ``(n_s, n_t, L, M)`` broadcast.
+
+**Clashing pairs are removed and the threshold is measured, not assumed.** Over the 175,358
+receptor:peptide Cα pairs of the 359 solved complexes the closest approach is **3.366 Å**;
+``--min-dist`` defaults to 3.35, so no row a real complex produced is lost. A foreign TCR dropped
+onto a groove does clash --- 0.062 % of cross rows sit under 3.0 Å where **no** native row does ---
+and the filter is per pair, not per pairing, so a pseudo-complex with one impossible contact keeps
+its other hundreds.
+
+**What the cross product buys** is length coverage --- 131 ``(L, M)`` combinations for TRA:CDR3
+against the 62 the crystals solved, 112 against 59 for TRB:CDR3 --- and hundreds of samples per
+cell. What it does **not** buy is receptor:peptide dependence beyond the 359 solved pairings:
+crossing every TCR with every pMHC *is* the product of the two marginals. The ``is_native`` column
+marks the diagonal, and ``pdb.id.rec`` and ``pdb.id.par`` stay separate columns so a caller can
+hold out by structure on either axis.
+
+A geometry drawn from a fitted joint
+------------------------------------
+
+A mean of distance matrices is not a distance matrix any chain can realise: consecutive Cα atoms
+are a fixed **3.7985 Å** apart (s.d. 0.0668, over 642 CDR gaps), and nothing in a per-cell average
+enforces it. Recovering coordinates from a distance matrix is a Euclidean distance-matrix
+completion and is not convex, so the tractable relaxation is necessary and not sufficient.
+
+:mod:`tcren.potts.chain` works where the constraint is exact. Because the crystals are co-framed,
+loop Cα coordinates are comparable across them, and the model is a joint Gaussian over the
+concatenated graphon-knot coordinates of all six CDR loops **and** the peptide:
+
+.. math::  x \sim \mathcal{N}\big(\mu(\text{lengths}),\ W W^{\mathsf T} + \Psi\big)
+
+A draw is a set of 3D traces, :func:`tcren.geometry.enforce_bond` puts each one exactly on the
+virtual bond, and the distance matrix is *derived*. Three consequences:
+
+* **Every geometry is realisable**, with no relaxation anywhere.
+* **The cells are jointly modelled.** One draw of the joint moves all six loops and the peptide
+  together, which is what carries the docking angle --- a whole-receptor rigid-body degree of
+  freedom no per-loop model can express, and the one CDR2 needs, CDR2 being germline and barely
+  varying in length.
+* **Length stops being a joint problem.** :math:`L` conditions the loop block and :math:`M` the
+  peptide block, separately, so a CDR3 of 16 against an 11-mer needs no crystal that solved that
+  pair.
+
+.. code-block:: console
+
+   tcren potts chain -o chain_prior.npz --grid 24 --rank 12
+   tcren potts predict -s complex.pdb --chain-prior chain_prior.npz --geometry-draws 256
+
+**The draw set contains the right geometry.** Held out by structure over 540 observed contacts in
+24 crystals, the best of 512 draws places each contact to **0.04 Å**. The *mean* over draws
+overshoots by +3.25 Å, because a contacting pair sits at the near end of the distribution being
+averaged --- the measured value lands around the 15th to 25th percentile of the drawn spread.
+
+**Annealing was measured and it costs.** ``--beta`` weights each draw by its own :math:`\log Z`,
+computed on the union of every draw's reachable cells so the site count cannot confound it; a draw
+that put a cell out of reach gets :math:`\eta = -60` there. Over 10 crystals held out by structure:
+
+.. list-table::
+   :header-rows: 1
+
+   * - arm
+     - E[contacts]
+     - ratio
+     - js
+     - w_eff
+   * - step 2b (in-sample baseline)
+     - 24.7
+     - 1.10
+     - 0.4078
+     - ---
+   * - **chain, beta = 0**
+     - **22.0**
+     - **0.90**
+     - **0.4342**
+     - 96.0
+   * - chain, beta = 0.05
+     - 36.4
+     - 1.46
+     - 0.4042
+     - 18.8
+   * - chain, beta = 1
+     - 47.1
+     - 1.84
+     - 0.3538
+     - 1.1
+
+The common site set rules out the site-count explanation, so the mechanism is the **contact**
+count: :math:`\log Z` is a free energy and rises with occupancy. ``beta`` defaults to 0.
+
+Does the residue turn toward the peptide?
+------------------------------------------
+
+The Cα geometry says a pair is close enough. Whether the residue is *facing the right way* is a
+separate question, and until 3.9.0 the model could not ask it: the site table carried ``d_heavy``
+and ``d_ca`` and no Cβ. :func:`tcren.geometry.orientation_cosine` is the cosine between a residue's
+Cα→Cβ direction and its direction to the partner Cα --- ``+1`` aimed at it, ``-1`` away.
+
+Held at a fixed Cα distance it separates contact from non-contact at **ROC-AUC 0.69--0.84** across
+4--12 Å, so it is information the distance block does not carry. Fitted as ``g_orient``, eight bins
+over 369 crystals with ``J`` pinned to ``tcren2``, it is worth **+787.0 nats** of
+pseudo-log-likelihood for eight parameters, and the profile is monotone across 3.05 log-odds:
+
+.. list-table::
+   :header-rows: 1
+
+   * - cos bin
+     - coefficient
+     - sites
+   * - :math:`[-1.00, -0.75)`
+     - −1.2922
+     - 5,332
+   * - :math:`[-0.25, 0.00)`
+     - −0.5433
+     - 7,688
+   * - :math:`[+0.25, +0.50)`
+     - +0.5930
+     - 9,584
+   * - :math:`[+0.75, +1.00)`
+     - +1.7592
+     - 9,781
+
+**The Cβ is reconstructed, not read.** A drawn geometry has no side chains, so
+:func:`tcren.geometry.virtual_cb` builds Cβ from three consecutive Cα (0.547 Å mean position
+residual). ``available_pairs`` uses the same reconstruction on a crystal, so fitting and scoring
+describe one quantity rather than two; the reconstructed cosine correlates with the real one at
+Pearson **0.81** and keeps ROC-AUC 0.68--0.79. Glycine is not a special case --- this is where a Cβ
+*would* sit given the backbone, so there is no missing value to encode.
+
+**Where it pays is a crystal, not a drawn geometry.** Held out by structure over 24 crystals, read
+on the complex's own Cα the map improves on both placement and discrimination:
+
+.. list-table::
+   :header-rows: 1
+
+   * - arm
+     - ratio
+     - js
+     - auc
+   * - crystal's own Cα
+     - 1.002
+     - 0.7052
+     - 0.9599
+   * - **the same, with ``g_orient``**
+     - 1.026
+     - **0.7290**
+     - **0.9691**
+
+For scale, the 3.8.0 exclusion class moved js 0.7133 → 0.7162 there and left the ROC-AUC flat. On a
+geometry **drawn** from :mod:`tcren.potts.chain` the block is neutral (js 0.4200 → 0.4203) --- not
+because it is wrong there, but because ``cos_cb`` is a deterministic function of the Cα trace, so it
+can only be as receptor-specific as the trace is, and a drawn backbone carries the population's
+typical orientation. Use it when you hold coordinates.
+
+The block is **opt-in on both sides**: a model with no fitted ``g_orient``, or a frame with no
+``cos_cb``, carries six blocks and scores exactly as it did. Every shipped model has
+``g_orient = []``.
+
+.. code-block:: python
+
+   model = fit_potts(pairs, coupling_matrix="tcren2", orient=True)
+
 Scoring the agreement: placement and level
 ------------------------------------------
 

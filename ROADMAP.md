@@ -98,7 +98,17 @@ Ranked by what each unblocks. Every row names what is missing, not what would be
 | 1 | the complex's own coordinates | **yes** | `available_pairs`, shipped |
 | 2 | superimposed crystals, graphon-averaged | no | `geom_tcr_peptide`, shipped in 3.6.0 |
 | 2b | superimposed crystals, scored one at a time and averaged | no | `geom_tcr_peptide_ens`, shipped in 3.7.0 |
-| 3 | a parametric loop, no crystal coordinates | no | **open** |
+| 2c | a joint over Cα **coordinates**, drawn and bond-projected | no | `geom_tcr_peptide_chain`, shipped in 3.9.0 |
+| 3 | a parametric loop from torsions, no crystal coordinates | no | **open** |
+
+**Step 2c reaches the geometry; what is open is choosing among them (2026-09-07).** The coordinate
+joint of `tcren.potts.chain` draws whole chains rather than reading a distance surface, and the
+draw set **brackets the truth**: over 540 observed contacts in 24 crystals held out by structure,
+the best of 512 draws places every contact to **0.04 Å**. The mean over draws overshoots by
+**+3.25 Å**, because a contacting pair sits at the near end of the distribution being averaged —
+the measured value lands at the 15th to 25th percentile of the drawn spread. So the generator is
+not the bottleneck; the selection rule is, and the one selection rule tried is measured and worse
+(see below).
 
 Step 2 already delivers "score from sequence", and 3.7.0 closed the level gap that step 2 opened by
 averaging over the reference geometries rather than over their surfaces. That result is stated once,
@@ -235,10 +245,16 @@ Four pieces, two of which exist:
 - **The chain model.** `geometry.reach_max` is already the closed-form maximum reach of a length-`L`
   loop held at its neck, from the discrete-Frenet virtual-bond chain, and `geometry.cdr3_internal_coords`
   already extracts the bonds, angles and pseudo-torsions to fit it against. What is missing is the
-  forward direction: building Cα coordinates *from* internal coordinates.
+  forward direction: building Cα coordinates *from* internal coordinates. **`geometry.enforce_bond`
+  (3.9.0) now supplies the constraint half of it** — a SHAKE-style projection putting any trace
+  exactly on the 3.80 Å virtual bond — so what step 3 still needs over step 2c is the *torsion
+  distribution*, not the bond.
 - **The angle and torsion distributions.** The benchmark repo has an unwired stack for exactly this
   — `bench/scripts/cdr3_torsions.py` → `torsion_fit.py` → `models/torsion_vonmises.py` — written
-  2026-09-01, in no `recompute.sh` target, with no output on disk. Check it before writing anything.
+  2026-09-01 and in no `recompute.sh` target. It **does** have output on disk (fifteen `torsion*`
+  artifacts under `bench/eda/out/`, dated 2026-07-26, so from an earlier generation than the
+  scripts); the path is `models/torsion_vonmises.py` at the benchmark repo root, not `bench/`.
+  Check both before writing anything.
 - **The placement.** The hard part, and the one with no prior art here: putting the built loop in
   the groove frame. `docking/align.py` and `data/canonical_frame.json` are the entry points.
 - **A receptor residue's grip on the peptide now has an end (3.8.0).** `X(same receptor residue,
@@ -262,6 +278,15 @@ The gate is the one step 2 already has a number for: held-out recall of the crys
 inside the predicted envelope, and the area of `p_model` inside it
 (`$TCREN2_BENCH/bench/eda/geom_prior_recall.py`). Step 3 has to beat 0.9625 and 0.8310 to be worth
 shipping, and it has to close the calibration gap to be worth preferring.
+
+**Selection, not generation, is what is open after 3.9.0 (2026-09-07).** Boltzmann weighting the
+drawn geometries by their own `log Z` was measured on a **union** site set — so the site-count
+confound that could explain the earlier failure of reweighting fixed crystal members is ruled out —
+and it still costs: over 10 crystals held out by structure, js 0.4342 → 0.3538 and E[contacts]
+22.0 → 47.1 against 22.6 observed, from β = 0 to β = 1. `log Z` is a free energy and rises with
+occupancy, so selecting on it inflates the map. **A selection rule that reads the geometry rather
+than its energy is the open question**, and it is the author's to specify: §0c forbids inventing
+one here.
 
 ## 2. Make peptide stability a score, not a diagnostic
 

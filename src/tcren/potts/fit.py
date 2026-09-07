@@ -124,7 +124,7 @@ def fit_potts(sites: pl.DataFrame, *, radius: float = 15.0, cutoff: float = 5.0,
               couplings: bool = True, coupling_matrix: "str | object | None" = None,
               pin_centred: bool = True,
               weights: dict[str, float] | None = None, ridge: float = DEFAULT_RIDGE,
-              joint: bool | None = None, far: bool = False,
+              joint: bool | None = None, far: bool = False, orient: bool = False,
               regions: tuple[str, ...] | None = None,
               notes: str = "") -> PottsModel:
     """Fit the model to a table of available pairs.
@@ -153,6 +153,11 @@ def fit_potts(sites: pl.DataFrame, *, radius: float = 15.0, cutoff: float = 5.0,
             while every groove region collapsed into ``other``.
         far: Include the long-offset exclusion class, ``X(same receptor residue, |dj| > 2)``.
             Off by default, so every shipped model is unaffected.
+        orient: Fit the ``g_orient`` block --- *does the receptor residue turn toward the partner*.
+            Needs a ``cos_cb`` column on ``sites``, which :func:`available_pairs` emits. Held at a
+            fixed Cα distance the cosine separates contact from non-contact at ROC-AUC 0.69-0.84
+            over 4-12 Å, so this is information the distance block does not carry. Off by default,
+            so every shipped model is unaffected.
         joint: Include the cross-class coupling family. Defaults to whether both partner classes
             are present.
         notes: Free text stored on the model.
@@ -171,7 +176,10 @@ def fit_potts(sites: pl.DataFrame, *, radius: float = 15.0, cutoff: float = 5.0,
     sites = sites.filter(pl.col("d_ca") <= radius).sort("pdb.id", maintain_order=True)
     if sites.is_empty():
         raise ValueError("no available pairs inside the radius")
-    codes, sizes, q = site_codes(sites, radius=radius, regions=regions)
+    if orient and "cos_cb" not in sites.columns:
+        raise ValueError("orient=True needs a `cos_cb` column; `available_pairs` emits one, and a "
+                         "table written before it existed has to be regenerated")
+    codes, sizes, q = site_codes(sites, radius=radius, regions=regions, orient=orient)
     if joint is None:
         joint = q["cls"].n_unique() > 1
     sigma = q["sigma"].to_numpy()
@@ -201,6 +209,7 @@ def fit_potts(sites: pl.DataFrame, *, radius: float = 15.0, cutoff: float = 5.0,
         h_rec=bg[slices[0]].tolist(), h_par=bg[slices[1]].tolist(),
         g_dist=bg[slices[2]].tolist(), g_region=bg[slices[3]].tolist(),
         g_role=bg[slices[4]].tolist(), g_class=bg[slices[5]].tolist(),
+        g_orient=bg[slices[6]].tolist() if orient else [],
         kernel=bg[k0:].tolist(), kernel_se=se[k0:].tolist(),
         coupling=(J.tolist() if J is not None
                   else (fixed.tolist() if named is None and fixed is not None else None)),

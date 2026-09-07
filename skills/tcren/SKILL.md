@@ -50,6 +50,7 @@ Four things were added on top of it and one shipped number moved.
 | **3.4.0** | **The self-consistent arm became addressable from the command line.** `tcren2_em` resolves as a bundled potential name (`-p`, `--tcr-peptide-potential`, `--coupling-matrix`) and `potts_tcr_peptide_sc` as a bundled model name (`-m`); before this both shipped in the wheel with Python loaders only, so a three-matrix comparison could not be run from a shell script. `tcren score` gained `--delta` with `--reference structural|virtual`, and `-c` gained the per-template manifest. |
 
 | **3.5.0** | **`tcren potential-table -p <name\|path> -o <csv>`** writes out the residue-pair table behind `-p`, long form, resolved by the same name `score`/`ddg`/`cpl`/`rank` resolve. Nothing is computed; it is the shipped matrix. |
+| **3.9.0** | **Every TCR against every pMHC, and a geometry you can draw from.** `tcren potts cross` writes the all-vs-all Ca distance table over the 79,061 within-class pseudo-complexes `Canonical2026`'s shared frame implies (36.3M rows, 246 MB, 31 s; the library's first parquet output). `tcren potts chain` fits a joint Gaussian over Ca *coordinates* rather than distance surfaces, so a draw is a real chain and length conditions the loop and peptide blocks separately. `g_orient` -- does the residue turn toward the peptide -- is worth +787.0 nats for 8 parameters. See *Every TCR against every pMHC* below. |
 | **3.7.1** | **`map_agreement` / `tcren potts agreement`** score a contact map against the one a structure made: `ratio` for the level, `js` (Jensen-Shannon similarity, 0-1) for the placement. R-squared is not offered -- on a binary outcome it is the Brier skill score and it scales with prevalence, so maps of different site counts are incomparable under it. |
 | **3.7.0** | **The predicted map recovers the contact count.** `predict_contact_map` / `tcren potts predict --ensemble` average over the reference geometries instead of over their surfaces; the shipped `geom_tcr_peptide_ens` keeps 2,154 surfaces at grid 32. Expected contacts go from 0.47x observed to 1.17x and the contact ROC-AUC from 0.9242 to 0.9325, held out over 364 crystals. |
 | **3.6.0** | **A contact map can be scored with no structure of the complex.** The Ca geometry prior `geom_tcr_peptide` ships (359 alpha-beta `Native2026` crystals, twelve surfaces at grid 12), `tcren potts geom` fits one and `tcren potts predict` scores a map from it. `--sequences` reads no structure at all. See *Placing a contact without a structure* below. |
@@ -574,6 +575,102 @@ of a within-region coordinate. Distance-bin edges are **global** (base 0), never
 frame's own minimum, or a model fitted on one set indexes the wrong coefficients on another.
 `psi` (log-likelihood per available pair), not `log_lik`, is the column to compare across
 interfaces of different size.
+
+## Every TCR against every pMHC — `tcren.potts.cross` / `tcren potts cross` (3.9.0)
+
+`Canonical2026` is `Native2026` after canonical MHC superposition, so **every complex already sits
+in one frame** — which is exactly why `shuffle.graft_tcr` splices a pMHC and a foreign TCR with no
+coordinate transform. Reading the TCR of one crystal against the pMHC of another is therefore a
+legitimate pseudo-complex, and within MHC class there are 265² + 94² = **79,061** of them against
+the 359 solved.
+
+```bash
+tcren potts cross -o cross/                 # 36,269,320 rows, 246 MB, 31 s
+tcren potts cross -o cross15/ --radius 15   # the analysis table; a fit CANNOT be built from it
+```
+
+```python
+from tcren.potts import residue_tables, cross_pairs
+rec, par = residue_tables(structures)       # co-framed, chain-typed, MHC-annotated
+cross = cross_pairs(rec, par)               # every pairing's Ca distances + cos_cb
+```
+
+- **No loop over the 79,061 pairs.** The cross product over *structures* is the cross product over
+  *residues*: group by `(class, chain, region, len.rec, par.len)` and each group is one
+  `(n_s, n_t, L, M)` broadcast. Adding a pool here would be the §0-mmseqs mistake in another costume.
+- **The clash filter is measured.** The closest approach in any of the 359 solved complexes is
+  **3.366 Å** over 175,358 pairs, so `--min-dist` defaults to 3.35 and loses no native row. 0.062 %
+  of cross rows sit under 3.0 Å where no native row does. Per **pair**, not per pairing.
+- **It buys length coverage, not receptor:peptide dependence.** 131 `(L, M)` combinations for
+  TRA:CDR3 against the 62 the crystals solved. But crossing every TCR with every pMHC *is* the
+  product of the two marginals, so the cross-covariance it implies is zero by construction; that
+  block is carried by the `is_native` rows.
+- `pdb.id.rec` and `pdb.id.par` are **separate columns** and `is_native` marks the diagonal, so a
+  caller can hold out by structure on either axis. Read back with
+  `pl.scan_parquet(out / "*.parquet")`.
+
+## A geometry drawn from a fitted joint — `tcren.potts.chain` / `tcren potts chain` (3.9.0)
+
+A mean of distance matrices describes no chain: consecutive Ca are **3.7985 Å** apart (s.d. 0.0668
+over 642 CDR gaps) and no per-cell average enforces it. Recovering coordinates from a distance
+matrix is a Euclidean distance-matrix completion and is not convex. So model the **coordinates** —
+a joint Gaussian over the concatenated graphon-knot Ca of all six CDR loops *and* the peptide, and
+derive the distances.
+
+```bash
+tcren potts chain -o chain_prior.npz --grid 24 --rank 12
+tcren potts predict -s complex.pdb --chain-prior chain_prior.npz --geometry-draws 256
+```
+
+```python
+from tcren.potts.chain import fit_chain_prior, sample_geometries, annealed_contact_map
+prior  = fit_chain_prior(structures, grid=24, rank=12, exclude={"3qib"})   # 0.3 s
+traces = sample_geometries(prior, lengths, draws=256)   # 0.04 s; block -> (draws, L, 3)
+```
+
+- **Every draw is a chain.** `geometry.enforce_bond` projects each trace onto the 3.80 Å virtual
+  bond exactly — no convex relaxation, unlike a Lipschitz cone on distances.
+- **One draw moves everything together**, which is what carries the docking angle: a whole-receptor
+  rigid-body degree of freedom no per-loop model can express, and the one CDR2 needs (CDR2 is
+  germline and barely varies in length, so length conditioning buys it nothing).
+- **Length stops being a joint problem.** `L` conditions the loop block, `M` the peptide block,
+  separately — a CDR3 of 16 against an 11-mer needs no crystal that solved that pair.
+- **The draw set contains the right geometry**: over 540 held-out contacts in 24 crystals, the best
+  of 512 draws places each to **0.04 Å**. The *mean* overshoots by +3.25 Å, because a contacting
+  pair sits at the near end of the distribution — the measured value lands at the 15th–25th
+  percentile of the drawn spread.
+- **`--beta` was measured and defaults to 0.** Weighting draws by their own `log Z` — on the union
+  site set, so the site count cannot confound it — inflates the map: js 0.4342 at β = 0 against
+  0.3538 at β = 1, E[contacts] 22.0 → 47.1 against 22.6 observed. `log Z` is a free energy and
+  rises with occupancy. `w_eff` reports how many draws carry the weight.
+
+## Does the residue turn toward the peptide? — `g_orient` (3.9.0)
+
+The Ca geometry says a pair is close enough; whether the residue **faces** it is a separate
+question the site table could not ask, carrying `d_heavy` and `d_ca` and no Cβ.
+
+```python
+model = fit_potts(pairs, coupling_matrix="tcren2", orient=True)   # needs `cos_cb` on `pairs`
+```
+
+- `geometry.orientation_cosine` — cosine between the Ca→Cβ direction and the direction to the
+  partner Ca. `+1` aimed at it, `-1` away. Held at a fixed Ca distance it separates contact from
+  non-contact at **ROC-AUC 0.69–0.84** over 4–12 Å.
+- Fitted as `g_orient` (8 bins, 369 crystals, `J` pinned to `tcren2`): **+787.0 nats for 8
+  parameters**, against the 3.8.0 exclusion class's +81.8 for one. Monotone across 3.05 log-odds,
+  −1.29 at cos ∈ [−1, −0.75) to +1.76 at [+0.75, +1].
+- **The Cβ is reconstructed, not read.** `geometry.virtual_cb` builds it from three consecutive Ca
+  (0.547 Å mean residual), and `available_pairs` uses the same reconstruction on a crystal — so
+  fitting and scoring describe **one** quantity rather than two. Pearson 0.81 against the real side
+  chain. Glycine is not a special case: this is where a Cβ *would* sit, so nothing is missing.
+- **It pays on a crystal, not on a drawn geometry.** Held out over 24 crystals, on the complex's
+  own Ca: js **0.7052 → 0.7290**, ROC-AUC **0.9599 → 0.9691** (the 3.8.0 exclusion class moved js
+  0.7133 → 0.7162 and left AUC flat). On a `potts.chain` draw it is neutral (0.4200 → 0.4203) —
+  `cos_cb` is a deterministic function of the Ca trace, so it is only as receptor-specific as the
+  trace. **Use it when you hold coordinates.**
+- **Opt-in on both sides.** A model with `g_orient == []`, or a frame with no `cos_cb`, carries six
+  blocks and scores exactly as before. All four bundled models have `g_orient == []`, and
+  `SITE_COLUMNS` is unchanged — `cos_cb` rides beside it.
 
 ## Placing a pair without a template — `tcren.potts.geom`
 

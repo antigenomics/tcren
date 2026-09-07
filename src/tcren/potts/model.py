@@ -59,6 +59,13 @@ CLASSES: tuple[str, ...] = ("peptide", "mhc")
 #: that every block stays categorical and the design stays a sum of one-hots.
 DBIN: float = 0.5
 
+#: Width of an orientation bin, in cosine. ``cos = +1`` is a side chain aimed straight at the
+#: partner residue and ``-1`` points away, so eight bins of 0.25 span the range.
+OBIN: float = 0.25
+
+#: Orientation bins over ``[-1, 1]``.
+N_ORIENT: int = int(round(2.0 / OBIN))
+
 #: Within-loop coupling classes, one representative per ``{d, -d}`` pair over ``|di| <= 2``,
 #: ``|dj| <= 2`` minus ``(0, 0)``. ``di`` is a receptor sequence offset **inside one loop**,
 #: ``dj`` a partner offset inside one chain.
@@ -110,6 +117,10 @@ class PottsModel:
             store the matrix itself to round-trip, so it lands in ``coupling`` and this flag is
             what tells the two apart. ``beta_matrix`` is its single fitted scale either way.
         g_dist: Cα-distance-bin coefficients, bin ``b`` covering ``[b*DBIN, (b+1)*DBIN)`` Å.
+        g_orient: Orientation-bin coefficients over :data:`N_ORIENT` bins of
+            :func:`tcren.geometry.orientation_cosine` --- *does the residue turn toward the
+            partner*. Empty in every model fitted before the block existed, and empty means the
+            block contributes nothing, so those models round-trip and score unchanged.
         g_region: Receptor-region coefficients over :data:`REGIONS`.
         g_role: Partner-role coefficients over :data:`ROLES`.
         g_class: Partner-class coefficients over :data:`CLASSES`.
@@ -141,6 +152,7 @@ class PottsModel:
     beta_matrix: float | None = None
     coupling_matrix_name: str | None = None
     coupling_pinned: bool = False
+    g_orient: list[float] = field(default_factory=list)
     kernel_se: list[float] = field(default_factory=list)
     radius: float = 15.0
     cutoff: float = 5.0

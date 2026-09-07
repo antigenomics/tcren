@@ -13,7 +13,7 @@ import numpy as np
 import polars as pl
 
 from ..structure.model import Structure
-from .model import AA, CLASSES, DBIN, PottsModel, REGIONS, ROLES
+from .model import AA, CLASSES, DBIN, N_ORIENT, OBIN, PottsModel, REGIONS, ROLES
 
 #: MHC chain types carrying a groove. B2M is out: it has no groove region and sits under the
 #: floor rather than under the receptor.
@@ -33,6 +33,11 @@ SITE_COLUMNS: tuple[str, ...] = (
     "pdb.id", "aa.rec", "chain.rec", "region.rec", "pos.rec",
     "aa.par", "pos.par", "par.len", "role.par", "cls", "d_heavy", "d_ca", "sigma",
 )
+
+#: Emitted beside :data:`SITE_COLUMNS` by :func:`available_pairs`, and read by
+#: :func:`site_codes` only when the model carries a fitted ``g_orient``. Kept out of
+#: ``SITE_COLUMNS`` so every table written before the block existed still satisfies the schema.
+ORIENT_COLUMN: str = "cos_cb"
 
 
 def _sided(structure: Structure, partner: tuple[str, ...],
@@ -126,13 +131,14 @@ def available_pairs(structure: Structure, partner: str = "peptide", *,
                receptor=MHC_PARTNER if receptor == "mhc" else None,
                probe=cutoff if probe is None else max(probe, cutoff))
     if w is None:
-        return pl.DataFrame(schema={c: pl.Utf8 for c in SITE_COLUMNS})
+        return pl.DataFrame(schema={c: pl.Utf8 for c in SITE_COLUMNS} | {ORIENT_COLUMN: pl.Float64})
     if receptor == "mhc":
         # The groove is the receptor here, so it is `region.rec` that must be a groove region --
         # an MHC residue outside the groove (b2m, the alpha-3 domain) is not presenting anything.
         w = w.filter(pl.col("region.rec").is_in(list(GROOVE_REGIONS)))
         if w.is_empty():
-            return pl.DataFrame(schema={c: pl.Utf8 for c in SITE_COLUMNS})
+            return pl.DataFrame(schema={c: pl.Utf8 for c in SITE_COLUMNS}
+                                | {ORIENT_COLUMN: pl.Float64})
     if partner == "peptide":
         peptide = next((c.sequence() for c in structure.chains
                         if c.chain_type == "PEPTIDE"), "")
@@ -150,7 +156,8 @@ def available_pairs(structure: Structure, partner: str = "peptide", *,
     else:
         w = w.filter(pl.col("region.par").is_in(list(GROOVE_REGIONS)))
         if w.is_empty():
-            return pl.DataFrame(schema={c: pl.Utf8 for c in SITE_COLUMNS})
+            return pl.DataFrame(schema={c: pl.Utf8 for c in SITE_COLUMNS}
+                                | {ORIENT_COLUMN: pl.Float64})
         lens = {r.region_type: len(r.residues) for c in structure.chains for r in c.regions
                 if r.region_type in GROOVE_REGIONS}
         w = w.with_columns(
@@ -159,19 +166,61 @@ def available_pairs(structure: Structure, partner: str = "peptide", *,
               .cast(pl.Int64).alias("par.len"),
             pl.col("region.par").alias("role.par"),
             pl.lit("mhc").alias("cls"))
-    return (w.rename({"aa.tcr": "aa.rec", "aa.pep": "aa.par",
-                      "d1": "d_heavy", "d3": "d_ca"})
-            .with_columns((pl.col("d_heavy").is_not_null() & (pl.col("d_heavy") <= cutoff))
-                          .cast(pl.Float64).alias("sigma"))
-            .filter(pl.col("d_ca").is_not_null() & (pl.col("d_ca") <= radius)
-                    & pl.col("aa.rec").is_in(list(AA)) & pl.col("aa.par").is_in(list(AA)))
-            .select(list(SITE_COLUMNS))
-            .sort("pdb.id", maintain_order=True))
+    out = (w.rename({"aa.tcr": "aa.rec", "aa.pep": "aa.par",
+                     "d1": "d_heavy", "d3": "d_ca"})
+           .with_columns((pl.col("d_heavy").is_not_null() & (pl.col("d_heavy") <= cutoff))
+                         .cast(pl.Float64).alias("sigma"))
+           .filter(pl.col("d_ca").is_not_null() & (pl.col("d_ca") <= radius)
+                   & pl.col("aa.rec").is_in(list(AA)) & pl.col("aa.par").is_in(list(AA)))
+           .select([*SITE_COLUMNS, "key.tcr.chain", "key.tcr.res", "key.par.chain", "key.par.res"])
+           .sort("pdb.id", maintain_order=True))
+    return out.join(_orientation(structure, out), on=["key.tcr.chain", "key.tcr.res",
+                                                      "key.par.chain", "key.par.res"],
+                    how="left").select([*SITE_COLUMNS, "cos_cb"])
+
+
+def _orientation(structure: Structure, pairs: pl.DataFrame) -> pl.DataFrame:
+    """``cos_cb`` per pair --- does the receptor residue turn toward the partner residue?
+
+    Built from the **virtual** Cβ of :func:`tcren.geometry.virtual_cb` rather than the solved one,
+    so a crystal and a drawn geometry are described by the same quantity. Fitting on the real side
+    chain and scoring on a reconstructed one would be a train/test mismatch, and the reconstruction
+    keeps most of the signal anyway (Pearson 0.81; see :func:`tcren.geometry.orientation_cosine`).
+    """
+    from ..geometry import orientation_cosine
+
+    keys = ["key.tcr.chain", "key.tcr.res", "key.par.chain", "key.par.res"]
+    empty = pl.DataFrame(schema={"key.tcr.chain": pl.Utf8, "key.tcr.res": pl.Int64,
+                                 "key.par.chain": pl.Utf8, "key.par.res": pl.Int64,
+                                 "cos_cb": pl.Float64})
+    if pairs.is_empty():
+        return empty
+    by_chain = {c.chain_id: c for c in structure.chains}
+    frames = []
+    for (rec_id, par_id), group in pairs.group_by(["key.tcr.chain", "key.par.chain"]):
+        rec_chain, par_chain = by_chain.get(rec_id), by_chain.get(par_id)
+        if rec_chain is None or par_chain is None:
+            continue
+        rec_ix = {r.seq_index: i for i, r in enumerate(rec_chain.residues) if r.ca is not None}
+        par_ix = {r.seq_index: i for i, r in enumerate(par_chain.residues) if r.ca is not None}
+        rec_ca = np.asarray([r.ca for r in rec_chain.residues if r.ca is not None], float)
+        par_ca = np.asarray([r.ca for r in par_chain.residues if r.ca is not None], float)
+        if len(rec_ca) < 3 or len(par_ca) < 1:
+            continue
+        cos = orientation_cosine(rec_ca, par_ca)
+        want = group.filter(pl.col("key.tcr.res").is_in(list(rec_ix))
+                            & pl.col("key.par.res").is_in(list(par_ix)))
+        if want.is_empty():
+            continue
+        i = np.array([rec_ix[v] for v in want["key.tcr.res"]])
+        j = np.array([par_ix[v] for v in want["key.par.res"]])
+        frames.append(want.select(keys).with_columns(pl.Series("cos_cb", cos[i, j])))
+    return pl.concat(frames) if frames else empty
 
 
 def site_codes(sites: pl.DataFrame, model: PottsModel | None = None, *,
                radius: float = 15.0, dbin: float = DBIN,
-               regions: tuple[str, ...] | None = None):
+               regions: tuple[str, ...] | None = None, orient: bool | None = None):
     """Integer code arrays per one-body block, plus the block sizes and the annotated frame.
 
     Bin edges are **global** (base 0), never derived from the frame's own minimum: a parameter
@@ -181,8 +230,9 @@ def site_codes(sites: pl.DataFrame, model: PottsModel | None = None, *,
     Returns:
         ``(codes, sizes, frame)`` — ``codes`` is one integer array per block in the order
         receptor residue, partner residue, distance bin, receptor region, partner role, partner
-        class; ``sizes`` the number of levels of each; ``frame`` the input with ``loop``,
-        ``pchain`` and a global ``sid`` added.
+        class, and — when the model carries a fitted ``g_orient`` and the frame carries
+        ``cos_cb`` — orientation bin; ``sizes`` the number of levels of each; ``frame`` the input
+        with ``loop``, ``pchain`` and a global ``sid`` added.
     """
     aa = tuple(model.alphabet) if model else AA
     # An explicit level set is how the peptide:MHC arm keeps its groove regions: the default
@@ -192,6 +242,9 @@ def site_codes(sites: pl.DataFrame, model: PottsModel | None = None, *,
     classes = tuple(model.classes) if model else CLASSES
     if model is not None:
         radius, dbin = model.radius, model.dbin
+        if orient is None:
+            orient = bool(model.g_orient)
+    orient = bool(orient)
     aa_ix = {a: i for i, a in enumerate(aa)}
 
     q = sites.with_columns(
@@ -215,6 +268,13 @@ def site_codes(sites: pl.DataFrame, model: PottsModel | None = None, *,
         np.array([classes.index(c) for c in q["cls"]], dtype=np.int64),
     ]
     sizes = [len(aa), len(aa), nb, len(regions), len(roles), len(classes)]
+    # The orientation block is opt-in on both sides: a model fitted without it has no coefficients
+    # to index, and a frame without `cos_cb` has nothing to bin. Either way the block is absent and
+    # every pre-existing model scores exactly as it did.
+    if orient and "cos_cb" in q.columns:
+        codes.append(np.clip(np.floor((q["cos_cb"].to_numpy() + 1.0) / OBIN).astype(np.int64),
+                             0, N_ORIENT - 1))
+        sizes.append(N_ORIENT)
     return codes, sizes, q
 
 
@@ -223,7 +283,13 @@ def eta(codes, model: PottsModel) -> np.ndarray:
     J = model.coupling_array()
     blocks = [np.asarray(model.h_rec), np.asarray(model.h_par), np.asarray(model.g_dist),
               np.asarray(model.g_region), np.asarray(model.g_role), np.asarray(model.g_class)]
+    if model.g_orient:
+        blocks.append(np.asarray(model.g_orient))
     out = np.full(len(codes[0]), float(model.alpha))
+    if len(codes) != len(blocks):
+        raise ValueError(f"the site codes carry {len(codes)} blocks and the model {len(blocks)} — "
+                         "pass a frame with `cos_cb` to score a model fitted with `g_orient`, or "
+                         "a model without it")
     for ck, b in zip(codes, blocks):
         if ck.size and int(ck.max()) >= len(b):
             raise ValueError("a site falls outside the model's blocks — the model was fitted with "

@@ -3,6 +3,146 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
+## [3.9.0] — 2026-09-07
+
+### Added
+
+- **Every TCR read against every pMHC — `tcren.potts.cross` / `tcren potts cross`.** `Canonical2026`
+  is `Native2026` after canonical MHC superposition, so every complex already sits in one frame —
+  which is why `shuffle.graft_tcr` splices a pMHC and a foreign TCR with no transform. Reading the
+  TCR of one crystal against the pMHC of another is therefore a pseudo-complex, and within MHC class
+  there are **265² + 94² = 79,061** of them against the 359 solved. Written as a partitioned
+  parquet dataset — **36,269,320 rows, 246 MB, 31 s wall clock** — the library's first parquet
+  output.
+
+  There is no loop over the 79,061 pairs: the cross product over *structures* is the cross product
+  over *residues*, so the two residue tables are grouped by `(class, chain, region, len.rec,
+  par.len)` and each group is one `(n_s, n_t, L, M)` broadcast.
+
+  **The clash filter is measured, not assumed.** Over the 175,358 receptor:peptide Cα pairs of the
+  359 solved complexes the closest approach is **3.366 Å**, so `--min-dist` defaults to 3.35 and
+  drops no row a real complex produced. A foreign TCR dropped onto a groove does clash — 0.062 % of
+  cross rows sit under 3.0 Å where **no** native row does — and the filter is per pair, not per
+  pairing.
+
+  What it buys is **length coverage** (131 `(L, M)` combinations for TRA:CDR3 against the 62 the
+  crystals solved; 112 against 59 for TRB:CDR3) and hundreds of samples per cell. What it does not
+  buy is receptor:peptide dependence beyond the 359 solved pairings — crossing every TCR with every
+  pMHC *is* the product of the two marginals. `is_native` marks the diagonal, and `pdb.id.rec` /
+  `pdb.id.par` stay separate columns so a caller can hold out by structure on either axis.
+
+- **A geometry drawn from a fitted joint — `tcren.potts.chain` / `tcren potts chain`.** A mean of
+  distance matrices is not a distance matrix any chain can realise: consecutive Cα are **3.7985 Å**
+  apart (s.d. 0.0668 over 642 CDR gaps, 0.47 % *cis* at ~2.9 Å) and no per-cell average enforces it.
+  This models the **coordinates** instead — a joint Gaussian over the concatenated graphon-knot Cα
+  of all six CDR loops and the peptide, low-rank plus diagonal — so a draw is a set of real traces,
+  `geometry.enforce_bond` puts each exactly on the virtual bond, and the distance matrix is derived.
+
+  Three consequences. Every geometry is realisable with no convex relaxation anywhere. One draw
+  moves all six loops and the peptide together, which is what carries the docking angle — a
+  whole-receptor rigid-body degree of freedom no per-loop model can express. And **length stops
+  being a joint problem**: `L` conditions the loop block and `M` the peptide block separately, so a
+  CDR3 of 16 against an 11-mer needs no crystal that solved that pair.
+
+  **The draw set contains the right geometry.** Held out by structure over 540 observed contacts in
+  24 crystals, the best of 512 draws places every contact to **0.04 Å**. Fit 0.3 s, 256 draws
+  0.04 s.
+
+- **`tcren.geometry` gains the primitives the rest of this rests on** — `graphon_weights`,
+  `resample_graphon`, `read_back` (which collapse a quadruplicated bilinear resample onto one
+  matrix form that also batches), `enforce_bond`, `virtual_cb` and `orientation_cosine`. Plus
+  `paths.canonical_dir()`.
+
+- **"Does the residue turn toward the peptide?" is now a term.** Until now the site table carried
+  `d_heavy` and `d_ca` and no Cβ, so the model could read that a pair was close and not whether the
+  residue faced it. `orientation_cosine` is the cosine between the Cα→Cβ direction and the direction
+  to the partner Cα. Held at a fixed Cα distance it separates contact from non-contact at **ROC-AUC
+  0.69–0.84** across 4–12 Å.
+
+  Fitted as `g_orient` — eight bins, 369 crystals, `J` pinned to `tcren2` — it is worth **+787.0
+  nats** of pseudo-log-likelihood for eight parameters, against the 3.8.0 exclusion class's +81.8
+  for one, and the profile is monotone across 3.05 log-odds:
+
+  | cos bin | coefficient | sites | | cos bin | coefficient | sites |
+  |---|---|---|---|---|---|---|
+  | [−1.00, −0.75) | −1.2922 | 5,332 | | [+0.00, +0.25) | +0.0290 | 8,302 |
+  | [−0.75, −0.50) | −1.0063 | 6,491 | | [+0.25, +0.50) | +0.5930 | 9,584 |
+  | [−0.50, −0.25) | −0.8301 | 7,068 | | [+0.50, +0.75) | +1.2907 | 10,866 |
+  | [−0.25, +0.00) | −0.5433 | 7,688 | | [+0.75, +1.00) | +1.7592 | 9,781 |
+
+  The Cβ is **reconstructed, not read**: a drawn geometry has no side chains, so `virtual_cb` builds
+  it from three consecutive Cα (0.547 Å mean residual) and `available_pairs` uses the same
+  reconstruction on a crystal, so fitting and scoring describe one quantity. The reconstructed
+  cosine correlates with the real one at Pearson **0.81** and keeps ROC-AUC 0.68–0.79. Glycine is
+  not a special case — this is where a Cβ *would* sit, so there is no missing value to encode.
+
+
+- **Where `g_orient` pays is a crystal, not a drawn geometry.** Held out by structure over 24
+  crystals, read on the complex's **own** Cα the map improves on both placement and discrimination —
+  Jensen–Shannon similarity **0.7052 → 0.7290** and contact ROC-AUC **0.9599 → 0.9691**, with the
+  level unmoved (ratio 1.002 → 1.026). For scale, the 3.8.0 exclusion class moved js 0.7133 → 0.7162
+  there and left the ROC-AUC flat, so this is roughly eight times the placement gain and the first
+  block to move the ordering as well.
+
+  On a geometry **drawn** from `potts.chain` it is neutral — js 0.4200 → 0.4203, ROC-AUC
+  0.9255 → 0.9259 over 12 held-out crystals. The reason is not that the term is wrong there but
+  that a drawn backbone carries the *population's* typical orientation rather than this receptor's:
+  `cos_cb` is a deterministic function of the Cα trace, so it can only be as receptor-specific as
+  the trace is. Use it when you hold coordinates.
+
+
+- **`tcren potts predict --chain-prior`**, plus `--geometry-draws` and `--beta`.
+
+### Measured and recorded, so it is not re-tried
+
+- **Annealing over drawn geometries costs rather than pays.** `--beta` weights each draw by its own
+  `log Z`, computed on the **union** of every draw's reachable cells — a draw that put a cell out of
+  reach gets η = −60 — so the site count cannot confound the comparison. Over 10 crystals held out
+  by structure, 96 draws, 22.6 observed contacts each:
+
+  | arm | E[contacts] | ratio | js | w_eff |
+  |---|---|---|---|---|
+  | step 2b (in-sample baseline) | 24.7 | 1.10 | 0.4078 | — |
+  | **chain, β = 0** | **22.0** | **0.90** | **0.4342** | 96.0 |
+  | chain, β = 0.02 | 26.8 | 1.10 | 0.4278 | 69.6 |
+  | chain, β = 0.05 | 36.4 | 1.46 | 0.4042 | 18.8 |
+  | chain, β = 0.2 | 46.5 | 1.82 | 0.3601 | 1.9 |
+  | chain, β = 1 | 47.1 | 1.84 | 0.3538 | 1.1 |
+
+  The common site set rules out the site-count explanation, so the mechanism is the **contact**
+  count: `log Z` is a free energy and rises with occupancy. `beta` defaults to **0**. Note the
+  chain arm is held out by structure while the step-2b baseline is the bundled prior, which
+  contains these crystals.
+
+- **The graphon registration and read-back are not adjoint, and that is deliberate to keep.**
+  `potts.geom._resample` registers residue *i* at grid coordinate `i(G−1)/(L−1)` while
+  `predicted_distances` reads it back from `(i+1)(G−1)/(L+1)`, so a round trip contracts a loop's
+  footprint toward its midpoint by `(L−1)/(L+1)` — 1.29 Å at the termini of a 6-mer, and **a fixed
+  bias no grid refinement removes**. Over 7,732 observed contacts in 370 leave-one-out crystals,
+  predicted minus measured Cα distance in Å:
+
+  | registration / read-back | CDR2 | CDR3 | all |
+  |---|---|---|---|
+  | endpoint / interior (shipped) | +5.76 | +2.29 | **+2.91** |
+  | endpoint / endpoint (adjoint) | +5.57 | +2.78 | +3.26 |
+  | interior / interior | +5.63 | +2.79 | +3.28 |
+
+  An adjoint pairing buys 0.19 Å on CDR2 and costs 0.49 Å on CDR3. `"endpoint"` registration aligns
+  loop **termini** across structures of different length, which is the operation an average over
+  crystals performs, and the `"interior"` read-back samples away from the surface's extrapolated
+  edge cells. **So the CDR2 deficit is not a registration artefact** — it survives every pairing at
+  5.6–5.8 Å against CDR3's 2.3–2.8 Å. `graphon_weights(convention=...)` makes both reachable and
+  records the numbers.
+
+### Unchanged
+
+- **Every shipped model and prior is bit-for-bit what it was.** `g_orient` is `[]` in all four
+  bundled Potts models and an empty block contributes nothing; `site_codes` emits the orientation
+  code only when the model carries a fitted `g_orient` **and** the frame carries `cos_cb`, so a
+  table written before 3.9.0 scores identically. `SITE_COLUMNS` is unchanged — `cos_cb` rides
+  beside it. `geom_tcr_peptide` and `geom_tcr_peptide_ens` are untouched, as are
+  `fit_geom_prior`'s and `read_back`'s defaults.
+
 ## [3.8.0] — 2026-09-07
 
 ### Added

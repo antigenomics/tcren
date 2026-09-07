@@ -88,6 +88,48 @@ reference geometries returns the level of a typical interface. That is step 3 of
 `ROADMAP.md` §1, a parametric loop with no crystal coordinates anywhere, and it is open. Record:
 `$TCREN2_BENCH/bench/eda/out/geom_ensemble.md`.
 
+**Every TCR against every pMHC, and a geometry you can draw from (3.9.0).** `Canonical2026` puts
+every complex in one frame, so a TCR from one crystal against a pMHC from another needs no
+transform — `tcren potts cross` enumerates all **79,061** within-class pseudo-complexes against the
+359 solved and writes **36,269,320** parquet rows in **31 s**, one numpy broadcast per
+`(class, chain, region, L, M)` bucket and no loop over pairs. It buys **length coverage** (131
+`(L, M)` combinations for TRA:CDR3 against 62 solved) and cell-level sample size; it does **not**
+buy receptor:peptide dependence, the cross product being the product of the two marginals. The
+clash filter is measured: 3.35 Å, just under the **3.366 Å** closest approach any solved complex
+makes over 175,358 pairs.
+
+`tcren potts chain` then fits a joint Gaussian over Cα **coordinates** rather than distance
+surfaces. A mean of distance matrices describes no chain — consecutive Cα are 3.7985 Å apart,
+s.d. 0.0668 over 642 CDR gaps — and recovering coordinates from distances is a non-convex EDM
+completion, so working in coordinates makes the constraint exact (`geometry.enforce_bond`) instead
+of relaxed. **Length stops being a joint problem**: `L` conditions the loop block and `M` the
+peptide block separately. **The draw set brackets the truth** — over 540 held-out contacts the best
+of 512 draws places each to **0.04 Å** — while the mean over draws overshoots by +3.25 Å, because a
+contacting pair sits at the near end of the distribution being averaged. **So the generator is not
+the bottleneck; the selection rule is**, and the one rule tried is worse (below).
+
+**`g_orient` — does the residue turn toward the peptide (3.9.0).** The Cα geometry says a pair is
+close enough; whether it *faces* the partner was not representable, the site table carrying
+`d_heavy` and `d_ca` and no Cβ. Held at a fixed Cα distance the Cα→Cβ cosine separates contact from
+non-contact at ROC-AUC 0.69–0.84 over 4–12 Å, and fitted it is worth **+787.0 nats for 8
+parameters** (369 crystals, `J` pinned to `tcren2`) against the 3.8.0 exclusion class's +81.8 for
+one. **Where it pays is a crystal**: held out over 24, the map on the complex's own Cα goes js
+0.7052 → **0.7290** and ROC-AUC 0.9599 → **0.9691**. On a *drawn* geometry it is neutral, because
+`cos_cb` is a deterministic function of the Cα trace and can only be as receptor-specific as the
+trace. The Cβ is **reconstructed on both sides** (`geometry.virtual_cb`, 0.547 Å residual) so
+fitting and scoring describe one quantity. Opt-in; every shipped model has `g_orient == []`.
+
+**Two things measured and not to be re-tried (3.9.0).** *Annealing over drawn geometries costs*:
+weighting draws by their own `log Z` on a **union** site set — so the site-count confound behind the
+earlier failure is ruled out — still runs js 0.4342 → 0.3538 and E[contacts] 22.0 → 47.1 against
+22.6 observed from β = 0 to β = 1, because `log Z` is a free energy and rises with occupancy. β
+defaults to 0. *And the graphon registration mismatch is deliberate*: `_resample` and
+`predicted_distances` are not adjoint, but making them so buys 0.19 Å on CDR2 and costs 0.49 Å on
+CDR3 (+3.26 against the shipped +2.91 over 7,732 contacts, 370 leave-one-out crystals). `endpoint`
+registration aligns loop **termini** across lengths, which is the operation an average performs.
+**So the CDR2 deficit is not a registration artefact** — it survives every pairing at 5.6–5.8 Å
+against CDR3's 2.3–2.8 Å.
+
 **The average is for the ranking read-outs; the contact map itself wants a constrained geometry
 (author, 2026-09-07).** *"Average is good for some metrics and readouts, but it is unacceptable for
 actual contact map modelling."* The criterion for a map is that the expected count reproduce the

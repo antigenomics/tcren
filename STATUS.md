@@ -205,6 +205,28 @@ and renamed `S` in v2.27.0. A number quoted as `S` must name which.
 
 Moved to **[ROADMAP.md](ROADMAP.md)** — the single place for forward plans.
 
+## Shipped in v3.9.0 — every TCR against every pMHC, and a geometry you can draw from
+
+- **`tcren.potts.cross` / `tcren potts cross`.** `Canonical2026` puts every complex in one frame, so
+  a TCR from one crystal against a pMHC from another needs no transform — 79,061 within-class
+  pseudo-complexes against the 359 solved, written as 36,269,320 parquet rows in 31 s. It buys
+  **length coverage** (131 `(L, M)` combinations for TRA:CDR3 against 62 solved) and hundreds of
+  samples per cell; it does **not** buy receptor:peptide dependence, the cross product being the
+  product of the two marginals. The clash filter is measured: 3.35 Å, just under the 3.366 Å closest
+  approach any solved complex makes.
+- **`tcren.potts.chain` / `tcren potts chain`.** A joint Gaussian over Cα **coordinates** rather than
+  distance surfaces, so a draw is a real chain (`geometry.enforce_bond`, exact) and length conditions
+  the loop and peptide blocks separately. **The draw set brackets the truth**: over 540 held-out
+  contacts the best of 512 draws places each to 0.04 Å. Held out by structure it reads js 0.4342
+  against the in-sample step-2b baseline's 0.4078, in 383 sites against 427.
+- **`g_orient` — does the residue turn toward the peptide.** +787.0 nats for 8 parameters over 369
+  crystals, monotone across 3.05 log-odds. Held out over 24 crystals it moves the map read on the
+  complex's own Cα from js 0.7052 to **0.7290** and ROC-AUC 0.9599 to **0.9691** — against the 3.8.0
+  exclusion class's 0.7133 → 0.7162 with AUC flat. On a *drawn* geometry it is neutral, `cos_cb`
+  being a deterministic function of the Cα trace. The Cβ is reconstructed from three consecutive Cα
+  (`geometry.virtual_cb`, 0.547 Å residual) on both sides, so fitting and scoring describe one
+  quantity. Opt-in; every shipped model has `g_orient == []` and scores unchanged.
+
 ## Known caveats
 
 - **A feature table is only valid under the catalogue that wrote it.** `tcren features` writes a

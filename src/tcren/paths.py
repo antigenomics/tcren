@@ -20,6 +20,7 @@ from pathlib import Path
 
 
 NATIVE2026 = "Native2026"
+CANONICAL2026 = "Canonical2026"
 # The canonical reference structures (and full Native2026 set) live in this HF dataset.
 HF_REPO = "isalgo/tcren_structures"
 
@@ -51,6 +52,16 @@ def data_dir() -> Path:
 def native_dir() -> Path:
     """Directory holding the canonical ``Native2026`` structures (``data/Native2026``)."""
     return data_dir() / NATIVE2026
+
+
+def canonical_dir() -> Path:
+    """Directory holding the co-framed ``Canonical2026`` structures (``data/Canonical2026``).
+
+    ``Native2026`` after canonical MHC superposition, so every complex sits in one frame. That is
+    what lets a TCR from one crystal be read against a pMHC from another without any transform ---
+    see :func:`tcren.shuffle.graft_tcr` and :mod:`tcren.potts.cross`.
+    """
+    return data_dir() / CANONICAL2026
 
 
 def _local_reference(pdb_id: str) -> Path | None:

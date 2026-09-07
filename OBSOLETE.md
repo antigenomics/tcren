@@ -16,6 +16,29 @@ and the markings disagree.
 - `tcren.potential.redundancy.epitope_weights` --- TCRen2 balances the epitope AND receptor axes; this single-axis alias is what the manuscript's earlier matrix used. Receptor redundancy is the larger of the two on Native2026 (223 structures share a receptor against 212 an epitope).
 - `tcren.potential.redundancy.nonredundant_ids` --- Excludes cluster members outright. TCRen2 down-weights instead, which keeps every structure's data.
 
+## Measured and not adopted, 3.9.0 — a record, not a deletion schedule
+
+Everything below is **still shipped and still works**. This section is the only one here that is
+not about removal: it records geometry estimators that were measured against the crystals and did
+not earn a default, so nobody re-runs them. Four of the six exist only in the benchmark repository
+and have no library code at all. Written as a table because `tests/unit/test_provenance.py` asserts
+that every `- \`name\`` bullet in this file matches a `not_in_tcren2` marking, and `not_in_tcren2`
+is scoped to the TCRen2 **potential** derivation — applying it to a geometry would be a category
+error.
+
+| what | where | what was measured |
+|---|---|---|
+| mean-surface read-back (`geom.BUNDLED_PRIOR`, `predicted_sites`) | library, shipped | superseded by 3.7.0's ensemble: averaging surfaces places a contacting pair at 10.90 Å where it measures 7.94, expected contacts 0.47x observed |
+| an adjoint graphon registration (`graphon_weights(convention="interior")`, `read_back(convention="endpoint")`) | library, shipped, opt-in | buys 0.19 Å on CDR2 and costs 0.49 Å on CDR3; overall +3.26/+3.28 Å against the shipped pairing's +2.91, over 7,732 contacts in 370 leave-one-out crystals. The shipped mismatch aligns loop termini across lengths, which is the operation an average performs |
+| Boltzmann annealing over drawn geometries (`annealed_contact_map(beta > 0)`) | library, shipped, defaults to 0 | js 0.4342 → 0.3538 and E[contacts] 22.0 → 47.1 against 22.6 observed, from β = 0 to β = 1. Computed on a **union** site set, so the site-count confound is ruled out; `log Z` is a free energy and rises with occupancy |
+| quenched energy average; Boltzmann-λ over the fixed crystal members; near-end quantile surfaces; Platt sharpening | benchmark repo | each worse on 366 held-out crystals; Platt fits γ = 1.009, i.e. the map was already calibrated |
+| `epibal` / `countbal` / germline-V-family / species+length member selection | benchmark repo | germline reads 0.437 against count-centrality's 0.438 at 79.0 % availability |
+
+**Not on this list, and not to be confused with it:** `geometry.reach_max`, `reachability_floor`,
+`span_saturation`, `LoopInternalCoords` and `cdr3_internal_coords`. `reach_max` is in production —
+it is the `feasible` column of `tcren potts predict` — and the rest are the inverse direction a
+forward loop model still needs. `geom_tcr_peptide_ens` remains the shipped template-free fallback.
+
 ## What deletion costs
 
 | Group | Also delete | Kept by |

@@ -37,7 +37,7 @@ from pathlib import Path
 import numpy as np
 import polars as pl
 
-from ..geometry import BOND_CA, reach_max
+from ..geometry import BOND_CA, read_back, reach_max, resample_graphon
 from .sites import SITE_COLUMNS
 
 __all__ = ["BUNDLED_ENSEMBLE", "BUNDLED_PRIOR", "GeomPrior", "REGIONS_MODELLED", "feasible",
@@ -91,13 +91,15 @@ def region_peptide_dmap(structure, chain_type: str, region: str) -> np.ndarray |
     return None
 
 
-def _resample(dmap: np.ndarray, grid: int) -> np.ndarray:
-    """Bilinear resample of an ``(L, M)`` map onto ``grid x grid`` graphon coordinates."""
-    from scipy.ndimage import map_coordinates
-    u, v = np.meshgrid(np.linspace(0, dmap.shape[0] - 1, grid),
-                       np.linspace(0, dmap.shape[1] - 1, grid), indexing="ij")
-    return map_coordinates(dmap, [u.ravel(), v.ravel()], order=1,
-                           mode="nearest").reshape(grid, grid)
+def _resample(dmap: np.ndarray, grid: int, convention: str = "endpoint") -> np.ndarray:
+    """Bilinear resample of an ``(L, M)`` map onto ``grid x grid`` graphon coordinates.
+
+    Delegates to :func:`tcren.geometry.resample_graphon`. The default is ``"endpoint"``, which is
+    what this function has always done and what the shipped priors were built under --- see
+    :func:`tcren.geometry.graphon_weights` for why that is *not* adjoint to the read-back, and
+    :func:`fit_geom_prior`'s ``convention`` argument for the one that is.
+    """
+    return resample_graphon(dmap, grid, convention=convention)
 
 
 def _key(chain: str, region: str, mhc_class: str) -> str:
@@ -124,6 +126,10 @@ class GeomPrior:
             :func:`tcren.geometry.reach_max` needs for the feasibility check.
         bond: Virtual Cα–Cα bond length the reachability bound uses.
         n_structures: Structures the fit saw.
+        convention: Graphon convention the surfaces were *registered* under. Read-back is always
+            :math:`(i+1)/(L+1)`, so only ``"interior"`` makes the two adjoint --- see
+            :func:`tcren.geometry.graphon_weights`. Defaults to ``"endpoint"`` so a prior written
+            before the argument existed loads with the behaviour it was built under.
     """
 
     grid: int
@@ -135,6 +141,7 @@ class GeomPrior:
     neck_sd: dict[str, float] = field(default_factory=dict)
     bond: float = BOND_CA
     n_structures: int = 0
+    convention: str = "endpoint"
     notes: str = ""
 
     def keys(self) -> list[str]:
@@ -215,7 +222,8 @@ class GeomPrior:
 
 
 def fit_geom_prior(structures, *, grid: int = 12, regions=REGIONS_MODELLED,
-                   keep_surfaces: bool = False, notes: str = "") -> GeomPrior:
+                   keep_surfaces: bool = False, convention: str = "endpoint",
+                   notes: str = "") -> GeomPrior:
     """Average the receptor:peptide Cα surfaces of a structure set in graphon coordinates.
 
     Args:
@@ -227,6 +235,11 @@ def fit_geom_prior(structures, *, grid: int = 12, regions=REGIONS_MODELLED,
             their mean, which is what :func:`predict_contact_map` needs. Costs about 2 MB on
             disk at ``grid=32`` and is the difference between reproducing the contact count and
             reading a fifth of it --- see :attr:`GeomPrior.surfaces`.
+        convention: Graphon convention to *register* under. ``"endpoint"`` reproduces the shipped
+            priors; ``"interior"`` is adjoint to the read-back and is the one to prefer for a new
+            fit --- under ``"endpoint"`` a round trip contracts a loop's footprint by
+            :math:`(L-1)/(L+1)`, a fixed 1.29 Å at the termini of a 6-mer that no grid refinement
+            removes. See :func:`tcren.geometry.graphon_weights`.
         notes: Free text stored on the prior.
 
     Returns:
@@ -244,7 +257,7 @@ def fit_geom_prior(structures, *, grid: int = 12, regions=REGIONS_MODELLED,
                 d = region_peptide_dmap(s, chain, region)
                 if d is None or min(d.shape) < 2:
                     continue
-                acc.setdefault(_key(chain, region, cls), []).append(_resample(d, grid))
+                acc.setdefault(_key(chain, region, cls), []).append(_resample(d, grid, convention))
                 used = True
         for chain in _CHAINS:
             for region in regions:
@@ -264,7 +277,7 @@ def fit_geom_prior(structures, *, grid: int = 12, regions=REGIONS_MODELLED,
         surfaces={k: np.stack(v) for k, v in acc.items()} if keep_surfaces else None,
         neck_mean={k: float(np.mean(v)) for k, v in necks.items()},
         neck_sd={k: float(np.std(v)) for k, v in necks.items()},
-        n_structures=seen, notes=notes)
+        n_structures=seen, convention=convention, notes=notes)
 
 
 def _region_ca(structure, chain_type: str, region: str) -> np.ndarray | None:
@@ -285,35 +298,19 @@ def predicted_distances(prior: GeomPrior, chain: str, region: str, *, loop_len: 
     The surface is read back at :math:`(u, v) = (i/(L+1), j/(M+1))`, which is what carries a shape
     averaged over one set of lengths to a pair of lengths it never saw.
     """
-    from scipy.ndimage import map_coordinates
-
     m, sd = prior.surface(chain, region, mhc_class)
-    g = prior.grid
-    u = (np.arange(1, loop_len + 1) / (loop_len + 1)) * (g - 1)
-    v = (np.arange(1, pep_len + 1) / (pep_len + 1)) * (g - 1)
-    uu, vv = np.meshgrid(u, v, indexing="ij")
-    out = [map_coordinates(x, [uu.ravel(), vv.ravel()], order=1,
-                           mode="nearest").reshape(loop_len, pep_len) for x in (m, sd)]
-    return out[0], out[1]
+    return read_back(m, loop_len, pep_len), read_back(sd, loop_len, pep_len)
 
 
 def predicted_ensemble(prior: GeomPrior, chain: str, region: str, *, loop_len: int,
                        pep_len: int, mhc_class: str = "MHCI") -> np.ndarray:
     r"""``(S, loop_len, pep_len)`` --- every member surface read back at the target lengths.
 
-    One :func:`scipy.ndimage.map_coordinates` call over the whole ``(S, G, G)`` stack, not one per
-    member: the member axis is sampled exactly, so it interpolates only in :math:`(u, v)`. Each
-    slice is one crystal's geometry carried to these lengths, joint intact.
+    One :func:`tcren.geometry.read_back` call over the whole ``(S, G, G)`` stack, not one per
+    member: the member axis is carried through untouched, so it interpolates only in :math:`(u, v)`.
+    Each slice is one crystal's geometry carried to these lengths, joint intact.
     """
-    from scipy.ndimage import map_coordinates
-
-    stack = prior.ensemble(chain, region, mhc_class)
-    g = prior.grid
-    u = (np.arange(1, loop_len + 1) / (loop_len + 1)) * (g - 1)
-    v = (np.arange(1, pep_len + 1) / (pep_len + 1)) * (g - 1)
-    ss, uu, vv = np.meshgrid(np.arange(stack.shape[0], dtype=float), u, v, indexing="ij")
-    return map_coordinates(stack, [ss.ravel(), uu.ravel(), vv.ravel()], order=1,
-                           mode="nearest").reshape(stack.shape[0], loop_len, pep_len)
+    return read_back(prior.ensemble(chain, region, mhc_class), loop_len, pep_len)
 
 
 def feasible(prior: GeomPrior, chain: str, region: str, loop_len: int,
