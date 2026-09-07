@@ -1,12 +1,14 @@
 # tcren — project status & TODO
 
 Status of the Python re-implementation of TCRen (`src/tcren/`). The legacy R/Java pipeline
-is preserved (tag `legacy-r-1.0`) and serves as the numerical oracle. This tree is **v3.6.0**
-(2026-09-06) and **not published**. The newest release on PyPI is **v3.0.1**, uploaded 2026-09-02
-as 12 wheels (cp310-cp313 x macOS arm64 / manylinux x86_64 / win_amd64) plus the sdist. Six
+is preserved (tag `legacy-r-1.0`) and serves as the numerical oracle. This tree is **v3.7.1**
+(2026-09-07) and **not published**. The newest release on PyPI is **v3.0.1**, uploaded 2026-09-02
+as 12 wheels (cp310-cp313 x macOS arm64 / manylinux x86_64 / win_amd64) plus the sdist. Eight
 releases therefore exist in the checkout only: 3.1.0 (batched annotation), 3.2.0 (`tcren explain`),
 3.3.0 (the TCRen2 matrix re-derived on 359 crystals), 3.4.0 (the self-consistent arm on the command
-line), 3.5.0 (`tcren potential-table`) and 3.6.0 (the Ca geometry prior and `tcren potts predict`).
+line), 3.5.0 (`tcren potential-table`), 3.6.0 (the Ca geometry prior and `tcren potts predict`),
+3.7.0 (the geometry ensemble, `geom_tcr_peptide_ens`) and 3.7.1 (`tcren potts agreement`, which
+reports level and placement separately). Git tags stop at `v3.3.0`.
 
 ## The model lineage — six shipped objects, and how they relate
 

@@ -4,7 +4,7 @@ Where the project is going, and what each direction is waiting on. The single pl
 plans: [STATUS.md](STATUS.md) is where the project *is*, [CHANGELOG.md](CHANGELOG.md) is what has
 landed, and this file is what has not.
 
-Last reviewed against `master` at v3.6.0 (2026-09-06); the previous review was 2026-09-03 at v3.0.0.
+Last reviewed against `master` at v3.7.1 (2026-09-07); the previous review was 2026-09-06 at v3.6.0.
 
 ## Landed since the last review
 
@@ -55,7 +55,7 @@ Off this roadmap or off the manuscript's needs; [CHANGELOG.md](CHANGELOG.md) is 
   difference is the manifest — the 8,292 hold-out structures the fit used ship in the wheel and
   `fit-holdout` regenerates the shipped arrays from them bit for bit.
 
-## Landed since that review — v3.1.0 – v3.6.0
+## Landed since that review — v3.1.0 – v3.7.1
 
 - **v3.1.0** — a structure set is annotated **once**, not once per structure. `tcren scoring` over
   the 374-crystal `Native2026` set went 1,032 s → 145 s with identical output.
@@ -77,6 +77,13 @@ Off this roadmap or off the manuscript's needs; [CHANGELOG.md](CHANGELOG.md) is 
   rather than scoring one map read off their mean; `geom_tcr_peptide_ens` keeps 2,154 surfaces at
   grid 32. Expected contacts 0.47× → 1.17× observed and contact ROC-AUC 0.9242 → 0.9325, held out
   over 364 crystals. Step 2b.
+- **v3.7.1** — **level and placement became two numbers rather than one.**
+  `potts.map_agreement` / `tcren potts agreement` report `ratio` (expected contacts over observed)
+  and `js` (Jensen–Shannon similarity of the two normalised maps) separately, plus `auc`. On the
+  four Figure-2c receptors the crystal's own Cα geometry reads js 0.75–0.81 against the predicted
+  geometry's 0.42–0.58. `reproduce.sh` gained a `contacts` stage that runs the 3.7.x claim end to
+  end through released commands in 33 s and exits non-zero if the predicted geometry does not read
+  below the crystal's own.
 
 ## Open
 
@@ -93,10 +100,10 @@ Ranked by what each unblocks. Every row names what is missing, not what would be
 | 2b | superimposed crystals, scored one at a time and averaged | no | `geom_tcr_peptide_ens`, shipped in 3.7.0 |
 | 3 | a parametric loop, no crystal coordinates | no | **open** |
 
-Step 2 already delivers "score from sequence", and 3.7.0 closed the level gap that step 2 opened:
-averaging over the reference geometries rather than over their surfaces reads **24.62 expected
-contacts against 21.02 observed** (ratio 1.17, n = 364 held out by structure) where the averaged
-surface reads 9.80 (ratio 0.47), with the contact ROC-AUC rising 0.9242 → 0.9325.
+Step 2 already delivers "score from sequence", and 3.7.0 closed the level gap that step 2 opened by
+averaging over the reference geometries rather than over their surfaces. That result is stated once,
+in [STATUS.md](STATUS.md) under *Average over geometries, not over surfaces*; it is not restated
+here.
 
 **What step 3 is now for is the one thing step 2b cannot do: a count specific to one receptor.**
 Because the average is linear, the expected count is the mean over reference geometries of each
@@ -126,10 +133,38 @@ neither survives step 2b, and the reason is not a calibration that could be tune
   **484 sites** where the crystal has **161**, prevalence 0.0477 against 0.1301. Truncating to the
   top `0.8·Σp_avail` pairs reproduces step 1's geometry almost exactly — 162 sites, prevalence
   0.129, 91.6 % of true contacts retained — and the MAE does not move, so size alone is not it.
-- **The ceiling without a structure is MAE 4.65 and 41.3 % within ±3**, leave-one-out from loop
-  lengths, MHC class and envelope size together; `predict_contact_map` reaches 4.82 unaided. So ±3
-  is unreachable for any estimator built on an average over reference geometries, and step 3 is the
-  only route to it.
+- **The ceiling without a structure is MAE 4.65 contacts and 41.3 % within ±3**, leave-one-out from
+  loop lengths, MHC class and envelope size together; `predict_contact_map` reaches 4.82 unaided. So
+  ±3 is unreachable for any estimator built on an average over reference geometries, and step 3 is
+  the only route **to ±3**.
+
+**Selecting a reference conformation beats that ceiling, and it is the epitope that carries it
+(2026-09-07).** Nine selection rules on the same 366 held-out crystals
+(`$TCREN2_BENCH/bench/eda/out/geom_select.md`); the flat average is the `k = S`, `T → ∞` limit of
+the family and is reproduced exactly. The winner is **`epibal`** — among reference crystals carrying
+the same peptide, the one whose predicted total is nearest the ensemble mean, then the most central
+of those in read-back distance:
+
+- Pearson **+0.415** against the observed contact count over all 366, and **+0.667 on the 102
+  targets (27.9 %) that have a same-epitope reference**, where the median contact ROC-AUC is
+  **0.9590** — equal to the crystal's own Cα geometry at 0.9581 — with 9.7 calls per structure above
+  p = 0.8 converting at 0.631.
+- Recalibrated, MAE **4.47 contacts** over all 366 and **3.99 on the stratum**, so the 4.65 ceiling
+  is passed. Step 3 remains the only route to ±3; it is no longer the only route past the ceiling.
+- **Germline V-family matching does not help** — 0.437 against count-centrality's 0.438 despite
+  79.0 % availability. TCR-FramePose's antigen-context clause holds here; its germline clause does
+  not. Recorded so it is not re-tried.
+- Species and peptide length reach Pearson +0.296 at 94.5 % coverage, but cascade *worse* than plain
+  count-centrality (+0.359 against `epibal`'s +0.415), so `countbal` is the fallback on the evidence.
+
+**What step 2b's remaining error *is*, measured (2026-09-07).** Not a missing count: the leak is
+receptor-residue **occupancy**. Over the four panel-c receptors, the crystal's own Cα engages 12–17
+receptor residues at E[degree] 1.85–2.17 contacts, while the predicted ensemble spreads the same
+total over **42–44 residues at 0.40–0.48** — about 5× on the receptor side against about 2× on the
+peptide side (8–9 residues at 2.89–3.67 against 10–13 at 1.29–1.95). Not one pair reaches p ≥ 0.8 in
+any of the four, where the crystal's geometry puts 15 of 231 there for `3qib`. So the contacts are
+not absent, they are smeared across residues a crystal leaves untouched — which is what an occupancy
+constraint, rather than a recalibration, addresses.
 
 **So step 3 has two quantitative targets, both geometric: place the interface in ~161 sites rather
 than 484, and place a contacting pair to about 1 Å** (measured 7.94 Å, placed at 10.02 Å; `g_dist`
@@ -162,7 +197,7 @@ Pearson +0.16, R^2 0.026, less than `predict_contact_map` already achieves at +0
 **TRB is the loop to place first.** Its footprints are far more reproducible across receptors for a
 fixed epitope than TRA's, Jaccard 0.561 against 0.357.
 
-Three pieces, two of which exist:
+Four pieces, two of which exist:
 
 - **The chain model.** `geometry.reach_max` is already the closed-form maximum reach of a length-`L`
   loop held at its neck, from the discrete-Frenet virtual-bond chain, and `geometry.cdr3_internal_coords`
@@ -173,6 +208,15 @@ Three pieces, two of which exist:
   2026-09-01, in no `recompute.sh` target, with no output on disk. Check it before writing anything.
 - **The placement.** The hard part, and the one with no prior art here: putting the built loop in
   the groove frame. `docking/align.py` and `data/canonical_frame.json` are the entry points.
+- **The two CDR3 loops are not independent, and the model has no term for it (2026-09-07).** Over
+  359 crystals there are **8.58 CDR3α–CDR3β heavy-atom contacts at 5 Å per crystal in 99.7 % of
+  them**; TRA runs across the peptide at slope +0.234 against TRB's −0.523, opposite in sign in
+  68.8 % of 231 paired loops, and **CDR3α sits N-terminal of CDR3β in 99.6 %**. The kernel's only
+  cross-chain class couples two loops *through a shared peptide position* and is fitted at
+  `L(|dj|=0,crosschain) = +0.016`, one standard error from zero; there is no direct α–β pair
+  anywhere, `available_pairs` rejects a receptor:receptor partner outright, and
+  `geom_tcr_peptide_ens` has no TRA×TRB surface among its twelve keys. Record
+  `$TCREN2_BENCH/bench/eda/out/cdr3_ab_coupling.csv`.
 
 The gate is the one step 2 already has a number for: held-out recall of the crystal's contacts
 inside the predicted envelope, and the area of `p_model` inside it

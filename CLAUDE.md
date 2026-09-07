@@ -88,6 +88,17 @@ reference geometries returns the level of a typical interface. That is step 3 of
 `ROADMAP.md` §1, a parametric loop with no crystal coordinates anywhere, and it is open. Record:
 `$TCREN2_BENCH/bench/eda/out/geom_ensemble.md`.
 
+**The average is for the ranking read-outs; the contact map itself wants a constrained geometry
+(author, 2026-09-07).** *"Average is good for some metrics and readouts, but it is unacceptable for
+actual contact map modelling."* The criterion for a map is that the expected count reproduce the
+crystal's within **±3** and that a contact probability be Beta distributed — occupied nearly always
+or nearly never, never p ≈ 0.5. Both hold on the crystal's own Cα and neither survives the flat
+average, and the reason is **not** a calibration that could be tuned out: a logistic-power
+recalibration fits γ = 1.009, so the map is already calibrated. It is a receptor-residue
+**occupancy** leak. The crystal engages 12–17 receptor residues at E[degree] 1.85–2.17 contacts; the
+predicted ensemble spreads the same total over 42–44 residues at 0.40–0.48, and not one pair reaches
+p ≥ 0.8. Records: `$TCREN2_BENCH/bench/eda/out/geom_sharpen.md` and `geom_select.md`.
+
 **Bigot is block-3 tier; Bobisse is not.** Both score a poly-V placeholder peptide, but the
 templates are opposite. Bigot's 14 receptors have **no deposited ternary complex** — 0 of 14 CDR3α
 and 0 of 14 CDR3β occur in any of the 362 Native2026 crystals — so a pure-potential arm there is
