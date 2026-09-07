@@ -206,6 +206,30 @@ Pearson +0.16, R^2 0.026, less than `predict_contact_map` already achieves at +0
 **TRB is the loop to place first.** Its footprints are far more reproducible across receptors for a
 fixed epitope than TRA's, Jaccard 0.561 against 0.357.
 
+**CDR2 is the loop the graphon average places worst, and it is not close (2026-09-07).** The
+contacts the flat ensemble loses are concentrated, not spread
+(`$TCREN2_BENCH/bench/eda/out/contact_fidelity.md`, 366 held-out crystals):
+
+| loop | contacts | placed below p = 0.05 | fraction | mean placement error on a contact, Å | mean p on a contact, flat | step 1 |
+|---|---|---|---|---|---|---|
+| TRA:CDR2 | 93 | 53 | **0.570** | 3.13 | 0.0436 | 0.3679 |
+| TRB:CDR2 | 361 | 135 | **0.374** | 3.27 | 0.0770 | 0.4413 |
+| TRB:CDR1 | 698 | 129 | 0.185 | 2.56 | 0.1392 | 0.4381 |
+| TRA:CDR1 | 1,094 | 178 | 0.163 | 2.53 | 0.1811 | 0.4994 |
+| TRA:CDR3 | 2,323 | 107 | 0.046 | 2.17 | 0.2937 | 0.5952 |
+| TRB:CDR3 | 3,082 | 95 | **0.031** | 2.04 | 0.3662 | 0.6717 |
+
+**Step 1 reads the CDR2 contacts at a normal level** — 0.3679 and 0.4413 — so the potential handles
+CDR2 and the average of reference geometries does not. A missed contact is a pair placed too far
+out rather than one scored wrongly: over all six loops the 697 observed contacts below p = 0.05 sit
+at **9.03 Å** in the crystal where the reference geometries put them at **12.52 Å**. So the
+CDR3 loops, which step 3's chain model is aimed at, are already the two the average handles best,
+and **CDR2 is where a built loop would buy the most**.
+
+**The ensemble's reported spread is usable.** Binned into quintiles of `d_ca_sd`, 1.268 → 2.190 Å,
+the mean placement error runs 1.195 → 1.933 Å and the contact rate 0.048 → 0.222, both monotone. A
+caller can read `d_ca_sd` as the confidence it claims to be.
+
 Four pieces, two of which exist:
 
 - **The chain model.** `geometry.reach_max` is already the closed-form maximum reach of a length-`L`
@@ -217,6 +241,13 @@ Four pieces, two of which exist:
   2026-09-01, in no `recompute.sh` target, with no output on disk. Check it before writing anything.
 - **The placement.** The hard part, and the one with no prior art here: putting the built loop in
   the groove frame. `docking/align.py` and `data/canonical_frame.json` are the entry points.
+- **A receptor residue's grip on the peptide now has an end (3.8.0).** `X(same receptor residue,
+  |dj| > 2)` is a fourth coupling class, opt-in via `fit_potts(..., far=True)`, fitted at
+  **K = −0.457, s.e. 0.049, z = −9.34** on 367 crystals for **+81.8 nats**. It does little on the
+  crystal's own Cα, where the field is already sharp, and improves both placement and level on
+  three of the four held-out `Native2026` receptors under a predicted geometry. It does **not** on
+  its own produce the Beta-shaped map there. Record
+  `$TCREN2_BENCH/bench/eda/out/potts_exclusion_kernel.csv`.
 - **The two CDR3 loops are not independent, and the model has no term for it (2026-09-07).** Over
   359 crystals there are **8.58 CDR3α–CDR3β heavy-atom contacts at 5 Å per crystal in 99.7 % of
   them**; TRA runs across the peptide at slope +0.234 against TRB's −0.523, opposite in sign in
