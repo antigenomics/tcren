@@ -25,6 +25,18 @@ All notable changes to `tcren` are recorded here. Format follows
   cross rows sit under 3.0 Å where **no** native row does — and the filter is per pair, not per
   pairing.
 
+  **The frame is checked, and fixed if it is wrong.** A pseudo-complex is exactly
+  `shuffle.graft_tcr` — keep the host pMHC, drop its TCR, put the donor's in — and that graft
+  applies *no* coordinate transform, because every structure is already in the canonical MHC frame.
+  Verified: over 40 built chimeras and 15,963 Cα cells the table matches the graft to **4.5e-5 Å**,
+  float32 storage precision. On a set left in its deposited frames every pairing would be a number
+  with no meaning and **nothing about the table would look wrong**, so `residue_tables` measures the
+  peptide-centroid spread and `--superimpose auto` (the default) orients the set if it needs it, at
+  about 3 ms a structure; a set still not co-framed afterwards is refused, and the CLI exits 1.
+  `Canonical2026` reads **3.61 Å** and is passed through untouched. The bundled test fixtures read
+  **141.7 Å as deposited and 0.95 Å oriented** — they were never co-framed, which the guard caught
+  the moment it existed.
+
   What it buys is **length coverage** (131 `(L, M)` combinations for TRA:CDR3 against the 62 the
   crystals solved; 112 against 59 for TRB:CDR3) and hundreds of samples per cell. What it does not
   buy is receptor:peptide dependence beyond the 359 solved pairings — crossing every TCR with every

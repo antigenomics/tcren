@@ -12,8 +12,9 @@ import numpy as np
 import polars as pl
 import pytest
 
-from tcren.potts.cross import (CROSS_COLUMNS, MIN_CA, PAR_COLUMNS, REC_COLUMNS, _BUCKET,
-                               cross_pairs, partner_residues, receptor_residues, residue_tables,
+from tcren.potts.cross import (COFRAME_TOLERANCE, CROSS_COLUMNS, MIN_CA, PAR_COLUMNS,
+                               REC_COLUMNS, _BUCKET, coframe_spread, cross_pairs,
+                               partner_residues, receptor_residues, residue_tables,
                                write_cross_pairs)
 from tcren.potts.geom import region_peptide_dmap
 
@@ -33,8 +34,32 @@ def structures():
 
 
 @pytest.fixture(scope="module")
+def oriented(structures):
+    """The fixtures as deposited are **not** co-framed — peptide centroids spread 141.7 Å.
+
+    Orienting brings them to 0.95 Å. Everything about the cross product other than the arithmetic
+    is meaningless without this, so the tests that are about the product use it.
+    """
+    from tcren.docking.align import align_to_native, apply_transform
+    from tcren.mhc.regions import annotate_mhc_batch
+    from tcren.annotation.chains import classify_chains
+
+    moved = []
+    for structure in structures:
+        try:
+            placed = apply_transform(structure, align_to_native(structure))
+        except Exception:                                    # noqa: BLE001
+            continue
+        placed.pdb_id = structure.pdb_id
+        classify_chains(placed)                              # apply_transform wipes the markup
+        moved.append(placed)
+    annotate_mhc_batch(moved)
+    return moved
+
+
+@pytest.fixture(scope="module")
 def tables(structures):
-    return residue_tables(structures)
+    return residue_tables(structures, superimpose="always")
 
 
 @pytest.fixture(scope="module")
@@ -58,6 +83,44 @@ def test_the_native_diagonal_reproduces_the_crystals_own_distances(structures, c
     assert checked > 3000, f"only {checked} native cells checked"
     # float32 on a ~30 Å distance is ~3.6e-6 Å; anything larger is a real disagreement.
     assert worst < 1e-5, f"native pairing differs from the crystal by {worst:.2e} Å"
+
+
+def test_a_pairing_is_the_graft_it_stands_for(oriented):
+    """The construction, checked against the thing it replaces.
+
+    A pseudo-complex is `shuffle.graft_tcr`: keep one crystal's pMHC, drop its TCR, put another
+    crystal's TCR in its place. That graft applies **no coordinate transform**, because every
+    structure is already in the canonical MHC frame -- so reading the donor's loop Cα against the
+    host's peptide Cα is the same numbers, without building the chimera. If this ever fails, the
+    input was not co-framed and every row of the table is meaningless.
+    """
+    import itertools
+
+    from tcren.shuffle import graft_tcr, mhc_class
+
+    cross = cross_pairs(*residue_tables(oriented, superimpose="never"), min_dist=0.0)
+    class_i = [s for s in oriented if mhc_class(s) == "MHCI"]
+    worst, checked, grafts = 0.0, 0, 0
+    for host, donor in itertools.islice(itertools.permutations(class_i, 2), 12):
+        decoy = graft_tcr(host, donor)
+        for chain in ("TRA", "TRB"):
+            for region in ("CDR1", "CDR2", "CDR3"):
+                built = region_peptide_dmap(decoy, chain, region)
+                if built is None:
+                    continue
+                rows = cross.filter((pl.col("pdb.id.rec") == donor.pdb_id)
+                                    & (pl.col("pdb.id.par") == host.pdb_id)
+                                    & (pl.col("chain.rec") == chain)
+                                    & (pl.col("region.rec") == region))
+                if len(rows) != built.size:
+                    continue
+                got = rows.sort("pos.rec", "pos.par")["d_ca"].to_numpy().reshape(built.shape)
+                worst = max(worst, float(np.abs(got - built).max()))
+                checked += built.size
+        grafts += 1
+    assert grafts >= 10 and checked > 3000, f"{grafts} grafts, {checked} cells"
+    # float32 storage on a ~40 Å distance is ~5e-6 Å; two roundings and a subtraction reach 5e-5.
+    assert worst < 1e-4, f"the table differs from the built graft by {worst:.2e} Å"
 
 
 def test_every_pairing_is_present(tables):
@@ -115,6 +178,58 @@ def test_dropping_the_diagonal_drops_exactly_the_native_rows(tables, cross):
     assert len(without) == len(cross) - int(cross["is_native"].sum())
 
 
+def test_an_unoriented_set_is_refused_rather_than_silently_wrong(structures):
+    """The failure this guard exists for looks exactly like success without it.
+
+    Reading one crystal's TCR against another's peptide is a pose only in a shared frame. The
+    bundled fixtures are deposited in their own frames, so every cross pairing built from them
+    unoriented is a number with no meaning — and nothing about the table would look wrong.
+    """
+    with pytest.raises(ValueError, match="not in one frame"):
+        residue_tables(structures, superimpose="never")
+
+
+def test_orienting_puts_the_set_in_one_frame(structures):
+    _, par = residue_tables(structures, superimpose="always")
+    assert coframe_spread(par) < COFRAME_TOLERANCE
+    # `auto` reaches the same place without being told.
+    _, auto = residue_tables(structures, superimpose="auto")
+    assert coframe_spread(auto) < COFRAME_TOLERANCE
+
+
+def test_a_co_framed_set_is_left_alone_by_auto(structures):
+    """`auto` must not re-orient a set that is already in one frame — that is Canonical2026."""
+    placed = residue_tables(structures, superimpose="always")
+    from tcren.potts.cross import _apply  # noqa: PLC0415 -- exercising the internal directly
+
+    assert coframe_spread(placed[1]) < COFRAME_TOLERANCE
+    identity = (np.eye(3), np.zeros(3))
+    assert np.allclose(_apply(placed[1], *identity).select("ca_x").to_numpy(),
+                       placed[1].select("ca_x").to_numpy())
+
+
+def test_a_rigid_transform_does_not_move_a_distance(structures):
+    """Why every distance assertion in this file holds in either frame.
+
+    The guard refuses an unoriented set, so the raw tables are built straight from the per-structure
+    extractors --- which is the only thing in this file that deliberately steps around it.
+    """
+    raw_rec = pl.concat([receptor_residues(s) for s in structures
+                         if not receptor_residues(s).is_empty()
+                         and not partner_residues(s).is_empty()])
+    raw_par = pl.concat([partner_residues(s) for s in structures
+                         if not receptor_residues(s).is_empty()
+                         and not partner_residues(s).is_empty()])
+    raw = cross_pairs(raw_rec, raw_par, min_dist=0.0)
+    put = cross_pairs(*residue_tables(structures, superimpose="always"), min_dist=0.0)
+    key = ["pdb.id.rec", "pdb.id.par", "chain.rec", "region.rec", "pos.rec", "pos.par"]
+    joined = (raw.filter(pl.col("is_native")).select(*key, pl.col("d_ca").alias("raw"))
+              .join(put.filter(pl.col("is_native")).select(*key, pl.col("d_ca").alias("put")),
+                    on=key, how="inner"))
+    assert len(joined) > 1000
+    assert (joined["raw"] - joined["put"]).abs().max() < 1e-3
+
+
 def test_the_residue_tables_carry_their_declared_schema(tables):
     rec, par = tables
     assert rec.columns == list(REC_COLUMNS)
@@ -162,7 +277,7 @@ def test_a_structure_missing_a_peptide_is_dropped_from_both_tables(structures):
     assert partner_residues(stripped).is_empty()
     assert not receptor_residues(stripped).is_empty()      # the loops are still there
     with pytest.raises(ValueError, match="CDR loop and a peptide"):
-        residue_tables([stripped])
+        residue_tables([stripped], superimpose="never")
 
 
 def test_the_parquet_round_trips(tables, tmp_path):

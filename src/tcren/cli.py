@@ -2464,16 +2464,25 @@ def potts_cross_cmd(
     radius: float = typer.Option(float("inf"), "--radius", help="keep pairs at or under this Ca distance, A; inf keeps complete (L, M) blocks"),
     include_self: bool = typer.Option(True, "--include-self/--no-include-self", help="keep the native diagonal, the pairings that were actually solved"),
     min_dist: float = typer.Option(None, "--min-dist", help="drop pairs closer than this, A (default 3.35, just under the 3.366 A minimum any solved complex reaches); 0 keeps the clashes"),
+    superimpose: str = typer.Option("auto", "--superimpose", help="auto|always|never — orient onto the canonical MHC frame. 'auto' measures the set and orients only if it needs it"),
     part_rows: int = typer.Option(4_000_000, "--part-rows", help="rows per parquet part"),
     exclude: str | None = typer.Option(None, "--exclude", help="comma-separated pdb.id list to leave out"),
     organism: str = typer.Option("human", "--organism", help="human|mouse for V(D)J annotation"),
 ) -> None:
     """Read every TCR against every pMHC and write the Ca distance table.
 
-    The input must be **co-framed** --- every complex superposed into the one canonical MHC frame,
-    which is what ``data/Canonical2026`` is and what ``tcren superimpose`` produces. Given that, a
-    TCR from one crystal against a pMHC from another needs no transform at all, so within MHC class
-    this enumerates all 265^2 + 94^2 = 79,061 pseudo-complexes against the 359 that were solved.
+    The complexes must be **co-framed** --- every one superposed into the one canonical MHC frame,
+    which is what ``data/Canonical2026`` is. Given that, a TCR from one crystal against a pMHC from
+    another needs no transform at all: it is exactly ``tcren.shuffle.graft_tcr``, keep the host
+    pMHC, drop its TCR, put the donor's in --- so within MHC class this enumerates all
+    265^2 + 94^2 = 79,061 pseudo-complexes against the 359 that were solved, without building one.
+
+    **The frame is checked, and fixed if it is wrong.** On a set left in its deposited frames every
+    pairing is a number with no meaning, and nothing about the table would look wrong --- so the
+    peptide-centroid spread is measured and ``--superimpose auto`` (the default) orients the set if
+    it needs it, at about 3 ms a structure. ``Canonical2026`` reads 3.6 A and is passed through
+    untouched; the bundled test fixtures read 141.7 A as deposited and 0.95 A oriented. A set that
+    is still not co-framed after orienting is refused rather than scored.
 
     Two products, chosen by ``--radius``:
 
@@ -2515,16 +2524,22 @@ def potts_cross_cmd(
     if not kept:
         typer.secho(f"{seen} structures seen and none usable — nothing written", fg="red", err=True)
         raise typer.Exit(1)
-    summary = cross_from_structures(kept, out, radius=radius, include_self=include_self,
-                                    min_dist=MIN_CA if min_dist is None else min_dist,
-                                    part_rows=part_rows)
+    try:
+        summary = cross_from_structures(kept, out, radius=radius, include_self=include_self,
+                                        min_dist=MIN_CA if min_dist is None else min_dist,
+                                        superimpose=superimpose, part_rows=part_rows)
+    except ValueError as exc:
+        # The frame guard above all: a wrong frame reads as a full, plausible table.
+        typer.secho(str(exc), fg="red", err=True)
+        raise typer.Exit(1) from exc
     by_class = ", ".join(f"{n} {c}" for c, n in sorted(summary["by_class"].items()))
     typer.echo(f"{seen} structures seen"
                + (f", {skipped} dropped (withdrawn or --exclude)" if skipped else "")
                + f", {summary['structures']} kept ({by_class}); "
                  f"{summary['pairs']:,} pseudo-complexes, {summary['rows']:,} rows in "
                  f"{summary['parts']} parts, {summary['bytes'] / 1e6:.0f} MB, "
-                 f"{summary['seconds']:.0f} s")
+                 f"{summary['seconds']:.0f} s; peptide centroids within "
+                 f"{summary['coframe_spread']:.2f} A of one frame")
     if radius != float("inf"):
         typer.secho(f"note: --radius {radius} truncates the (L, M) blocks; this table is for "
                     "analysis and a geometry fit cannot be built from it", fg="yellow", err=True)

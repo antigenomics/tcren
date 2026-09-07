@@ -42,9 +42,15 @@ import polars as pl
 from ..structure.model import PEPTIDE_TYPE, Structure
 from .geom import _CHAINS, REGIONS_MODELLED
 
-__all__ = ["CROSS_COLUMNS", "MIN_CA", "PAR_COLUMNS", "REC_COLUMNS", "cross_from_structures",
-           "cross_pairs", "partner_residues", "receptor_residues", "residue_tables",
-           "write_cross_pairs"]
+__all__ = ["COFRAME_TOLERANCE", "CROSS_COLUMNS", "MIN_CA", "PAR_COLUMNS", "REC_COLUMNS",
+           "coframe_spread", "cross_from_structures", "cross_pairs", "partner_residues",
+           "receptor_residues", "residue_tables", "write_cross_pairs"]
+
+#: Largest peptide-centroid spread, Å, a set may show and still be called co-framed. Measured:
+#: ``Canonical2026`` reads 1.75 Å --- the grooves superpose to a 0.83 Å pairwise Cα RMSD, which is
+#: the MHC groove's own conformational floor, and the peptide rides along with a register's worth of
+#: play on top. A set left in its deposited frames reads tens of Å, so the two are not close.
+COFRAME_TOLERANCE: float = 6.0
 
 #: One row per resolved CDR Cα. ``len.rec`` is the *resolved* region length --- the ``L`` the
 #: geometry model conditions on --- carried on the row so nothing downstream re-derives it.
@@ -168,35 +174,115 @@ def _frame(rows: list[dict], columns: tuple[str, ...]) -> pl.DataFrame:
     return pl.DataFrame(rows, schema=schema) if rows else pl.DataFrame(schema=schema)
 
 
-def residue_tables(structures: Iterable[Structure]) -> tuple[pl.DataFrame, pl.DataFrame]:
+def coframe_spread(par: pl.DataFrame) -> float:
+    """Root-mean-square distance of each structure's peptide centroid from their common centre, Å.
+
+    The whole cross product rests on every complex sharing one frame: a TCR read against another
+    crystal's peptide is only a pose if the two groove frames coincide. This is the cheapest
+    sufficient check --- if the peptides are not in one place, nothing is.
+    """
+    centres = (par.group_by("pdb.id")
+               .agg(pl.col("ca_x").mean(), pl.col("ca_y").mean(), pl.col("ca_z").mean())
+               .select("ca_x", "ca_y", "ca_z").to_numpy().astype(float))
+    if len(centres) < 2:
+        return 0.0
+    return float(np.sqrt(((centres - centres.mean(0)) ** 2).sum(1).mean()))
+
+
+def _transform(structure: Structure) -> tuple[np.ndarray, np.ndarray] | None:
+    """``(rotation, translation)`` putting one structure in the canonical MHC frame, or ``None``.
+
+    Only the transform is computed --- it is applied to the extracted coordinate columns, never to
+    the structure. :func:`tcren.docking.align.apply_transform` returns a copy whose region markup is
+    gone, so transforming structures here would mean re-annotating the whole set.
+    """
+    from ..docking.align import align_to_native
+
+    try:
+        result = align_to_native(structure)
+    except Exception:                                    # noqa: BLE001 -- no groove, no transform
+        return None
+    return result.rotation, result.translation
+
+
+def _apply(frame: pl.DataFrame, rotation: np.ndarray, translation: np.ndarray) -> pl.DataFrame:
+    """Rotate every ``ca_*`` / ``cb_*`` triple of a residue table into the canonical frame."""
+    from ..docking._transform import apply_rigid
+
+    out = frame
+    for prefix in ("ca", "cb"):
+        cols = [f"{prefix}_{axis}" for axis in "xyz"]
+        if cols[0] not in out.columns:
+            continue
+        moved = apply_rigid(out.select(cols).to_numpy().astype(float), rotation, translation)
+        out = out.with_columns([pl.Series(c, moved[:, k].astype(np.float32))
+                                for k, c in enumerate(cols)])
+    return out
+
+
+def residue_tables(structures: Iterable[Structure], *,
+                   superimpose: str = "auto") -> tuple[pl.DataFrame, pl.DataFrame]:
     """Stack :func:`receptor_residues` and :func:`partner_residues` over a structure set.
 
     A structure contributing no CDR loop or no peptide is dropped from **both** tables, so the two
     always describe the same set of complexes.
 
+    **The frame is checked, not assumed.** Reading one crystal's TCR against another's peptide is a
+    pose only if the two share a groove frame; on an unoriented set every row would be a number with
+    no meaning, and it would not look wrong. So the peptide-centroid spread is measured
+    (:func:`coframe_spread`) and the set is oriented if it needs it.
+
     Args:
         structures: Chain-typed, MHC-annotated structures --- pass
             :func:`tcren.annotation.batch.iter_annotated_set` through
             :func:`tcren.mhc.regions.annotate_mhc_batch`, never annotating in a loop.
+        superimpose: ``"auto"`` (default) orients only if the set is not already co-framed;
+            ``"always"`` orients regardless; ``"never"`` trusts the input and is what
+            ``Canonical2026`` wants.
 
     Returns:
         ``(receptor, partner)``.
 
     Raises:
-        ValueError: if no structure yielded both a loop and a peptide.
+        ValueError: if no structure yielded both a loop and a peptide, if ``superimpose`` is not one
+            of the three, or if the set is still not co-framed after orienting.
     """
-    rec, par = [], []
+    if superimpose not in ("auto", "always", "never"):
+        raise ValueError(f"superimpose must be auto|always|never, got {superimpose!r}")
+    kept = []
     for structure in structures:
-        r, p = receptor_residues(structure), partner_residues(structure)
-        if r.is_empty() or p.is_empty():
-            continue
-        rec.append(r)
-        par.append(p)
-    if not rec:
+        rec, par = receptor_residues(structure), partner_residues(structure)
+        if not rec.is_empty() and not par.is_empty():
+            kept.append((structure, rec, par))
+    if not kept:
         raise ValueError("no structure yielded both a CDR loop and a peptide — were the chains "
                          "typed (classify_chains) and the MHC annotated (annotate_mhc_batch) "
                          "before this was called?")
-    return pl.concat(rec), pl.concat(par)
+
+    orient = superimpose == "always"
+    if superimpose == "auto":
+        orient = coframe_spread(pl.concat([p for _, _, p in kept])) > COFRAME_TOLERANCE
+    if orient:
+        moved = []
+        for structure, rec, par in kept:
+            transform = _transform(structure)
+            if transform is not None:
+                moved.append((structure, _apply(rec, *transform), _apply(par, *transform)))
+        if not moved:
+            raise ValueError("no structure could be oriented — is the MHC annotated? "
+                             "`align_to_native` needs the groove markup `annotate_mhc` writes")
+        kept = moved
+
+    rec_out = pl.concat([r for _, r, _ in kept])
+    par_out = pl.concat([p for _, _, p in kept])
+    spread = coframe_spread(par_out)
+    if spread > COFRAME_TOLERANCE:
+        raise ValueError(
+            f"the structures are not in one frame: peptide centroids are spread {spread:.1f} Å "
+            f"(co-framed is under {COFRAME_TOLERANCE}). Reading one crystal's TCR against "
+            "another's peptide is only a pose in a shared frame. Pass a co-framed set "
+            "(data/Canonical2026), or superimpose=\"always\".")
+    return rec_out, par_out
 
 
 def _bucket_frames(rec: pl.DataFrame, par: pl.DataFrame, radius: float, include_self: bool,
@@ -338,8 +424,8 @@ def write_cross_pairs(rec: pl.DataFrame, par: pl.DataFrame, out: str | Path, *,
 
 def cross_from_structures(structures: Iterable[Structure], out: str | Path, *,
                           radius: float = float("inf"), include_self: bool = True,
-                          min_dist: float = MIN_CA, part_rows: int = 4_000_000,
-                          verbose: bool = False) -> dict:
+                          min_dist: float = MIN_CA, superimpose: str = "auto",
+                          part_rows: int = 4_000_000, verbose: bool = False) -> dict:
     """:func:`residue_tables` then :func:`write_cross_pairs`, with a summary of what was written.
 
     Args:
@@ -348,6 +434,7 @@ def cross_from_structures(structures: Iterable[Structure], out: str | Path, *,
         radius: See :func:`cross_pairs`.
         include_self: See :func:`cross_pairs`.
         min_dist: See :func:`cross_pairs`.
+        superimpose: See :func:`residue_tables`.
         part_rows: Rows per part.
         verbose: Print timings as it goes.
 
@@ -357,7 +444,7 @@ def cross_from_structures(structures: Iterable[Structure], out: str | Path, *,
         ``include_self``, and :math:`\\sum_c n_c(n_c - 1)` without.
     """
     start = time.time()
-    rec, par = residue_tables(structures)
+    rec, par = residue_tables(structures, superimpose=superimpose)
     n_by_class = dict(rec.group_by("mhc_class").agg(pl.col("pdb.id").n_unique().alias("n"))
                       .iter_rows())
     pairs = sum(n * (n if include_self else n - 1) for n in n_by_class.values())
@@ -368,4 +455,5 @@ def cross_from_structures(structures: Iterable[Structure], out: str | Path, *,
                                     min_dist=min_dist, part_rows=part_rows)
     size = sum(f.stat().st_size for f in Path(out).glob("part-*.parquet"))
     return {"structures": rec["pdb.id"].n_unique(), "pairs": pairs, "rows": rows, "parts": parts,
-            "bytes": size, "seconds": time.time() - start, "by_class": n_by_class}
+            "bytes": size, "seconds": time.time() - start, "by_class": n_by_class,
+            "coframe_spread": coframe_spread(par)}

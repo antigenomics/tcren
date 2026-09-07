@@ -545,6 +545,15 @@ There is no loop over the 79,061 pairs: the cross product over *structures* is t
 over *residues*, so the two residue tables are grouped by
 ``(class, chain, region, len.rec, par.len)`` and each group is one ``(n_s, n_t, L, M)`` broadcast.
 
+**The frame is checked, not assumed.** A pairing *is* :func:`tcren.shuffle.graft_tcr` --- keep the
+host pMHC, drop its TCR, put the donor's in --- and that graft applies no transform precisely
+because the set is co-framed. Over 40 built chimeras and 15,963 Cα cells the table matches the graft
+to **4.5e-5 Å**. On a set left in its deposited frames every pairing would be meaningless *and the
+table would look perfectly normal*, so the peptide-centroid spread is measured and
+``--superimpose auto`` (the default) orients the set if it needs it, about 3 ms a structure. A set
+still not co-framed afterwards is refused. ``Canonical2026`` reads 3.61 Å and passes through
+untouched; the bundled test fixtures read **141.7 Å as deposited and 0.95 Å oriented**.
+
 **Clashing pairs are removed and the threshold is measured, not assumed.** Over the 175,358
 receptor:peptide Cα pairs of the 359 solved complexes the closest approach is **3.366 Å**;
 ``--min-dist`` defaults to 3.35, so no row a real complex produced is lost. A foreign TCR dropped

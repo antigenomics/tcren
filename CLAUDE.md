@@ -98,6 +98,16 @@ buy receptor:peptide dependence, the cross product being the product of the two 
 clash filter is measured: 3.35 Å, just under the **3.366 Å** closest approach any solved complex
 makes over 175,358 pairs.
 
+**A pairing is `shuffle.graft_tcr`, and the frame is the whole contract.** Keep the host pMHC, drop
+its TCR, put the donor's in — the graft applies *no* transform because the set is co-framed, and the
+table matches a built chimera to 4.5e-5 Å over 40 of them. **On an unoriented set every pairing is
+meaningless and the table looks perfectly normal**, which is why `residue_tables` measures the
+peptide-centroid spread and refuses rather than scoring; `--superimpose auto` orients at ~3 ms a
+structure. `Canonical2026` reads 3.61 Å untouched. **`tests/assets/pdb` reads 141.7 Å as deposited**
+— the fixtures were never co-framed, and every cross test written before the guard existed was
+exercising an invalid regime without failing. Distances are frame-invariant, so those tests were
+valid arithmetic; they just were not testing the product.
+
 `tcren potts chain` then fits a joint Gaussian over Cα **coordinates** rather than distance
 surfaces. A mean of distance matrices describes no chain — consecutive Cα are 3.7985 Å apart,
 s.d. 0.0668 over 642 CDR gaps — and recovering coordinates from distances is a non-convex EDM

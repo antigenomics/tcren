@@ -598,6 +598,12 @@ cross = cross_pairs(rec, par)               # every pairing's Ca distances + cos
 - **No loop over the 79,061 pairs.** The cross product over *structures* is the cross product over
   *residues*: group by `(class, chain, region, len.rec, par.len)` and each group is one
   `(n_s, n_t, L, M)` broadcast. Adding a pool here would be the §0-mmseqs mistake in another costume.
+- **The frame is checked, not assumed — this is the trap.** A pairing *is* `shuffle.graft_tcr`
+  (host pMHC, donor TCR, no transform), and the table matches a built chimera to 4.5e-5 A. On an
+  unoriented set every pairing is meaningless and **the table still looks fine**. `--superimpose
+  auto` (default) measures the peptide-centroid spread and orients if needed (~3 ms/structure);
+  still-unframed sets are refused, exit 1. `Canonical2026` reads 3.61 A untouched;
+  `tests/assets/pdb` reads **141.7 A as deposited**, 0.95 A oriented.
 - **The clash filter is measured.** The closest approach in any of the 359 solved complexes is
   **3.366 Å** over 175,358 pairs, so `--min-dist` defaults to 3.35 and loses no native row. 0.062 %
   of cross rows sit under 3.0 Å where no native row does. Per **pair**, not per pairing.
