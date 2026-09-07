@@ -102,6 +102,12 @@ cognate KQWLVWLFL), so it is template-rich like CPL; its limit is being one rank
   peptide, a class I or class II groove. Out-of-scope structures are dropped, not widened into.
 - **CDR3 is not junction.** `junction_aa` carries the Cys104/Phe118 anchors and is two residues
   longer than IMGT CDR3. Confirm which a caller means before any Pgen, clustering or matching work.
+  **Adding the anchors is a lookup, not a concatenation**: Cys104 is the last residue of FR3, and
+  the 118 anchor is the first residue of FR4, which opens with the J-region F/W-G-x-G motif.
+  `"C" + cdr3 + "F"` fails both ways — the anchor is Trp on some J genes (302TIL alpha carries FR4
+  `WGAGTK`, junction `CAFMDSNYQLIW`), and a CDR3 may itself end in F so the junction carries two
+  (`ASEGVHEQF` → `CASEGVHEQFF`). Asking whether a sequence "ends in F" is not a test; the FGXG
+  motif in FR4 is.
 - **Every on-disk data root goes through `paths.tcren_home()`** — `$TCREN_HOME`, then the source
   checkout, then `$XDG_CACHE_HOME/tcren`. Deriving a path from the source layout breaks the
   installed wheel, silently, and exits 0 with an empty table.
