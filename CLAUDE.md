@@ -94,10 +94,15 @@ actual contact map modelling."* The criterion for a map is that the expected cou
 crystal's within **±3** and that a contact probability be Beta distributed — occupied nearly always
 or nearly never, never p ≈ 0.5. Both hold on the crystal's own Cα and neither survives the flat
 average, and the reason is **not** a calibration that could be tuned out: a logistic-power
-recalibration fits γ = 1.009, so the map is already calibrated. It is a receptor-residue
-**occupancy** leak. The crystal engages 12–17 receptor residues at E[degree] 1.85–2.17 contacts; the
-predicted ensemble spreads the same total over 42–44 residues at 0.40–0.48, and not one pair reaches
-p ≥ 0.8. Records: `$TCREN2_BENCH/bench/eda/out/geom_sharpen.md` and `geom_select.md`.
+recalibration fits γ = 1.009, so the map is already calibrated. It is **placement**, and
+`potts.map_agreement` says so in one number: over 366 held-out crystals the Jensen–Shannon
+similarity to the crystal's own map, level divided out, reads **0.4200** for the flat ensemble
+against **0.7052** on the crystal's own Cα. Mechanically it is receptor-residue occupancy — at a
+half-contact threshold the flat ensemble engages 15.25 receptor residues at E[degree] 1.35 contacts
+against step 1's 10.53 at 1.77, where the crystal makes 11.28 at 1.86. **Compare arms, never an arm
+against the crystal's hard count**: a probabilistic map spreads mass by construction and step 1 does
+it too. Records: `$TCREN2_BENCH/bench/eda/out/geom_sharpen.md`, `geom_select.md` and
+`contact_fidelity.md`.
 
 **Bigot is block-3 tier; Bobisse is not.** Both score a poly-V placeholder peptide, but the
 templates are opposite. Bigot's 14 receptors have **no deposited ternary complex** — 0 of 14 CDR3α

@@ -348,7 +348,8 @@ def fit_selfconsistent(sites: pl.DataFrame, *, potential: Potential | None = Non
         # what each step re-estimates: the matrix says which pairs are favourable, the kernel says
         # how a made contact pulls its sequence neighbours in. Reading only `beta_matrix` would
         # hide whether the crosses moved while the matrix did.
-        row.update(dict(zip(kernel_names(model.joint), (float(k) for k in model.kernel))))
+        row.update(dict(zip(kernel_names(model.joint, model.far),
+                            (float(k) for k in model.kernel))))
         rows.append(row)
         if de <= tol:
             break

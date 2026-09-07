@@ -51,10 +51,31 @@ capture it, all defined on sequence offsets so no extra coordinates are needed:
    **cross-loop**, the two sites in different hypervariable loops — 6 classes;
 ``M``
    **cross-class**, the same receptor residue against both the peptide and the MHC groove — 1
-   class, joint models only.
+   class, joint models only;
+``X(same receptor residue, |dj| > 2)``
+   **long-offset exclusion**, the complement of ``K``'s reach on one receptor residue — 1 class,
+   ``far=True`` only. New in 3.8.0.
 
 Everything else is asserted uncoupled: the model's statement that linkage falls to zero across
 loops and beyond two residues.
+
+.. note::
+
+   ``X`` exists because that statement is not neutral at long offset. ``K(+0,+1)`` and ``K(+0,+2)``
+   are strongly positive — a receptor residue gripping peptide position *j* also grips *j+1* and
+   *j+2* — and nothing in the model then says the run stops, though a side chain gripping one end of
+   the groove is plainly not also at the other. Fitted on 367 crystals with ``J`` pinned to
+   ``tcren2``, the class comes out at **K = −0.457, s.e. 0.049, z = −9.34**, worth **+81.8 nats** of
+   pseudo-log-likelihood for one parameter.
+
+   It is **off by default** and every shipped model carries ``far=False``, so nothing already
+   written changes. Where it bites is a *predicted* Cα geometry: on the crystal's own coordinates
+   the field is already sharp and the couplings have little left to move (Jensen–Shannon similarity
+   0.7133 → 0.7162 over 367 crystals), while under a geometry averaged over reference crystals it
+   improves both placement and level on three of the four ``Native2026`` receptors with held-out
+   priors — js 0.4846 → 0.4957, 0.5226 → 0.5350, 0.4834 → 0.4924, with the expected contact count
+   moving 36.80 → 34.11 against 32 observed, 33.81 → 31.40 against 33, and 29.97 → 27.82 against 25.
+   On the fourth (``3qdg``) it is flat, and that receptor is already under-counted.
 
 On the crystals every **axial** class comes out positive and every **off-axis** class negative — a
 made contact recruits its own sequence neighbours onto the *same* partner residue and suppresses

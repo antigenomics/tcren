@@ -90,6 +90,53 @@ def test_gibbs_marginals_match_exact_marginals_with_couplings():
     assert np.max(np.abs(occ - exact)) < 0.025
 
 
+def test_far_class_is_off_in_every_shipped_model():
+    """The exclusion class is opt-in, so a model written before it round-trips unchanged."""
+    for name in ("potts_tcr_peptide", "potts_tcr_peptide_sc", "potts_tcr_mhc", "potts_pep_mhc"):
+        m = PottsModel.bundled(name)
+        assert m.far is False
+        assert len(m.kernel) == len(kernel_names(m.joint, m.far)) == 18
+
+
+def test_far_edges_are_exactly_the_pairs_beyond_two_partner_positions():
+    """One receptor residue against eight peptide positions: every |dj| > 2 pair, once each."""
+    n = 8
+    q = pl.DataFrame({"sid": list(range(n)), "pdb.id": ["x"] * n, "loop": ["TRB:CDR3"] * n,
+                      "pchain": ["P"] * n, "pos.rec": [0] * n, "pos.par": list(range(n)),
+                      "chain.rec": ["TRB"] * n, "cls": ["peptide"] * n})
+    far = edges(q, far=True)[-1]
+    assert {(int(a), int(b)) for a, b in far} == {
+        (i, j) for i in range(n) for j in range(i + 1, n) if j - i > 2}
+    # It is the complement of K's reach on this residue, not an overlap: K(+0,+1) and K(+0,+2)
+    # already couple the |dj| <= 2 pairs, and nothing couples anything past them.
+    near = {tuple(sorted(map(int, ab))) for e in edges(q, far=False) for ab in e}
+    assert near and all(b - a <= 2 for a, b in near)
+    assert near.isdisjoint({tuple(sorted(map(int, ab))) for ab in far})
+
+
+def test_ais_and_gibbs_stay_exact_with_the_far_class():
+    """The new family goes through the same colouring, sampler and annealing as any other."""
+    n = 12
+    rng = np.random.default_rng(4)
+    q = pl.DataFrame({"sid": list(range(n)), "pdb.id": ["x"] * n, "loop": ["TRB:CDR3"] * n,
+                      "pchain": ["P"] * n, "pos.rec": [0] * n, "pos.par": list(range(n)),
+                      "chain.rec": ["TRB"] * n, "cls": ["peptide"] * n})
+    far = edges(q, far=True)[-1]
+    eta = rng.normal(0.0, 1.0, n)
+    A = coupling_matrix(n, far[:, 0], far[:, 1], np.zeros(len(far), int), np.array([-0.9]))
+    cols = colour(n, far[:, 0], far[:, 1])
+    for cidx in cols:
+        assert not A[np.ix_(cidx, cidx)].any()
+    exact = exact_log_z(eta, A)
+    assert ais_log_z(eta, A, cols, rng, particles=256, steps=512)[0] == pytest.approx(exact,
+                                                                                      abs=0.12)
+    s = ((np.arange(1 << n)[:, None] >> np.arange(n)) & 1).astype(float)
+    lw = s @ eta + 0.5 * ((s @ A) * s).sum(1)
+    w = np.exp(lw - lw.max())
+    occ, _ = gibbs(eta, A, cols, rng, chains=1500, burn=150, draws=250, thin=2)
+    assert np.max(np.abs(occ - (w / w.sum()) @ s)) < 0.025
+
+
 def test_energy_sign_convention():
     """Lower energy is more favourable, and a positive coupling lowers it for a co-occurring pair."""
     eta = np.array([0.0, 0.0])

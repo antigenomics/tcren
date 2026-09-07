@@ -3,6 +3,49 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
+## [3.8.0] — 2026-09-07
+
+### Added
+
+- **A receptor residue's grip on the peptide can now be told to stop.** `X(same receptor residue,
+  |dj| > 2)` is a fourth coupling class, the complement of `K`'s reach on one receptor residue:
+  `OFFSETS` excludes `(0, 0)` and stops at `|dj| = 2`, `_edges_cross` needs two different loops and
+  `_edges_class` needs two different partner classes, so nothing previously coupled two sites on one
+  residue more than two peptide positions apart. `K(+0,+1) = +0.637` and `K(+0,+2) = +0.385` build a
+  contiguous run and nothing said it ended.
+
+  Fitted on 367 `Native2026` crystals with `J` pinned to `tcren2`: **K = −0.457, s.e. 0.049,
+  z = −9.34**, worth **+81.8 nats** of pseudo-log-likelihood for one parameter — comparable in
+  significance to the strongest cross-loop class and three times its magnitude.
+
+  `fit_potts(..., far=True)`, `PottsModel.far`, `edges(q, far=...)`, `kernel_names(joint, far)`.
+  Goes through the existing colouring, block Gibbs and AIS untouched; `tests/unit/test_potts.py`
+  pins it against exact enumeration of all 2¹² configurations.
+
+- **Where it bites is a predicted geometry, not a crystal's own.** On the crystal's own Cα the field
+  is already sharp and the couplings have little left to move: Jensen–Shannon similarity to the
+  crystal's map goes 0.7133 → 0.7162 and the pairs above p = 0.8 go 3,447 → 3,474 at a conversion
+  rate of 0.905 → 0.907. Under a Cα geometry averaged over reference crystals, with each receptor
+  held out of its own prior, three of the four `Native2026` receptors improve on **both** placement
+  and level:
+
+  | receptor | js, `far=False` | js, `far=True` | E[contacts], `far=False` | `far=True` | observed |
+  |---|---|---|---|---|---|
+  | `3qib` / 2B4 | 0.4846 | **0.4957** | 36.80 | **34.11** | 32 |
+  | `3qiu` / 226 | 0.5226 | **0.5350** | 33.81 | **31.40** | 33 |
+  | `4p2r` / 5cc7 | 0.4834 | **0.4924** | 29.97 | **27.82** | 25 |
+  | `3qdg` / DMF5 | **0.4538** | 0.4529 | 19.10 | 19.00 | 24 |
+
+  The ROC-AUC does not pay for it (0.9406 → 0.9431, 0.9547 → 0.9580, 0.9639 → 0.9640). `3qdg` is
+  flat and is the one receptor already under-counted, where suppression has nothing to remove.
+
+### Unchanged
+
+- **Every shipped model carries `far=False` and is bit-for-bit what it was.** `potts_tcr_peptide`,
+  `potts_tcr_peptide_sc`, `potts_tcr_mhc` and `potts_pep_mhc` all still hold 18 kernel coefficients,
+  and a model JSON written before 3.8.0 round-trips unchanged. The class does **not** deliver the
+  Beta-shaped map on a predicted geometry on its own: no pair reaches p ≥ 0.8 in either arm there.
+
 ## [3.7.1] — 2026-09-07
 
 ### Added

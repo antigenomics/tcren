@@ -124,7 +124,8 @@ def fit_potts(sites: pl.DataFrame, *, radius: float = 15.0, cutoff: float = 5.0,
               couplings: bool = True, coupling_matrix: "str | object | None" = None,
               pin_centred: bool = True,
               weights: dict[str, float] | None = None, ridge: float = DEFAULT_RIDGE,
-              joint: bool | None = None, regions: tuple[str, ...] | None = None,
+              joint: bool | None = None, far: bool = False,
+              regions: tuple[str, ...] | None = None,
               notes: str = "") -> PottsModel:
     """Fit the model to a table of available pairs.
 
@@ -150,6 +151,8 @@ def fit_potts(sites: pl.DataFrame, *, radius: float = 15.0, cutoff: float = 5.0,
             TCR loop set. The peptide:MHC arm passes :data:`tcren.potts.MHC_RECEPTOR_REGIONS`,
             because there the receptor is the groove and every TCR loop level would be unused
             while every groove region collapsed into ``other``.
+        far: Include the long-offset exclusion class, ``X(same receptor residue, |dj| > 2)``.
+            Off by default, so every shipped model is unaffected.
         joint: Include the cross-class coupling family. Defaults to whether both partner classes
             are present.
         notes: Free text stored on the model.
@@ -175,7 +178,7 @@ def fit_potts(sites: pl.DataFrame, *, radius: float = 15.0, cutoff: float = 5.0,
     w = (np.ones(q.height) if weights is None
          else q["pdb.id"].replace_strict(weights, default=1.0).to_numpy().astype(float))
 
-    edge_lists = edges(q, joint=joint) if couplings else []
+    edge_lists = edges(q, joint=joint, far=far) if couplings else []
     counts = (neighbour_counts(edge_lists, sigma, q.height) if edge_lists
               else np.zeros((q.height, 0)))
     fixed = (centred_potential(coupling_matrix, centre=pin_centred)
@@ -205,7 +208,7 @@ def fit_potts(sites: pl.DataFrame, *, radius: float = 15.0, cutoff: float = 5.0,
         coupling_matrix_name=named,
         coupling_pinned=bool(fixed is not None and named is None),
         regions=list(regions) if regions else list(REGIONS),
-        radius=radius, cutoff=cutoff, joint=bool(joint),
+        radius=radius, cutoff=cutoff, joint=bool(joint), far=bool(far),
         n_structures=int(len(upid)), n_sites=int(q.height), n_contacts=int(sigma.sum()),
         pseudo_loglik=pll, notes=notes)
 
@@ -218,7 +221,7 @@ def kernel_table(model: PottsModel) -> pl.DataFrame:
     negative: a made contact recruits its own sequence neighbours onto the same partner residue and
     suppresses the diagonal one.
     """
-    names = kernel_names(model.joint)
+    names = kernel_names(model.joint, model.far)
     se = list(model.kernel_se) or [float("nan")] * len(model.kernel)
     return pl.DataFrame({"class": names[:len(model.kernel)],
                          "K": model.kernel, "se": se[:len(model.kernel)]}).with_columns(

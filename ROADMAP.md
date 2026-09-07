@@ -157,13 +157,22 @@ of those in read-back distance:
 - Species and peptide length reach Pearson +0.296 at 94.5 % coverage, but cascade *worse* than plain
   count-centrality (+0.359 against `epibal`'s +0.415), so `countbal` is the fallback on the evidence.
 
-**What step 2b's remaining error *is*, measured (2026-09-07).** Not a missing count: the leak is
-receptor-residue **occupancy**. Over the four panel-c receptors, the crystal's own Cα engages 12–17
-receptor residues at E[degree] 1.85–2.17 contacts, while the predicted ensemble spreads the same
-total over **42–44 residues at 0.40–0.48** — about 5× on the receptor side against about 2× on the
-peptide side (8–9 residues at 2.89–3.67 against 10–13 at 1.29–1.95). Not one pair reaches p ≥ 0.8 in
-any of the four, where the crystal's geometry puts 15 of 231 there for `3qib`. So the contacts are
-not absent, they are smeared across residues a crystal leaves untouched — which is what an occupancy
+**What step 2b's remaining error *is*: placement, and it is one number (2026-09-07).** Level and
+placement separate cleanly under `potts.map_agreement`, and it is placement that fails. Over the
+same 366 held-out crystals the Jensen-Shannon similarity between the predicted map and the crystal's
+own, both normalised so the level divides out, reads **0.4200** for the flat ensemble against
+**0.7052** on the crystal's own Ca -- while the level ratio is 1.139 against 0.985. The map is put
+in roughly the right *amount* and the wrong *place*.
+
+Mechanically the misplacement is receptor-residue **occupancy**: the flat ensemble engages more
+residues, each less. Compared like for like against step 1 -- which meets both of the author's
+criteria -- at a half-contact threshold it engages **15.25 receptor residues at E[degree] 1.35
+contacts against step 1's 10.53 at 1.77**, where the crystal itself makes 11.28 at 1.86. The
+direction holds at every threshold (45.86 residues at 0.54 against 33.11 at 0.62 counting any mass
+at all), so it is not an artefact of where the threshold falls. **A probabilistic map spreads mass
+by construction and step 1 does it too** -- the claim is comparative, not that any spreading is
+wrong. On the peptide side the same comparison is 9.69 residues at 2.63 against step 1's 7.37 at
+2.80, so the leak is about twice as large on the receptor side. That is what an occupancy
 constraint, rather than a recalibration, addresses.
 
 **So step 3 has two quantitative targets, both geometric: place the interface in ~161 sites rather

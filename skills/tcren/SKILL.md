@@ -492,10 +492,17 @@ schedule was too short.
 the projection is a separate step, never a constraint. After it, `J` is directly comparable with a
 double-centred `Potential`.
 
-**Three coupling families**, all on sequence offsets so no extra coordinates are needed:
+**Four coupling families**, all on sequence offsets so no extra coordinates are needed:
 `K(di,dj)` within one loop (`|di|,|dj| <= 2`, 12 classes), `L(|dj|, same chain?)` across two
-hypervariable loops (6), and `M` for the same receptor residue against both partners (1, joint
-models only). Everything else is asserted uncoupled.
+hypervariable loops (6), `M` for the same receptor residue against both partners (1, joint models
+only), and `X(same receptor residue, |dj| > 2)` (1, `far=True` only, new in 3.8.0). Everything else
+is asserted uncoupled.
+
+**`X` is the exclusion class and it is opt-in.** `K(+0,+1)` and `K(+0,+2)` say a receptor residue
+grips a contiguous run of peptide positions; nothing then says the run stops. `fit_potts(...,
+far=True)` fits the class that does, at **K = -0.457, s.e. 0.049, z = -9.34** on 367 crystals,
++81.8 nats for one parameter. Every shipped model has `far=False`, so it changes nothing already
+written. It bites under a *predicted* Ca geometry, not on the crystal's own.
 
 **The result to know.** On the 362 alpha-beta Native2026 crystals every **axial** class is positive
 and every **off-axis** class negative — `K(+1,0) = +0.79`, `K(0,+1) = +0.66` against

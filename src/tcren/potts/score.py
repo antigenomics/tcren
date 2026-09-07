@@ -48,7 +48,7 @@ def _prepare(sites: pl.DataFrame, model: PottsModel):
     upid, gid = np.unique(q["pdb.id"].to_numpy(), return_inverse=True)
     starts = np.searchsorted(gid, np.arange(len(upid) + 1))
     kv = np.asarray(model.kernel, dtype=float)
-    edge_lists = edges(q, joint=model.joint) if kv.size else []
+    edge_lists = edges(q, joint=model.joint, far=model.far) if kv.size else []
     E, eoff = bucket_edges(edge_lists, starts[:-1], kv) if edge_lists else (
         np.zeros((0, 3), np.int64), np.zeros(len(upid) + 1, np.int64))
     return upid, starts, e, sigma, E, eoff, kv, q
@@ -600,7 +600,7 @@ def connected_correlations(sites: pl.DataFrame, model: PottsModel, *, chains: in
     dn = np.where(acc["dn"] > 0, acc["dn"], np.nan)
     mn = np.where(m_n > 0, m_n, np.nan)
     return pl.DataFrame({
-        "class": kernel_names(model.joint)[:n_k],
+        "class": kernel_names(model.joint, model.far)[:n_k],
         "n_edges": acc["dn"].astype(np.int64),
         "c_data": acc["d2"] / dn - (acc["d1a"] / dn) * (acc["d1b"] / dn),
         "c_model": acc["m2"] / mn - (acc["m1a"] / mn) * (acc["m1b"] / mn),

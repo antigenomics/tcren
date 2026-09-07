@@ -79,12 +79,14 @@ CDR_LOOPS: tuple[str, ...] = tuple(
 )
 
 
-def kernel_names(joint: bool) -> list[str]:
+def kernel_names(joint: bool, far: bool = False) -> list[str]:
     """Names of the coupling classes, in the order :func:`tcren.potts.edges` returns them."""
     names = [f"K({di:+d},{dj:+d})" for di, dj in OFFSETS]
     names += [f"L(|dj|={dj},{'same' if s else 'cross'}chain)" for dj in CROSS_DJ for s in (1, 0)]
     if joint:
         names += ["M(same receptor residue, peptide vs MHC)"]
+    if far:
+        names += ["X(same receptor residue, |dj| > 2)"]
     return names
 
 
@@ -116,6 +118,11 @@ class PottsModel:
         radius: Availability radius, Å (Cα–Cα). A pair beyond it is not a site.
         cutoff: Contact definition, Å (closest heavy atom).
         joint: Whether the model was fitted over both partners at once.
+        far: Whether the long-offset exclusion class is fitted. A receptor residue's grip on the
+            peptide is a contiguous run of two or three positions --- ``K(+0,+1)`` and ``K(+0,+2)``
+            are the fitted cooperativity that builds it --- and nothing in the model says the run
+            stops. This class is what says so, and it is off in every shipped model, so a model
+            written before it round-trips unchanged.
         alphabet: The residue alphabet ``h`` and ``J`` are indexed by.
         n_structures / n_sites / n_contacts: What the fit was estimated on.
         pseudo_loglik: Penalised pseudo-log-likelihood at the optimum.
@@ -138,6 +145,7 @@ class PottsModel:
     radius: float = 15.0
     cutoff: float = 5.0
     joint: bool = False
+    far: bool = False
     alphabet: str = "".join(AA)
     regions: list[str] = field(default_factory=lambda: list(REGIONS))
     roles: list[str] = field(default_factory=lambda: list(ROLES))

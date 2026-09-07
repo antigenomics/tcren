@@ -74,16 +74,40 @@ def _edges_class(q: pl.DataFrame) -> list[np.ndarray]:
     return [np.column_stack([j["sid"].to_numpy(), j["sid_b"].to_numpy()]).astype(np.int64)]
 
 
-def edges(q: pl.DataFrame, joint: bool = False) -> list[np.ndarray]:
+def _edges_far(q: pl.DataFrame) -> list[np.ndarray]:
+    """Two sites on ONE receptor residue, more than two partner positions apart.
+
+    The complement, inside one loop, of the ``|dj| <= 2`` half of ``K``: ``OFFSETS`` excludes
+    ``(0, 0)`` because that is the same site, and stops at ``|dj| = 2``. Everything past it is
+    asserted uncoupled, which is the model's statement that a residue reaching peptide position
+    *j* says nothing at all about whether it also reaches *j + 5*. Physically it says a great
+    deal --- a side chain that is gripping one end of the groove is not simultaneously at the
+    other --- and this is the class that carries it. Expected negative.
+
+    Deduped by ``sid_a < sid_b``; the two members always sit at different partner positions.
+    """
+    key = ["pdb.id", "loop", "pchain", "pos.rec"]
+    base = q.select(["sid", "pos.par"] + key)
+    j = (base.join(base.select(pl.col("sid").alias("sid_b"), pl.col("pos.par").alias("pos_b"),
+                               *key), on=key, how="inner")
+         .filter((pl.col("sid") < pl.col("sid_b"))
+                 & ((pl.col("pos.par") - pl.col("pos_b")).abs() > 2)))
+    return [np.column_stack([j["sid"].to_numpy(), j["sid_b"].to_numpy()]).astype(np.int64)]
+
+
+def edges(q: pl.DataFrame, joint: bool = False, far: bool = False) -> list[np.ndarray]:
     """One ``(n, 2)`` array of site-index pairs per coupling class, in :func:`kernel_names` order.
 
     Args:
         q: The frame :func:`tcren.potts.site_codes` returns, carrying ``sid``, ``loop`` and
             ``pchain``.
         joint: Include the cross-class family (both partners in one model).
+        far: Include the long-offset exclusion family, :func:`_edges_far`.
     """
     out = _edges_within(q) + _edges_cross(q)
-    return out + _edges_class(q) if joint else out
+    if joint:
+        out = out + _edges_class(q)
+    return out + _edges_far(q) if far else out
 
 
 def neighbour_counts(edge_lists: list[np.ndarray], sigma: np.ndarray, n_sites: int) -> np.ndarray:
