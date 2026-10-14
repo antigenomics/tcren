@@ -9,10 +9,10 @@ algebra operation on that one object, with no further fitting:
   "Keep only geometry and dPhi_pep_mhc" is a sub-block, not a re-fit.
 * **PCA at any width**     the covariance in PCA coordinates is `W' S_c W` exactly, so truncating
   to m components is a projection of the same object -- again no re-fit.
-* **ipTM prediction**      `E[ipTM | x] = mu_ipTM + S_{ipTM,x} S_xx^-1 (x - mu_x)`, and the residual
-  `R = ipTM - E[ipTM | x]` is the confidence-misbehaviour channel.
+* **confidence prediction** `E[z | x] = mu_z + S_{z,x} S_xx^-1 (x - mu_x)` for
+  `z = logit(ipTM)`; `z - E[z|x]` is the transformed-axis residual.
 * **one-class anomaly**    `A(x) = sum_{k<K} (u_k'(x - mu_1))^2 / lam_k` over the stiffest binder
-  directions -- needs no negatives at all, so it is a different tier of fitting from the rest.
+  directions -- its moments use binders, while the frozen coordinate transform uses both classes.
 
 **There is no Jacobian in any of this.** The author's note asked to back-transform
 `P(binder|PCA) -> Jacobian * P(binder|descriptors)`. For a POSTERIOR the Jacobian cancels: PCA is
@@ -35,9 +35,46 @@ import numpy as np
 
 
 def _wmean_cov(X: np.ndarray, w: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    X, w = np.asarray(X, float), np.asarray(w, float)
+    if (X.ndim != 2 or X.shape[1] == 0 or w.shape != (len(X),)
+            or not np.isfinite(X).all() or not np.isfinite(w).all()
+            or (w < 0).any() or not np.isclose(w.sum(), 1., rtol=1e-10, atol=1e-12)
+            or (w ** 2).sum() >= 1.):
+        raise ValueError("finite rows and nonnegative normalized reliability weights with effective size > 1 required")
     mu = w @ X
     Z = X - mu
     return mu, (Z * w[:, None]).T @ Z / (1.0 - (w ** 2).sum())
+
+
+def _positive_cov(S: np.ndarray) -> None:
+    if (S.ndim != 2 or S.shape[0] == 0 or S.shape[0] != S.shape[1]
+            or not np.isfinite(S).all() or not np.allclose(S, S.T, rtol=1e-10, atol=1e-12)):
+        raise ValueError("covariance must be finite and symmetric positive definite")
+    try:
+        np.linalg.cholesky(S)
+    except np.linalg.LinAlgError as exc:
+        raise ValueError("covariance must be positive definite") from exc
+
+
+def conditional_variance(S: np.ndarray, cross: np.ndarray, variance: float) -> float:
+    """Schur complement of a scalar augmentation; reject an inconsistent joint covariance."""
+    S, cross = np.asarray(S, float), np.asarray(cross, float)
+    _positive_cov(S)
+    if cross.shape != (len(S),) or not np.isfinite(cross).all() or not np.isfinite(variance) or variance < 0:
+        raise ValueError("invalid confidence covariance shape or variance")
+    explained = float(cross @ np.linalg.solve(S, cross))
+    residual = float(variance - explained)
+    if residual < -1e-10 * max(1., abs(variance), abs(explained)):
+        raise ValueError("confidence joint covariance must be positive semidefinite")
+    return residual
+
+
+def _width(k: int | None, p: int, minimum: int = 0) -> int:
+    if k is None:
+        return p
+    if isinstance(k, (bool, np.bool_)) or not isinstance(k, (int, np.integer)) or not minimum <= k <= p:
+        raise ValueError(f"width must be an integer in [{minimum}, {p}]")
+    return int(k)
 
 
 def _shrink(S: np.ndarray, X: np.ndarray) -> tuple[np.ndarray, float]:
@@ -76,10 +113,16 @@ class Joint:
         the crystal test flags as the generator's own regularity all sit below 0.05 -- so a
         shrunk model cannot see the artefact band at all, and measuring it needs the raw one.
         """
+        if (set(X) != {0, 1} or set(w) != {0, 1} or not self.names
+                or len(set(self.names)) != len(self.names)):
+            raise ValueError("two classes and unique nonempty coordinate names required")
         n_tot = sum(len(X[c]) for c in X)
         for c in X:
+            if np.asarray(X[c]).ndim != 2 or np.asarray(X[c]).shape[1] != len(self.names):
+                raise ValueError("class rows must match coordinate names")
             m, S = _wmean_cov(X[c], w[c])
             S, a = _shrink(S, X[c]) if shrink else (S, 0.0)
+            _positive_cov(S)
             self.mu[c], self.cov[c], self.alpha[c] = m, S, a
             self.prior[c] = len(X[c]) / n_tot
         lam, U = np.linalg.eigh(self.cov[1])
@@ -91,14 +134,19 @@ class Joint:
         if subset is None:
             return np.arange(len(self.names))
         s = set(subset)
-        return np.array([i for i, n in enumerate(self.names) if n in s])
+        if not subset or len(s) != len(subset) or not s.issubset(self.names):
+            raise ValueError("subset must contain unique known coordinates and cannot be empty")
+        return np.array([i for i, n in enumerate(self.names) if n in s], dtype=int)
 
     def log_odds(self, X: np.ndarray, subset: list[str] | None = None) -> np.ndarray:
         """`log P(1|x_S) - log P(0|x_S)`, exact for any subset S by sub-blocking Sigma.
 
         `X` carries exactly the columns `subset` names, in that order, when `subset` is given.
         """
+        X = np.asarray(X, float)
         j = self._idx(subset)
+        if X.ndim != 2 or X.shape[1] not in ({len(self.names), len(j)} if subset else {len(self.names)}):
+            raise ValueError("rows must match full or subset coordinate width")
         if subset is not None and X.shape[1] == len(j):
             # `_idx` returns indices in `self.names` order, so the sub-blocks below are in that
             # order; permute X's columns to match the docstring's promise rather than silently
@@ -109,6 +157,7 @@ class Joint:
             out = {}
             for c in (0, 1):
                 S = self.cov[c][np.ix_(j, j)]
+                _positive_cov(S)
                 _, logdet = np.linalg.slogdet(S)
                 Z = X - self.mu[c][j]
                 out[c] = -0.5 * (np.einsum("ij,jk,ik->i", Z, np.linalg.inv(S), Z) + logdet) \
@@ -117,7 +166,8 @@ class Joint:
         out = {}
         for c in (0, 1):
             S = self.cov[c][np.ix_(j, j)]
-            sign, logdet = np.linalg.slogdet(S)
+            _positive_cov(S)
+            _, logdet = np.linalg.slogdet(S)
             Z = X[:, j] - self.mu[c][j]
             out[c] = -0.5 * (np.einsum("ij,jk,ik->i", Z, np.linalg.inv(S), Z) + logdet) \
                 + np.log(self.prior[c])
@@ -126,10 +176,10 @@ class Joint:
     def anomaly(self, X: np.ndarray, k: int | None = None) -> np.ndarray:
         """Partial Mahalanobis to the binder Gaussian on its k stiffest directions.
 
-        One-class: the negatives are never read. This is the tier-1 read-out -- the same standing
-        as the shipped `q_score`/`t_score`, which estimate a reference covariance and no label.
+        The readout uses only binder moments. Training still selects binders by label and fits
+        the shared coordinate transform on both classes; tier 1 is not negative-independent training.
         """
-        k = k or len(self.lam1)
+        k = _width(k, len(self.lam1))
         P = (X - self.mu[1]) @ self.U1[:, :k]
         return (P ** 2 / self.lam1[:k]).sum(1)
 
@@ -142,10 +192,11 @@ class Joint:
         """
         if list(names) == list(self.names):
             return self.anomaly(X, k)
+        self._idx(names)
         j = [self.names.index(n) for n in names]
         lam, U = np.linalg.eigh(self.cov[1][np.ix_(j, j)])
         lam = np.maximum(lam, 1e-12)
-        k = k or len(lam)
+        k = _width(k, len(lam))
         P = (X - self.mu[1][j]) @ U[:, :k]
         return (P ** 2 / lam[:k]).sum(1)
 
@@ -170,6 +221,7 @@ class Joint:
         At m = p with W orthonormal it is a rotation, and the posterior is unchanged -- the
         identity `tests/unit/test_score.py` asserts.
         """
+        m = _width(m, len(self.names), minimum=1)
         Sw = sum(self.prior[c] * self.cov[c] for c in self.cov)
         lam, U = np.linalg.eigh(Sw)
         W = U[:, ::-1][:, :m]

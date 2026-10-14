@@ -9,10 +9,11 @@ anchored at the two Cα atoms. Two quantities are exposed:
   direction, letting springs break past a strain threshold, and record the peak resisting **force** and
   the cumulative **work**.
 
-Rationale (validated on ATLAS, 2026): these mechanical measures track the *kinetic* stability of the
-complex — the dissociation off-rate ``koff`` — far better than the equilibrium ΔG/Kd (Bell–Evans: rupture
-resistance reflects the dissociation barrier, not the well depth). This is the physically apt axis for the
-TCR, a mechanosensor whose pMHC bonds are catch bonds. Pure-numpy, single structure, no MD.
+Recorded ATLAS associations motivate these descriptors as kinetic proxies. They do not establish
+a calibrated barrier, physical rupture law or catch-bond mechanism. With default inverse-distance
+weights and coordinates in Å, stiffness has reduced dimensions Å^-2, force Å^-1, and work is
+dimensionless; an unspecified energy factor would be needed for SI. Unit/count weighting instead
+gives arbitrary stiffness units, force in those units times Å, and work times Å². No MD is run.
 """
 
 from __future__ import annotations
@@ -62,6 +63,8 @@ def interface_springs(
     Returns:
         The :class:`InterfaceSprings` (empty arrays if no inter-body contact is found).
     """
+    if not np.isfinite(cutoff) or cutoff <= 0:
+        raise ValueError("cutoff must be finite and positive")
     if weight not in WEIGHTS:
         raise ValueError(f"unknown weight {weight!r}; choose from {WEIGHTS}")
     if not any(c.chain_type == PEPTIDE_TYPE for c in structure.chains):
@@ -96,6 +99,8 @@ def interface_springs(
         elif weight == "count":
             k = float(nat)
         else:  # invdist2
+            if not np.isfinite(d) or d <= 0:
+                raise ValueError("inverse-distance spring weights require finite positive contact distance")
             k = float(nat) / (float(d) ** 2)
         a_list.append(a); b_list.append(b); k_list.append(k); rest.append(L)
     if not a_list:
@@ -110,6 +115,12 @@ def interface_springs(
 
 def _stiffness_matrix(s: InterfaceSprings) -> np.ndarray:
     """The 3×3 stiffness tensor ``K = Σ kᵢ ûᵢ⊗ûᵢ`` over the spring network."""
+    n = len(s)
+    if (s.a.shape != (n, 3) or s.b.shape != (n, 3) or s.rest.shape != (n,)
+            or s.k.shape != (n,) or not all(np.isfinite(v).all() for v in (s.a, s.b, s.k, s.rest))
+            or (s.rest <= 0).any() or (s.k < 0).any()
+            or not np.allclose(np.linalg.norm(s.b - s.a, axis=1), s.rest)):
+        raise ValueError("spring arrays require finite anchors, nonnegative stiffness and positive matching rest lengths")
     u = (s.b - s.a) / s.rest[:, None]
     return (s.k[:, None, None] * u[:, :, None] * u[:, None, :]).sum(0)
 
@@ -143,6 +154,10 @@ def stiffness_tensor(
 
 def _pull_direction(s: InterfaceSprings, direction: str) -> np.ndarray:
     """Unit pull direction. ``"tensile"`` = docking axis; ``"shear"`` = stiffest in-plane direction."""
+    if s.axis.shape != (3,) or not np.isfinite(s.axis).all() or not np.isclose(np.linalg.norm(s.axis), 1.):
+        raise ValueError("docking axis must be a finite unit vector")
+    if direction not in ("tensile", "shear"):
+        raise ValueError("pull direction must be tensile or shear")
     if direction == "tensile":
         return s.axis
     K = _stiffness_matrix(s)
@@ -159,7 +174,8 @@ def rupture(
     """Steered-unbinding cartoon: pull the pMHC body off the TCR and measure rupture resistance.
 
     The pMHC anchors are rigidly translated along the pull ``direction``; each spring resists in tension
-    (Hookean) and is removed once its strain exceeds ``break_strain``. Integrates until all springs break.
+    (Hookean) and is removed once its strain exceeds ``break_strain``. Samples a fixed displacement grid up to twice the longest rest length, stopping
+    early if every spring breaks. This finite horizon does not guarantee complete separation.
 
     Args:
         direction: ``"tensile"`` (docking axis; the default and the right choice for affinity/koff
@@ -171,8 +187,14 @@ def rupture(
         steps: displacement increments.
 
     Returns a dict: ``rupture_force`` (peak resisting force along the pull), ``rupture_work``
-        (∫ force · displacement), ``n_spring``, ``break_strain``. ``nan`` if < 3 springs.
+        (right-grid sum of force times displacement increment), ``n_spring``, ``break_strain``. ``nan`` if < 3 springs.
     """
+    if direction not in ("tensile", "shear", "auto"):
+        raise ValueError("direction must be tensile, shear or auto")
+    if isinstance(steps, (bool, np.bool_)) or not isinstance(steps, (int, np.integer)) or steps <= 0:
+        raise ValueError("steps must be a positive integer")
+    if not np.isfinite(break_strain) or break_strain < 0:
+        raise ValueError("break_strain must be finite and nonnegative")
     if direction == "auto":
         rt = rupture(structure, direction="tensile", cutoff=cutoff, weight=weight,
                      break_strain=break_strain, steps=steps)
@@ -189,7 +211,7 @@ def rupture(
     if len(s) < 3:
         return out
     d = _pull_direction(s, direction)
-    max_disp = 2.0 * float(s.rest.max())  # enough for even perpendicular springs to reach break_strain
+    max_disp = 2.0 * float(s.rest.max())  # historical finite horizon; complete rupture is not guaranteed
     dt = max_disp / steps
     alive = np.ones(len(s), bool)
     forces, t = [], 0.0

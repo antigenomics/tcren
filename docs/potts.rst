@@ -17,6 +17,22 @@ a Boltzmann distribution over it:
    \qquad P(\sigma) = \frac{e^{-E(\sigma)}}{Z},
    \qquad Z = \sum_{\sigma \in \{0,1\}^{n}} e^{-E(\sigma)}
 
+Here :math:`n` is the number of available sites, :math:`a,b` index sites,
+:math:`\eta_a` is the contact log-odds field, and :math:`A_{ab}` is a symmetric
+zero-diagonal coupling. :math:`E` is a dimensionless statistical energy;
+:math:`\log Z` and entropy use natural-log units (nats). These are not measured
+binding free energies.
+
+Site tables retain physical ``chain.id.rec`` and ``chain.id.par`` plus heavy-atom
+measurement ``probe`` (Å). Partner offsets and lengths belong to a chain and
+region together, so equal class-II groove-region names cannot merge chains.
+Orientation lookups index the same compact Cα rows used to compute their matrix.
+Unavailable orientations remain NaN; a model fitted with orientation rejects
+missing geometry explicitly instead of assigning it a bin.
+Legacy peptide-only tables remain readable. Legacy MHC tables without partner
+chain identity must be rebuilt from their structures. Frozen coefficient arrays
+are unchanged; class-II predictions require fresh assessment with corrected sites.
+
 The one-body term is additive over categorical blocks,
 
 .. math::
@@ -94,6 +110,12 @@ and plmDCA (`arXiv:1211.1281 <https://arxiv.org/abs/1211.1281>`_) is the same re
 sequence variables. The design is over-parametrised and identified by an :math:`\ell_2` ridge, then
 projected to the zero-sum gauge — **penalise then project**, because an :math:`\ell_2` penalty
 otherwise picks its own gauge.
+
+``PottsModel.n_parameters()`` counts stored fitted coefficients, including
+orientation and redundant or unobserved one-body levels. It is not the number of
+identifiable degrees of freedom. ``pseudo_loglik`` stores the unpenalized weighted
+value at the penalized optimum. IRLS validates its numerical domain and backs off
+Newton steps that decrease the penalized objective; failure to converge raises.
 
 Scoring does, and it is exact at the reference
 ----------------------------------------------
@@ -287,6 +309,10 @@ not break that identity. What it does is fix its two conditions, and both are ea
    moves under substitution and the two are different numbers.
 
 :func:`tcren.potts.threaded_ensemble` recomputes the marginals per candidate.
+It accepts peptide-partner sites only and validates each whole candidate against
+``par.len``, including unrepresented tail residues. Later candidates start from
+the previous retained matrix of chain configurations and use ``candidate_burn``;
+candidate ordering remains part of the sampling protocol.
 :func:`tcren.potts.energy_ensemble` carries the read-outs no set of marginals can determine:
 
 .. list-table::
@@ -359,7 +385,9 @@ When the contact indicator is not data
 :func:`tcren.potts.fit_potts` treats :math:`\sigma` as observed. In a crystal it mostly is — but a
 contact is called by thresholding the closest heavy-atom distance at 5 Å, and a pair sitting within
 half an ångström of that line is a coin toss recorded as a fact. :mod:`tcren.potts.em` treats those
-sites as latent and runs Monte-Carlo EM around the existing fit.
+sites as latent and runs a Gibbs-imputation/pseudolikelihood hybrid around the
+existing fit. The full-posterior imputation and conditional-pseudolikelihood update
+do not share the ordinary likelihood-EM monotonicity theorem.
 
 **E-step.** Sample :math:`\sigma_{\mathcal L}` from :math:`P(\sigma_{\mathcal L} \mid
 \sigma_{-\mathcal L})` by block Gibbs with every confident site **clamped** to what the structure
@@ -374,13 +402,17 @@ sites across draws that never coexisted.
 
 .. warning::
 
-   **The latent band has to reach both ways.** ``available_pairs`` measures ``d_heavy`` only out to
-   its own ``cutoff``, so every pair that missed carries a null distance. A band built on that table
+   **The latent band has to reach both ways.** ``available_pairs`` measures ``d_heavy`` out to
+   a requested ``probe=cutoff``, so every pair that missed carries a null distance.
+   The current default probe is the availability radius. A band built on that table
    is one-sided: on the 17 bundled test structures it selects **44 sites, every one of them a
    contact**, and an EM run on it could remove contacts and never add them. Build the table with
    ``available_pairs(..., probe=cutoff + margin)`` — which populates ``d_heavy`` past the cutoff
    without moving ``sigma`` — and the same band selects **115 sites, 44 contacts and 71 near
-   misses**. :func:`tcren.potts.latent_mask` raises rather than proceeding one-sided.
+   misses**. :func:`tcren.potts.latent_mask` checks the recorded ``probe`` against
+   ``cutoff + margin``; an all-contact band alone does not establish truncation.
+   Legacy tables without probe provenance need regeneration for publication.
+   ``margin=0`` explicitly makes every site observed.
 
 This **adds** a fit; it does not replace one. The shipped pseudolikelihood models are unchanged and
 are the point of comparison. :func:`tcren.potts.consistency` reports how far a refit moved per
@@ -436,8 +468,8 @@ both questions:
 
 **Read ``js`` against the same model on the structure's own geometry, not against 1.**
 :math:`\mathrm{js} = 1` requires the model to put all its mass on exactly the contacting cells in
-equal proportion, which is a deterministic map; a calibrated probabilistic model cannot reach it
-against a single realisation. On the four receptors of the manuscript's Figure 2c the crystal's own
+equal proportion. A probabilistic map :math:`p=c\sigma`, :math:`0<c<1`, also
+reaches 1 after normalization; ``ratio`` records its different level. On the four receptors of the manuscript's Figure 2c the crystal's own
 C\ :math:`\alpha` geometry reads 0.75--0.81 and the predicted geometry 0.42--0.58, so the first is
 the ceiling the second is measured against.
 
@@ -586,8 +618,11 @@ accepts a per-contact fractional weight, documented there as the way to let a pa
 sample an interacting geometry some of the time" cast a fractional vote. The log-odds, the
 contact-fraction reference state and the pseudocount are the shipped ones, untouched.
 
-**The observation enters as one additive field.** Conditioning on the crystal through
-:math:`P(\sigma_a{=}1 \mid d_a) = \operatorname{sigmoid}((c - d_a)/m)` puts a per-site constant into
+**The observation enters as one additive field.** The distance sigmoid
+:math:`\operatorname{sigmoid}((c-d_a)/m)` defines a multiplicative observation field.
+A Bayesian posterior interpretation requires its logit to be the observation
+likelihood ratio, or the sigmoid to use an equal-odds reference prior; an arbitrary
+posterior probability given distance does not suffice. The field adds a constant to
 :math:`\eta`, so the E-step is the existing block-Gibbs sampler called with a modified vector — no
 clamping machinery, no second code path. One knob spans the family: ``margin`` → 0 pins the crystal
 map, ``margin`` = 0.5 Å releases the threshold band alone, and a large ``margin`` lets the crystal
@@ -596,8 +631,8 @@ enter only through the fit.
 **The pair term is pinned, not free.** ``J`` carries one coefficient — ``beta_matrix``, the scale on
 the current matrix — rather than 400 cells. That is what closes the loop: a free ``J`` would absorb
 the pair structure and leave the re-derived matrix no route back into :math:`P(\sigma)`. It also
-makes ``beta_matrix`` reportable as the inverse temperature relating TCRen units to contact
-log-odds. :func:`tcren.potts.fit_potts` accepts a :class:`~tcren.potential.Potential` object for
+makes ``beta_matrix`` reportable as a statistical scale relating TCRen
+natural-log units to contact log-odds. It is not a calibrated physical temperature. :func:`tcren.potts.fit_potts` accepts a :class:`~tcren.potential.Potential` object for
 ``coupling_matrix``, not only one of the five bundled names, and a model pinned that way stores the
 matrix itself so it round-trips.
 
@@ -621,7 +656,9 @@ matrix itself so it round-trips.
 **The reduction gate.** At ``margin = 0`` the crystal's distance read pins every site, the posterior
 is the observed map exactly, and the probability-weighted tally reproduces the plain unweighted one
 **bit for bit** — on the bundled crystals, ``max |soft − hard| = 0`` over all 380 cells and a
-weighted mass of 309.000000 against 309 observed contacts. That is the check that the two halves of
+posterior mass of 309.000000 against 309 observed contacts. ``contact_mass`` and
+``mass_from_uncertain`` sum unweighted site probabilities; structure weights enter
+the fit and potential derivation separately. That is the check that the two halves of
 the loop are wired to the same contacts, and it is a test rather than an approximation.
 
 .. note::

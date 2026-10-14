@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -116,7 +117,7 @@ def test_recipe_reproduces_the_shipped_matrix(name, tmp_path):
     if e.get("reproduce") == "benchmark" and not os.getenv("RUN_BENCHMARK"):
         pytest.skip(f"{name} re-runs a sampled fit; set RUN_BENCHMARK=1 to check it")
 
-    cmd = [*_cli(), e.get("command", "derive-potential"), "-o", str(out)]
+    cmd = [*_cli(), *shlex.split(e.get("command", "derive-potential")), "-o", str(out)]
     for opt in ("variant", "pseudocount"):
         if opt in e:
             cmd += [f"--{opt}", str(e[opt])]
@@ -133,7 +134,8 @@ def test_recipe_reproduces_the_shipped_matrix(name, tmp_path):
         pytest.importorskip("arda")
         cmd += [e.get("structure_flag", "--structure-dir"), str(sdir)]
 
-    r = subprocess.run(cmd, capture_output=True, text=True)
+    # Recipes may emit auxiliary fitted models; keep those outside the integration checkout.
+    r = subprocess.run(cmd, capture_output=True, text=True, cwd=tmp_path)
     assert r.returncode == 0, f"derive-potential failed for {name}:\n{r.stderr[-2000:]}"
 
     got, want = _read(out), _read(shipped)

@@ -10,17 +10,22 @@ Fix demonstrated scoring, native-boundary and pipeline defects with focused synt
 Archive only complete obsolete dependency groups, retaining source, resources and result records.
 Keep the accepted potential and fitted arrays unchanged until a deliberate model revision is approved.
 Exit: focused tests, full applicable unit suite, lint and docs pass; every remaining defect is named.
-Current: core repairs and geometry archival verified; remaining semantic migration and producer
-gaps are itemized in AUDIT.md. Passing software tests do not close gates 2–5.
+Current: Potts identity/sampling, Gaussian/mechanics domains and source-boundary repairs are
+implemented and checked. The catalogue/frozen metadata migration preserves every coefficient
+array; corrected-feature equivalence still requires gate 4. Passing software tests do not close
+the scientific or publication gates.
 
 ## 2. Settle definitions before changing numbers
 
-Author decisions are needed on the tier-1 training dependency, the probabilistic interpretation of
-binder + logit(ipTM), the confidence GLM versus shipped residual, and the ergodicity interpretation.
+The author approved correcting the ergodicity and naive-Bayes interpretations and retiring tree
+figures/claims. Tier-1 documentation now identifies shared preprocessing fitted on both classes;
+the benchmark GLM is explicitly separate from the shipped conditional residual.
 Correctly distinguish low-order Betti difference from full Euler characteristic and approximate
 contact stability from an exact physical probability. Preserve every measured result and recorded
 comparison. Do not add new metrics or fitted alternatives to address a wording problem.
 Exit: one definition per readout, matched equations/code/prose, approved claim scope.
+Current: source definitions reconciled without refitting or replacing empirical values. Final
+rendered-PDF review remains in gate 5.
 
 ## 3. Close the publication dependency graph
 
@@ -30,6 +35,10 @@ producers. Fail on absent required input, stale model catalogue, failed stage or
 Evaluation never installs fitted models into the library. Separate restricted inputs from public
 availability claims without exposing private provenance.
 Exit: complete producer/input manifest and one tested, immutable software/environment identity.
+Current: all 34 live reshapers have scheduled owning producers/inputs; tree routes are archived.
+Preflight checks the actual wheel payload and 12 required raw sets. Historical frozen-model fit
+traces are explicitly historical parameter evidence. See
+`audit/2026-10-14/publication-resolution.md`; only execution can certify the complete graph.
 
 ## 4. Reproduce only after authorization
 
@@ -38,6 +47,9 @@ matched units against the accepted recorded results, including row counts and mi
 report material weakening; never silently replace a baseline, refloor a test or average away a loss.
 No sweeps, additional controls or model-selection exercise is implied by this roadmap.
 Exit: all five blocks and every publication artifact trace to that run; no resumed intermediates.
+Current: full fresh reproduction authorized and running after driver/corpus reuse repairs.
+Both full-manifest frozen-parameter comparison and matched accepted-result gates precede
+publication. Earlier interrupted diagnostic evidence is retained but does not complete this gate.
 
 ## 5. Submission and release
 

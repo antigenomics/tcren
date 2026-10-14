@@ -8,7 +8,9 @@ ship the fitter, the manifest and the frozen output together, so that
 
     tcren fit-holdout --features <table> --manifest <csv> -o holdout_model.npz
 
-reproduces :data:`tcren.score.MODEL_FILE` from inputs that are named and public.
+implements its historical recipe from named public inputs. The shipped numerical arrays remain
+frozen through the 2026-10-14 definition migration; refits under corrected descriptor semantics
+write a separate output and require matched comparison before promotion.
 
 What is estimated, and on what: a mean and a covariance per class over the transformed descriptor
 coordinates, on out-of-panel structures only, weighted 1/n_epitope so that one deeply sampled
@@ -27,7 +29,7 @@ import numpy as np
 from .. import __version__
 from ..provenance import registry_digest
 from . import CONF_COORD, _logit
-from .model import Joint
+from .model import Joint, conditional_variance
 from .transform import Transformer, working_set
 
 
@@ -101,6 +103,8 @@ def fit_holdout(features, manifest, *, out: Path | None = None) -> dict:
             conf_cov = ((ip[good] - conf_mu) * ww) @ Zc / (1.0 - (ww ** 2).sum())
             conf_var = float(((ip[good] - conf_mu) ** 2 * ww).sum() / (1.0 - (ww ** 2).sum()))
 
+    conf_cond_var = (conditional_variance(j.cov[1], conf_cov, conf_var)
+                     if confidence_available else None)
     meta = {
         "descriptors": list(cols),
         "coordinates": list(names),
@@ -111,6 +115,9 @@ def fit_holdout(features, manifest, *, out: Path | None = None) -> dict:
         "prior": [j.prior[0], j.prior[1]], "alpha": [j.alpha[0], j.alpha[1]],
         "conf_mu": conf_mu, "conf_var": conf_var, "conf_coord": CONF_COORD,
         "confidence_available": confidence_available,
+        "conf_conditional_variance": conf_cond_var,
+        "transform_training": "all joined complete rows, both classes",
+        "binder_moments_training": "label-selected positive rows",
         "catalogue_digest": registry_digest(),
         "n_pos": int((y == 1).sum()), "n_neg": int((y == 0).sum()),
         "n_epitopes": int(t["epitope"].n_unique()),

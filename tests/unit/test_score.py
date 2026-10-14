@@ -456,3 +456,48 @@ def test_a_table_missing_a_whole_family_is_still_scored():
     a, b = full["binder_score"].to_numpy()[ok], thin["binder_score"].to_numpy()[ok]
     assert not np.allclose(a, b), "dropping five coordinates must change the posterior"
     assert np.corrcoef(a, b)[0, 1] > 0.5, "and must not scramble it either"
+
+@pytest.mark.parametrize('bad', [-1, 0, 7, 1.5, True])
+def test_joint_rejects_invalid_projection_width(bad):
+    with pytest.raises(ValueError):
+        _toy().project(bad)
+
+
+def test_joint_validates_weights_subsets_and_anomaly_width():
+    from tcren.score.model import _wmean_cov
+    X = np.array([[0., 1.], [1., 0.], [2., 2.]])
+    for w in ([.2, .2, .2], [-.1, .5, .6], [1., 0., 0.], [np.nan, .5, .5]):
+        with pytest.raises(ValueError):
+            _wmean_cov(X, np.array(w))
+    j = _toy(p=2)
+    for subset in ([], ['missing'], ['x0', 'x0']):
+        with pytest.raises(ValueError):
+            j.log_odds(X, subset=subset)
+    assert np.array_equal(j.anomaly(X, k=0), np.zeros(len(X)))
+    with pytest.raises(ValueError):
+        j.anomaly(X, k=-1)
+    j.cov[0] = -np.eye(2)
+    with pytest.raises(ValueError, match='positive definite'):
+        j.log_odds(X)
+
+
+def test_confidence_schur_complement_rejects_inconsistent_augmentation():
+    from tcren.score.model import conditional_variance
+    assert conditional_variance(np.eye(2), np.array([.2, .3]), .5) == pytest.approx(.37)
+    assert conditional_variance(np.eye(2), np.zeros(2), 0.) == 0.
+    with pytest.raises(ValueError, match='positive semidefinite'):
+        conditional_variance(np.eye(2), np.ones(2), .5)
+
+
+def test_frozen_metadata_migration_preserves_every_parameter_array():
+    import hashlib
+    import json
+
+    record = json.loads((pathlib.Path(__file__).resolve().parents[2]
+                         / 'audit/2026-10-14/frozen-metadata-migration.json').read_text())
+    z = np.load(MODEL_FILE, allow_pickle=False)
+    meta = json.loads(str(z['meta']))
+    assert meta['training_catalogue_digest'] == record['training_catalogue_digest']
+    assert meta['metadata_migration']['refitted'] is False
+    for name, digest in record['array_sha256'].items():
+        assert hashlib.sha256(z[name].tobytes()).hexdigest() == digest

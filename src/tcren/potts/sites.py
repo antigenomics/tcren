@@ -30,7 +30,7 @@ MHC_RECEPTOR_REGIONS: tuple[str, ...] = tuple(
     f"{c}:{r}" for c in MHC_PARTNER for r in GROOVE_REGIONS) + ("other",)
 
 SITE_COLUMNS: tuple[str, ...] = (
-    "pdb.id", "aa.rec", "chain.rec", "region.rec", "pos.rec",
+    "pdb.id", "chain.id.rec", "chain.id.par", "aa.rec", "chain.rec", "region.rec", "pos.rec",
     "aa.par", "pos.par", "par.len", "role.par", "cls", "d_heavy", "d_ca", "sigma",
 )
 
@@ -162,25 +162,28 @@ def available_pairs(structure: Structure, partner: str = "peptide", *,
         if w.is_empty():
             return pl.DataFrame(schema={c: pl.Utf8 for c in SITE_COLUMNS}
                                 | {ORIENT_COLUMN: pl.Float64})
-        lens = {r.region_type: len(r.residues) for c in structure.chains for r in c.regions
+        lens = {f"{c.chain_id}:{r.region_type}": len(r.residues) for c in structure.chains for r in c.regions
                 if r.region_type in GROOVE_REGIONS}
         w = w.with_columns(
             (pl.col("key.par.res") - pl.col("region.start.par")).alias("pos.par"),
-            pl.col("region.par").replace_strict(lens, default=0)
+            (pl.col("key.par.chain") + ":" + pl.col("region.par")).replace_strict(lens, default=0)
               .cast(pl.Int64).alias("par.len"),
             pl.col("region.par").alias("role.par"),
             pl.lit("mhc").alias("cls"))
     out = (w.rename({"aa.tcr": "aa.rec", "aa.pep": "aa.par",
                      "d1": "d_heavy", "d3": "d_ca"})
-           .with_columns((pl.col("d_heavy").is_not_null() & (pl.col("d_heavy") <= cutoff))
+           .with_columns(pl.col("key.tcr.chain").alias("chain.id.rec"),
+                         pl.col("key.par.chain").alias("chain.id.par"),
+                         pl.lit(radius if probe is None else max(probe, cutoff)).alias("probe"),
+                         (pl.col("d_heavy").is_not_null() & (pl.col("d_heavy") <= cutoff))
                          .cast(pl.Float64).alias("sigma"))
            .filter(pl.col("d_ca").is_not_null() & (pl.col("d_ca") <= radius)
                    & pl.col("aa.rec").is_in(list(AA)) & pl.col("aa.par").is_in(list(AA)))
-           .select([*SITE_COLUMNS, "key.tcr.chain", "key.tcr.res", "key.par.chain", "key.par.res"])
+           .select([*SITE_COLUMNS, "probe", "key.tcr.chain", "key.tcr.res", "key.par.chain", "key.par.res"])
            .sort("pdb.id", maintain_order=True))
     return out.join(_orientation(structure, out), on=["key.tcr.chain", "key.tcr.res",
                                                       "key.par.chain", "key.par.res"],
-                    how="left").select([*SITE_COLUMNS, "cos_cb"])
+                    how="left").select([*SITE_COLUMNS, "probe", "cos_cb"])
 
 
 def _orientation(structure: Structure, pairs: pl.DataFrame) -> pl.DataFrame:
@@ -190,6 +193,7 @@ def _orientation(structure: Structure, pairs: pl.DataFrame) -> pl.DataFrame:
     so a crystal and a drawn geometry are described by the same quantity. Fitting on the real side
     chain and scoring on a reconstructed one would be a train/test mismatch, and the reconstruction
     keeps most of the signal anyway (Pearson 0.81; see :func:`tcren.geometry.orientation_cosine`).
+    Residue identities index the compact Cα arrays; unavailable geometry stays NaN.
     """
     from ..geometry import orientation_cosine
 
@@ -205,10 +209,12 @@ def _orientation(structure: Structure, pairs: pl.DataFrame) -> pl.DataFrame:
         rec_chain, par_chain = by_chain.get(rec_id), by_chain.get(par_id)
         if rec_chain is None or par_chain is None:
             continue
-        rec_ix = {r.seq_index: i for i, r in enumerate(rec_chain.residues) if r.ca is not None}
-        par_ix = {r.seq_index: i for i, r in enumerate(par_chain.residues) if r.ca is not None}
-        rec_ca = np.asarray([r.ca for r in rec_chain.residues if r.ca is not None], float)
-        par_ca = np.asarray([r.ca for r in par_chain.residues if r.ca is not None], float)
+        rec_res = [r for r in rec_chain.residues if r.ca is not None]
+        par_res = [r for r in par_chain.residues if r.ca is not None]
+        rec_ix = {r.seq_index: i for i, r in enumerate(rec_res)}
+        par_ix = {r.seq_index: i for i, r in enumerate(par_res)}
+        rec_ca = np.asarray([r.ca for r in rec_res], float)
+        par_ca = np.asarray([r.ca for r in par_res], float)
         if len(rec_ca) < 3 or len(par_ca) < 1:
             continue
         cos = orientation_cosine(rec_ca, par_ca)
@@ -219,7 +225,9 @@ def _orientation(structure: Structure, pairs: pl.DataFrame) -> pl.DataFrame:
         i = np.array([rec_ix[v] for v in want["key.tcr.res"]])
         j = np.array([par_ix[v] for v in want["key.par.res"]])
         frames.append(want.select(keys).with_columns(pl.Series("cos_cb", cos[i, j])))
-    return pl.concat(frames) if frames else empty
+    measured = pl.concat(frames) if frames else empty
+    return (pairs.select(keys).unique().join(measured, on=keys, how="left", validate="1:1")
+            .with_columns(pl.col("cos_cb").fill_null(float("nan"))))
 
 
 def site_codes(sites: pl.DataFrame, model: PottsModel | None = None, *,
@@ -238,6 +246,12 @@ def site_codes(sites: pl.DataFrame, model: PottsModel | None = None, *,
         ``cos_cb`` — orientation bin; ``sizes`` the number of levels of each; ``frame`` the input
         with ``loop``, ``pchain`` and a global ``sid`` added.
     """
+    if "chain.id.par" not in sites.columns:
+        if sites.filter(pl.col("cls") != "peptide").height:
+            raise ValueError("MHC sites require chain.id.par; regenerate legacy sites from structures")
+        sites = sites.with_columns(pl.lit("PEP").alias("chain.id.par"))
+    if "chain.id.rec" not in sites.columns:
+        sites = sites.with_columns(pl.col("chain.rec").alias("chain.id.rec"))
     aa = tuple(model.alphabet) if model else AA
     # An explicit level set is how the peptide:MHC arm keeps its groove regions: the default
     # REGIONS are TCR loops, and every groove region would fall into "other".
@@ -258,8 +272,8 @@ def site_codes(sites: pl.DataFrame, model: PottsModel | None = None, *,
           .otherwise(pl.lit("other")).alias("loop"),
         # The partner-chain key: one chain on the peptide arm, the groove region on the MHC arm,
         # which is the unit `pos.par` is numbered within.
-        pl.when(pl.col("cls") == "peptide").then(pl.lit("PEP"))
-          .otherwise(pl.col("role.par")).alias("pchain"),
+        pl.when(pl.col("cls") == "peptide").then(pl.col("chain.id.par"))
+          .otherwise(pl.col("chain.id.par") + ":" + pl.col("role.par")).alias("pchain"),
     ).with_row_index("sid")
 
     nb = int(np.floor(radius / dbin)) + 1
@@ -276,6 +290,9 @@ def site_codes(sites: pl.DataFrame, model: PottsModel | None = None, *,
     # to index, and a frame without `cos_cb` has nothing to bin. Either way the block is absent and
     # every pre-existing model scores exactly as it did.
     if orient and "cos_cb" in q.columns:
+        if not np.isfinite(q["cos_cb"].to_numpy()).all():
+            raise ValueError("orientation model requires a finite cos_cb at every site; "
+                             "missing Cα geometry cannot be binned")
         codes.append(np.clip(np.floor((q["cos_cb"].to_numpy() + 1.0) / OBIN).astype(np.int64),
                              0, N_ORIENT - 1))
         sizes.append(N_ORIENT)

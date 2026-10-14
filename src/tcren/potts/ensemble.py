@@ -14,10 +14,11 @@ marginal is evaluated. Everything else the ensemble knows is invisible to the ma
 
 ``phi_var``
     :math:`\operatorname{Var}\Phi`, which needs the two-point function
-    :math:`\langle\sigma_a\sigma_b\rangle` and is therefore zero under any independent model with
-    the same marginals only when the couplings are.
+    :math:`\langle\sigma_a\sigma_b\rangle`. Under independence only the covariance
+    terms vanish; the variance remains :math:`\sum_a p_a(1-p_a)\varphi_a^2`.
 ``phi_free``
-    :math:`-\beta^{-1}\log\langle e^{-\beta\Phi}\rangle`, a genuine free energy of the threading.
+    :math:`-\beta^{-1}\log\langle e^{-\beta\Phi}\rangle`, a statistical log-moment functional of the threading. It has no physical
+    free-energy calibration.
     It is a soft minimum over configurations: :math:`\beta \to 0` recovers
     :math:`\langle\Phi\rangle` and :math:`\beta \to \infty` the best map the geometry admits.
 ``map_entropy``
@@ -81,7 +82,7 @@ def site_energies(frame: pl.DataFrame, potential: Potential) -> tuple[np.ndarray
 
 
 def _accumulate(et, A, cols, rng, phi, sigma_obs, *, chains, burn, draws, thin, init,
-                groups=None, n_groups=0):
+                groups=None, n_groups=0, final_state=None):
     """Run one Gibbs chain set, accumulating whole-configuration statistics as they are drawn.
 
     The draws are never materialised: `gibbs`' observer hands back the ``(chains, n)`` matrix of
@@ -97,6 +98,8 @@ def _accumulate(et, A, cols, rng, phi, sigma_obs, *, chains, burn, draws, thin, 
     coupled = A.any()
 
     def observe(sig):
+        if final_state is not None:
+            final_state[:] = sig
         phi_vals.append(sig @ phi)
         e_vals.append(-(sig @ et) - (0.5 * ((sig @ A) * sig).sum(1) if coupled else 0.0))
         ham.append(np.abs(sig - sigma_obs).sum(1))
@@ -320,6 +323,8 @@ def map_ensemble(sites: pl.DataFrame, model: PottsModel, potential: Potential | 
     upid, starts, e, sigma, E, eoff, kv, q = _prepare(sites, model)
     phi, undefined = site_energies(q, pot)
     keys = _GROUP_KEYS[by]
+    if by != "pair" and q.filter(pl.col("cls") != "peptide").height:
+        keys += ("cls", "chain.id.par", "role.par")
     # Ordered on the key columns' own dtypes, not on their string forms. `np.unique` over a
     # concatenated tag sorts lexicographically, which puts peptide position 10 between 1 and 2 and
     # silently scrambles the bit order of every emitted pattern.
@@ -406,6 +411,10 @@ def threaded_ensemble(sites: pl.DataFrame, model: PottsModel, candidates: pl.Dat
     # ponytail: serial over structures, warm-started over candidates within one. The pool in
     # `_map_structures` splits by structure and would work here too, but the candidate table has to
     # ride along in the payload; add it when a benchmark run actually shows this as the bottleneck.
+    if sites.filter(pl.col("cls") != "peptide").height:
+        raise ValueError("threaded_ensemble requires peptide partner sites")
+    if not isinstance(candidate_burn, (int, np.integer)) or candidate_burn < 0:
+        raise ValueError("candidate_burn must be a nonnegative integer")
     pot = potential or tcren2()
     dense, pot_index = pot.as_matrix()
     upid, starts, e, sigma, E, eoff, kv, q = _prepare(sites, model)
@@ -426,14 +435,20 @@ def threaded_ensemble(sites: pl.DataFrame, model: PottsModel, candidates: pl.Dat
         sl = slice(lo, hi)
         pp, rc, rp = pos_par[sl], rec[sl], rec_pot[sl]
         state, first = sg, True
+        lengths = q[lo:hi]["par.len"].unique().to_list()
+        if len(lengths) != 1:
+            raise ValueError(f"inconsistent peptide par.len for {pid}")
+        last_state = np.empty((chains, hi - lo))
         for pep in peps:
             idx = np.asarray([aa_index.get(a, -1) for a in pep], dtype=np.int64)
             pidx = np.asarray([pot_index.get(a, -1) for a in pep], dtype=np.int64)
+            if len(pep) != lengths[0]:
+                raise ValueError(f"candidate length {len(pep)} must equal par.len={lengths[0]} for {pid}")
             if pp.max(initial=-1) >= len(pep):
                 raise ValueError(f"candidate {pep!r} (length {len(pep)}) is shorter than the "
                                  f"{pp.max() + 1} partner positions {pid} carries")
             b = idx[pp]
-            if (b < 0).any():
+            if (idx < 0).any():
                 raise ValueError(f"candidate {pep!r} carries a residue outside the model alphabet")
             et = eta_rest[sl] + h_par[b] + J[rc, b]
             pb = pidx[pp]
@@ -444,8 +459,9 @@ def threaded_ensemble(sites: pl.DataFrame, model: PottsModel, candidates: pl.Dat
             if coupled:
                 occ, _, phi_vals, _, _, _ = _accumulate(
                     et, A, cols, rng, phi, sg, chains=chains,
-                    burn=burn if first else candidate_burn, draws=draws, thin=thin, init=state)
-                state, first = None, False
+                    burn=burn if first else candidate_burn, draws=draws, thin=thin, init=state,
+                    final_state=last_state)
+                state, first = last_state, False
                 out.append({"pdb.id": pid, "peptide": pep, "n_sites": int(hi - lo),
                             "n_contacts_model": float(occ.sum()),
                             "phi_mean": float(phi_vals.mean()),
@@ -454,8 +470,9 @@ def threaded_ensemble(sites: pl.DataFrame, model: PottsModel, candidates: pl.Dat
             else:
                 occ, _, phi_vals, _, _, _ = _accumulate(
                     et0, A, cols, rng, phi, sg, chains=chains,
-                    burn=burn if first else candidate_burn, draws=draws, thin=thin, init=state)
-                first = False
+                    burn=burn if first else candidate_burn, draws=draws, thin=thin, init=state,
+                    final_state=last_state)
+                state, first = last_state, False
                 out.append({"pdb.id": pid, "peptide": pep, "n_sites": int(hi - lo),
                             "n_contacts_model": float(occ.sum()),
                             "phi_mean": float(occ @ phi),

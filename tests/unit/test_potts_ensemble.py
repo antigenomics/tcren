@@ -217,7 +217,7 @@ def test_frozen_marginals_are_a_different_number(pairs, model):
 
 def test_wrong_length_candidate_is_rejected(pairs, model):
     cand = pl.DataFrame({"pdb.id": ["1ao7"], "peptide": ["LLF"]})
-    with pytest.raises(ValueError, match="shorter than"):
+    with pytest.raises(ValueError, match="must equal par.len"):
         threaded_ensemble(pairs, model, cand, chains=8, draws=5)
 
 

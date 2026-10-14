@@ -17,6 +17,7 @@ separate step rather than a constraint.
 from __future__ import annotations
 
 import numpy as np
+from scipy.special import expit
 import polars as pl
 import scipy.sparse as sp
 
@@ -68,17 +69,49 @@ def irls(X, y: np.ndarray, w: np.ndarray, ridge: float, *, free=(0,),
 
     Returns ``(coefficients, penalised Hessian)``. ``free`` names columns exempt from the ridge.
     """
+    if y.shape != (X.shape[0],) or w.shape != y.shape or not len(y):
+        raise ValueError("responses and weights must match nonempty design rows")
+    if not np.isfinite(y).all() or np.any((y < 0) | (y > 1)):
+        raise ValueError("responses must be finite probabilities in [0, 1]")
+    if not np.isfinite(w).all() or np.any(w < 0) or not np.any(w > 0):
+        raise ValueError("weights must be finite and nonnegative with positive total")
+    if not np.isfinite(X.data).all() or not np.isfinite(ridge) or ridge < 0:
+        raise ValueError("design must be finite and ridge finite and nonnegative")
+    if 0 in free and (np.all(y[w > 0] == 0) or np.all(y[w > 0] == 1)):
+        raise ValueError("an unpenalized intercept requires both response classes")
+    if not isinstance(maxit, (int, np.integer)) or maxit < 1 or not np.isfinite(tol) or tol <= 0:
+        raise ValueError("maxit must be positive integer and tol positive finite")
     p = X.shape[1]
+    if any(not isinstance(i, (int, np.integer)) or i < 0 or i >= p for i in free):
+        raise ValueError("free coefficient indices must lie within the design")
     lam = np.full(p, float(ridge))
     lam[list(free)] = 0.0
     b = np.zeros(p)
     for _ in range(maxit):
-        mu = 1.0 / (1.0 + np.exp(-(X @ b)))
+        mu = expit(X @ b)
         H = (X.T @ sp.diags(w * mu * (1 - mu)) @ X).toarray() + np.diag(lam)
         step = np.linalg.solve(H, X.T @ (w * (y - mu)) - lam * b)
-        b = b + step
+        if not np.isfinite(step).all():
+            raise ValueError("IRLS produced a nonfinite step")
+        # Full Newton steps are retained unless they reduce the penalized objective.
+        def objective(coef):
+            field = X @ coef
+            return float(np.sum(w * (y * field - np.logaddexp(0., field)))
+                         - .5 * np.dot(lam, coef * coef))
+
+        old = objective(b)
+        scale = 1.
+        while objective(b + scale * step) < old - 1e-12 * (1. + abs(old)):
+            scale *= .5
+            if scale < 2. ** -40:
+                raise ValueError("IRLS line search failed to improve its objective")
+        b = b + scale * step
         if np.max(np.abs(step)) < tol:
             break
+    else:
+        raise ValueError(f"IRLS did not converge in {maxit} iterations")
+    mu = expit(X @ b)
+    H = (X.T @ sp.diags(w * mu * (1 - mu)) @ X).toarray() + np.diag(lam)
     return b, H
 
 
@@ -198,7 +231,7 @@ def fit_potts(sites: pl.DataFrame, *, radius: float = 15.0, cutoff: float = 5.0,
     b, H = irls(X, sigma, w, ridge)
     bg, J = gauge(b, slices, fixed is None)
 
-    mu = 1.0 / (1.0 + np.exp(-(X @ b)))
+    mu = expit(X @ b)
     upid, gid = np.unique(q["pdb.id"].to_numpy(), return_inverse=True)
     se = cluster_se(X, w * (sigma - mu), gid, len(upid), H)
     pll = float(np.sum(w * (sigma * np.log(np.clip(mu, 1e-300, 1.0))

@@ -1,6 +1,63 @@
 # TCRen audit and reconciliation — 2026-10-14
 
-## Outcome and evidence boundary
+## Resolution checkpoint — 2026-10-14
+
+The author authorized blocker repairs and a full fresh reproduction, then explicitly approved
+retiring tree figures/claims and correcting ergodicity and naive-Bayes interpretations while
+preserving empirical values. The earlier inventory below records the entry state, not the current
+implementation status. Reproduction and publication certification remain open until the complete
+driver and matched-result gates finish.
+
+- Potts sites/kernel/marginal joins retain physical receptor and partner chain identity. MHC tables
+  lacking partner identity require raw regeneration; single-peptide legacy tables retain compatibility.
+  Threaded candidates require the peptide arm and exact full length, and carry all final Gibbs states.
+  Orientation coefficient accounting, hybrid-imputation convergence, probe provenance, sampler
+  domains, IRLS convergence/backtracking and final Hessian are repaired. A fresh run additionally
+  exposed compact-Cα orientation indexing; missing geometry is preserved and rejected by oriented fits.
+- Definitions now distinguish reduced spring units and finite-grid work, the truncated Betti
+  difference, linearized nearest-pair contact loss, heuristic confidence composition, transformed-axis
+  conditional means and shared preprocessing fitted on both classes. Future Gaussian/Schur-complement
+  and mechanics inputs have explicit domain checks. No SI calibration or likelihood-EM theorem is claimed.
+- Frozen metadata was deliberately migrated; all five coefficient arrays and original numerical fit
+  metadata are unchanged. [Migration evidence](audit/2026-10-14/frozen-metadata-migration.json)
+  retains original/new bundle hashes and catalogue digests. Corrected-feature compatibility still
+  requires fresh comparison. Metadata migration is not a refit or numerical equivalence certificate.
+- Publication producers, dependency order, cached/resumed calculations and tree retirement are being
+  reconciled across the benchmark and manuscript. The recovered topology producer comes from the
+  recorded repository history. Historical paragraphs/data and dirty edits were archived before edits.
+- The immutable wheel and both reproduction environments share one payload; preflight verified
+  all 169 installed library payload files and all 12 required raw sets. The wheel SHA-256 is
+  `17768f46d92a247d5864290c34470918edc6a2a0a37b1ff6d0fa957741e7c6fb`.
+  This local artifact retains version 3.10.0 and is not a release or remote CI assertion.
+- Applicable fast unit run: 981 passed, 1 network-dependent skip, 129 deselected, 182.87 s.
+  After the missing-Cα repair, all 123 affected Potts checks passed and installed-wheel boundary
+  checks passed 22 tests. The final installed-wheel fast run passed 987 tests, with one skip and
+  one environment failure: the pipeline fixture looked in the installed package's default cache
+  instead of the supplied canonical mirror. That exact test passed with the reproduction's
+  explicit data roots (14.74 s). A subsequent connected-core selection regression failed before
+  repair; its affected source/pipeline checks passed 12 tests, and the final installed wheel passed
+  all 10 selected boundary checks. Ruff, diff and Sphinx `-W` checks passed. Native extensions
+  built and imported.
+- Full-run attempts exposed and repaired the multiword recipe command bug and compact-Cα indexing.
+  The next attempt passed all six potential checks, including the sampled recipe (246.80 s), and
+  freshly generated 7,816 derivation contacts over 358 contributing structures and scores for all
+  374 native inputs. The benchmark was explicitly terminated before obsolete parsed driver
+  functions could run cached calculations or retired tree fits. A full restart after those driver
+  repairs was started from raw inputs with the final immutable wheel. Its six potential checks
+  passed again (241.52 s). It is still running; this is not a completed reproduction. Frozen
+  outputs were not promoted.
+
+The [publication reconciliation](audit/2026-10-14/publication-resolution.md) inventories all 34
+live reshapers, recovered producers, exact archived tree routes, fresh-input/cache repairs and
+matched-result gates. The full driver's finite-score report now counts both null and NaN values;
+null counts alone cannot describe missing numeric scores. Native panels may retain diagnostic
+rows with missing geometry; raw input counts do not imply every score is finite.
+
+`scripts/check_fresh_holdout.py` now requires all 8,292 manifest structures, fits only a temporary
+output, records numerical differences and retains the original exact full-scale identity contract.
+It is a mandatory gate after fresh harmonization and before publication production.
+
+## Original audit outcome and evidence boundary
 
 This audit found and repaired concrete numerical, data-selection, native-buffer and reproduction
 failures. The library, benchmark and manuscript now have canonical instructions and an ordered
@@ -17,7 +74,7 @@ can change future outputs: unchanged arrays are preservation, not proof of compa
 counterexamples, tests and unresolved domains. Their chronological observations are superseded by
 the final dispositions here; they are not independent release approvals.
 
-## Publication blockers, in priority order
+## Original publication blocker inventory, in priority order
 
 | Priority | Finding and owning source | Required disposition |
 |---|---|---|

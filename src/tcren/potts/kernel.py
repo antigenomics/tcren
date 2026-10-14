@@ -26,12 +26,12 @@ from .model import CDR_LOOPS, CROSS_DJ, OFFSETS
 
 def _edges_within(q: pl.DataFrame) -> list[np.ndarray]:
     """``(sid_a, sid_b)`` with ``b = a + (di, dj)`` inside one receptor loop and partner chain."""
-    key = ["pdb.id", "loop", "pos.rec", "pchain", "pos.par"]
+    key = ["pdb.id", "chain.id.rec", "loop", "pos.rec", "pchain", "pos.par"]
     base = q.select(["sid"] + key)
     out = []
     for di, dj in OFFSETS:
         shifted = base.select(
-            pl.col("sid").alias("sid_b"), "pdb.id", "loop",
+            pl.col("sid").alias("sid_b"), "pdb.id", "chain.id.rec", "loop",
             (pl.col("pos.rec") - di).alias("pos.rec"), "pchain",
             (pl.col("pos.par") - dj).alias("pos.par"))
         j = base.join(shifted, on=key, how="inner")
@@ -47,18 +47,18 @@ def _edges_cross(q: pl.DataFrame) -> list[np.ndarray]:
     """
     key = ["pdb.id", "pchain", "pos.par"]
     base = q.filter(pl.col("loop").is_in(list(CDR_LOOPS))).select(
-        ["sid", "loop", "chain.rec"] + key)
+        ["sid", "loop", "chain.id.rec"] + key)
     out = []
     for dj in CROSS_DJ:
         shifted = base.select(
             pl.col("sid").alias("sid_b"), pl.col("loop").alias("loop_b"),
-            pl.col("chain.rec").alias("chain_b"), "pdb.id", "pchain",
+            pl.col("chain.id.rec").alias("chain_b"), "pdb.id", "pchain",
             (pl.col("pos.par") - dj).alias("pos.par"))
         j = base.join(shifted, on=key, how="inner").filter(pl.col("loop") != pl.col("loop_b"))
         if dj == 0:
             j = j.filter(pl.col("sid") < pl.col("sid_b"))
         for same in (True, False):
-            k = j.filter((pl.col("chain.rec") == pl.col("chain_b")) == same)
+            k = j.filter((pl.col("chain.id.rec") == pl.col("chain_b")) == same)
             out.append(np.column_stack([k["sid"].to_numpy(),
                                         k["sid_b"].to_numpy()]).astype(np.int64))
     return out
@@ -66,7 +66,7 @@ def _edges_cross(q: pl.DataFrame) -> list[np.ndarray]:
 
 def _edges_class(q: pl.DataFrame) -> list[np.ndarray]:
     """The same receptor residue against two different partner classes."""
-    key = ["pdb.id", "loop", "pos.rec"]
+    key = ["pdb.id", "chain.id.rec", "loop", "pos.rec"]
     base = q.select(["sid", "cls"] + key)
     j = (base.join(base.select(pl.col("sid").alias("sid_b"), pl.col("cls").alias("cls_b"), *key),
                    on=key, how="inner")
@@ -86,7 +86,7 @@ def _edges_far(q: pl.DataFrame) -> list[np.ndarray]:
 
     Deduped by ``sid_a < sid_b``; the two members always sit at different partner positions.
     """
-    key = ["pdb.id", "loop", "pchain", "pos.rec"]
+    key = ["pdb.id", "chain.id.rec", "loop", "pchain", "pos.rec"]
     base = q.select(["sid", "pos.par"] + key)
     j = (base.join(base.select(pl.col("sid").alias("sid_b"), pl.col("pos.par").alias("pos_b"),
                                *key), on=key, how="inner")
@@ -104,6 +104,8 @@ def edges(q: pl.DataFrame, joint: bool = False, far: bool = False) -> list[np.nd
         joint: Include the cross-class family (both partners in one model).
         far: Include the long-offset exclusion family, :func:`_edges_far`.
     """
+    if "chain.id.rec" not in q.columns:
+        q = q.with_columns(pl.col("chain.rec").alias("chain.id.rec"))
     out = _edges_within(q) + _edges_cross(q)
     if joint:
         out = out + _edges_class(q)

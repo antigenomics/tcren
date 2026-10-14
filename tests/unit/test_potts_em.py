@@ -73,7 +73,7 @@ def test_a_cutoff_wide_probe_gives_a_one_sided_band_and_is_refused(narrow):
     band = np.abs(d - 5.0) <= LATENT_MARGIN
     assert band.any()
     assert narrow["sigma"].to_numpy()[band].min() == 1.0
-    with pytest.raises(ValueError, match="only reaches inwards"):
+    with pytest.raises(ValueError, match="requires probe"):
         latent_mask(narrow)
 
 

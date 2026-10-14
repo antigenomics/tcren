@@ -131,11 +131,11 @@ descriptor & class & operator & units & definition \\
 \texttt{ca\_\allowbreak{}cb\_\allowbreak{}agreement\_\allowbreak{}tm}$^{\dagger}$ & geometric & correlation & ratio & The same rank correlation across the TCR:MHC approach shell. \\
 \texttt{fp\_\allowbreak{}b0\_\allowbreak{}r7} & topological & homology invariant & count & Betti-0 of the flag complex on the contacted pMHC C$\alpha$ atoms at 7 A: how many disconnected patches the footprint falls into. \\
 \texttt{fp\_\allowbreak{}b1\_\allowbreak{}r7} & topological & homology invariant & count & Betti-1 at 7 A: how many holes the footprint encloses. \\
-\texttt{fp\_\allowbreak{}chi\_\allowbreak{}r7}$^{\dagger}$ & topological & homology invariant & count & Euler characteristic b0 - b1 at 7 A. \\
+\texttt{fp\_\allowbreak{}chi\_\allowbreak{}r7}$^{\dagger}$ & topological & homology invariant & count & Truncated Betti difference b0 - b1 at 7 A; equals Euler characteristic only when higher Betti numbers vanish. \\
 \texttt{fp\_\allowbreak{}b0\_\allowbreak{}frac\_\allowbreak{}r7} & topological & homology invariant & fraction & Patches per contacted residue at 7 A; the size-free form of Betti-0. \\
 \texttt{fp\_\allowbreak{}b0\_\allowbreak{}r8} & topological & homology invariant & count & Betti-0 of the flag complex on the contacted pMHC C$\alpha$ atoms at 8 A: how many disconnected patches the footprint falls into. \\
 \texttt{fp\_\allowbreak{}b1\_\allowbreak{}r8} & topological & homology invariant & count & Betti-1 at 8 A: how many holes the footprint encloses. \\
-\texttt{fp\_\allowbreak{}chi\_\allowbreak{}r8}$^{\dagger}$ & topological & homology invariant & count & Euler characteristic b0 - b1 at 8 A. \\
+\texttt{fp\_\allowbreak{}chi\_\allowbreak{}r8}$^{\dagger}$ & topological & homology invariant & count & Truncated Betti difference b0 - b1 at 8 A; equals Euler characteristic only when higher Betti numbers vanish. \\
 \texttt{fp\_\allowbreak{}b0\_\allowbreak{}frac\_\allowbreak{}r8} & topological & homology invariant & fraction & Patches per contacted residue at 8 A; the size-free form of Betti-0. \\
 \texttt{sc\_\allowbreak{}shape} & geometric & correlation & ratio & Pearson r between the pMHC and TCR height fields over the shared grid; positive is complementary, the receptor riding up where the groove rises. Lawrence \& Colman's Sc is the same idea on a dot surface. \\
 \texttt{sc\_\allowbreak{}charge} & compositional & correlation & ratio & Pearson r between the two charge fields; NEGATIVE is complementary, plus meeting minus. \\
@@ -216,18 +216,18 @@ descriptor & class & operator & units & definition \\
 descriptor & class & operator & units & definition \\
 \midrule\endfirsthead
 \toprule descriptor & class & operator & units & definition \\\midrule\endhead
-\texttt{exp\_\allowbreak{}lost} & geometric & field moment & count & Expected TCR:peptide contacts lost under a 1 A isotropic shift. \\
+\texttt{exp\_\allowbreak{}lost} & geometric & field moment & count & Linearized nearest-atom-pair contact-loss sum under a 1 A isotropic shift; not an exact residue-contact expectation. \\
 \texttt{mean\_\allowbreak{}margin} & geometric & field moment & \AA & Mean contact margin, cutoff minus minimum heavy-atom distance. \\
 \texttt{frac\_\allowbreak{}robust} & compositional & count or share & fraction & Share of TCR:peptide contacts with at least 1 A of margin. \\
-\texttt{K\_\allowbreak{}tens} & geometric & spectral invariant & N/m & Tensile stiffness along the docking axis. \\
-\texttt{K\_\allowbreak{}shear} & geometric & spectral invariant & N/m & In-plane stiffness, S\_tot minus K\_tens. \\
-\texttt{aniso}$^{\dagger}$ & geometric & spectral invariant & ratio & K\_shear / K\_tens; how much stiffer the interface is along the pull than across it. \\
-\texttt{lam\_\allowbreak{}max} & geometric & spectral invariant & N/m & Largest eigenvalue of the stiffness tensor. \\
-\texttt{lam\_\allowbreak{}min} & geometric & spectral invariant & N/m & Smallest eigenvalue of the stiffness tensor. \\
+\texttt{K\_\allowbreak{}tens} & geometric & spectral invariant & reduced A\textasciicircum{}-2 & Tensile stiffness along the docking axis. \\
+\texttt{K\_\allowbreak{}shear} & geometric & spectral invariant & reduced A\textasciicircum{}-2 & In-plane stiffness, S\_tot minus K\_tens. \\
+\texttt{aniso}$^{\dagger}$ & geometric & spectral invariant & ratio & K\_shear / K\_tens; in-plane summed stiffness relative to stiffness along the pull. \\
+\texttt{lam\_\allowbreak{}max} & geometric & spectral invariant & reduced A\textasciicircum{}-2 & Largest eigenvalue of the stiffness tensor. \\
+\texttt{lam\_\allowbreak{}min} & geometric & spectral invariant & reduced A\textasciicircum{}-2 & Smallest eigenvalue of the stiffness tensor. \\
 \texttt{n\_\allowbreak{}spring} & compositional & count or share & count & Springs in the interface network; every other kinetics column is NaN below three. \\
-\texttt{S\_\allowbreak{}tot}$^{\dagger}$ & geometric & spectral invariant & N/m & Trace of the stiffness tensor; total interface stiffness. \\
-\texttt{rupture\_\allowbreak{}force} & geometric & mechanical work & N & Peak resisting force under steered separation along the weaker axis. \\
-\texttt{rupture\_\allowbreak{}work} & geometric & mechanical work & J & Force integrated to full separation; the off-rate proxy, and a geometry-only quantity no potential enters. \\
+\texttt{S\_\allowbreak{}tot}$^{\dagger}$ & geometric & spectral invariant & reduced A\textasciicircum{}-2 & Trace of the stiffness tensor; total interface stiffness. \\
+\texttt{rupture\_\allowbreak{}force} & geometric & mechanical work & reduced A\textasciicircum{}-1 & Peak resisting force on the finite displacement grid along the tensile docking axis by default. \\
+\texttt{rupture\_\allowbreak{}work} & geometric & mechanical work & reduced dimensionless & Right-grid force-displacement sum up to twice the longest spring rest length, stopping early if all springs break; no energy calibration. \\
 \texttt{couple\_\allowbreak{}pep} & compositional & count or share & count & Peptide residues contacting both the MHC and the TCR. \\
 \texttt{couple\_\allowbreak{}mhc} & compositional & count or share & count & MHC residues contacting both the peptide and the TCR. \\
 \texttt{couple\_\allowbreak{}tcr} & compositional & count or share & count & TCR residues in the V$\alpha$-V$\beta$ interface that also contact the pMHC. \\

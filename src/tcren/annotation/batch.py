@@ -262,18 +262,18 @@ def annotate_batch(
             out[idx][org][cid] = rec
     return out
 def _annotate(arda, pairs, organism: str, threads: int):
-    """``arda.annotate_sequences`` with a thread cap, falling back when arda cannot take one.
+    """``arda.annotate_sequences`` with an explicit thread cap when requested.
 
     The public adapter drops ``threads`` on the floor, so reach one level down to
     ``arda.annotate.mapper.annotate_records`` when a cap is asked for. Guarded: an arda without that
-    module still works, just uncapped.
+    module cannot satisfy a requested cap and fails explicitly.
     """
     if threads > 0:
         try:
             from arda.annotate.mapper import annotate_records
-            return annotate_records(pairs, organism=organism, seqtype="aa", threads=threads)
-        except Exception:  # noqa: BLE001 - any arda without the private path keeps the default
-            pass
+        except ImportError as exc:
+            raise ImportError("arda backend cannot enforce the requested thread cap") from exc
+        return annotate_records(pairs, organism=organism, seqtype="aa", threads=threads)
     return arda.annotate_sequences(pairs, seqtype="aa", organism=organism)
 def iter_typed(structures: Path, organism: str = "human"):
     """Yield chain-typed structures, annotating a whole set in one batch.

@@ -136,7 +136,7 @@ class PottsModel:
             written before it round-trips unchanged.
         alphabet: The residue alphabet ``h`` and ``J`` are indexed by.
         n_structures / n_sites / n_contacts: What the fit was estimated on.
-        pseudo_loglik: Penalised pseudo-log-likelihood at the optimum.
+        pseudo_loglik: Unpenalized weighted pseudo-log-likelihood at the penalized optimum.
         notes: Free text, e.g. the structure set.
     """
 
@@ -182,9 +182,12 @@ class PottsModel:
                                                            tuple(self.alphabet))
 
     def n_parameters(self) -> int:
-        """Free parameters, counting a fixed-matrix coupling as the single scale it is."""
+        """Stored fitted coefficients, including redundant/unobserved levels.
+
+        Not identifiable degrees of freedom; a pinned matrix contributes its single scale.
+        """
         n = 1 + len(self.h_rec) + len(self.h_par) + len(self.g_dist) + len(self.g_region)
-        n += len(self.g_role) + len(self.g_class) + len(self.kernel)
+        n += len(self.g_role) + len(self.g_class) + len(self.g_orient) + len(self.kernel)
         return n + (1 if self.coupling_pinned or self.coupling is None else 400)
 
     # -- serialisation ------------------------------------------------------------------------

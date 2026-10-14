@@ -41,7 +41,9 @@ def _prepare(sites: pl.DataFrame, model: PottsModel):
     # `log Z` depend on how the pair table happened to be concatenated. With `_rng_for` below, this
     # is the second half of "a per-structure score is a function of the structure".
     sites = (sites.filter(pl.col("d_ca") <= model.radius)
-             .sort("pdb.id", "chain.rec", "region.rec", "pos.rec", "pos.par"))
+             .sort([c for c in ("pdb.id", "chain.id.rec", "chain.rec", "region.rec",
+                               "pos.rec", "cls", "chain.id.par", "role.par", "pos.par")
+                    if c in sites.columns]))
     codes, _, q = site_codes(sites, model)
     e = eta(codes, model)
     sigma = q["sigma"].to_numpy()
@@ -307,7 +309,7 @@ def contact_map(sites: pl.DataFrame, model: PottsModel, *, by: str = "loop", cha
 
     Returns:
         For ``"pair"``, :func:`contact_probabilities`' frame unchanged. Otherwise the grouping
-        columns plus ``p_any`` (the predicted frequency above), ``p_expected`` (the expected number
+        columns plus ``p_any`` (the independence approximation above), ``p_expected`` (the expected number
         of contacts in the group, :math:`\sum_j p_j`), ``n_pairs`` (available pairs in the group),
         ``n_observed`` (how many of them this structure made) and ``observed`` (1 if any did, else
         0 — the indicator the prediction is scored against).
@@ -323,6 +325,8 @@ def contact_map(sites: pl.DataFrame, model: PottsModel, *, by: str = "loop", cha
     if by == "pair" or p.is_empty():
         return p
     keys = ["pdb.id", *_MAP_KEYS[by]]
+    if p.filter(pl.col("cls") != "peptide").height:
+        keys += ["cls", "chain.id.par", "role.par"]
     return (p.group_by(keys)
             .agg([(1.0 - (-pl.col("p_model")).log1p().sum().exp()).alias("p_any"),
                   pl.col("p_model").sum().alias("p_expected"),
@@ -420,7 +424,7 @@ def peptide_free_energy(sites: pl.DataFrame, model: PottsModel, *, coupled: bool
         marg = (marginals if marginals is not None else
                 contact_probabilities(sites, model, chains=chains, burn=burn, draws=draws,
                                       thin=thin, seed=seed, workers=workers))
-        keys = ["pdb.id", "chain.rec", "region.rec", "pos.rec", "cls", "role.par", "pos.par"]
+        keys = [c for c in ("chain.id.rec", "chain.id.par") if c in sites.columns] + ["pdb.id", "chain.rec", "region.rec", "pos.rec", "cls", "role.par", "pos.par"]
         if all(k in marg.columns for k in keys):
             # contact_probabilities sorts sites; align by identity, never arrival order.
             aligned = (q.select(keys).with_row_index("_order")
@@ -677,9 +681,9 @@ def map_agreement(sites: pl.DataFrame, *, column: str = "p_model",
         is why ``ratio`` is reported beside it and not folded in.
 
         :math:`\mathrm{js} = 1` requires the model to put *all* its mass on exactly the contacting
-        cells in equal proportion, which is a deterministic map. A calibrated probabilistic model
-        cannot reach it against a single realisation, so the right reference is the same model read
-        on the structure's own C\ :math:`\alpha` geometry, not 1.
+        cells in equal proportion. This also holds for :math:`p_a=c\sigma_a`,
+        with any :math:`0<c<1`; it does not require a deterministic map. The level
+        ratio distinguishes these proportional maps.
 
     ``ratio``
         **Level.** :math:`\sum_a p_a / \sum_a \sigma_a`. One is the count reproduced.

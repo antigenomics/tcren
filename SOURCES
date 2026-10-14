@@ -198,3 +198,29 @@ changed since 1982.
   scale `surface_map(..., scale="mj")` selects. Two unrelated derivations of the same axis, so a
   transcription slip would break the agreement rather than hide in it.
 - Loader: `tcren.surface.KYTE_DOOLITTLE`.
+
+## `holdout_model.npz` and `holdout_manifest.csv.gz` — derived frozen model
+
+The bundled model retains the original frozen numerical parameters. The manifest names its
+training population; the original metadata records 6,429 positive and 1,155 negative complete
+training observations over 31 epitopes. Shared nonlinear preprocessing was trained on both
+classes; binder moments and confidence moments use label-selected positives. The tier-1
+one-class readouts therefore do not imply label-free or negative-independent training.
+
+- Loader: `tcren.score.holdout_model()`; manifest: `tcren.score.holdout_manifest()`.
+- Historical recipe: `tcren features -s <manifest structures> -o hold.tsv`, then
+  `tcren fit-holdout --features hold.tsv --manifest src/tcren/data/holdout_manifest.csv.gz -o refit.npz`.
+  Always write a separate output: evaluation never overwrites the shipped frozen fit.
+- Metadata-only migration, 2026-10-14: corrected reduced spring units, finite-grid rupture scope,
+  truncated Betti difference and approximate contact-loss labels. `training_catalogue_digest`
+  retains the original fitted catalogue; `catalogue_digest` identifies the corrected interface.
+  `audit/2026-10-14/frozen-metadata-migration.json` records both digests, old/new bundle hashes,
+  and the SHA-256 of all five unchanged numeric arrays. No refitting occurred.
+- Semantic migration: class-II chain-keyed literature descriptors, constrained shear direction,
+  Potts chain-keyed sites/sampling, and corrected structure-selection/annotation/frame boundaries
+  can change future descriptor outputs. Array identity establishes parameter preservation only;
+  it does not certify equivalence of corrected features, a fresh refit, or scientific results.
+  Matched fresh reproduction owns compatibility assessment before publication or release.
+- Spring units use the default multiplicity/distance² with distances in Å: reduced stiffness
+  Å^-2, force Å^-1, work dimensionless, all with an unspecified energy scale. No SI calibration
+  was inferred. Unit/count spring weighting has a different arbitrary scale, documented by the API.

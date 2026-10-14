@@ -103,6 +103,10 @@ def all_atom_contacts(
         ``count_atoms`` is set). Each unordered residue pair appears once,
         in ``(chain.id, residue.index)`` lexicographic order.
     """
+    if scope not in ("inter", "intra", "all"):
+        raise ValueError(f"scope must be 'inter', 'intra' or 'all', got {scope!r}")
+    if not np.isfinite(cutoff) or cutoff <= 0:
+        raise ValueError("cutoff must be finite and positive")
     coords, chain_ids, res_idx, res_aa, atom_names = _atom_arrays(structure)
     schema = {
         "chain.id.from": pl.Utf8,
@@ -130,8 +134,6 @@ def all_atom_contacts(
         return pl.DataFrame(schema=schema)
 
     i, j = pairs[:, 0], pairs[:, 1]
-    if scope not in ("inter", "intra", "all"):
-        raise ValueError(f"scope must be 'inter', 'intra' or 'all', got {scope!r}")
     if scope != "all":
         same_chain = chain_ids[i] == chain_ids[j]
         keep = same_chain if scope == "intra" else ~same_chain
@@ -239,6 +241,8 @@ def _representative_arrays(structure: Structure, kind: str):
     ``kind`` is ``"ca"`` (Cα) or ``"cb"`` (Cβ, falling back to Cα for glycine / missing Cβ).
     Residues with no representative atom are skipped.
     """
+    if kind not in ("ca", "cb"):
+        raise ValueError(f"kind must be 'ca' or 'cb', got {kind!r}")
     coords, chain_ids, res_idx, res_aa = [], [], [], []
     for chain in structure.chains:
         for res in chain.residues:
@@ -268,6 +272,8 @@ def representative_atom_contacts(
     missing-Cβ fallback to Cα (default cutoff 8 Å). Mirrors :func:`all_atom_contacts`'
     residue-pair schema (``atom.from``/``atom.to`` carry the representative atom kind).
     """
+    if not np.isfinite(cutoff) or cutoff <= 0:
+        raise ValueError("cutoff must be finite and positive")
     coords, chain_ids, res_idx, res_aa = _representative_arrays(structure, kind)
     rep = "CB" if kind == "cb" else "CA"
     schema = {

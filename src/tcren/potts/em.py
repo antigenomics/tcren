@@ -4,7 +4,8 @@ r"""Fitting the contact-map model when the contact indicator is not fully observ
 everywhere. A contact is called by thresholding the closest heavy-atom distance at
 ``cutoff`` (5 Å), and a pair sitting within half an ångström of that line is a **coin toss
 recorded as a fact**: the same complex re-refined, or relaxed, would call it the other way. Those
-sites are latent, and Monte-Carlo EM is what a latent indicator asks for.
+sites are latent. The update below combines Gibbs imputation with conditional
+pseudolikelihood fitting; it is a hybrid update, with no likelihood-EM monotonicity guarantee.
 
 **E-step.** Sample :math:`\sigma_{\mathcal L}` from :math:`P(\sigma_{\mathcal L} \mid
 \sigma_{-\mathcal L})` under the current parameters, by block Gibbs with every confident site
@@ -48,12 +49,11 @@ def latent_mask(frame: pl.DataFrame, *, cutoff: float = 5.0,
     ``|d_heavy - cutoff| <= margin``. A pair at 4.9 Å and one at 5.1 Å are recorded as contact and
     non-contact, and nothing in the coordinates justifies the difference.
 
-    **The band must reach both ways.** ``available_pairs`` measures ``d_heavy`` only out to its
-    ``cutoff`` by default, so every pair that missed has a null distance and the band collapses to
-    its inward half — an EM run on it could turn contacts off and never on, which is a systematic
-    bias and not a small one. Build the pair table with ``available_pairs(..., probe=cutoff +
-    margin)`` and this function will see the near misses. It raises rather than proceeding
-    one-sided.
+    The measurement probe must cover ``cutoff + margin``. Tables emitted by
+    ``available_pairs`` carry ``probe`` and a narrower measurement is rejected.
+    Counts alone cannot diagnose truncation: a complete small table may contain
+    only contacts in the band. Legacy tables without probe provenance cannot be
+    certified here and must be regenerated for publication.
 
     Note:
         A second class of genuinely-latent site — a residue with no resolved side-chain atoms, so
@@ -61,17 +61,18 @@ def latent_mask(frame: pl.DataFrame, *, cutoff: float = 5.0,
         does not carry atom counts. Such a site reads as a confident non-contact and the fit
         believes it.
     """
+    if not np.isfinite(margin) or margin < 0 or not np.isfinite(cutoff) or cutoff <= 0:
+        raise ValueError("margin must be nonnegative and cutoff positive, both finite")
+    if margin == 0:
+        return np.zeros(frame.height, dtype=bool)
+    if "probe" in frame.columns:
+        probe = frame["probe"].to_numpy()
+        if not np.isfinite(probe).all():
+            raise ValueError("probe must be finite and non-null; regenerate sites")
+        if np.any(probe < cutoff + margin):
+            raise ValueError("latent band requires probe >= cutoff + margin; regenerate sites")
     d = frame["d_heavy"].fill_null(np.inf).to_numpy()
     mask = np.abs(d - cutoff) <= margin
-    if mask.any():
-        sigma = frame["sigma"].to_numpy()
-        if not (sigma[mask] == 0).any():
-            raise ValueError(
-                f"the latent band [{cutoff - margin}, {cutoff + margin}] A contains "
-                f"{int(mask.sum())} sites and every one of them is a contact, so it only reaches "
-                "inwards. Rebuild the pair table with "
-                f"available_pairs(..., probe={cutoff + margin}) so a pair that missed carries how "
-                "far it missed by; otherwise EM can only ever remove contacts.")
     return mask
 
 
@@ -84,6 +85,8 @@ def impute(sites: pl.DataFrame, model: PottsModel, *, margin: float = LATENT_MAR
     resampled from their conditional under ``model``. Returns ``(stacked frame, latent mask, mean
     imputed sigma)``; the frame's ``pdb.id`` carries a ``#m`` draw suffix.
     """
+    if not isinstance(draws, (int, np.integer)) or draws < 1:
+        raise ValueError("draws must be an integer >= 1")
     upid, starts, e, sigma, E, eoff, kv, q = _prepare(sites, model)
     mask = latent_mask(q, cutoff=model.cutoff, margin=margin)
     completions = np.repeat(sigma[None, :], draws, axis=0)
@@ -112,9 +115,9 @@ def impute(sites: pl.DataFrame, model: PottsModel, *, margin: float = LATENT_MAR
 
 
 def _eta_vector(model: PottsModel) -> np.ndarray:
-    """Every free parameter of a model as one vector, for comparing two fits."""
+    """Every stored fitted coefficient of a model as one vector, for comparing two fits."""
     return np.concatenate([[model.alpha], model.h_rec, model.h_par, model.g_dist,
-                           model.g_region, model.g_role, model.g_class,
+                           model.g_region, model.g_role, model.g_class, model.g_orient,
                            model.coupling_array().ravel(), model.kernel])
 
 
@@ -123,7 +126,7 @@ def fit_potts_em(sites: pl.DataFrame, *, margin: float = LATENT_MARGIN, draws: i
                  burn: int = 50, thin: int = 5, tol: float = 1e-3, seed: int = 0,
                  ridge: float = DEFAULT_RIDGE, notes: str = "",
                  **fit_kwargs) -> tuple[PottsModel, pl.DataFrame]:
-    r"""Monte-Carlo EM over the borderline contact calls, with the existing M-step.
+    r"""Gibbs-imputation/pseudolikelihood hybrid over borderline contact calls.
 
     Args:
         sites: Rows from :func:`tcren.potts.available_pairs`.
@@ -157,6 +160,10 @@ def fit_potts_em(sites: pl.DataFrame, *, margin: float = LATENT_MARGIN, draws: i
         not comparable to the pseudolikelihood fit's value on observed data — different response.
         Compare the two fits through :func:`consistency`, not through their objectives.
     """
+    if not isinstance(steps, (int, np.integer)) or steps < 1:
+        raise ValueError("steps must be an integer >= 1")
+    if not isinstance(draws, (int, np.integer)) or draws < 1:
+        raise ValueError("draws must be an integer >= 1")
     base = fit_kwargs.pop("weights", None) or {}
     model = init or fit_potts(sites, ridge=ridge, notes=notes, weights=base or None, **fit_kwargs)
     n_struct, n_sites_obs = model.n_structures, model.n_sites
@@ -197,7 +204,7 @@ def fit_potts_em(sites: pl.DataFrame, *, margin: float = LATENT_MARGIN, draws: i
 
 
 #: Parameter blocks, in the order :func:`_eta_vector` lays them out.
-_BLOCKS = ("alpha", "h_rec", "h_par", "g_dist", "g_region", "g_role", "g_class", "J", "kernel")
+_BLOCKS = ("alpha", "h_rec", "h_par", "g_dist", "g_region", "g_role", "g_class", "g_orient", "J", "kernel")
 
 
 def consistency(reference: PottsModel, other: PottsModel) -> pl.DataFrame:
@@ -215,13 +222,17 @@ def consistency(reference: PottsModel, other: PottsModel) -> pl.DataFrame:
         return {"alpha": np.array([m.alpha]), "h_rec": np.asarray(m.h_rec),
                 "h_par": np.asarray(m.h_par), "g_dist": np.asarray(m.g_dist),
                 "g_region": np.asarray(m.g_region), "g_role": np.asarray(m.g_role),
-                "g_class": np.asarray(m.g_class), "J": m.coupling_array().ravel(),
+                "g_class": np.asarray(m.g_class), "g_orient": np.asarray(m.g_orient), "J": m.coupling_array().ravel(),
                 "kernel": np.asarray(m.kernel)}
 
     a, b = blocks(reference), blocks(other)
     se = np.asarray(reference.kernel_se) if reference.kernel_se else None
     rows = []
     for name in _BLOCKS:
+        if a[name].shape != b[name].shape:
+            raise ValueError(f"incompatible {name} blocks")
+        if not a[name].size:
+            continue
         d = b[name] - a[name]
         if name == "kernel" and se is not None and len(se) == len(d):
             scale, label = se, "cluster-robust s.e."

@@ -33,7 +33,8 @@ def select_primary_complex(structure: Structure) -> Structure:
     Chosen as a connected unit so chains that do not touch the peptide (notably β2m) are not
     grabbed from another copy: the primary peptide is the one most embedded in an MHC-α groove
     (then most TCR contacts, then shortest); the TCR α/β and MHC-α are taken by contacts to
-    that peptide; β2m / MHC-β by contacts to the chosen MHC-α. No-op for single complexes.
+    that peptide, retaining chains connected through the selected core; β2m / MHC-β prefer
+    contacts to the chosen MHC-α. Disconnected copies are omitted. No-op for single complexes.
     """
     if not _has_multiple_copies(structure):
         return structure
@@ -62,15 +63,19 @@ def select_primary_complex(structure: Structure) -> Structure:
     primary_pep = max(peptides, key=lambda p: (contacts_to(p, mhca), contacts_to(p, tcr_all),
                                                -len(p.residues)))
     kept = [primary_pep]
-    for role in ("A", "B", "D"):
-        cands = by_role.get(role, [])
-        if cands:
-            kept.append(max(cands, key=lambda c: pair_counts.get((c.chain_id, primary_pep.chain_id), 0)))
-    d_chain = next((c for c in kept if CHAIN_RENAME.get(c.chain_type) == "D"), None)
-    e_cands = by_role.get("E", [])
-    if e_cands:
-        anchor = d_chain or primary_pep
-        kept.append(max(e_cands, key=lambda c: pair_counts.get((c.chain_id, anchor.chain_id), 0)))
+    pending = [r for r in ("D", "A", "B", "E") if by_role.get(r)]
+    while pending:
+        progressed = False
+        for role in pending[:]:
+            anchor = (next((c for c in kept if CHAIN_RENAME.get(c.chain_type) == "D"), primary_pep)
+                      if role == "E" else primary_pep)
+            selected = max(by_role[role], key=lambda c: (contacts_to(c, [anchor]), contacts_to(c, kept)))
+            if contacts_to(selected, kept) > 0:
+                kept.append(selected)
+                pending.remove(role)
+                progressed = True
+        if not progressed:
+            break
     kept_ids = {c.chain_id for c in kept}
     new = copy.copy(structure)
     new.chains = [c for c in structure.chains if c.chain_id in kept_ids]

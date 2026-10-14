@@ -228,3 +228,29 @@ def test_recognize_mechanics_matches_standalone():
     annotate_mhc(s)
     for k, v in interface_mechanics(s).items():
         assert row[k] == pytest.approx(v), k
+
+@pytest.mark.parametrize('kw', [dict(direction='typo'), dict(steps=0), dict(steps=1.5),
+                                dict(steps=True), dict(break_strain=-1),
+                                dict(break_strain=np.inf), dict(cutoff=0)])
+def test_rupture_rejects_invalid_domains_before_structure_access(kw):
+    with pytest.raises(ValueError):
+        rupture(object(), **kw)
+
+
+def test_rupture_is_a_finite_grid_observable(monkeypatch):
+    import tcren.mechanics.springs as mech
+    s = _springs([[0, 0, 0]] * 3, [[0, 0, 1]] * 3, [1, 1, 1])
+    monkeypatch.setattr(mech, 'interface_springs', lambda *a, **k: s)
+    r = mech.rupture(object(), break_strain=3, steps=2)
+    # At displacements 1 and 2 A, all three springs survive. This is the historical
+    # right-grid sum, not an integral to complete separation.
+    assert r['rupture_force'] == pytest.approx(6.)
+    assert r['rupture_work'] == pytest.approx(9.)
+
+
+def test_stiffness_rejects_invalid_spring_arrays():
+    from tcren.mechanics.springs import _stiffness_matrix
+    s = _z_springs()
+    s.k[0] = -1
+    with pytest.raises(ValueError, match='spring arrays'):
+        _stiffness_matrix(s)

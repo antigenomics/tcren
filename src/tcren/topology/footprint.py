@@ -384,7 +384,8 @@ def footprint_features(structure: Structure, *, cutoff: float = 5.0,
 
     Returns:
         ``{feature: value}`` over :data:`FOOTPRINT_FEATURES` plus ``fp_b0_r<r>``, ``fp_b1_r<r>``,
-        ``fp_chi_r<r>`` and ``fp_b0_frac_r<r>`` for each radius. Values are ``nan`` where the
+        ``fp_chi_r<r>`` (truncated Betti difference b0 - b1, not the full Euler characteristic)
+        and ``fp_b0_frac_r<r>`` for each radius. Values are ``nan`` where the
         structure gives them no support (no contacts, a single contacted residue).
 
     Note:

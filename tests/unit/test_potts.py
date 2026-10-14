@@ -700,7 +700,7 @@ def test_a_certain_pair_forces_its_whole_group_to_one_without_nan():
     from tcren.potts import score as score_mod
 
     frame = pl.DataFrame({"pdb.id": ["x", "x", "y", "y"],
-                          "region.rec": ["CDR3"] * 4,
+                          "region.rec": ["CDR3"] * 4, "cls": ["peptide"] * 4,
                           "pos.par": [1, 1, 2, 2], "aa.par": ["A", "A", "G", "G"],
                           "p_model": [1.0, 0.5, 0.25, 0.5], "sigma": [1.0, 0.0, 0.0, 0.0]})
     # Drive the real aggregation, with the sampler stubbed out: reaching p = 1 through Gibbs takes

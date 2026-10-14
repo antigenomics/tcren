@@ -33,7 +33,8 @@ pseudocount are the shipped ones, unmodified.
 
 **The observation enters as one additive field, which is the whole design.** Conditioning on the
 crystal through :math:`P(\sigma_a = 1 \mid d_a) = \mathrm{sigmoid}((c - d_a)/m)` puts a per-site
-constant into :math:`\eta`, so the E-step is the existing block-Gibbs sampler called with a
+constant into :math:`\eta`, interpreted as a contact/non-contact observation likelihood
+ratio (equivalently a distance probability under an equal-odds reference prior), so the E-step is the existing block-Gibbs sampler called with a
 modified vector — no clamping machinery and no second code path. One knob spans the family:
 
 ===================  =============================================================================
@@ -58,9 +59,10 @@ guarantee; treating it as one would be reading an EM property off a fixed-point 
 not have it.
 
 **The data is partly the loop's own output, so the mass is reported rather than assumed.**
-``contact_mass`` is the total weighted count against the crystal's own contact total; a loop
+``contact_mass`` is the unweighted sum of per-site posterior probabilities against the crystal's own contact total; a loop
 inventing contacts shows up there, and ``mass_from_uncertain`` says how much of the tally came from
-sites the crystal did not settle.
+sites the crystal did not settle. Both diagnostics describe unweighted sites; structure
+weights affect fitting and potential derivation separately.
 
 The framing is Murugan et al., *PNAS* 109:16161 (2012), SI §3.2, where a read's recombination
 scenario is latent and each model parameter is updated to the probability-weighted count of the

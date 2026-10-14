@@ -551,7 +551,7 @@ The footprint: its connectivity, its composition over labelled cells, and how th
      - topological
      - count
      - yes
-     - Euler characteristic b0 - b1 at 7 A.
+     - Truncated Betti difference b0 - b1 at 7 A; equals Euler characteristic only when higher Betti numbers vanish.
    * - ``fp_b0_frac_r7``
      - topological
      - fraction
@@ -571,7 +571,7 @@ The footprint: its connectivity, its composition over labelled cells, and how th
      - topological
      - count
      - yes
-     - Euler characteristic b0 - b1 at 8 A.
+     - Truncated Betti difference b0 - b1 at 8 A; equals Euler characteristic only when higher Betti numbers vanish.
    * - ``fp_b0_frac_r8``
      - topological
      - fraction
@@ -841,7 +841,7 @@ The contact map as a network of breakable springs. No potential enters: these ar
      - geometric
      - count
      - yes
-     - Expected TCR:peptide contacts lost under a 1 A isotropic shift.
+     - Linearized nearest-atom-pair contact-loss sum under a 1 A isotropic shift; not an exact residue-contact expectation.
    * - ``mean_margin``
      - geometric
      - A
@@ -854,27 +854,27 @@ The contact map as a network of breakable springs. No potential enters: these ar
      - Share of TCR:peptide contacts with at least 1 A of margin.
    * - ``K_tens``
      - geometric
-     - N/m
+     - reduced A^-2
      - yes
      - Tensile stiffness along the docking axis.
    * - ``K_shear``
      - geometric
-     - N/m
+     - reduced A^-2
      - yes
      - In-plane stiffness, S_tot minus K_tens.
    * - ``aniso``
      - geometric
      - ratio
      - yes
-     - K_shear / K_tens; how much stiffer the interface is along the pull than across it.
+     - K_shear / K_tens; in-plane summed stiffness relative to stiffness along the pull.
    * - ``lam_max``
      - geometric
-     - N/m
+     - reduced A^-2
      - yes
      - Largest eigenvalue of the stiffness tensor.
    * - ``lam_min``
      - geometric
-     - N/m
+     - reduced A^-2
      - yes
      - Smallest eigenvalue of the stiffness tensor.
    * - ``n_spring``
@@ -884,19 +884,19 @@ The contact map as a network of breakable springs. No potential enters: these ar
      - Springs in the interface network; every other kinetics column is NaN below three.
    * - ``S_tot``
      - geometric
-     - N/m
+     - reduced A^-2
      - yes
      - Trace of the stiffness tensor; total interface stiffness.
    * - ``rupture_force``
      - geometric
-     - N
+     - reduced A^-1
      - yes
-     - Peak resisting force under steered separation along the weaker axis.
+     - Peak resisting force on the finite displacement grid along the tensile docking axis by default.
    * - ``rupture_work``
      - geometric
-     - J
+     - reduced dimensionless
      - yes
-     - Force integrated to full separation; the off-rate proxy, and a geometry-only quantity no potential enters.
+     - Right-grid force-displacement sum up to twice the longest spring rest length, stopping early if all springs break; no energy calibration.
    * - ``couple_pep``
      - compositional
      - count

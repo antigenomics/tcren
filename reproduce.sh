@@ -26,11 +26,8 @@
 # names. A flag that quietly changes which numbers a run produces is worse than a run that takes
 # longer, so this script has one path through it. To run less, name the stages you want.
 #
-# WHAT IT COSTS. `--library-only` is 106 s end to end, measured 2026-09-05 on macOS arm64 against
-# the 374-structure Native2026 set: env 1 s, potential 24 s, model 1 s, scores 80 s. The 30-minute
-# target is therefore set by the `bench` stage, which is the benchmark repository's own recompute
-# and is timed there. This script prints elapsed seconds for every stage it runs and a total at the
-# end, so a stall is visible rather than inferred from silence.
+# Historical timings do not cover the sampled-potential and full hold-out checks now required.
+# Each stage prints elapsed time; a diagnostic subset never establishes full reproduction.
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -51,8 +48,8 @@ stages:
   env         record the version, the descriptor-catalogue digest and the data root        1 s
   potential   re-derive TCRen2 from Native2026 and assert it reproduces the shipped      24 s
               matrix; emit the derivation's own contact table and count it
-  model       refit the frozen score model from the committed hold-out slice and          1 s
-              assert it reproduces the shipped arrays within the optimiser's tolerance
+  model       validate the frozen object and catalogue (no fitting); the benchmark
+              rebuilds the full hold-out from raw inputs and checks exact frozen identity
   scores      featurise all 374 Native2026 crystals and run the whole score set on       80 s
               them, live, through the two released commands
   bench       $TCREN2_BENCH/recompute.sh — every fixture, table and .dat the paper reads
@@ -141,7 +138,7 @@ PY
 # AFTER the alpha-beta filter and the withdrawn-entry filter, so the counts a downstream analysis
 # quotes describe the derivation's own set.
 stage_potential() {
-  python -m pytest tests/regression/test_shipped_potentials.py -q -p no:cacheprovider \
+  RUN_BENCHMARK=1 python -m pytest tests/regression/test_shipped_potentials.py -q -p no:cacheprovider \
     || return 1
   tcren derive-potential \
       --structure-dir "$DATA_DIR/Native2026" \
@@ -166,26 +163,17 @@ PY
 }
 
 # --- model --------------------------------------------------------------------------------------
-# The frozen score model refitted from the hold-out slice committed to the repository. It matches
-# the shipped arrays to a relative 1e-5, which is what the optimiser earns and not a round number:
-# each of the 55 Yeo-Johnson lambdas comes from a Brent search that stops at about 1.5e-8, and
-# every array fitted through the transform inherits that. The FULL hold-out refit needs all 8,292
-# structures featurised, which is hours; that test is opt-in behind TCREN_HOLDOUT_FEATURES, and if
-# that variable is set here the file must exist. NOTE: that opt-in test asserts np.array_equal on
-# arrays subject to the lambda term above, so it is expected to hold on macOS arm64 and not off it.
-# The committed-slice test is the one with a defensible bound.
+# Validate frozen inputs here. The benchmark rebuilds every hold-out descriptor from raw
+# structures, then scripts/check_fresh_holdout.py fits a temporary object and compares it to
+# the frozen arrays before any publication producers. No committed derived slice is reused.
 stage_model() {
-  if [[ -n "${TCREN_HOLDOUT_FEATURES:-}" && ! -s "${TCREN_HOLDOUT_FEATURES}" ]]; then
-    echo "TCREN_HOLDOUT_FEATURES is set to '$TCREN_HOLDOUT_FEATURES', which is not a file" >&2
-    return 1
-  fi
-  if [[ -z "${TCREN_HOLDOUT_FEATURES:-}" ]]; then
-    log "  full hold-out refit NOT RUN: set TCREN_HOLDOUT_FEATURES to a table from"
-    log "  \`tcren features\` over the 8,292 structures score.holdout_manifest() names."
-    log "  The committed-slice refit below runs either way and is the one under budget."
-  fi
-  python -m pytest tests/unit/test_score.py -q -p no:cacheprovider -ra \
-    -k "refit or reproducible"
+  python - <<'PY' | tee "$OUT/model.txt"
+from tcren.score import holdout_model, holdout_manifest
+m = holdout_model()
+print(f"frozen model validated: {m.n_pos} binders, {m.n_neg} non-binders")
+print(f"manifest: {holdout_manifest().height} structures")
+print("No refit here. Full raw-input hold-out comparison is required in the benchmark stage.")
+PY
 }
 
 # --- scores -------------------------------------------------------------------------------------
@@ -194,13 +182,14 @@ stage_model() {
 # structure — so this is an 80-second stage rather than an hour-long one.
 stage_scores() {
   tcren features -s "$DATA_DIR/Native2026" \
-      -i placement,interface,topology,energetics \
+      --all \
       -t 0 -o "$OUT/native_features.tsv" \
     || return 1
   tcren assess --features "$OUT/native_features.tsv" -o "$OUT/native_assess.tsv" \
     || return 1
   python - "$OUT/native_features.tsv" "$OUT/native_assess.tsv" <<'PY' | tee "$OUT/scores.txt"
 import sys
+import numpy as np
 import polars as pl
 
 feats = pl.read_csv(sys.argv[1], separator="\t", infer_schema_length=None)
@@ -215,7 +204,10 @@ if missing:
 if sc.height != feats.height:
     sys.exit(f"assess wrote {sc.height} rows for {feats.height} featurised structures")
 for c in required:
-    print(f"  {c:<20} {sc[c].null_count():>4} null of {sc.height}")
+    finite = int(np.isfinite(sc[c].to_numpy().astype(float)).sum())
+    print(f"  {c:<20} {finite:>4} finite, {sc.height - finite:>4} missing of {sc.height}")
+    if not finite:
+        sys.exit(f"assess read-out {c} has no finite observations")
 PY
 }
 
@@ -244,4 +236,8 @@ log "total $((SECONDS - T0))s; artifacts in $OUT"
 if [[ ${#FAILED[@]} -gt 0 ]]; then
   die "stage(s) failed: ${FAILED[*]}"
 fi
-log "every stage green"
+if [[ ${#WANT[@]} -eq ${#ALL_STAGES[@]} ]]; then
+  log "every stage green"
+else
+  log "requested diagnostic subset passed; this is not a complete reproduction"
+fi

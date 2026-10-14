@@ -53,6 +53,28 @@ Frozen model loaders reject stale catalogues. A model without sufficient valid c
 training returns an unavailable (NaN) confidence residual. Feature/manifest joins validate
 unique non-null keys and binary labels; fit metadata reports unmatched and incomplete counts.
 
+The 2026-10-14 definition migration preserves frozen coefficient arrays and numerical fit
+metadata; `audit/2026-10-14/frozen-metadata-migration.json` records their hashes and both
+catalogue digests. This is not a refit or proof that corrected class-II/shear features reproduce
+historical outputs. Mechanics defaults have reduced stiffness Å^-2, force Å^-1 and dimensionless
+work; no SI energy calibration is supplied. `fp_chi_*` is β₀−β₁, equal to full Euler characteristic
+only when higher Betti numbers vanish. `exp_lost` is a linearized nearest-pair loss sum.
+
+Potts `available_pairs` exports `chain.id.rec`, `chain.id.par` and heavy-distance `probe`.
+Kernel and marginal joins retain physical chains. Legacy peptide-only tables can infer one partner;
+legacy MHC tables must be regenerated. `threaded_ensemble` requires peptide-only sites and exact
+candidate `par.len`, and carries every Gibbs chain's final state into the next candidate.
+`n_parameters` counts stored coefficients, including orientation, not identifiable degrees of
+freedom. The imputation fitter combines Gibbs imputation with conditional pseudolikelihood;
+it has no likelihood-EM monotonicity theorem. Coupled-marginal `p_any` remains an explicitly
+labelled independence approximation. Sampling trajectories after these repairs require fresh
+reproduction before scientific promotion.
+
+`scripts/check_fresh_holdout.py --features <fresh harmonization parquet> --out <report.json>`
+requires every shipped manifest ID and compares a temporary full refit against the frozen arrays
+and numerical metadata under the existing exact full-scale contract. It never installs the refit.
+The driver owns raw-input freshness; invoking this checker on an old table is not reproduction.
+
 ## Batch annotation — never loop (mmseqs2 is the parallel layer)
 
 **All structure annotation (TCR chain typing AND MHC allele mapping) must gather every
