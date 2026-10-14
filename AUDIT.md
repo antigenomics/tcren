@@ -18,12 +18,19 @@ driver and matched-result gates finish.
   difference, linearized nearest-pair contact loss, heuristic confidence composition, transformed-axis
   conditional means and shared preprocessing fitted on both classes. Future Gaussian/Schur-complement
   and mechanics inputs have explicit domain checks. No SI calibration or likelihood-EM theorem is claimed.
+- The two-step peptide link uses binder-oriented referenced scores and a conditional ranking fit.
+  Its fitted sigmoid transition widths are not calibrated free-energy conversions or absolute
+  occupancies; one width changes a factor's log-odds by one nat. Pooled parameter estimates,
+  structure-grouped held-out performance and likelihood-ratio versus cluster-robust Wald diagnostics
+  are now distinguished. All standing values and result macros were preserved. The manuscript and
+  `FINDINGS.md` originals and numeric-preservation proofs are archived in their follow-up directory.
 - Frozen metadata was deliberately migrated; all five coefficient arrays and original numerical fit
   metadata are unchanged. [Migration evidence](audit/2026-10-14/frozen-metadata-migration.json)
   retains original/new bundle hashes and catalogue digests. Corrected-feature compatibility still
   requires fresh comparison. Metadata migration is not a refit or numerical equivalence certificate.
-- Publication producers, dependency order, cached/resumed calculations and tree retirement are being
-  reconciled across the benchmark and manuscript. The recovered topology producer comes from the
+- Publication producers, dependency order, removal of cached/resumed calculations and tree retirement
+  are implemented and source-checked across the benchmark and manuscript; end-to-end reproduction
+  remains pending. The recovered topology producer comes from the
   recorded repository history. Historical paragraphs/data and dirty edits were archived before edits.
 - The immutable wheel and both reproduction environments share one payload; preflight verified
   all 169 installed library payload files and all 12 required raw sets. The wheel SHA-256 is
@@ -46,8 +53,8 @@ driver and matched-result gates finish.
   repairs was started from raw inputs with the final immutable wheel. Its six potential checks
   passed again (241.52 s), then stopped at an obsolete binder `recognize --scores` call.
   Earlier TCRvdb processing had reused a legacy descriptor table and therefore does not establish
-  fresh reproduction. The producer audit is repairing that path, withdrawn-score dependencies,
-  and two additional physical-chain/order joins in CPL consumers before another complete restart.
+  fresh reproduction. That path, withdrawn-score dependencies and two additional physical-chain/order
+  joins in CPL consumers were repaired before subsequent complete restarts.
   A reporting edit to the running shell driver also caused a terminal parser error; the next
   driver's source will remain fixed during execution. No publication outputs were promoted.
 - The subsequent full attempt passed native scoring, dynamics inputs, ATLAS, potency,
@@ -60,11 +67,33 @@ driver and matched-result gates finish.
   figures have source/build entries; four caption maps and statistical-unit/marker labels were
   reconciled without changing values. The selected 12 structure scenes passed temporary runtime
   verification in 89.6 s. Four geometry-height diagnostics changed under the corrected library;
-  the complete deltas were reported and remain flagged before canonical promotion.
+  the [complete deltas](audit/2026-10-14/render-verification-deltas.json) were reported and remain
+  flagged before canonical promotion.
   One attempt was stopped explicitly before further computation while these missing render
   edges were repaired. The existing late CPL heatmap producer was confirmed and given a complete
   260-cell output check. Thirteen focused producer/identity checks and the read-only manuscript
-  gates pass. Full fresh reproduction, matched-result gates and rendered publication QA remain open.
+  gates pass. Attempt 7 passed the fresh binder recognition/mechanics/reference/scan exports,
+  then stopped at a pose-table join retaining only the 523 positives. All 1,089 structures had fresh
+  recognition and pose outputs. Negative metadata IDs retained suffixes absent from the descriptor
+  key; the same metadata also carried historical computed fields that could precede fresh join
+  columns. Exact key coverage and explicit raw-only metadata projection are repaired and checked;
+  diagnostic joins retain all 566 negatives and 523 positives without rerunning descriptors.
+  The stopped run took 3,405 s; sampled summed process RSS peaked at 18,660,065,280 bytes (shared
+  memory may be counted in more than one process). Full fresh reproduction, matched-result gates
+  and rendered publication QA remain open.
+
+- The HPV producer still called a withdrawn cohort posterior and an old energy column. The author’s
+  legacy-panel disposition applies to that already-retired panel: original three-panel source/PDF/data
+  and benchmark outputs are archived; the live route retains only the existing Q and referenced-energy
+  arms. All 32 retained display macros are exact in a temporary layout check. The 4 Native2026 crystals,
+  56 Shcherbinin mutants and 21 original archive decoys keep their original coordinate sources. Raw
+  metadata supplies the exact label/path mapping; a small source-owned identifier-order input preserves
+  seeded report/bootstrap ordering without storing computed features. Matched point/statistic gates
+  protect both retained arms. The nested all-positive/crystal-core contrast is labelled descriptive.
+- The existing native TCR-reference producer is now scheduled before QTF consumes it. Nineteen combined
+  producer/identity/preservation checks pass, selected changed sources pass Ruff, and wheel/raw/render
+  preflight passes. The temporary two-panel HPV plot renders correctly, and manuscript read-only gates
+  pass. These are source/layout checks; another whole raw-input run remains necessary.
 
 The [publication reconciliation](audit/2026-10-14/publication-resolution.md) inventories all 34
 live reshapers, recovered producers, exact archived tree routes, fresh-input/cache repairs and
@@ -144,8 +173,9 @@ The Gaussian class log-odds, marginalization and conditional mean algebra are co
 valid positive-definite domain. Reliability-weight covariance agrees with `numpy.cov(aweights=...)`
 on a synthetic example. Yeo–Johnson branches agree with SciPy over seven signed values and six
 lambdas (maximum absolute difference 1.82×10⁻¹¹). These are focused checks, not universal proofs of
-numerical stability. Direct `Joint` input-domain validation remains incomplete; the ordinary fitted
-route supplies normalized weights and known descriptors.
+numerical stability. Direct `Joint` validation now guards the identified weights, class support,
+shapes, descriptor subsets, widths and positive-definite covariance/Schur domains. These checks do
+not establish stability for every possible floating-point input.
 
 For unit contact directions uᵢ and nonnegative spring constants kᵢ, K=Σᵢ kᵢuᵢuᵢᵀ is symmetric PSD
 and tr(K)=Σᵢkᵢ. In-plane maximum stiffness is the largest eigenvalue of UᵀKU, where U has two
@@ -171,11 +201,12 @@ Independent sidechain repacking minimizes each frozen-neighbour objective; combi
 does not guarantee a globally improved assembled pose. Proline construction is an unconstrained
 open-chain approximation, not a validated closed ring. These limitations were clarified, not hidden.
 
-Further source findings include the annotation backend’s broad-exception retry losing its thread
-cap, disconnected candidate chains accepted by primary-complex selection, degenerate PCA frame
-inputs, and alternate-conformer union versus writer deduplication. Frozen hydrogen-bond labels are
-distance proxies, not full donor/acceptor-angle or DSSP-energy determinations. These and remaining
-input-domain gaps are explicit in the detailed notes; no corpus effects were inferred.
+The annotation backend now propagates thread-cap failures, primary-complex selection retains only
+the connected TCR:pMHC core, and degenerate PCA frame inputs fail explicitly. Alternate-conformer
+union versus writer deduplication remains a documented qualification. Frozen hydrogen-bond labels
+remain distance proxies, not full donor/acceptor-angle or DSSP-energy determinations. The original
+source review did not infer corpus effects; the subsequent selected-render check measured the four
+height deltas recorded in the resolution checkpoint above.
 
 ## Cleanup and retained scope
 
@@ -210,7 +241,7 @@ bibliographic entry, chemistry constant, dataset label, raw-source availability 
 All native caller domains, every annotation/refinement module and all scientific dependency edges
 are not exhaustively certified. Remaining direct-input gaps are listed in the detailed notes.
 
-## Verification
+## Original 14 October verification checkpoint
 
 - Applicable unit suite after the final source changes: **948 passed, 1 failed, 1 skipped
   (RCSB unreachable), 129 deselected**, 175.03 s. The failure was an obsolete storage-contract
@@ -242,7 +273,7 @@ The first applicable unit run failed because the MHC index data file was missing
 18 failed, 67 errors); the root cause was repaired before the final run. Model-refitting and
 scientific-reproduction tests are intentionally excluded, as are tests marked slow.
 
-Local wheel SHA-256: `142f38cdcab2192c454ca157c796c6294684e12de2372df1ee960fee40c2f9fb`.
+Original 14 October wheel SHA-256: `142f38cdcab2192c454ca157c796c6294684e12de2372df1ee960fee40c2f9fb`.
 It is an unreleased macOS arm64/Python 3.12 build carrying the checkout’s existing 3.10.0 metadata;
 it does not establish PyPI or CI state.
 

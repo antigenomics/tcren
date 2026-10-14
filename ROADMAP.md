@@ -1,6 +1,6 @@
 # Publication roadmap
 
-Updated 2026-10-14. The goal is a reproducible, interpretable paper supported by the existing five
+Updated 2026-10-15. The goal is a reproducible, interpretable paper supported by the existing five
 benchmark blocks, not a larger catalogue of scores. Prior plans and measured abandoned approaches
 are preserved in `attic/2026-10-audit/ROADMAP.md`. `AUDIT.md` owns findings; this file owns exit criteria.
 
@@ -19,7 +19,9 @@ the scientific or publication gates.
 
 The author approved correcting the ergodicity and naive-Bayes interpretations and retiring tree
 figures/claims. Tier-1 documentation now identifies shared preprocessing fitted on both classes;
-the benchmark GLM is explicitly separate from the shipped conditional residual.
+the benchmark GLM is explicitly separate from the shipped conditional residual. The two-step
+ranking link now reports empirical sigmoid widths, pooled parameters and held-out performance
+without claiming a physical free-energy calibration. Its recorded values are preserved.
 Correctly distinguish low-order Betti difference from full Euler characteristic and approximate
 contact stability from an exact physical probability. Preserve every measured result and recorded
 comparison. Do not add new metrics or fitted alternatives to address a wording problem.
@@ -47,8 +49,12 @@ matched units against the accepted recorded results, including row counts and mi
 report material weakening; never silently replace a baseline, refloor a test or average away a loss.
 No sweeps, additional controls or model-selection exercise is implied by this roadmap.
 Exit: all five blocks and every publication artifact trace to that run; no resumed intermediates.
-Current: full fresh reproduction authorized; the latest attempt stopped on an obsolete producer
-CLI call. Producer/API and cached-table repairs precede another complete raw-input restart.
+Current: full fresh reproduction authorized. Earlier attempts exposed producer CLI/schema and raw-path
+export defects, now repaired and checked. Attempt 7 passed native, TCRvdb, CPL and fresh binder
+scoring, then stopped at inconsistent negative metadata keys in the pose join. Exact identity and
+raw-only metadata projection are repaired and checked. The withdrawn HPV posterior panel is archived,
+its two fit-free arms retain original sources and seeded order, and the missing native-reference edge
+is wired. Another complete raw-input restart follows the combined checks.
 Both full-manifest frozen-parameter comparison and matched accepted-result gates precede
 publication. Earlier interrupted diagnostic evidence is retained but does not complete this gate.
 
