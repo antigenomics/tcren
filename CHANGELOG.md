@@ -3,6 +3,127 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
+## [Unreleased] — audit and reconciliation, 2026-10-14
+
+### Removed
+
+- Retired geometry prior, coordinate-chain and cross-product experiment, geometry resources,
+  and `potts geom`, `chain`, `cross`, `predict` commands moved with tests to the source attic.
+  This is a breaking API removal for the next release, not a published 3.10.0 update.
+- Feature resume and computed part reuse. Chunking rebuilds every batch from raw structures.
+
+### Fixed
+
+- Batched species/archive annotation and v2 contact stacking/other labels.
+- Coupled Potts marginal row alignment, raw pinned-matrix serialization and near-zero
+  partition subtraction. Coarse contact union is documented as an independence approximation.
+- Missing Q/T blocks remain missing; signs apply in the legacy mean path; marginal scores
+  ignore missing coordinates outside their own marginal.
+- Frozen model catalogue checks, holdout key/label validation and explicit unavailable
+  confidence residuals when confidence training is absent.
+- All-failed feature commands exit nonzero and retain diagnostics.
+- Affine-gap alignment traceback preserves the scored path; native kernels validate input
+  shapes, index ranges and scalar domains before buffer access.
+- MHC reference readiness validates actual data/index components and stages rebuilds.
+- Shear direction solves the constrained in-plane eigenproblem; class-II topology retains
+  separate MHC chain identities. These descriptor corrections require model/reproduction review
+  before release. Attribution residue selection no longer changes the scoring mode.
+- Surface clustering rejects undefined pairwise distances instead of treating them as zero.
+
+### Documentation
+
+- Canonical AGENTS, current status, dependency-based archival disposition and publication
+  gates replace duplicated history. Original records and checksums remain in the attic.
+- No frozen model arrays or recorded scientific result tables were regenerated. See AUDIT.md
+  for unresolved mathematical interpretations and the scope of verification.
+
+## [3.10.0] — 2026-09-08
+
+### Added
+
+- **The amino-acid background taken in 3D — `tcren.energetics.background`.** `smoothed_reference`
+  is a *virtual* scan: it holds the contact map fixed and re-indexes the potential, so a contact a
+  long arginine reaches across is still charged to the alanine that notionally replaces it. Measured
+  on 370 Native2026 crystals over **8,002** TCR:peptide contacts at 5 Å, only **37.77 %** survive
+  truncation to backbone plus Cβ and **45.03 %** are made by side-chain atoms on both sides, so that
+  is not a correction to the reference — it is most of it.
+
+  `scan_structure` builds every one of the twenty candidates at every rotamer of a χ grid and
+  resolves each `(position, candidate, partner)` to **three** outcomes rather than one: no contact,
+  contact with a probability, or **collision** — every rotamer of that candidate overlapping the
+  environment. A colliding candidate leaves the background average with its prior mass renormalised
+  over the survivors, rather than entering it at its least-bad rotamer, which is what a plain
+  `w / w.sum()` does and which lets an impossible substitution set the reference free energy.
+  `reference_free_energy` takes `F_i` over the **admissible set** `A_i`, and `|A_i|` is itself a
+  read-out.
+
+  Over 60 crystals and 596 peptide positions the three states run **14.48 % collision, 81.48 % no
+  contact, 4.04 % contact** over 585,720 cells, with `|A_i|` mean **17.17** of 20 (p05 12, p95 20);
+  24.3 % of positions admit all twenty and 4.2 % admit ten or fewer. The anchor pockets are where it
+  bites — on 1AO7 the A\*02:01 P2 pocket admits 3 of 20.
+
+- **Side-chain construction — `tcren.refine.sidechain`.** ROADMAP item 4, open since the
+  substitution path was written. `substitute_residues` truncates every target at Cβ, which is
+  *exact* for alanine (its heavy atoms are precisely N, CA, C, O, CB) and a stub for the other
+  eighteen; this places every heavy atom of any of the nineteen non-glycine types from a backbone
+  and a χ vector, by natural extension reference frame.
+
+  **Chemistry is declared, geometry is measured.** `TOPOLOGY` names the atoms, their frames and
+  which χ drives each torsion, and carries no number; the bond lengths, angles and fixed torsion
+  offsets are fitted from **374 Canonical2026 crystals over 176,475 residues** by
+  `scripts/fit_sidechain_geometry.py` and ship as `data/sidechain_geometry.json`. Round-tripping a
+  deposited residue through its own χ reads **0.0784 Å mean heavy-atom RMSD** (median 0.0466, p95
+  0.2323) over 54,954 residues, worst type ARG at 0.2210 Å and best SER at 0.0207 Å.
+
+  `nerf` and `dihedral` invert each other to 2.4e-14. A sign error in the latter leaves every bond
+  and angle correct and every atom 180° out — it reads as a plausible 4 Å RMSD rather than an
+  exception — so `_selfcheck` and `test_nerf_inverts_dihedral` exist for exactly that.
+
+- **`_relax.substitution_scan`, the C++ kernel.** The scan is positions × 20 candidates ×
+  `n_grid ** n_chi` rotamers, each needing a DOPE energy against the environment and a heavy-atom
+  distance to every partner. One batched call per structure, GIL released, threaded over positions
+  inside — never one call per residue and never a Python pool around it. Measured against the
+  `scan_numpy` reference on 1AO7 it agrees to **2.2e-16** on the contact probability and exactly on
+  the admissible flag, the clashing-rotamer count and the rotamer count, at a **100× speed-up**;
+  **27.5 ms** per structure over 60 crystals (median 23.4).
+
+  **Parallelism is over cells, not positions.** The peptide side has nine positions, so a
+  per-position split caps the pool at nine whatever is free; the `20 P` cells are equally
+  independent and are handed out through an atomic cursor, because a tryptophan is nine atoms and
+  an alanine none. With a clashed rotamer abandoned the moment one overlap is found — its energy
+  is never weighted and its contacts never counted — the peptide side runs **505 ms single-threaded
+  to 23.1 ms on 16 cores** and the receptor side **6,372 to 234 ms**. Both still agree with
+  `scan_numpy` to 4.4e-16 and exactly on every integer output. `_geom.interface_clashes` is reused for the collision test
+  rather than reimplemented.
+
+  **The grid and the tolerance are calibrated against one invariant** — a residue the crystal
+  deposited must be admissible at its own position, because the crystal is the proof that it fits.
+  Over 400 deposited peptide residues in 40 crystals, 60° and 0.8 Å read **0.9725**; halving the step
+  again does *not* help (0.9700 at 30°, 15× the cost), so the residual is strained crystal geometry
+  rather than a coarse grid — rejections are Tyr (7 of 38) and Trp (4 of 14) and nothing else. `scripts/calibrate_background_scan.py` is that sweep.
+
+### Changed
+
+- **`potts.available_pairs` measures `d_heavy` out to `radius`, not to `cutoff`.** The old default
+  populated it *if and only if the pair contacted*, so a named distance column was null on **90.1 %**
+  of rows (154 of 171 on 3UTS) and null conditional on the outcome — any analysis regressing an
+  outcome on `d_heavy` was conditioning on that outcome. Filling it costs nothing measurable and
+  `sigma` is identical either way; the contact call keys on `cutoff` and never on the probe. Pass
+  `probe=cutoff` for the old behaviour, which `selfcon.observation_field` reads as a confident
+  non-contact.
+
+### Deprecated
+
+- **The Cα-geometry ladder and the Potts scoring surface are marked for removal**, with the
+  measurement behind each, in `OBSOLETE.md`. Nothing is deleted and nothing changes behaviour. In
+  short: the geometry prior is reachable only from the CLI and feeds no descriptor, channel or
+  benchmark read-out; the couplings buy **+505.7 nats** of pseudo-likelihood and **+0.0000
+  [−0.0015, +0.0000]** of ranking against independent marginals; the Π block costs **−0.0243** macro
+  ROC-AUC on TCRvdb; and `potts:n_contacts`, the family's one usable descriptor, correlates with
+  `interface:n_contacts_tp` at **ρ = +0.999**. What the coupled model is repurposed to is MD contact
+  frequency, where it orders better than the crystal's own contact call (Spearman 0.7199 against
+  0.6440) and levels worse (Pearson 0.7446 against 0.7760) over 682 cells.
+
 ## [3.9.0] — 2026-09-07
 
 ### Added

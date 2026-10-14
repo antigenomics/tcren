@@ -281,14 +281,14 @@ def contact_map(sites: pl.DataFrame, model: PottsModel, *, by: str = "loop", cha
     ``by="pair"``
         the ungrouped table, exactly :func:`contact_probabilities`.
 
-    The residues of a loop are distinct pairs with different probabilities, so the number of
-    simultaneous contacts is Poisson-binomially distributed and has no closed form. The event "at
-    least one" does, and it is what a frequency map measures:
+    The returned ``p_any`` uses an independence approximation to the coupled marginals.
+    Under independence the contact count is Poisson-binomial and the event "at least one" is:
 
     .. math:: P(N \ge 1) \;=\; 1 - \prod_j (1 - p_j)
 
     where :math:`p_j` is the model marginal of pair :math:`j` in the group and :math:`N` the number
-    of contacts the group makes. It is accumulated in :math:`\log(1 - p)` so a twelve-residue loop
+    of contacts the group makes. Coupled marginals alone do not determine this union probability;
+    an exact coupled union requires joint configuration samples. It is accumulated in :math:`\log(1 - p)` so a twelve-residue loop
     does not underflow, and a pair at :math:`p_j = 1` forces the group to 1 exactly rather than to
     ``nan``.
 
@@ -399,6 +399,7 @@ def peptide_free_energy(sites: pl.DataFrame, model: PottsModel, *, coupled: bool
                                     "log_z0": pl.Float64, "dF": pl.Float64,
                                     "n_pairs": pl.Int64, "is_observed": pl.Int64})
     aa = tuple(model.alphabet)
+    sites = sites.filter(pl.col("d_ca") <= model.radius)
     codes, _sizes, q = site_codes(sites, model)
     # A partner position is one residue of one chain, so every site carrying it must agree on the
     # identity. Averaging over a disagreement would silently score a sequence that does not exist.
@@ -416,9 +417,23 @@ def peptide_free_energy(sites: pl.DataFrame, model: PottsModel, *, coupled: bool
     eta_all = rest[:, None] + h_par[None, :] + J[codes[0], :]
 
     if coupled:
-        p = (marginals if marginals is not None else
-             contact_probabilities(sites, model, chains=chains, burn=burn, draws=draws, thin=thin,
-                                   seed=seed, workers=workers))["p_model"].to_numpy()
+        marg = (marginals if marginals is not None else
+                contact_probabilities(sites, model, chains=chains, burn=burn, draws=draws,
+                                      thin=thin, seed=seed, workers=workers))
+        keys = ["pdb.id", "chain.rec", "region.rec", "pos.rec", "cls", "role.par", "pos.par"]
+        if all(k in marg.columns for k in keys):
+            # contact_probabilities sorts sites; align by identity, never arrival order.
+            aligned = (q.select(keys).with_row_index("_order")
+                       .join(marg.select(*keys, "p_model"), on=keys, how="left",
+                             validate="1:1").sort("_order"))
+            if aligned["p_model"].null_count():
+                raise ValueError("marginals must match every site by identity")
+            p = aligned["p_model"].to_numpy()
+        elif marg.columns == ["p_model"]:
+            # Retain the historical explicit positional-vector input.
+            p = marg["p_model"].to_numpy()
+        else:
+            raise ValueError("marginals must carry site identity columns or only p_model")
         if p.shape != (q.height,):
             raise ValueError(f"marginals must have one row per site ({q.height}), got {p.shape}")
         # log Z is linear in eta to first order with slope <sigma>; the constant cancels in dF
@@ -679,7 +694,7 @@ def map_agreement(sites: pl.DataFrame, *, column: str = "p_model",
 
     Args:
         sites: A scored site table --- from :func:`contact_probabilities`,
-            :func:`tcren.potts.predict_contact_map`, or ``tcren potts contacts``/``predict``.
+            or ``tcren potts contacts``.
             Grouped by ``pdb.id``; rows with a null ``observed`` are read as non-contacts.
         column: The probability column to score.
         observed: The observed indicator column.
@@ -711,7 +726,8 @@ def _js_similarity(y: np.ndarray, p: np.ndarray, eps: float = 1e-12) -> float:
         return float("nan")
     q, r = y / y.sum(), p / p.sum()
     m = 0.5 * (q + r)
-    kl = lambda a, b: float(np.sum(np.where(a > 0, a * np.log2((a + eps) / (b + eps)), 0.0)))
+    def kl(a, b):
+        return float(np.sum(np.where(a > 0, a * np.log2((a + eps) / (b + eps)), 0.0)))
     return 1.0 - 0.5 * (kl(q, m) + kl(r, m))
 
 

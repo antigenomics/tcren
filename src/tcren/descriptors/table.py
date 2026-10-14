@@ -54,7 +54,7 @@ def recognition_table(items, *, organism: str = "human", full: bool = False,
 
     ``chunk`` is retained for signature compatibility and is no longer used.
 
-    ``autodetect_species`` searches ``organism`` **and** mouse so a mis-declared cohort is still
+    ``autodetect_species`` searches human **and** mouse for either supported ``organism`` so a mis-declared cohort is still
     typed correctly. That doubles the annotation cost, so pass ``False`` when the organism is known
     — it halves the mmseqs work and changes nothing else.
 
@@ -83,7 +83,9 @@ def recognition_table(items, *, organism: str = "human", full: bool = False,
 
     if structs:                       # stage 1: one arda call per organism + one MHC search, all cores
         cores = _mmseqs_threads or (_os.cpu_count() or 1)
-        orgs = (organism, "mouse") if autodetect_species else (organism,)
+        other = "mouse" if organism == "human" else "human"
+        orgs = ((organism, other) if autodetect_species and organism in ("human", "mouse")
+                else (organism,))
         recs = _batch_annotate(structs, _import_arda(), organisms=orgs, threads=cores)
         for i, s in enumerate(structs):
             try:

@@ -148,6 +148,7 @@ class Transformer:
         cols = []
         for j, n in enumerate(self.names if names is None else names):
             c = X[:, j].astype(float)
+            c = np.where(np.isfinite(c), c, np.nan)
             if kind(n) == "cossin":
                 a = np.deg2rad(c) if DETAIL[n][0] == "deg" else c
                 cols.extend([np.cos(a), np.sin(a)])

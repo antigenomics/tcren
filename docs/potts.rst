@@ -402,322 +402,18 @@ by something near zero.
    tcren potts fit -s <structures> -o potts_em.json --em --em-draws 5 --em-steps 10 \
        --em-trace-out em_trace.tsv
 
-Placing a pair without a template
----------------------------------
+Retired geometry experiments
+----------------------------
 
-:func:`tcren.potts.available_pairs` reads :math:`d_{\mathrm{C}\alpha}` off a structure, so every
-read-out above is conditional on holding a template of the right shape — and lengths are not evenly
-covered. :mod:`tcren.potts.geom` models the distance matrix instead,
-
-.. math::  P\big(d_{\mathrm{C}\alpha} \mid \text{loop},\, i,\, L,\ j,\, M,\ \text{MHC class}\big)
-
-and emits the same schema, so :func:`tcren.potts.site_codes`, :func:`tcren.potts.eta` and every
-scoring function accept it unchanged.
-
-**Length generalisation is the normalised coordinate, not the parameterisation.** A loop of length
-:math:`L` against a peptide of length :math:`M` is resampled onto :math:`(u, v) = (i/(L+1),
-j/(M+1))` — the graphon coordinates :func:`tcren.contactmap.registered_map` already uses — so
-:math:`L = 10` and :math:`L = 17` land on one surface that reads back at any pair of lengths,
-including a pair the fit never saw.
-
-**Three loops, not one.** On the bundled crystals CDR3 carries **69.3% of TCR:peptide contacts**
-and CDR1 a further **26.5%**; CDR1 + CDR2 + CDR3 is **98.4%**. A CDR3-only prior would cap its own
-recall below 0.70 by construction, so all three carry a surface. CDR1 and CDR2 are germline and
-barely vary in length — they need the surface, not the length generalisation.
-
-**Feasibility is checked against the loop physics, not against the fit.**
-:func:`tcren.geometry.reach_max` gives, in closed form from the discrete-Frenet virtual-bond chain,
-the maximum apex reach of a length-``L`` Ω-loop pinned at neck separation :math:`R`. A predicted
-distance beyond it is one no loop of that length can adopt, and the emitted table flags it in
-``feasible`` rather than scoring it silently.
-
-``sigma`` on a predicted table is a **placeholder**, not data: nothing here observed a contact, so
-it is zero throughout and ``d_heavy`` is null. ``d_ca_sd`` carries the surface's own spread at that
-cell, which is what says how much to trust the placement.
-
-**The fitted prior ships.** ``geom_tcr_peptide`` is averaged over the same 359 alpha-beta
-``Native2026`` crystals :func:`tcren.potential.tcren2` is derived from, twelve surfaces at grid 12
-(TRA/TRB x CDR1/CDR2/CDR3 x MHCI/MHCII), and :meth:`tcren.potts.GeomPrior.bundled` loads it. Fit
-your own with
-
-.. code-block:: console
-
-   tcren potts geom -s <structures> -o geom.json --grid 12 --exclude 3qib,3qiu
-
-``--exclude`` is how a held-out prediction is built; the design belongs to whoever is evaluating,
-so the command only offers the exclusion. The MHC groove is annotated whether or not it is asked
-for, because the surface is keyed on MHC class and without it every crystal reports class I.
-
-Scoring a map with no structure of the complex is then one command:
-
-.. code-block:: console
-
-   tcren potts predict -s model.pdb.gz -m potts_tcr_peptide_sc -o predicted.tsv
-   tcren potts predict --sequences loops.tsv -m potts_tcr_peptide_sc -o predicted.tsv
-
-The first opens the structure for its loop sequences, its peptide and its MHC class **only**, and
-joins the crystal's own ``sigma`` and ``d_ca`` back on so the table can be scored against what the
-crystal did. The second reads no structure at all: a TSV naming ``id``, ``peptide``, optionally
-``mhc_class``, and any of the six loop columns ``TRA:CDR1`` ... ``TRB:CDR3``. Both emit the
-``potts contacts`` columns plus ``d_ca_sd`` and ``feasible``.
-
-The difference from :func:`tcren.potts.contact_probabilities` on ``available_pairs`` is not the
-model — it is the same Hamiltonian and the same block Gibbs — but **what the 15 A cut is applied
-to**: there, the Ca distance the complex was solved at; here, the distance the surface predicts.
-
-Average over geometries, not over surfaces
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Everything above scores **one** map, read off the mean surface. That is the wrong order of
-operations, and it costs most of the map. Two reasons, and neither is a matter of degree:
-
-* A contacting pair sits at the **near end** of the distribution being averaged. Over every pair
-  the measured and predicted geometries share, the predicted :math:`d_{\mathrm{C}\alpha}` runs
-  0.2–2.3 A long; over the pairs that actually contact it runs **2.6–4.5 A** long. The model's
-  distance term swings from :math:`+5.77` at 4.5–5.0 A to :math:`-2.33` at 11.0–11.5 A, so those
-  angstroms are worth about four natural-log units of one-body field.
-* **The distances in one map are not independent.** Consecutive C\ :math:`\alpha` atoms are a
-  fixed virtual bond apart and a loop cannot bend arbitrarily, so no set of per-pair marginals
-  recombines into a geometry a chain could adopt. Averaging them lets every pair be close at once.
-
-:func:`tcren.potts.predict_contact_map` averages the other way round. Every crystal in
-:attr:`tcren.potts.GeomPrior.surfaces` is read back at the target lengths, the map is scored under
-*that* geometry, and the contact probabilities are averaged:
-
-.. math::  \bar p_a = \frac{1}{S}\sum_{s} p_a\big(d^{(s)}\big)\,
-           \mathbb{1}\big[d^{(s)}_a \le r\big]
-
-Every member is a chain that was actually solved, so the virtual-bond constraint holds by
-construction. Held out by structure over **364** ``Native2026`` crystals:
-
-.. list-table::
-   :header-rows: 1
-
-   * - estimator
-     - mean :math:`\sum_a p_a`
-     - ratio to observed
-     - median contact ROC-AUC
-   * - mean surface
-     - 9.80
-     - 0.466
-     - 0.9242
-   * - **geometry ensemble**
-     - **24.62**
-     - **1.171**
-     - **0.9325**
-
-against **21.02** contacts observed per structure on CDR1–CDR3 (median 21, s.d. 6.08). Both the
-level and the ordering improve; the mean surface loses more than half the contacts.
-
-.. code-block:: console
-
-   tcren potts geom -s <structures> --grid 32 --keep-surfaces -o prior.npz
-   tcren potts predict --sequences loops.tsv --ensemble -m potts_tcr_peptide_sc -o predicted.tsv
-
-``--keep-surfaces`` needs an ``.npz`` output, because a stack of surfaces does not fit in JSON;
-distances are stored to 0.01 A as ``uint16``, four decimal places finer than the 0.5 A bin the
-model reads. The shipped ``geom_tcr_peptide_ens`` carries **2,154** surfaces from the same 359
-crystals at grid 32, 3.5 MB, and ``--ensemble`` selects it by default. The scored table gains
-``p_avail``, the fraction of reference geometries placing that pair within the radius at all, and
-costs about 0.16 s per member.
-
-What the ensemble does **not** buy is receptor specificity: the correlation between the predicted
-and the observed contact count across the 364 structures is Pearson :math:`+0.23`
-(Spearman :math:`+0.18`), and the per-structure mean absolute error, 5.95 contacts, is about the
-spread of the population itself. It predicts the typical interface at the right level, which is
-what loop lengths alone can carry.
-
-Every TCR against every pMHC: the cross product
------------------------------------------------
-
-The prior above sees one geometry per crystal, covering whichever ``(loop length, peptide length)``
-pairs happen to have been solved. ``Canonical2026`` is ``Native2026`` after canonical MHC
-superposition, so **every complex already sits in one frame** --- which is why
-:func:`tcren.shuffle.graft_tcr` can splice a pMHC and a foreign TCR with no transform at all.
-Reading the TCR of one crystal against the pMHC of another is therefore a legitimate
-pseudo-complex, and within MHC class there are :math:`265^2 + 94^2 = 79{,}061` of them.
-
-.. code-block:: console
-
-   tcren potts cross -o cross/                      # 36,269,320 rows, 246 MB, 31 s
-
-There is no loop over the 79,061 pairs: the cross product over *structures* is the cross product
-over *residues*, so the two residue tables are grouped by
-``(class, chain, region, len.rec, par.len)`` and each group is one ``(n_s, n_t, L, M)`` broadcast.
-
-**The frame is checked, not assumed.** A pairing *is* :func:`tcren.shuffle.graft_tcr` --- keep the
-host pMHC, drop its TCR, put the donor's in --- and that graft applies no transform precisely
-because the set is co-framed. Over 40 built chimeras and 15,963 Cα cells the table matches the graft
-to **4.5e-5 Å**. On a set left in its deposited frames every pairing would be meaningless *and the
-table would look perfectly normal*, so the peptide-centroid spread is measured and
-``--superimpose auto`` (the default) orients the set if it needs it, about 3 ms a structure. A set
-still not co-framed afterwards is refused. ``Canonical2026`` reads 3.61 Å and passes through
-untouched; the bundled test fixtures read **141.7 Å as deposited and 0.95 Å oriented**.
-
-**Clashing pairs are removed and the threshold is measured, not assumed.** Over the 175,358
-receptor:peptide Cα pairs of the 359 solved complexes the closest approach is **3.366 Å**;
-``--min-dist`` defaults to 3.35, so no row a real complex produced is lost. A foreign TCR dropped
-onto a groove does clash --- 0.062 % of cross rows sit under 3.0 Å where **no** native row does ---
-and the filter is per pair, not per pairing, so a pseudo-complex with one impossible contact keeps
-its other hundreds.
-
-**What the cross product buys** is length coverage --- 131 ``(L, M)`` combinations for TRA:CDR3
-against the 62 the crystals solved, 112 against 59 for TRB:CDR3 --- and hundreds of samples per
-cell. What it does **not** buy is receptor:peptide dependence beyond the 359 solved pairings:
-crossing every TCR with every pMHC *is* the product of the two marginals. The ``is_native`` column
-marks the diagonal, and ``pdb.id.rec`` and ``pdb.id.par`` stay separate columns so a caller can
-hold out by structure on either axis.
-
-A geometry drawn from a fitted joint
-------------------------------------
-
-A mean of distance matrices is not a distance matrix any chain can realise: consecutive Cα atoms
-are a fixed **3.7985 Å** apart (s.d. 0.0668, over 642 CDR gaps), and nothing in a per-cell average
-enforces it. Recovering coordinates from a distance matrix is a Euclidean distance-matrix
-completion and is not convex, so the tractable relaxation is necessary and not sufficient.
-
-:mod:`tcren.potts.chain` works where the constraint is exact. Because the crystals are co-framed,
-loop Cα coordinates are comparable across them, and the model is a joint Gaussian over the
-concatenated graphon-knot coordinates of all six CDR loops **and** the peptide:
-
-.. math::  x \sim \mathcal{N}\big(\mu(\text{lengths}),\ W W^{\mathsf T} + \Psi\big)
-
-A draw is a set of 3D traces, :func:`tcren.geometry.enforce_bond` puts each one exactly on the
-virtual bond, and the distance matrix is *derived*. Three consequences:
-
-* **Every geometry is realisable**, with no relaxation anywhere.
-* **The cells are jointly modelled.** One draw of the joint moves all six loops and the peptide
-  together, which is what carries the docking angle --- a whole-receptor rigid-body degree of
-  freedom no per-loop model can express, and the one CDR2 needs, CDR2 being germline and barely
-  varying in length.
-* **Length stops being a joint problem.** :math:`L` conditions the loop block and :math:`M` the
-  peptide block, separately, so a CDR3 of 16 against an 11-mer needs no crystal that solved that
-  pair.
-
-.. code-block:: console
-
-   tcren potts chain -o chain_prior.npz --grid 24 --rank 12
-   tcren potts predict -s complex.pdb --chain-prior chain_prior.npz --geometry-draws 256
-
-**The draw set contains the right geometry.** Held out by structure over 540 observed contacts in
-24 crystals, the best of 512 draws places each contact to **0.04 Å**. The *mean* over draws
-overshoots by +3.25 Å, because a contacting pair sits at the near end of the distribution being
-averaged --- the measured value lands around the 15th to 25th percentile of the drawn spread.
-
-**Annealing was measured and it costs.** ``--beta`` weights each draw by its own :math:`\log Z`,
-computed on the union of every draw's reachable cells so the site count cannot confound it; a draw
-that put a cell out of reach gets :math:`\eta = -60` there. Over 10 crystals held out by structure:
-
-.. list-table::
-   :header-rows: 1
-
-   * - arm
-     - E[contacts]
-     - ratio
-     - js
-     - w_eff
-   * - step 2b (in-sample baseline)
-     - 24.7
-     - 1.10
-     - 0.4078
-     - ---
-   * - **chain, beta = 0**
-     - **22.0**
-     - **0.90**
-     - **0.4342**
-     - 96.0
-   * - chain, beta = 0.05
-     - 36.4
-     - 1.46
-     - 0.4042
-     - 18.8
-   * - chain, beta = 1
-     - 47.1
-     - 1.84
-     - 0.3538
-     - 1.1
-
-The common site set rules out the site-count explanation, so the mechanism is the **contact**
-count: :math:`\log Z` is a free energy and rises with occupancy. ``beta`` defaults to 0.
-
-Does the residue turn toward the peptide?
-------------------------------------------
-
-The Cα geometry says a pair is close enough. Whether the residue is *facing the right way* is a
-separate question, and until 3.9.0 the model could not ask it: the site table carried ``d_heavy``
-and ``d_ca`` and no Cβ. :func:`tcren.geometry.orientation_cosine` is the cosine between a residue's
-Cα→Cβ direction and its direction to the partner Cα --- ``+1`` aimed at it, ``-1`` away.
-
-Held at a fixed Cα distance it separates contact from non-contact at **ROC-AUC 0.69--0.84** across
-4--12 Å, so it is information the distance block does not carry. Fitted as ``g_orient``, eight bins
-over 369 crystals with ``J`` pinned to ``tcren2``, it is worth **+787.0 nats** of
-pseudo-log-likelihood for eight parameters, and the profile is monotone across 3.05 log-odds:
-
-.. list-table::
-   :header-rows: 1
-
-   * - cos bin
-     - coefficient
-     - sites
-   * - :math:`[-1.00, -0.75)`
-     - −1.2922
-     - 5,332
-   * - :math:`[-0.25, 0.00)`
-     - −0.5433
-     - 7,688
-   * - :math:`[+0.25, +0.50)`
-     - +0.5930
-     - 9,584
-   * - :math:`[+0.75, +1.00)`
-     - +1.7592
-     - 9,781
-
-**The Cβ is reconstructed, not read.** A drawn geometry has no side chains, so
-:func:`tcren.geometry.virtual_cb` builds Cβ from three consecutive Cα (0.547 Å mean position
-residual). ``available_pairs`` uses the same reconstruction on a crystal, so fitting and scoring
-describe one quantity rather than two; the reconstructed cosine correlates with the real one at
-Pearson **0.81** and keeps ROC-AUC 0.68--0.79. Glycine is not a special case --- this is where a Cβ
-*would* sit given the backbone, so there is no missing value to encode.
-
-**Where it pays is a crystal, not a drawn geometry.** Held out by structure over 24 crystals, read
-on the complex's own Cα the map improves on both placement and discrimination:
-
-.. list-table::
-   :header-rows: 1
-
-   * - arm
-     - ratio
-     - js
-     - auc
-   * - crystal's own Cα
-     - 1.002
-     - 0.7052
-     - 0.9599
-   * - **the same, with ``g_orient``**
-     - 1.026
-     - **0.7290**
-     - **0.9691**
-
-For scale, the 3.8.0 exclusion class moved js 0.7133 → 0.7162 there and left the ROC-AUC flat. On a
-geometry **drawn** from :mod:`tcren.potts.chain` the block is neutral (js 0.4200 → 0.4203) --- not
-because it is wrong there, but because ``cos_cb`` is a deterministic function of the Cα trace, so it
-can only be as receptor-specific as the trace is, and a drawn backbone carries the population's
-typical orientation. Use it when you hold coordinates.
-
-The block is **opt-in on both sides**: a model with no fitted ``g_orient``, or a frame with no
-``cos_cb``, carries six blocks and scores exactly as it did. Every shipped model has
-``g_orient = []``.
-
-.. code-block:: python
-
-   model = fit_potts(pairs, coupling_matrix="tcren2", orient=True)
+The geometry prior, coordinate-chain model and cross-product experiment are archived
+under ``attic/2026-10-audit`` in the source repository. They are not shipped APIs.
+The contact model on supplied coordinates and its fitting recipes remain supported.
 
 Scoring the agreement: placement and level
 ------------------------------------------
 
 :func:`tcren.potts.map_agreement` reads any scored site table --- from
-:func:`contact_probabilities`, :func:`predict_contact_map`, ``tcren potts contacts`` or
-``tcren potts predict`` --- and reports **two** numbers per map, because no single one answers
+:func:`contact_probabilities` or ``tcren potts contacts`` --- and reports **two** numbers per map, because no single one answers
 both questions:
 
 ``ratio``
@@ -799,25 +495,19 @@ couplings: ``p_independent`` from the one-body model alone, ``p_model`` the marg
 coupled model by block Gibbs (the one to use), and ``p_conditional`` =
 :math:`P(\sigma_a = 1 \mid \text{the observed rest})`.
 
-``map`` closes those pairs onto a coarser grid, which is where they become comparable with an
-experiment. The residues of one CDR loop are distinct pairs with different marginals, so the number
-of simultaneous contacts is Poisson-binomially distributed and has no closed form; the event "at
-least one" does,
+``map`` groups pairs onto a loop/position grid. Its ``p_any`` uses the independence approximation
 
-.. math:: P(N \ge 1) \;=\; 1 - \prod_j \left(1 - p_j\right),
+.. math:: P_{\mathrm{ind}}(N \ge 1) = 1 - \prod_j (1-p_j),
 
-with :math:`p_j` the model marginal of pair :math:`j` in the group. That is the quantity a molecular
--dynamics trajectory reports as the fraction of frames in which a loop touches a peptide position,
-so ``--by loop`` is directly comparable with a measured contact-frequency map. ``--by position``
-collapses the loops and reads how engaged each peptide residue is expected to be, before any residue
-identity is scored. Emitted columns are ``p_any`` (the frequency above), ``p_expected``
-(:math:`\sum_j p_j`, the expected number of contacts), ``n_pairs``, ``n_observed`` and ``observed``.
-The sum is accumulated in :math:`\log(1 - p)`, so a twelve-residue loop does not underflow and a
-saturated pair returns 1 exactly rather than ``nan``.
+where :math:`p_j` is the coupled marginal of pair :math:`j`. Distinct pairs need not be independent:
+coupled marginals alone do not determine the probability of their union. This approximation can
+be compared empirically with a trajectory contact-frequency map, but is not its exact coupled
+model expectation. No numerical definition changed in the audit.
 
-These are contact **frequencies** — dimensionless, in :math:`[0, 1]`. They are not free energies and
-carry no :math:`k_\mathrm{B}T`, so they belong to the diagnostic and importance side of the model
-rather than to any energy block; ``score``'s ``neg_energy`` and :func:`~tcren.potts.peptide_free_energy`'s ``log Z0`` are the quantities with units.
+``p_expected`` is :math:`\sum_j p_j`, the expected number of contacts; linearity makes this valid
+without independence, and it need not lie in [0, 1]. Other columns are ``n_pairs``, ``n_observed``
+and ``observed``. ``p_any`` lies in [0, 1]; the product is accumulated in log space. Neither this
+probability approximation nor the expected count is a binding free energy.
 
 ``score``, ``contacts`` and ``map`` all take ``--workers`` (default: every core). The per-structure
 numbers are functions of ``(seed, pdb.id)`` alone, so splitting the work changes nothing.

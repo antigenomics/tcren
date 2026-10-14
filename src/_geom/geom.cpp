@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -39,9 +40,14 @@ inline double d2(const Vec3& a, const Vec3& b) {
 }
 
 std::vector<Vec3> load_xyz(py::array_t<double> a) {
+    if (a.ndim() != 2 || a.shape(1) != 3 || a.shape(0) > std::numeric_limits<int>::max())
+        throw py::value_error("coordinates must have shape (N, 3) with N fitting an int");
     auto r = a.unchecked<2>();
     std::vector<Vec3> v(r.shape(0));
     for (py::ssize_t i = 0; i < r.shape(0); ++i) v[i] = {r(i, 0), r(i, 1), r(i, 2)};
+    for (const auto& p : v)
+        if (!std::isfinite(p.x) || !std::isfinite(p.y) || !std::isfinite(p.z))
+            throw py::value_error("coordinates must be finite");
     return v;
 }
 std::vector<int> load_int(py::array_t<int> a) {
@@ -49,6 +55,15 @@ std::vector<int> load_int(py::array_t<int> a) {
     std::vector<int> v(r.shape(0));
     for (py::ssize_t i = 0; i < r.shape(0); ++i) v[i] = r(i);
     return v;
+}
+
+void check_radii(const py::array_t<double>& radii, size_t n) {
+    if (radii.ndim() != 1 || static_cast<size_t>(radii.size()) != n)
+        throw py::value_error("radii must have one entry per atom");
+    auto r = radii.unchecked<1>();
+    for (py::ssize_t i = 0; i < r.shape(0); ++i)
+        if (!std::isfinite(r(i)) || r(i) <= 0)
+            throw py::value_error("radii must be finite and positive");
 }
 
 // Golden-spiral (Fibonacci) unit sphere of n points — the sampling ShrakeRupley uses.
@@ -68,6 +83,9 @@ std::vector<Vec3> unit_sphere(int n) {
 py::array_t<double> shrake_rupley(py::array_t<double> xyz, py::array_t<double> radii,
                                   double probe, int n_points) {
     std::vector<Vec3> pos = load_xyz(xyz);
+    check_radii(radii, pos.size());
+    if (!std::isfinite(probe) || probe < 0 || n_points <= 0)
+        throw py::value_error("probe must be finite and nonnegative, n_points positive");
     auto rr = radii.unchecked<1>();
     const int n = static_cast<int>(pos.size());
     std::vector<double> rad(n);
@@ -80,11 +98,16 @@ py::array_t<double> shrake_rupley(py::array_t<double> xyz, py::array_t<double> r
 
     // Grid: cell size = 2*rmax so any contacting neighbour lies in the 27-cell stencil.
     const double cell = std::max(2.0 * rmax, 1e-3);
+    for (const auto& p : pos)
+        for (double v : {p.x, p.y, p.z})
+            if (std::abs(static_cast<long double>(v) / cell) >=
+                static_cast<long double>(std::numeric_limits<long>::max()) - 2)
+                throw py::value_error("coordinates exceed spatial-grid index range");
     auto key = [cell](double v) { return static_cast<long>(std::floor(v / cell)); };
-    std::unordered_map<long long, std::vector<int>> grid;
+    std::unordered_map<unsigned long long, std::vector<int>> grid;
     auto hash = [](long a, long b, long c) {
-        return (static_cast<long long>(a) * 73856093LL) ^ (static_cast<long long>(b) * 19349663LL) ^
-               (static_cast<long long>(c) * 83492791LL);
+        return (static_cast<unsigned long long>(a) * 73856093ULL) ^ (static_cast<unsigned long long>(b) * 19349663ULL) ^
+               (static_cast<unsigned long long>(c) * 83492791ULL);
     };
     for (int i = 0; i < n; ++i)
         grid[hash(key(pos[i].x), key(pos[i].y), key(pos[i].z))].push_back(i);
@@ -127,6 +150,8 @@ py::array_t<double> shrake_rupley(py::array_t<double> xyz, py::array_t<double> r
 int interface_hbonds(py::array_t<double> donor_xyz, py::array_t<double> acceptor_xyz,
                      double dist_cutoff) {
     std::vector<Vec3> a = load_xyz(donor_xyz), b = load_xyz(acceptor_xyz);
+    if (!std::isfinite(dist_cutoff) || dist_cutoff <= 0)
+        throw py::value_error("distance cutoff must be finite and positive");
     const double c2 = dist_cutoff * dist_cutoff;
     int count = 0;
     py::gil_scoped_release release;
@@ -148,6 +173,10 @@ py::dict contact_descriptors(py::array_t<double> tcra_xyz, py::array_t<int> tcra
     std::vector<Vec3> ta = load_xyz(tcra_xyz), tb = load_xyz(tcrb_xyz);
     std::vector<Vec3> pep = load_xyz(pep_xyz), mhc = load_xyz(mhc_xyz);
     std::vector<int> ra = load_int(tcra_res), rb = load_int(tcrb_res);
+    if (ra.size() != ta.size() || rb.size() != tb.size())
+        throw py::value_error("residue identifiers must have one entry per atom");
+    if (!std::isfinite(contact_cut) || contact_cut <= 0 || !std::isfinite(bal_cut) || bal_cut <= 0)
+        throw py::value_error("contact cutoffs must be finite and positive");
     const double cc2 = contact_cut * contact_cut, bc2 = bal_cut * bal_cut;
 
     // pm_cov_ntcr: distinct engaged TCR residues (a<res>, b<res> namespaced by chain).
@@ -197,6 +226,9 @@ py::dict contact_descriptors(py::array_t<double> tcra_xyz, py::array_t<int> tcra
 py::dict interface_clashes(py::array_t<double> a_xyz, py::array_t<double> a_rad,
                            py::array_t<double> b_xyz, py::array_t<double> b_rad, double tolerance) {
     std::vector<Vec3> A = load_xyz(a_xyz), B = load_xyz(b_xyz);
+    check_radii(a_rad, A.size()); check_radii(b_rad, B.size());
+    if (!std::isfinite(tolerance) || tolerance < 0)
+        throw py::value_error("clash tolerance must be finite and nonnegative");
     auto ra = a_rad.unchecked<1>();
     auto rb = b_rad.unchecked<1>();
     std::vector<int> ci, cj;
@@ -234,6 +266,10 @@ py::dict contact_stability(py::array_t<double> pep_xyz, py::array_t<int> pep_res
                            double delta) {
     std::vector<Vec3> pep = load_xyz(pep_xyz), tcr = load_xyz(tcr_xyz);
     std::vector<int> pr = load_int(pep_res), tr = load_int(tcr_res);
+    if (pr.size() != pep.size() || tr.size() != tcr.size())
+        throw py::value_error("residue identifiers must have one entry per atom");
+    if (!std::isfinite(cutoff) || cutoff <= 0 || !std::isfinite(delta) || delta <= 0)
+        throw py::value_error("cutoff and displacement must be finite and positive");
     const double cc2 = cutoff * cutoff;
     std::unordered_map<long long, double> mind;  // (tcr_res, pep_res) -> min squared distance
     {

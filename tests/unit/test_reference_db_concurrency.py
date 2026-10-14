@@ -20,6 +20,19 @@ pytest.importorskip("arda.mmseqs")  # reference_db builds via arda's mmseqs + lo
 from tcren.mhc import reference
 
 
+@pytest.fixture(autouse=True)
+def local_reference(tmp_path, monkeypatch):
+    fasta = tmp_path / "reference.fasta"
+    fasta.write_text(">synthetic\nACDEFGHIK\n")
+    monkeypatch.setattr(reference, "reference_fasta", lambda: fasta)
+
+
+def _write_db(prefix):
+    Path(str(prefix)).write_bytes(b"seq\0")
+    Path(str(prefix) + ".index").write_text("0\t0\t4\n")
+    Path(str(prefix) + ".dbtype").write_bytes(b"\x01\0\0\0")
+
+
 def test_reference_db_serializes_concurrent_builds(tmp_path, monkeypatch):
     import arda.mmseqs as mmseqs
 
@@ -31,12 +44,13 @@ def test_reference_db_serializes_concurrent_builds(tmp_path, monkeypatch):
         with counter_lock:
             calls["createdb"] += 1
         time.sleep(0.2)  # widen the race window so an unguarded build would double-run
-        Path(str(out) + ".dbtype").write_text("db")  # createdb marker
+        _write_db(out)
+        _write_db(str(out) + "_h")
 
     def fake_run(args, check=True):
         with counter_lock:
             calls["createindex"] += 1
-        Path(str(args[1]) + ".idx.dbtype").write_text("idx")  # createindex marker (written last)
+        _write_db(str(args[1]) + ".idx")
 
     monkeypatch.setattr(mmseqs, "createdb", fake_createdb)
     monkeypatch.setattr(mmseqs, "run", fake_run)
@@ -68,10 +82,11 @@ def test_reference_db_second_call_is_a_cache_hit(tmp_path, monkeypatch):
 
     def fake_createdb(fasta, out, dbtype=1):
         calls["n"] += 1
-        Path(str(out) + ".dbtype").write_text("db")
+        _write_db(out)
+        _write_db(str(out) + "_h")
 
     def fake_run(args, check=True):
-        Path(str(args[1]) + ".idx.dbtype").write_text("idx")
+        _write_db(str(args[1]) + ".idx")
 
     monkeypatch.setattr(mmseqs, "createdb", fake_createdb)
     monkeypatch.setattr(mmseqs, "run", fake_run)
@@ -79,3 +94,46 @@ def test_reference_db_second_call_is_a_cache_hit(tmp_path, monkeypatch):
     reference.reference_db(cache_dir=tmp_path)
     reference.reference_db(cache_dir=tmp_path)  # fresh cache → no rebuild
     assert calls["n"] == 1
+
+
+@pytest.mark.parametrize("broken", ["missing", "truncated"])
+def test_reference_db_repairs_incomplete_index_despite_fresh_markers(tmp_path, monkeypatch, broken):
+    import arda.mmseqs as mmseqs
+
+    db = tmp_path / "alleles_db"
+    for suffix in ("", "_h", ".idx"):
+        _write_db(str(db) + suffix)
+    if broken == "missing":
+        Path(str(db) + ".idx").unlink()
+    else:
+        Path(str(db) + ".idx").write_bytes(b"x")
+    calls = []
+
+    def createdb(fasta, out, dbtype):
+        calls.append(out)
+        _write_db(out)
+        _write_db(str(out) + "_h")
+
+    monkeypatch.setattr(mmseqs, "createdb", createdb)
+    monkeypatch.setattr(mmseqs, "run", lambda args: _write_db(str(args[1]) + ".idx"))
+    assert reference.reference_db(cache_dir=tmp_path) == db
+    assert len(calls) == 1
+    assert Path(str(db) + ".idx").read_bytes() == b"seq\0"
+    backup, = tmp_path.glob(".alleles_db-backup-*")
+    assert (backup / "alleles_db.idx.index").read_text() == "0\t0\t4\n"
+    if broken == "truncated":
+        assert (backup / "alleles_db.idx").read_bytes() == b"x"
+
+
+def test_reference_db_does_not_publish_an_incomplete_build(tmp_path, monkeypatch):
+    import arda.mmseqs as mmseqs
+
+    def createdb(fasta, out, dbtype):
+        _write_db(out)
+        _write_db(str(out) + "_h")
+
+    monkeypatch.setattr(mmseqs, "createdb", createdb)
+    monkeypatch.setattr(mmseqs, "run", lambda args: None)
+    with pytest.raises(RuntimeError, match="incomplete"):
+        reference.reference_db(cache_dir=tmp_path)
+    assert not (tmp_path / "alleles_db.dbtype").exists()

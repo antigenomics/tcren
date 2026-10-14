@@ -1767,19 +1767,14 @@ def features(
     all_families: bool = typer.Option(False, "--all", help="every family, kinetics included"),
     organism: str = typer.Option("human", "--organism"),
     radii: str = typer.Option("7,8", "--radii", help="Calpha thresholds for the footprint flag complex (topology family)"),
-    threads: int = typer.Option(1, "-t", "--threads", help="worker processes for featurisation (0 = all cores); annotation is always one batched call"),
+    threads: int = typer.Option(1, "-t", "--threads", min=0, help="worker processes for featurisation (0 = all cores); annotation is always one batched call"),
     autodetect_species: bool = typer.Option(True, "--autodetect-species/--no-autodetect-species", help="also search mouse to catch a mis-declared organism; --no- halves the annotation cost"),
     metadata: bool = typer.Option(True, "--metadata/--no-metadata", help="join the set's metadata.tsv (label, epitope, allele, ipTM/pLDDT) when one ships beside the structures"),
     chunk: int = typer.Option(
-        0, "--chunk",
-        help="featurise this many structures at a time, writing one part file each. 0 (default) "
+        0, "--chunk", min=0,
+        help="featurise this many structures at a time from raw inputs. 0 (default) "
              "holds the whole set in memory, which is fine to a few thousand structures and is "
              "not fine at twenty thousand",
-    ),
-    resume: bool = typer.Option(
-        False, "--resume",
-        help="with --chunk, keep part files and skip the ones already written; a run that dies "
-             "half way then costs one chunk rather than the whole set",
     ),
 ) -> None:
     """Raw per-structure descriptors, one row per structure, in six feature families.
@@ -1849,35 +1844,17 @@ def features(
         # once. Annotation is still ONE batched call per chunk -- never one per structure -- which
         # is the property that must not be traded away for smaller chunks.
         parts: list[pl.DataFrame] = []
-        batch, index = [], 0
-        part_dir = out.parent / f"{out.stem}.parts"
-        part_dir.mkdir(parents=True, exist_ok=True)
-
-        def _flush(batch: list, index: int) -> None:
-            part = part_dir / f"{index:04d}.tsv"
-            if resume and part.exists():
-                parts.append(pl.read_csv(part, separator="\t", infer_schema_length=None))
-                typer.echo(f"  chunk {index}: {parts[-1].height} rows, resumed")
-                return
-            df = _featurise(batch)
-            df.write_csv(str(part), separator="\t")
-            parts.append(df)
-            typer.echo(f"  chunk {index}: {df.height} structures -> {part.name}")
-
+        batch = []
         for item in iter_structures(structures, importer=import_structure):
             batch.append(item)
             if len(batch) >= chunk:
-                _flush(batch, index)
-                batch, index = [], index + 1
+                parts.append(_featurise(batch))
+                batch = []
         if batch:
-            _flush(batch, index)
+            parts.append(_featurise(batch))
         if not parts:
             raise typer.BadParameter(f"no structures found in {structures!r}")
         table = pl.concat(parts, how="diagonal_relaxed")
-        if not resume:
-            for f in sorted(part_dir.glob("*.tsv")):
-                f.unlink()
-            part_dir.rmdir()
     else:
         items = list(iter_structures(structures, importer=import_structure))
         table = _featurise(items)
@@ -1905,6 +1882,8 @@ def features(
     typer.echo(f"features [{','.join(fams)}]: {table.height} structures, "
                f"{len(table.columns) - 1 - n_meta} descriptors -> {out}"
                + (f"  ({n_err} failed)" if n_err else ""))
+    if table.height == 0 or n_err == table.height:
+        raise typer.Exit(1)
 
 
 @app.command(rich_help_panel=_P_SCORE, hidden=True)
@@ -2139,10 +2118,10 @@ def potts_pairs_cmd(
     cutoff: float = typer.Option(5.0, "--cutoff", help="contact definition, A (closest heavy atom)"),
     probe: float | None = typer.Option(
         None, "--probe",
-        help="measure the heavy-atom layer out to this radius, A, so d_heavy says how far a "
-             "NON-contact missed by; sigma is still called at --cutoff. Needed by potts fit --em "
-             "and potts selfcon, which cannot tell 'did not contact' from 'missed by 0.2 A' "
-             "without it (default: --cutoff, so d_heavy is null for every non-contact)"),
+        help="measure the heavy-atom layer out to this radius, A; sigma is still called at "
+             "--cutoff whatever this is set to. Default is --radius, so every available pair "
+             "carries a real d_heavy. Set it to --cutoff to get the old behaviour, where "
+             "d_heavy is null for every non-contact"),
     organism: str = typer.Option("human", "--organism"),
 ) -> None:
     """The residue pairs available to the coupled model, one row per pair per structure.
@@ -2390,7 +2369,7 @@ def potts_score_cmd(
     enough. ``psi`` is the log-likelihood per available pair, and is the column to compare across
     interfaces of different size.
     """
-    from .potts import PottsModel, score_sites
+    from .potts import score_sites
 
     m = _load_potts(model)
     pairs, _ = _potts_pairs(structures, partner, radius=m.radius, cutoff=m.cutoff)
@@ -2403,234 +2382,21 @@ def potts_score_cmd(
     typer.echo(f"wrote {out} ({scores.height} structures)")
 
 
-@potts_app.command("geom")
-def potts_geom_cmd(
-    structures: Path = typer.Option(..., "-s", "--structures", help="structure file, folder or glob"),
-    out: Path = typer.Option("geom_prior.json", "-o", "--out"),
-    grid: int = typer.Option(12, "--grid", help="surface resolution per axis"),
-    keep_surfaces: bool = typer.Option(False, "--keep-surfaces", help="keep one surface per crystal, not only their mean; requires an .npz --out"),
-    exclude: str | None = typer.Option(None, "--exclude", help="comma-separated pdb.id list to leave out"),
-    organism: str = typer.Option("human", "--organism", help="human|mouse for V(D)J annotation"),
-) -> None:
-    """Fit the receptor:peptide Ca-distance prior over a structure set.
-
-    Averages every CDR1/CDR2/CDR3-against-peptide Ca surface in graphon coordinates
-    ``(u, v) = (i/(L+1), j/(M+1))``, so a surface fitted at one set of lengths reads back at any
-    other. The result is what ``tcren potts predict`` places a pair with when there is no
-    structure to read the distance off.
-
-    ``--exclude`` leaves the named structures out of the fit. That is how a held-out prediction is
-    built: the design belongs to whoever is evaluating, so this command only offers the exclusion
-    and takes no view on it. Withdrawn PDB entries are dropped unconditionally, as they are by
-    ``derive-potential`` and ``potts selfcon``, so a prior and a potential rest on one set.
-    """
-    from .potential import withdrawn_ids
-    from .potts import fit_geom_prior
-
-    # `need_mhc=True` is not optional here. The surface is keyed on MHC class, and without the
-    # groove annotation every structure reports MHCI -- so a prior fitted without it silently
-    # carries six surfaces where it should carry twelve, and reads class II off a class I average.
-    drop = {x.strip().lower() for x in exclude.split(",")} if exclude else set()
-    drop |= withdrawn_ids()
-    kept, seen, skipped = [], 0, 0
-    for st, ok in _potts_structures(structures, organism=organism, need_mhc=True):
-        seen += 1
-        if st is None or not ok:
-            continue
-        if str(st.pdb_id).lower() in drop:
-            skipped += 1
-            continue
-        kept.append(st)
-    if keep_surfaces and out.suffix.lower() != ".npz":
-        raise typer.BadParameter("--keep-surfaces needs an .npz --out; a stack of surfaces does "
-                                 "not fit in JSON")
-    prior = fit_geom_prior(kept, grid=grid, keep_surfaces=keep_surfaces,
-                           notes=f"{structures} | grid={grid}"
-                           + (" | surfaces kept" if keep_surfaces else "")
-                           + (f" | excluded {sorted(drop)}" if drop else ""))
-    prior.to_npz(out) if out.suffix.lower() == ".npz" else prior.to_json(out)
-    typer.echo(f"{seen} structures seen"
-               + (f", {skipped} dropped (withdrawn or --exclude)" if skipped else "")
-               + f", {prior.n_structures} contributed a surface; "
-                 f"wrote {out} ({len(prior.keys())} surfaces at grid {grid}"
-               + (f", {sum(v.shape[0] for v in prior.surfaces.values())} kept" if keep_surfaces
-                  else "") + ")")
 
 
-@potts_app.command("cross")
-def potts_cross_cmd(
-    structures: Path = typer.Option(None, "-s", "--structures", help="co-framed structure folder (default: data/Canonical2026)"),
-    out: Path = typer.Option(..., "-o", "--out", help="output DIRECTORY of part-*.parquet"),
-    radius: float = typer.Option(float("inf"), "--radius", help="keep pairs at or under this Ca distance, A; inf keeps complete (L, M) blocks"),
-    include_self: bool = typer.Option(True, "--include-self/--no-include-self", help="keep the native diagonal, the pairings that were actually solved"),
-    min_dist: float = typer.Option(None, "--min-dist", help="drop pairs closer than this, A (default 3.35, just under the 3.366 A minimum any solved complex reaches); 0 keeps the clashes"),
-    superimpose: str = typer.Option("auto", "--superimpose", help="auto|always|never — orient onto the canonical MHC frame. 'auto' measures the set and orients only if it needs it"),
-    part_rows: int = typer.Option(4_000_000, "--part-rows", help="rows per parquet part"),
-    exclude: str | None = typer.Option(None, "--exclude", help="comma-separated pdb.id list to leave out"),
-    organism: str = typer.Option("human", "--organism", help="human|mouse for V(D)J annotation"),
-) -> None:
-    """Read every TCR against every pMHC and write the Ca distance table.
-
-    The complexes must be **co-framed** --- every one superposed into the one canonical MHC frame,
-    which is what ``data/Canonical2026`` is. Given that, a TCR from one crystal against a pMHC from
-    another needs no transform at all: it is exactly ``tcren.shuffle.graft_tcr``, keep the host
-    pMHC, drop its TCR, put the donor's in --- so within MHC class this enumerates all
-    265^2 + 94^2 = 79,061 pseudo-complexes against the 359 that were solved, without building one.
-
-    **The frame is checked, and fixed if it is wrong.** On a set left in its deposited frames every
-    pairing is a number with no meaning, and nothing about the table would look wrong --- so the
-    peptide-centroid spread is measured and ``--superimpose auto`` (the default) orients the set if
-    it needs it, at about 3 ms a structure. ``Canonical2026`` reads 3.6 A and is passed through
-    untouched; the bundled test fixtures read 141.7 A as deposited and 0.95 A oriented. A set that
-    is still not co-framed after orienting is refused rather than scored.
-
-    Two products, chosen by ``--radius``:
-
-    * ``inf`` (the default) keeps complete ``(loop length, peptide length)`` blocks. This is the
-      one a geometry model is fitted from, and it is the larger.
-    * a finite radius keeps only pairs in reach. Smaller, and the analysis table --- but a fit
-      cannot be built from it, because the blocks are no longer rectangular.
-
-    A foreign TCR dropped onto a groove can clash, and those pairs are removed: ``--min-dist``
-    defaults to 3.35 A, just under the 3.366 A closest approach any of the 359 solved complexes
-    makes, so no row a real complex produced is lost. The filter is per pair, not per pairing --- a
-    pseudo-complex with one impossible contact still has hundreds of ordinary ones.
-
-    ``pdb.id.rec`` and ``pdb.id.par`` are separate columns and ``is_native`` marks the diagonal, so
-    a caller can hold out by structure on either axis. Read the result back with
-    ``pl.scan_parquet(out / "*.parquet")``.
-    """
-    from .paths import canonical_dir
-    from .potential import withdrawn_ids
-    from .potts.cross import MIN_CA, cross_from_structures
-
-    src = structures if structures is not None else canonical_dir()
-    if not Path(src).exists():
-        raise typer.BadParameter(f"{src} does not exist; fetch it with `tcren fetch-data "
-                                 "--canonical` or pass -s")
-    # Same `need_mhc=True` reasoning as `potts geom`: without the groove annotation every structure
-    # reports MHCI, and the cross product would silently pool the two classes.
-    drop = {x.strip().lower() for x in exclude.split(",")} if exclude else set()
-    drop |= withdrawn_ids()
-    kept, seen, skipped = [], 0, 0
-    for st, ok in _potts_structures(src, organism=organism, need_mhc=True):
-        seen += 1
-        if st is None or not ok:
-            continue
-        if str(st.pdb_id).lower() in drop:
-            skipped += 1
-            continue
-        kept.append(st)
-    if not kept:
-        typer.secho(f"{seen} structures seen and none usable — nothing written", fg="red", err=True)
-        raise typer.Exit(1)
-    try:
-        summary = cross_from_structures(kept, out, radius=radius, include_self=include_self,
-                                        min_dist=MIN_CA if min_dist is None else min_dist,
-                                        superimpose=superimpose, part_rows=part_rows)
-    except ValueError as exc:
-        # The frame guard above all: a wrong frame reads as a full, plausible table.
-        typer.secho(str(exc), fg="red", err=True)
-        raise typer.Exit(1) from exc
-    by_class = ", ".join(f"{n} {c}" for c, n in sorted(summary["by_class"].items()))
-    typer.echo(f"{seen} structures seen"
-               + (f", {skipped} dropped (withdrawn or --exclude)" if skipped else "")
-               + f", {summary['structures']} kept ({by_class}); "
-                 f"{summary['pairs']:,} pseudo-complexes, {summary['rows']:,} rows in "
-                 f"{summary['parts']} parts, {summary['bytes'] / 1e6:.0f} MB, "
-                 f"{summary['seconds']:.0f} s; peptide centroids within "
-                 f"{summary['coframe_spread']:.2f} A of one frame")
-    if radius != float("inf"):
-        typer.secho(f"note: --radius {radius} truncates the (L, M) blocks; this table is for "
-                    "analysis and a geometry fit cannot be built from it", fg="yellow", err=True)
 
 
-@potts_app.command("chain")
-def potts_chain_cmd(
-    structures: Path = typer.Option(None, "-s", "--structures", help="co-framed structure folder (default: data/Canonical2026)"),
-    out: Path = typer.Option(..., "-o", "--out", help="output .npz"),
-    grid: int = typer.Option(24, "--grid", help="knots per block"),
-    rank: int = typer.Option(12, "--rank", help="factors in the low-rank covariance"),
-    bandwidth: float = typer.Option(1.5, "--bandwidth", help="Gaussian kernel over lengths, residues"),
-    exclude: str | None = typer.Option(None, "--exclude", help="comma-separated pdb.id list to leave out"),
-    organism: str = typer.Option("human", "--organism", help="human|mouse for V(D)J annotation"),
-) -> None:
-    """Fit the joint over Ca coordinates: a geometry you can draw from, not a mean to read.
-
-    ``potts geom`` averages Ca *distance surfaces*, and a mean of distance matrices describes no
-    chain -- consecutive Ca are a fixed 3.80 A apart and nothing in a per-cell average knows it.
-    This models the coordinates instead, jointly over all six CDR loops and the peptide, so a draw
-    is a set of real traces and the distance matrix is derived rather than modelled.
-
-    Two things follow. Every draw is realisable in 3D, with no relaxation anywhere. And length
-    stops being a joint problem: L conditions the loop block and M the peptide block separately, so
-    a CDR3 of 16 against an 11-mer needs no crystal that solved that pair.
-
-    The input must be co-framed -- ``data/Canonical2026``, or ``tcren superimpose`` output. Held
-    out by structure, some draw of 512 places every observed contact to 0.04 A.
-    """
-    from .paths import canonical_dir
-    from .potential import withdrawn_ids
-    from .potts.chain import fit_chain_prior
-
-    src = structures if structures is not None else canonical_dir()
-    if not Path(src).exists():
-        raise typer.BadParameter(f"{src} does not exist; fetch it with `tcren fetch-data "
-                                 "--canonical` or pass -s")
-    if out.suffix.lower() != ".npz":
-        raise typer.BadParameter("--out must be an .npz")
-    drop = {x.strip().lower() for x in exclude.split(",")} if exclude else set()
-    drop |= withdrawn_ids()
-    kept, seen = [], 0
-    for st, ok in _potts_structures(src, organism=organism, need_mhc=True):
-        seen += 1
-        if st is None or not ok or str(st.pdb_id).lower() in drop:
-            continue
-        kept.append(st)
-    if not kept:
-        typer.secho(f"{seen} structures seen and none usable — nothing written", fg="red", err=True)
-        raise typer.Exit(1)
-    prior = fit_chain_prior(kept, grid=grid, rank=rank, bandwidth=bandwidth,
-                            notes=f"{src} | grid={grid} | rank={rank}"
-                            + (f" | excluded {sorted(drop)}" if drop else ""))
-    prior.to_npz(out)
-    counts = ", ".join(f"{n} {c}" for c, n in sorted(prior.n_structures.items()))
-    typer.echo(f"{seen} structures seen, {sum(prior.n_structures.values())} carried every block "
-               f"({counts}); wrote {out} (dim {prior.dim}, rank {rank})")
-
-
-#: Loop columns a ``--sequences`` manifest may carry, in the order `predicted_sites` keys them.
-_GEOM_LOOPS: tuple[str, ...] = tuple(f"{c}:{r}" for c in ("TRA", "TRB")
-                                     for r in ("CDR1", "CDR2", "CDR3"))
-
-
-def _load_geom(spec, *, ensemble: bool = False):
-    """Resolve ``--geom-prior`` from ``None`` (the bundled prior), a bundled name, or a path."""
-    from .potts import BUNDLED_ENSEMBLE, BUNDLED_PRIOR, GeomPrior
-
-    if spec is None:
-        return GeomPrior.bundled(BUNDLED_ENSEMBLE if ensemble else BUNDLED_PRIOR)
-    if str(spec) in (BUNDLED_PRIOR, BUNDLED_ENSEMBLE):
-        return GeomPrior.bundled(str(spec))
-    path = Path(spec)
-    if path.exists():
-        return (GeomPrior.from_npz(path) if path.suffix.lower() == ".npz"
-                else GeomPrior.from_json(path))
-    raise typer.BadParameter(
-        f"geometry prior not recognised: {spec!r} (use {BUNDLED_PRIOR!r}, {BUNDLED_ENSEMBLE!r}, "
-        f"or an existing .json/.npz path)")
 
 
 @potts_app.command("agreement")
 def potts_agreement_cmd(
-    table: Path = typer.Option(..., "-i", "--table", help="a scored site table from `potts contacts` or `potts predict`"),
+    table: Path = typer.Option(..., "-i", "--table", help="a scored site table from `potts contacts`"),
     out: Path | None = typer.Option(None, "-o", "--out", help="TSV; prints to the terminal when omitted"),
     column: str = typer.Option("p_model", "--column", help="probability column to score"),
 ) -> None:
     """How well a scored contact map agrees with the contacts the structure actually made.
 
-    Reads any table carrying `sigma` and a probability column — `potts contacts` and
-    `potts predict` both emit one — and reports, per `pdb.id`:
+    Reads any table carrying `sigma` and a probability column — `potts contacts` emits one — and reports, per `pdb.id`:
 
     - ``ratio`` -- sum(p) / sum(sigma): the LEVEL, one is the contact count reproduced.
     - ``js`` -- Jensen-Shannon similarity of the two maps normalised to distributions over sites,
@@ -2664,160 +2430,6 @@ def potts_agreement_cmd(
             typer.echo(str(res))
 
 
-@potts_app.command("predict")
-def potts_predict_cmd(
-    out: Path = typer.Option("potts_predicted.tsv", "-o", "--out"),
-    structures: Path | None = typer.Option(None, "-s", "--structures", help="structure file, folder or glob"),
-    sequences: Path | None = typer.Option(None, "--sequences", help="TSV/CSV of loop and peptide sequences; no structure at all"),
-    model: str | None = typer.Option(None, "-m", "--model", help="bundled name (potts_tcr_peptide|potts_tcr_peptide_sc) or a model JSON path; default: potts_tcr_peptide"),
-    geom_prior: str | None = typer.Option(None, "--geom-prior", help="bundled name (geom_tcr_peptide|geom_tcr_peptide_ens) or a prior .json/.npz path"),
-    ensemble: bool = typer.Option(False, "--ensemble", help="average over the reference geometries instead of over their surfaces; needs a prior carrying surfaces"),
-    members: int | None = typer.Option(None, "--members", help="with --ensemble, score only the first N reference geometries"),
-    chain_prior: Path | None = typer.Option(None, "--chain-prior", help="draw geometries from a `potts chain` .npz instead of reading crystal surfaces"),
-    n_draws: int = typer.Option(256, "--geometry-draws", help="with --chain-prior, geometries drawn per unit"),
-    beta: float = typer.Option(0.0, "--beta", help="with --chain-prior, Boltzmann weight on each draw's log Z; 0 (default, and measured best) averages"),
-    organism: str = typer.Option("human", "--organism", help="human|mouse for V(D)J annotation"),
-    chains: int = typer.Option(64, "--chains", help="parallel Gibbs chains"),
-    burn: int = typer.Option(100, "--burn"),
-    draws: int = typer.Option(100, "--draws"),
-    thin: int = typer.Option(3, "--thin"),
-    seed: int = typer.Option(0, "--seed"),
-    workers: int | None = typer.Option(None, "-w", "--workers", help="processes; default all cores"),
-) -> None:
-    """Contact probability per residue pair with the Ca distances *predicted*, not measured.
-
-    ``tcren potts contacts`` reads the Ca distance matrix off the structure, so its site set and
-    its distance field both come from coordinates this complex was solved at. Here the distances
-    come from :func:`tcren.potts.predicted_distances` — a surface averaged over superimposed
-    crystals and read back at the lengths asked for — and the 15 A availability cut is applied to
-    the *predicted* distance. **No coordinate of the complex being scored reaches the
-    prediction.**
-
-    With ``-s`` the structure is opened for its loop sequences, its peptide and its MHC class only
-    (``loops_from_structure``), and the crystal's own ``sigma`` and ``d_ca`` are joined back on so
-    the table can be scored against what the crystal did. With ``--sequences`` there is no
-    structure: a TSV naming ``id``, ``peptide``, optionally ``mhc_class``, and any of the six loop
-    columns ``TRA:CDR1 ... TRB:CDR3``. ``sigma`` is null there, because nothing observed a contact.
-
-    Emits the ``potts contacts`` columns plus ``d_ca_sd``, the surface's own spread at that cell,
-    and ``feasible``, which is false where no loop of that length could span the distance
-    predicted — checked in closed form against :func:`tcren.geometry.reach_max` rather than
-    against the fit.
-
-    ``--chain-prior`` replaces the crystal surfaces with geometries **drawn** from the coordinate
-    joint of ``tcren potts chain``. Each draw is a set of real Ca traces, projected onto the 3.80 A
-    virtual bond, so the distance matrix is derived rather than modelled and no length pair has to
-    have been solved. Held out by structure, some draw of 512 places every observed contact to
-    0.04 A. ``--beta`` weights each draw by its own ``log Z`` on a common site set; it defaults to
-    0, the flat average, because annealing was measured and inflates the map (js 0.4342 at beta = 0
-    against 0.3538 at beta = 1 over 10 held-out crystals). ``w_eff`` reports how many draws carry
-    the weight.
-
-    ``--ensemble`` scores the map under every reference geometry in turn and averages the contact
-    probabilities, rather than scoring one map under their average. The distinction is not a
-    refinement: a mean surface places a contacting pair about 4 A too far out, because such a pair
-    sits at the near end of the distribution being averaged, and no per-pair average is a geometry
-    a chain could adopt, since consecutive Ca atoms are a fixed virtual bond apart. Held out by
-    structure over 364 crystals the ensemble expects 24.62 contacts against 21.02 observed
-    (ratio 1.17) where the mean surface expects 9.80 (ratio 0.47), and the contact ROC-AUC rises
-    from 0.9242 to 0.9325. It adds a ``p_avail`` column — the fraction of reference geometries
-    placing the pair within the radius at all — and costs about 0.16 s per member.
-    """
-    from .potts import (contact_probabilities, loops_from_structure, predict_contact_map,
-                        predicted_sites)
-    from .potts.chain import ChainPrior, annealed_contact_map
-
-    if (structures is None) == (sequences is None):
-        raise typer.BadParameter("pass exactly one of -s/--structures or --sequences")
-    if chain_prior is not None and ensemble:
-        raise typer.BadParameter("--chain-prior and --ensemble are two different geometries; "
-                                 "pass one")
-    m = _load_potts(model)
-    if chain_prior is not None:
-        prior = (ChainPrior.from_npz(chain_prior) if Path(chain_prior).exists()
-                 else ChainPrior.bundled(str(chain_prior)))
-    else:
-        prior = _load_geom(geom_prior, ensemble=ensemble)
-    if ensemble and not prior.surfaces:
-        raise typer.BadParameter("--ensemble needs a prior carrying per-crystal surfaces; fit one "
-                                 "with `tcren potts geom --keep-surfaces -o prior.npz`")
-    gibbs = dict(chains=chains, burn=burn, draws=draws, thin=thin, seed=seed, workers=workers)
-
-    def _one(loops, pep, cls, pid):
-        """One map, whichever estimator. Both scored paths average in the same call."""
-        if chain_prior is not None:
-            return annealed_contact_map(prior, loops, pep, m, mhc_class=cls, pdb_id=pid,
-                                        draws=n_draws, beta=beta, seed=seed,
-                                        chains=chains, burn=burn, gibbs_draws=draws, thin=thin)
-        if not ensemble:
-            return predicted_sites(prior, loops, pep, mhc_class=cls, pdb_id=pid)
-        return predict_contact_map(prior, loops, pep, m, mhc_class=cls, pdb_id=pid,
-                                   members=members, **gibbs)
-    frames, obs = [], []
-    if sequences is not None:
-        if not sequences.exists():
-            raise typer.BadParameter(f"--sequences not found: {sequences}")
-        tab = pl.read_csv(sequences, infer_schema_length=None,
-                          separator="," if sequences.suffix.lower() == ".csv" else "\t")
-        if "peptide" not in tab.columns:
-            raise typer.BadParameter(f"{sequences} has no 'peptide' column")
-        ids = tab["id"] if "id" in tab.columns else [f"seq{i}" for i in range(tab.height)]
-        cls = tab["mhc_class"] if "mhc_class" in tab.columns else ["MHCI"] * tab.height
-        cols = [c for c in _GEOM_LOOPS if c in tab.columns]
-        if not cols:
-            raise typer.BadParameter(
-                f"{sequences} carries none of the loop columns {list(_GEOM_LOOPS)}")
-        for k, row in enumerate(tab.iter_rows(named=True)):
-            loops = {c: str(row[c]) for c in cols if row[c]}
-            if not loops:
-                continue
-            frames.append(_one(loops, str(row["peptide"]), str(cls[k]), str(ids[k])))
-    else:
-        from .potts import available_pairs
-        # The prior is keyed on MHC class, so the groove has to be annotated to read it back.
-        for st, ok in _potts_structures(structures, organism=organism, need_mhc=True):
-            if st is None or not ok:
-                continue
-            pep = next((c.sequence() for c in st.chains if c.chain_type == "PEPTIDE"), "")
-            loops = loops_from_structure(st)
-            if not loops or not pep:
-                continue
-            cls = "MHCII" if any(getattr(c, "mhc_class", None) == "MHCII"
-                                 for c in getattr(st, "mhc_calls", []) or []) else "MHCI"
-            frames.append(_one(loops, pep, cls, st.pdb_id))
-            obs.append(available_pairs(st, "peptide"))
-    frames = [f for f in frames if not f.is_empty()]
-    if not frames:
-        raise typer.BadParameter("no predicted residue pairs — were any loops and peptides found?")
-    sites = pl.concat(frames)
-    key = ["pdb.id", "chain.rec", "region.rec", "pos.rec", "pos.par"]
-    if ensemble or chain_prior is not None:
-        probs = sites          # already scored and averaged, one row per site
-    else:
-        probs = contact_probabilities(sites.drop("d_ca_sd", "feasible"), m, chains=chains,
-                                      burn=burn, draws=draws, thin=thin, seed=seed,
-                                      workers=workers)
-        probs = probs.join(sites.select(*key, "d_ca_sd", "feasible"), on=key, how="left")
-    if chain_prior is not None and "feasible" not in probs.columns:
-        probs = probs.with_columns(pl.lit(True).alias("feasible"))
-    if obs:
-        # `sigma` on a predicted frame is a placeholder; where a crystal was read, replace it with
-        # what that crystal did, so the row scores itself instead of reporting a zero as a fact.
-        o = pl.concat(obs).select(*key, pl.col("sigma").alias("sigma_obs"),
-                                  pl.col("d_ca").alias("d_ca_obs"))
-        probs = (probs.drop("sigma").join(o, on=key, how="left")
-                 .rename({"sigma_obs": "sigma", "d_ca": "d_ca_pred"}))
-    else:
-        probs = probs.with_columns(pl.lit(None, dtype=pl.Float64).alias("sigma")) \
-                     .rename({"d_ca": "d_ca_pred"})
-    # One column order whichever way the sites were built, or a downstream reader has to branch on
-    # how the table was made to know what column 13 is.
-    head = ["pdb.id", "aa.rec", "chain.rec", "region.rec", "pos.rec", "aa.par", "pos.par",
-            "par.len", "role.par", "cls", "d_ca_pred", "d_ca_sd", "feasible", "sigma"]
-    probs = probs.select(*head, *[c for c in probs.columns if c not in head])
-    probs.write_csv(out, separator="\t")
-    typer.echo(f"wrote {out} ({probs.height} predicted residue pairs over "
-               f"{probs['pdb.id'].n_unique()} units)")
 
 
 @potts_app.command("contacts")
@@ -2839,7 +2451,7 @@ def potts_contacts_cmd(
     model alone; ``p_model`` is the marginal of the full coupled model, sampled by block Gibbs, and
     is the one to use; ``p_conditional`` is ``P(contact | the observed rest)``.
     """
-    from .potts import PottsModel, contact_probabilities
+    from .potts import contact_probabilities
 
     m = _load_potts(model)
     pairs, _ = _potts_pairs(structures, partner, radius=m.radius, cutoff=m.cutoff)
@@ -2875,7 +2487,7 @@ def potts_map_cmd(
     ``p_any`` is ``1 - prod(1 - p)`` over the group's pairs, ``p_expected`` their sum, and
     ``observed`` the 0/1 the structure itself made. These are frequencies, not energies.
     """
-    from .potts import PottsModel, contact_map
+    from .potts import contact_map
 
     if by not in ("loop", "position", "pair"):
         raise typer.BadParameter("--by must be one of loop|position|pair")
@@ -2922,7 +2534,7 @@ def potts_ensemble_cmd(
     with the most likely at 0.32.
     """
     from .potential import Potential, tcren2
-    from .potts import PottsModel, energy_ensemble, map_ensemble
+    from .potts import energy_ensemble, map_ensemble
     from .provenance import stamp
 
     if anchor not in ("observed", "random"):
@@ -2980,7 +2592,7 @@ def potts_scan_cmd(
     zero down a position and is additive across them. Higher is more favourable. Unlike ``map``'s
     frequencies this is an energy.
     """
-    from .potts import PottsModel, contact_probabilities, peptide_free_energy
+    from .potts import contact_probabilities, peptide_free_energy
 
     m = _load_potts(model)
     pairs, _ = _potts_pairs(structures, partner, radius=m.radius, cutoff=m.cutoff)

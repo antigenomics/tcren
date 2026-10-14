@@ -111,6 +111,11 @@ Cost is one descriptor pass per interface residue — a few minutes for a comple
 the MHC call are mmseqs searches and run **once** for the whole structure, never per mask. A masked
 row whose descriptors go undefined is reported as a null delta rather than imputed.
 
+``chain_types`` restricts reported residues without changing the score. The Python API accepts
+``receptor=False`` to explain the full peptide-presentation score; the default and CLI explain
+the receptor marginal. Noncontact residues are omitted, without claiming their contributions
+to whole-chain geometry descriptors vanish.
+
 Reproducing the frozen model
 ----------------------------
 

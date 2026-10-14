@@ -82,14 +82,17 @@ def test_real_cdr_traces_are_a_virtual_bond_chain_apart_from_cis_bonds():
     """
     pytest.importorskip("arda")
     from tcren.annotation.batch import iter_annotated_set
-    from tcren.potts.geom import _CHAINS, REGIONS_MODELLED, _region_ca
 
     gaps = []
     for structure in iter_annotated_set(PDB_DIR):
-        for chain in _CHAINS:
-            for region in REGIONS_MODELLED:
-                ca = _region_ca(structure, chain, region)
-                if ca is not None and len(ca) >= 2:
+        for chain in structure.chains:
+            if chain.chain_type not in ("TRA", "TRB"):
+                continue
+            for region in chain.regions or []:
+                if region.region_type not in ("CDR1", "CDR2", "CDR3"):
+                    continue
+                ca = [r.ca for r in region.residues if r.ca is not None]
+                if len(ca) >= 2:
                     gaps.append(_gaps(np.asarray(ca, float)))
     gaps = np.concatenate(gaps)
     assert len(gaps) > 500, f"only {len(gaps)} gaps seen; the fixture set did not annotate"

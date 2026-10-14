@@ -387,8 +387,11 @@ def surface_map(
         A :class:`SurfaceMap`.
 
     Raises:
-        ValueError: if the groove plane or the pMHC atoms cannot be located.
+        ValueError: if the scale or side is unknown, or the groove plane or pMHC atoms
+            cannot be located.
     """
+    if scale not in ("kd", "mj"):
+        raise ValueError(f"scale must be 'kd' or 'mj', got {scale!r}")
     if side not in ("pmhc", "tcr"):
         raise ValueError(f"side must be 'pmhc' or 'tcr', got {side!r}")
     xyz, radii, residues, sources = (_surface_atoms if side == "pmhc" else _tcr_atoms)(structure)
@@ -519,7 +522,8 @@ def surface_distance(maps: list[SurfaceMap], channel: str = "h",
         ``(ids, distances)`` — the structure ids in row order and a square ``(n, n)`` matrix.
 
     Raises:
-        ValueError: if the maps do not share a grid and extent.
+        ValueError: if the maps do not share a grid, extent and side, or a hydropathy
+            comparison mixes scales.
     """
     if not maps:
         return [], np.zeros((0, 0))
@@ -528,6 +532,9 @@ def surface_distance(maps: list[SurfaceMap], channel: str = "h",
         raise ValueError("all maps must share the same grid and extent to be comparable")
     if any(m.side != side for m in maps):
         raise ValueError("all maps must map the same face; use surface_complementarity across faces")
+
+    if channel == "phobic" and any(m.scale != maps[0].scale for m in maps):
+        raise ValueError("hydropathy comparisons require the same scale on every map")
 
     stack = np.stack([m.channels[channel] for m in maps])
     if region is not None:
@@ -598,12 +605,16 @@ def surface_complementarity(pmhc: SurfaceMap, tcr: SurfaceMap, *,
         :func:`surface_distance` applied across the two faces instead of across two structures.
 
     Raises:
-        ValueError: if the maps disagree on grid/extent, or are not one of each side.
+        ValueError: if the maps disagree on grid/extent or hydropathy scale, or are not
+            one of each side.
     """
     if pmhc.grid != tcr.grid or pmhc.extent != tcr.extent:
         raise ValueError("maps must share a grid and extent to be compared cell-for-cell")
     if (pmhc.side, tcr.side) != ("pmhc", "tcr"):
         raise ValueError(f"expected (pmhc, tcr) sides, got ({pmhc.side}, {tcr.side})")
+
+    if pmhc.scale != tcr.scale:
+        raise ValueError("complementarity requires the same hydropathy scale on both maps")
 
     hp, ht = pmhc.channels["h"], tcr.channels["h"]
     occupied = np.isfinite(hp)
@@ -679,7 +690,9 @@ def surface_tree(maps: list[SurfaceMap], channel: str = "h", region: str | None 
     ids, d = surface_distance(maps, channel=channel, region=region)
     if len(ids) < 2:
         return ids, np.zeros((0, 4))
-    return ids, linkage(squareform(np.nan_to_num(d, nan=float(np.nanmax(d))), checks=False), method=method)
+    if not np.isfinite(d).all():
+        raise ValueError("surface maps need common finite cells for every pairwise distance")
+    return ids, linkage(squareform(d, checks=False), method=method)
 
 
 def surface_table(maps: list[SurfaceMap]) -> pl.DataFrame:

@@ -165,7 +165,9 @@ def delta_f_empty(log_z: float) -> float:
     The whole-interface reading of the two-state contrast that ``eta_a`` is for a single site: the
     free energy of making any contact at all against making none.
     """
-    return float(log_z + np.log1p(-np.exp(-log_z)))
+    if log_z == 0.0:
+        return float("-inf")
+    return float(log_z + np.log(-np.expm1(-log_z)))
 
 
 def delta_f_threshold(totals: np.ndarray, x: int) -> float:

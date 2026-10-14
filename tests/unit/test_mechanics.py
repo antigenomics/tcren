@@ -64,6 +64,16 @@ def test_stiffness_tensor_z_springs_are_tensile_dominant():
     assert K_shear == pytest.approx(0.0, abs=1e-6)
 
 
+def test_shear_direction_maximises_stiffness_in_the_docking_plane():
+    from tcren.mechanics.springs import _pull_direction
+
+    s = InterfaceSprings(np.zeros((3, 3)), np.eye(3), np.array([1., 2., 3.]),
+                         np.ones(3), np.array([0., 0., 1.]))
+    d = _pull_direction(s, "shear")
+    assert d @ s.axis == pytest.approx(0.0, abs=1e-12)
+    assert d @ np.diag([1., 2., 3.]) @ d == pytest.approx(2.0)
+
+
 def test_stiffness_tensor_under_three_springs_is_nan(monkeypatch):
     """< 3 springs cannot define the tensor; every descriptor is nan, n_spring is exact."""
     # patch the module that DEFINES the name, not the package that re-exports it: `stiffness_tensor`

@@ -46,9 +46,9 @@ def _sided(structure: Structure, partner: tuple[str, ...],
     """``pose._interface_layers`` plus the normalised partner key and both annotation joins.
 
     ``probe`` is the radius the **heavy-atom** layer is built at. It is not the contact definition:
-    ``available_pairs`` still calls a contact at ``cutoff``. Raising it only populates ``d_heavy``
-    for pairs that missed, which is the difference between "this pair did not contact" and "this
-    pair missed by 0.2 Å".
+    ``available_pairs`` calls a contact at ``cutoff`` whatever the probe is, so ``sigma`` never
+    moves with it. What it decides is whether a non-contact carries a distance at all -- the
+    difference between "this pair did not contact" and "this pair missed by 0.2 Å".
     """
     from ..contacts.table import residue_annotation
     from ..contacts.definitions import _interface_layers
@@ -102,11 +102,15 @@ def available_pairs(structure: Structure, partner: str = "peptide", *,
             model fitted here carries :data:`MHC_RECEPTOR_REGIONS`, not the TCR loop set.
         radius: Availability radius, Å, on the Cα–Cα distance.
         cutoff: Contact definition, Å, on the closest heavy-atom distance.
-        probe: Radius the heavy-atom layer is measured out to. ``None`` (default) uses ``cutoff``,
-            so ``d_heavy`` is null for every pair that did not contact — which is all any scoring
-            path needs. Pass a larger value to learn *how far* a non-contact missed by;
-            :mod:`tcren.potts.em` needs it, because a latent band around ``cutoff`` that only
-            reaches inwards can turn contacts off and never on. ``sigma`` is unchanged either way.
+        probe: Radius the heavy-atom layer is measured out to. ``None`` (default) uses ``radius``,
+            so every available pair carries a real ``d_heavy``. Measured on 3UTS the default
+            reaches 0 nulls over 171 pairs where a ``cutoff``-wide probe left 154 (90.1 %), at no
+            measurable cost, and ``sigma`` is identical either way — the contact call keys on
+            ``cutoff`` and never on the probe. A narrower probe is still accepted and is clamped
+            up to ``cutoff``; it makes ``d_heavy`` null for every pair that missed, which
+            :func:`tcren.potts.selfcon.observation_field` reads as a confident non-contact.
+            :mod:`tcren.potts.em` needs the layer to reach past ``cutoff`` in both directions,
+            because a latent band that only reaches inwards can turn contacts off and never on.
 
     Returns:
         One row per site: ``pdb.id``, the two residue types and positions, the receptor chain and
@@ -129,7 +133,7 @@ def available_pairs(structure: Structure, partner: str = "peptide", *,
                          f"got partner={partner!r}")
     w = _sided(structure, ("PEPTIDE",) if partner == "peptide" else MHC_PARTNER,
                receptor=MHC_PARTNER if receptor == "mhc" else None,
-               probe=cutoff if probe is None else max(probe, cutoff))
+               probe=radius if probe is None else max(probe, cutoff))
     if w is None:
         return pl.DataFrame(schema={c: pl.Utf8 for c in SITE_COLUMNS} | {ORIENT_COLUMN: pl.Float64})
     if receptor == "mhc":

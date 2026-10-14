@@ -148,8 +148,9 @@ def test_a_pinned_model_round_trips_and_counts_one_parameter(sites, tmp_path):
     assert np.allclose(back.coupling_array(), m.coupling_array())
 
 
-def test_a_named_pin_still_counts_one_and_keeps_its_name(sites):
-    m = fit_potts(sites, coupling_matrix="tcren2", pin_centred=False)
+def test_a_centred_named_pin_still_counts_one_and_keeps_its_name(sites):
+    # Named serialization reconstructs the centred matrix; raw pins store their exact array.
+    m = fit_potts(sites, coupling_matrix="tcren2", pin_centred=True)
     assert m.coupling_matrix_name == "tcren2" and not m.coupling_pinned
     assert m.coupling is None
     assert m.n_parameters() == fit_potts(sites).n_parameters() - 399

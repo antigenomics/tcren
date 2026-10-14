@@ -189,8 +189,8 @@ which is *less* than either agrees with the unweighted matrix.
     nine-times-crystallized epitope is a genuinely new recognition event, and scores
     :math:`(1/9 + 1)/2 = 0.556` rather than the :math:`1/9` a product rule would give it.
     A structure unique on every axis gets 1.0; a true re-solve, duplicated on all of them,
-    gets :math:`1/n`. With one axis this is plain inverse frequency. Overall scale cancels
-    in the log-odds, so no normalization is applied. The epitope axis keys on the peptide
+    gets :math:`1/n`. With one axis this is plain inverse frequency. No normalization is
+    applied: a fixed pseudocount makes the absolute weight scale part of the estimator. The epitope axis keys on the peptide
     sequence and the receptor axis on the CDR3α/CDR3β pair jointly. Helpers:
     :func:`tcren.potential.balanced_weights` and its single-axis alias
     :func:`tcren.potential.epitope_weights`.

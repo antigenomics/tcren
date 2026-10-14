@@ -175,14 +175,15 @@ Three properties of this command matter for a reproduction and are easy to lose:
   reverses that: every worker spawns its own ``mmseqs``, which threads internally, and the run gets
   slower. Use ``-t`` to set the thread count of the two batched searches.
 * **Chunk for memory, not for speed.** A parsed complex is about 1 MB, so a corpus of tens of
-  thousands does not fit in one pass. ``--chunk N --resume`` splits it and keeps the batched
+  thousands does not fit in one pass. ``--chunk N`` splits it and keeps the batched
   annotation per chunk:
 
   .. code-block:: console
 
-     $ tcren features -s big_corpus/ --chunk 2000 --resume -o feats.tsv
+     $ tcren features -s big_corpus/ --chunk 2000 -o feats.tsv
 
-  The chunked table equals the whole-set table exactly; a test asserts it.
+  Every invocation rebuilds every chunk from raw structures; computed parts are not cached.
+  The chunked table equals the whole-set table; the equivalence test covers it.
 * **Every table is stamped.** ``feats.tsv`` gets a sibling ``feats.provenance.json`` carrying the
   command, the released version and a SHA-256 digest of the descriptor catalogue. That stamp is
   what lets a reader tell a table written under 3.3.0 from one written under 2.30.0.
@@ -287,22 +288,8 @@ same ``$TCREN_DATA_DIR`` this page sets, and it calls the **installed** ``tcren`
 that produced a number is whatever ``tcren info`` reported when it ran, not whatever is checked out
 here.
 
-The ``contacts`` stage is the one to run if what you want checked is that a contact map can be
-placed **and scored with no structure of the complex**. It fits a geometry prior with the target
-crystal excluded, writes a TSV of six loop sequences and a peptide, scores that with
-``tcren potts predict --sequences --ensemble``, and then scores the same map off the structure so
-``tcren potts agreement`` can compare both against what the crystal did:
-
-.. code-block:: console
-
-   $ ./reproduce.sh contacts
-   from sequences alone: 468 sites, expected contacts 20.66 -- no structure was read
-   geometry              sites  contacts  expected  ratio     js    auc
-   the crystal's own       231        32     29.68   0.93  0.760  0.972
-   predicted               468        32     20.66   0.65  0.468  0.901
-
-``ratio`` is the level and ``js`` the placement; the stage exits non-zero if the predicted geometry
-does not read below the crystal's own, which is the ordering Figure 2c reports. About 33 s.
+The retired sequence-only contact-map stage is preserved in ``attic/2026-10-audit``.
+It no longer runs as part of manuscript reproduction.
 
 .. note::
 

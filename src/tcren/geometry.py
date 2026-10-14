@@ -128,8 +128,8 @@ def graphon_weights(n: int, grid: int, *, convention: str = "interior") -> np.nd
     r"""``(grid, n)`` bilinear weights carrying ``n`` residues onto ``grid`` graphon cells.
 
 Registration and read-back are the two directions of one map, and the geometry prior does
-    **not** pair them adjointly: :func:`tcren.potts.geom._resample` registers residue :math:`i` at
-    grid coordinate :math:`i(G-1)/(L-1)` while :func:`tcren.potts.geom.predicted_distances` reads it
+    **not** pair them adjointly: the archived geometry prior registers residue :math:`i` at
+    grid coordinate :math:`i(G-1)/(L-1)` while its read-back reads it
     back from :math:`(i+1)(G-1)/(L+1)`. A round trip therefore contracts a loop's footprint toward
     its midpoint by :math:`(L-1)/(L+1)` --- 0.714 for a 6-mer against 0.889 for a 17-mer, zero error
     at the midpoint, 1.29 Å at the termini of a 6-mer, and **a fixed bias no grid refinement
@@ -165,8 +165,8 @@ Registration and read-back are the two directions of one map, and the geometry p
     ``"endpoint"``
         Cell ``g`` samples ``np.linspace(0, n - 1, grid)[g]``. What ``_resample`` and
         ``contactmap._register`` have always done, so :func:`tcren.contactmap.registered_map` and
-        the shipped ``geom_tcr_peptide*`` priors stay reproducible. Adjoint to
-        ``read_back(..., convention="endpoint")``, whose round trip is **exact** at every length.
+        the archived geometry priors stay reproducible. Adjoint to
+        ``read_back(..., convention="endpoint")``, with the same endpoint coordinate convention. Interpolation can still lose detail.
 
     Out-of-range coordinates clamp, matching ``scipy.ndimage.map_coordinates(mode="nearest")``; the
     matrix form agrees with it to 7e-15 Å and, unlike it, applies to a whole stack in one ``@``.

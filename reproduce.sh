@@ -39,7 +39,7 @@ OUT="$ROOT/reproduce"
 TCREN2_BENCH="${TCREN2_BENCH:-$HOME/vcs/projects/2026-tcren2-code}"
 TCREN2_MS="${TCREN2_MS:-$HOME/vcs/manuscripts/2026-tcren2-ms}"
 
-ALL_STAGES=(env potential model scores contacts bench paper)
+ALL_STAGES=(env potential model scores bench paper)
 LIBRARY_STAGES=(env potential model scores)
 
 log()  { printf '\033[1;34m[reproduce]\033[0m %s\n' "$*"; }
@@ -55,8 +55,6 @@ stages:
               assert it reproduces the shipped arrays within the optimiser's tolerance
   scores      featurise all 374 Native2026 crystals and run the whole score set on       80 s
               them, live, through the two released commands
-  contacts    place and score a contact map from SEQUENCES ONLY -- no structure of the     30 s
-              complex read -- and score its agreement with the crystal it was held out of
   bench       $TCREN2_BENCH/recompute.sh — every fixture, table and .dat the paper reads
   paper       $TCREN2_MS/make — the figures, then main.pdf and supplementary.pdf
 EOF
@@ -219,80 +217,6 @@ if sc.height != feats.height:
 for c in required:
     print(f"  {c:<20} {sc[c].null_count():>4} null of {sc.height}")
 PY
-}
-
-# --- contacts -----------------------------------------------------------------------------------
-# The 3.7.x claim end to end through the released commands: a contact map placed from loop and
-# peptide sequences with NO structure of the complex read, scored under every reference geometry,
-# then compared against the crystal it was held out of. Two invocations, because they say different
-# things -- the first proves the claim literally (a TSV of sequences goes in and a scored map comes
-# out), the second gives it a number against ground truth.
-stage_contacts() {
-  local pdb=3qib
-  # A leave-one-out prior, so what follows is not in-sample.  --keep-surfaces is not a tuning flag:
-  # scoring one map off the MEAN surface reads under half the contacts, because a contacting pair
-  # sits at the near end of the distribution being averaged and because per-pair averages need not
-  # describe a chain any loop could adopt.
-  tcren potts geom -s "$DATA_DIR/Native2026" --exclude "$pdb" --grid 32 --keep-surfaces \
-      -o "$OUT/repro_geom.npz" \
-    || return 1
-  python - "$DATA_DIR/Native2026/$pdb.pdb.gz" "$OUT/repro_loops.tsv" <<'SNIP' || return 1
-import sys
-from tcren.annotation.batch import iter_annotated_set
-from tcren.mhc.regions import annotate_mhc_batch
-from tcren.potts.geom import loops_from_structure
-from tcren.structure.model import PEPTIDE_TYPE
-
-s = next(iter(iter_annotated_set(sys.argv[1])))
-annotate_mhc_batch([s])
-loops = loops_from_structure(s)
-pep = "".join(r.aa for c in s.chains
-              if getattr(c, "chain_type", None) == PEPTIDE_TYPE for r in c.residues if r.aa)
-cls = "MHCII" if any(getattr(c, "mhc_class", None) == "MHCII"
-                     for c in getattr(s, "mhc_calls", []) or []) else "MHCI"
-cols = sorted(loops)
-with open(sys.argv[2], "w") as fh:
-    fh.write("\t".join(["id", "peptide", "mhc_class", *cols]) + "\n")
-    fh.write("\t".join([s.pdb_id, pep, cls, *[loops[c] for c in cols]]) + "\n")
-print(f"wrote {sys.argv[2]}: {len(cols)} loops, peptide {pep} ({cls})")
-SNIP
-  # (1) sequences only.  Nothing below this line opens a structure.
-  tcren potts predict --sequences "$OUT/repro_loops.tsv" -m potts_tcr_peptide_sc --ensemble \
-      --geom-prior "$OUT/repro_geom.npz" -o "$OUT/repro_pred_seq.tsv" \
-    || return 1
-  # (2) the same map off the structure, which joins the crystal's own sigma back on so the table
-  #     can be scored against what the crystal actually did.
-  tcren potts predict -s "$DATA_DIR/Native2026/$pdb.pdb.gz" -m potts_tcr_peptide_sc --ensemble \
-      --geom-prior "$OUT/repro_geom.npz" -o "$OUT/repro_pred.tsv" \
-    || return 1
-  tcren potts contacts -s "$DATA_DIR/Native2026/$pdb.pdb.gz" -m potts_tcr_peptide_sc \
-      -o "$OUT/repro_contacts.tsv" \
-    || return 1
-  tcren potts agreement -i "$OUT/repro_pred.tsv" -o "$OUT/repro_agree_pred.tsv" || return 1
-  tcren potts agreement -i "$OUT/repro_contacts.tsv" -o "$OUT/repro_agree_cry.tsv" || return 1
-  python - "$OUT/repro_pred_seq.tsv" "$OUT/repro_agree_pred.tsv" "$OUT/repro_agree_cry.tsv" \
-      <<'SNIP' | tee "$OUT/contacts.txt"
-import sys
-import polars as pl
-
-seq = pl.read_csv(sys.argv[1], separator="\t", infer_schema_length=None)
-pred = pl.read_csv(sys.argv[2], separator="\t").row(0, named=True)
-cry = pl.read_csv(sys.argv[3], separator="\t").row(0, named=True)
-print(f"from sequences alone: {seq.height} sites, "
-      f"expected contacts {seq['p_model'].sum():.2f} -- no structure was read")
-hdr = ("geometry", "sites", "contacts", "expected", "ratio", "js", "auc")
-print(f"{hdr[0]:<20s}{hdr[1]:>7s}{hdr[2]:>10s}{hdr[3]:>10s}{hdr[4]:>7s}{hdr[5]:>7s}{hdr[6]:>7s}")
-for tag, r in (("the crystal's own", cry), ("predicted", pred)):
-    print(f"{tag:<20s}{r['sites']:7d}{r['contacts']:10d}{r['expected']:10.2f}"
-          f"{r['ratio']:7.2f}{r['js']:7.3f}{r['auc']:7.3f}")
-if seq.height == 0 or seq["p_model"].sum() <= 0:
-    sys.exit("the sequence-only prediction scored nothing")
-# js is scale-free in the level, so the crystal's own geometry is what the predicted one is read
-# against -- not 1, which would need a deterministic map.
-if not cry["js"] > pred["js"]:
-    sys.exit(f"predicted geometry read js={pred['js']:.3f} against the crystal's "
-             f"{cry['js']:.3f}; the two model rows of Figure 2c are not ordered as reported")
-SNIP
 }
 
 # --- bench --------------------------------------------------------------------------------------

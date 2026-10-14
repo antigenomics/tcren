@@ -85,3 +85,16 @@ def test_refine_peptide_native_barely_moves():
     rmsd = float(np.sqrt(((ca(out) - before) ** 2).sum(1).mean()))
     assert rmsd < 1.0          # the native pose is a DOPE optimum
     assert energy < 0.0        # favourable DOPE energy
+
+
+def test_refine_rejects_invalid_buffers_before_scoring():
+    args = dict(pep_xyz=np.empty((0, 3)), pep_class=np.empty(0, np.int32),
+                par_xyz=np.empty((0, 3)), par_class=np.empty(0, np.int32),
+                dope_table=_TOY, n_cls=1, n_bins=3, x_start=1., dx=1., n_steps=0)
+    for change in ({'dx': 0.}, {'pep_xyz': np.zeros((1, 2))},
+                   {'pep_xyz': np.zeros((1, 3))}, {'par_class': _I(0)},
+                   {'dope_table': _TOY[:1]}, {'dope_table': np.zeros(6, np.float32)[::2]},
+                   {'temp0': float('nan')},
+                   {'pep_xyz': np.zeros((1, 3)), 'pep_class': _I(1)}):
+        with pytest.raises(ValueError):
+            _refine.refine(**(args | change))

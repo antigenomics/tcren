@@ -149,6 +149,92 @@ def test_every_channel_is_populated_and_they_are_not_the_same_number():
 
 
 @pytestmark_model
+def test_marginal_scores_ignore_missing_excluded_coordinates():
+    import polars as pl
+
+    m = holdout_model()
+    table = pl.DataFrame({name: [0.5] for name in m.transform.names})
+    missing = table.with_columns(pl.lit(None).cast(pl.Float64).alias("Phi_pep_mhc"))
+    assert np.allclose(m.binder_score(missing), m.binder_score(table))
+    assert np.isnan(m.binder_score(missing, receptor=False)[0])
+    missing = table.with_columns(pl.lit(None).cast(pl.Float64).alias("burial"))
+    full_channels, channels = m.channel_scores(table), m.channel_scores(missing)
+    assert np.allclose(channels["placement"], full_channels["placement"])
+    assert np.isnan(channels["interface"][0])
+
+
+@pytestmark_model
+def test_model_loader_rejects_a_stale_catalogue(tmp_path):
+    import json
+    from tcren.provenance import StaleTableError
+
+    with np.load(MODEL_FILE, allow_pickle=False) as bundle:
+        arrays = dict(bundle)
+    meta = json.loads(str(arrays["meta"]))
+    meta["catalogue_digest"] = "outdated"
+    arrays["meta"] = json.dumps(meta)
+    path = tmp_path / "stale.npz"
+    np.savez(path, **arrays)
+    with pytest.raises(StaleTableError, match="catalogue"):
+        holdout_model(str(path))
+
+
+@pytestmark_model
+def test_unfitted_confidence_is_unavailable_and_infinite_input_stays_missing():
+    from dataclasses import replace
+    import polars as pl
+    from tcren.score import _logit
+
+    m = holdout_model()
+    table = pl.DataFrame({name: [0.5] for name in m.transform.names})
+    untrained = replace(m, confidence_available=False)
+    assert np.isnan(untrained.confidence_residual(table, [0.9])[0])
+    assert np.isnan(_logit([np.inf, -np.inf, np.nan])).all()
+    assert np.isfinite(_logit([0., 0.5, 1.])).all()
+
+
+@pytest.mark.parametrize("invalid", ["duplicate_features", "duplicate_manifest", "null_key", "label"])
+def test_fit_rejects_ambiguous_keys_and_nonbinary_labels_before_fitting(invalid):
+    import polars as pl
+    from tcren.score.fit import fit_holdout
+
+    features = pl.DataFrame({"pdb.id": ["a", "b"]})
+    manifest = pl.DataFrame({"pdb.id": ["a", "b"], "y": [0., 1.], "epitope": ["e", "e"]})
+    if invalid == "duplicate_features":
+        features = pl.concat([features, features.head(1)])
+    elif invalid == "duplicate_manifest":
+        manifest = pl.concat([manifest, manifest.head(1)])
+    elif invalid == "null_key":
+        features = features.with_columns(pl.lit(None).cast(pl.String).alias("pdb.id"))
+    else:
+        manifest = manifest.with_columns(pl.lit(0.5).alias("y"))
+    with pytest.raises(ValueError, match="unique|non-null|binary"):
+        fit_holdout(features, manifest)
+
+
+@pytest.mark.parametrize("confidence", [None, np.inf, 0.5])
+def test_synthetic_fit_records_confidence_availability_and_join_counts(monkeypatch, confidence):
+    import polars as pl
+    from tcren.score import fit
+
+    # Keep the real fitter and transforms; two catalogue descriptors suffice to test the guard.
+    monkeypatch.setattr(fit, "working_set", lambda **kwargs: ["burial", "chain_balance"])
+    rng = np.random.default_rng(19)
+    ids = [f"synthetic-{i}" for i in range(260)]
+    features = pl.DataFrame({"pdb.id": ids, "burial": rng.uniform(0.1, 0.9, 260),
+                             "chain_balance": rng.uniform(0.1, 0.9, 260)})
+    manifest = pl.DataFrame({"pdb.id": ids + ["unmatched"], "y": [1] * 210 + [0] * 51,
+                             "epitope": ["synthetic"] * 261})
+    if confidence is not None:
+        manifest = manifest.with_columns(pl.lit(confidence).alias("iptm"))
+    meta = fit.fit_holdout(features, manifest)
+    assert meta["confidence_available"] == (confidence == 0.5)
+    assert meta["n_pos"] == 210 and meta["n_neg"] == 50
+    assert meta["n_unmatched_features"] == 0 and meta["n_unmatched_manifest"] == 1
+    assert meta["n_incomplete"] == 0
+
+
+@pytestmark_model
 def test_scores_do_not_depend_on_what_was_scored_alongside_them():
     """The single-structure claim. Scoring one row must give what scoring 300 gave for that row."""
 
@@ -334,6 +420,20 @@ def test_transforming_a_subset_of_columns_matches_transforming_all_of_them():
     cols = t.out_names()
     for k, n in enumerate(t.out_names(sub)):
         assert np.allclose(part[:, k], full[:, cols.index(n)], equal_nan=True), n
+
+
+def test_each_transform_preserves_all_nonfinite_inputs():
+    from tcren.recognition import DESCRIPTORS
+    from tcren.score.transform import Transformer, kind
+
+    representatives = {}
+    for name in DESCRIPTORS:
+        representatives.setdefault(kind(name), name)
+    for name in representatives.values():
+        transform = Transformer(names=[name]).fit(np.array([[0.2], [0.8]]))
+        values = transform.transform(np.array([[np.inf], [-np.inf], [np.nan], [0.5]]))
+        assert np.isnan(values[:3]).all(), name
+        assert np.isfinite(values[3]).all(), name
 
 
 @pytestmark_model

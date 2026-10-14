@@ -37,7 +37,9 @@ def tables():
         try:
             annotate_mhc(s)
             w = available_pairs(s, "peptide", probe=5.0 + LATENT_MARGIN)
-            n = available_pairs(s, "peptide")
+            # `probe=cutoff` is what the default used to be, and it is still the way to ask
+            # for a one-sided band -- which is exactly what `latent_mask` must refuse.
+            n = available_pairs(s, "peptide", probe=5.0)
         except Exception:
             continue
         if w.height and n.height:
@@ -54,7 +56,7 @@ def wide(tables):
 
 @pytest.fixture(scope="module")
 def narrow(tables):
-    """The default table, whose `d_heavy` stops at the cutoff."""
+    """A table whose `d_heavy` stops at the cutoff, so the band only reaches inwards."""
     return tables[1]
 
 
@@ -65,7 +67,7 @@ def test_probe_widens_d_heavy_without_moving_sigma(wide, narrow):
     assert wide["d_heavy"].null_count() < narrow["d_heavy"].null_count()
 
 
-def test_the_default_table_gives_a_one_sided_band_and_is_refused(narrow):
+def test_a_cutoff_wide_probe_gives_a_one_sided_band_and_is_refused(narrow):
     """Every site in the band is a contact, so EM on it could only ever remove contacts."""
     d = narrow["d_heavy"].fill_null(np.inf).to_numpy()
     band = np.abs(d - 5.0) <= LATENT_MARGIN

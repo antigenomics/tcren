@@ -47,7 +47,9 @@ def fit_holdout(features, manifest, *, out: Path | None = None) -> dict:
     """Fit the frozen model. ``features`` and ``manifest`` are polars frames keyed on ``pdb.id``.
 
     ``manifest`` needs the id column, ``y`` (1 binder / 0 non-binder) and ``epitope``; an ``iptm``
-    column is used for the confidence coordinate if present and skipped if not.
+    column is used for the confidence coordinate when over 200 finite binder observations exist;
+    otherwise the confidence residual is unavailable. Keys must be unique and non-null. Fitting
+    a feature subset of the manifest is supported; unmatched-row counts are recorded in metadata.
     """
     import polars as pl
 
@@ -55,7 +57,13 @@ def fit_holdout(features, manifest, *, out: Path | None = None) -> dict:
     key = next((c for c in ("complex.id", "pdb.id") if c in features.columns and c in manifest.columns), None)
     if key is None:
         raise KeyError("features and manifest must share a 'complex.id' or 'pdb.id' column")
-    t = manifest.join(features, on=key, how="inner")
+    for name, frame in (("features", features), ("manifest", manifest)):
+        if frame[key].null_count() or frame[key].n_unique() != frame.height:
+            raise ValueError(f"{name} {key!r} keys must be unique and non-null")
+    if manifest["y"].null_count() or not manifest["y"].is_in([0, 1]).all():
+        raise ValueError("manifest y must contain only binary labels 0 and 1")
+    t = manifest.join(features, on=key, how="inner", validate="1:1")
+    n_joined = t.height
     missing = [c for c in cols if c not in t.columns]
     if missing:
         raise KeyError(f"the feature table is missing {len(missing)} descriptors, "
@@ -80,10 +88,12 @@ def fit_holdout(features, manifest, *, out: Path | None = None) -> dict:
     # ipTM as one more coordinate of the binder Gaussian: its mean, its covariance with every
     # descriptor coordinate, and its own variance. Weighted with the same epitope weights.
     conf_mu, conf_cov, conf_var = 0.0, np.zeros(len(names)), 0.0
+    confidence_available = False
     if "iptm" in t.columns:
         ip = _logit(t.filter(pl.col("y") == 1)["iptm"].to_numpy().astype(float))
         good = np.isfinite(ip)
         if good.sum() > 200:
+            confidence_available = True
             ww = w[1][good]
             ww = ww / ww.sum()
             conf_mu = float(ww @ ip[good])
@@ -100,9 +110,13 @@ def fit_holdout(features, manifest, *, out: Path | None = None) -> dict:
         "lam": tr.lam, "loc": tr.loc, "scale": tr.scale,
         "prior": [j.prior[0], j.prior[1]], "alpha": [j.alpha[0], j.alpha[1]],
         "conf_mu": conf_mu, "conf_var": conf_var, "conf_coord": CONF_COORD,
+        "confidence_available": confidence_available,
         "catalogue_digest": registry_digest(),
         "n_pos": int((y == 1).sum()), "n_neg": int((y == 0).sum()),
         "n_epitopes": int(t["epitope"].n_unique()),
+        "n_unmatched_features": features.height - n_joined,
+        "n_unmatched_manifest": manifest.height - n_joined,
+        "n_incomplete": n_joined - t.height,
         "tcren_version": __version__,
     }
     if out is not None:

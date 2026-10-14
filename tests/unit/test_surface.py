@@ -22,6 +22,20 @@ from tcren.surface import (
 PDB_DIR = Path(__file__).resolve().parents[1] / "assets" / "pdb"
 
 
+def test_surface_tree_refuses_missing_pairwise_distances():
+    from tcren.topology.surface import surface_tree
+
+    def one(name, values):
+        return SurfaceMap(name, (1, 2), DEFAULT_EXTENT,
+                          {"h": np.array([values])}, np.ones((1, 2), int))
+
+    a = one("a", [1.0, np.nan])
+    with pytest.raises(ValueError, match="common.*cells"):
+        surface_tree([a, one("b", [np.nan, 1.0])])
+    _, tree = surface_tree([a, one("b", [3.0, np.nan])])
+    assert tree[0, 2] == pytest.approx(2.0)
+
+
 @pytest.fixture(scope="module")
 def annotated():
     """Chain-typed, MHC-annotated fixtures: one class I, one class II."""
@@ -331,3 +345,23 @@ def test_surface_distance_refuses_a_mixed_pile_of_faces(annotated):
     with pytest.raises(ValueError, match="same face"):
         surface_distance([surface_map(annotated["1ao7"], side="pmhc"),
                           surface_map(annotated["1ao7"], side="tcr")])
+
+
+def test_surface_chemistry_requires_known_matching_hydropathy_scales():
+    from dataclasses import replace
+    from tcren.topology.surface import surface_complementarity
+
+    with pytest.raises(ValueError, match="scale"):
+        surface_map(None, scale="unknown")
+    channels = {key: np.array([[1., 2., 3.]]) for key in ('h', 'phobic', 'charge')}
+    kd = SurfaceMap('synthetic', (1, 3), DEFAULT_EXTENT, channels, np.ones((1, 3), int))
+    mj = replace(kd, scale='mj')
+    with pytest.raises(ValueError, match="same.*scale"):
+        surface_distance([kd, mj], channel='phobic')
+    with pytest.raises(ValueError, match="same.*scale"):
+        surface_complementarity(kd, replace(mj, side='tcr'), window=None)
+    # Height and formal charge have the same units independently of the hydropathy scale.
+    for channel in ('h', 'charge'):
+        assert surface_distance([kd, mj], channel=channel)[1][0, 1] == 0
+    assert surface_distance([kd, replace(kd)], channel='phobic')[1][0, 1] == 0
+    assert surface_complementarity(kd, replace(kd, side='tcr'), window=None)['n_cells'] == 3

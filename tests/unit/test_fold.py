@@ -144,3 +144,13 @@ def test_model_peptide_dope_recovers_native_pose():
     res = model_peptide(s, engine="dope", seed=1, n_steps=1500)
     rm = peptide_rmsd(res.structure, s, anchors=res.anchors)
     assert rm.backbone_rmsd < 1.0  # native pose is a DOPE optimum
+
+
+def test_ccd_rejects_malformed_buffers_before_reading():
+    args = dict(coords=np.zeros((2, 3)), bonds=np.array([[0, 1]], np.int32),
+                moving=np.array([1], np.int32), targets=np.ones((1, 3)), weights=np.ones(1))
+    for change in ({'weights': np.array([-1.])}, {'coords': np.zeros((2, 2))},
+                   {'bonds': np.zeros((1, 1), np.int32)}, {'targets': np.zeros((1, 2))},
+                   {'weights': np.array([np.nan])}, {'max_iter': -1}, {'tol': float('nan')}):
+        with pytest.raises(ValueError):
+            _fold.ccd_close(**(args | change))

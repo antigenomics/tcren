@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <cmath>
 #include <random>
+#include <limits>
 #include <tuple>
 #include <vector>
 
@@ -92,10 +93,30 @@ py::tuple refine(py::array_t<double> pep_xyz, py::array_t<int> pep_class,
                  double x_start, double dx, double restraint_w,
                  int n_steps, double trans_sigma, double rot_sigma,
                  double temp0, double temp1, unsigned int seed) {
+    if (n_cls <= 0 || n_bins <= 0 || n_steps < 0 ||
+        !std::isfinite(x_start) || x_start < 0 || !std::isfinite(dx) || dx <= 0 ||
+        !std::isfinite(restraint_w) || restraint_w < 0 ||
+        !std::isfinite(trans_sigma) || trans_sigma < 0 || !std::isfinite(rot_sigma) || rot_sigma < 0 ||
+        !std::isfinite(temp0) || temp0 <= 0 || !std::isfinite(temp1) || temp1 <= 0)
+        throw py::value_error("invalid refinement dimensions, step count, or scalar parameters");
+    if (!(dope_table.flags() & py::array::c_style) ||
+        (dope_table.ndim() != 1 && dope_table.ndim() != 3) ||
+        static_cast<size_t>(n_cls) > std::numeric_limits<size_t>::max() / n_cls / n_bins ||
+        static_cast<size_t>(dope_table.size()) != static_cast<size_t>(n_cls) * n_cls * n_bins ||
+        (dope_table.ndim() == 3 && (dope_table.shape(0) != n_cls ||
+          dope_table.shape(1) != n_cls || dope_table.shape(2) != n_bins)))
+        throw py::value_error("DOPE table must be packed with the declared class/bin dimensions");
+    for (py::ssize_t i = 0; i < dope_table.size(); ++i)
+        if (!std::isfinite(dope_table.data()[i])) throw py::value_error("DOPE table must be finite");
     auto load_xyz = [](py::array_t<double> a) {
+        if (a.ndim() != 2 || a.shape(1) != 3)
+            throw py::value_error("coordinates must have shape (N, 3)");
         auto r = a.unchecked<2>();
         std::vector<Vec3> v(r.shape(0));
         for (py::ssize_t i = 0; i < r.shape(0); ++i) v[i] = {r(i, 0), r(i, 1), r(i, 2)};
+        for (const auto& p : v)
+            if (!std::isfinite(p.x) || !std::isfinite(p.y) || !std::isfinite(p.z))
+                throw py::value_error("coordinates must be finite");
         return v;
     };
     auto load_int = [](py::array_t<int> a) {
@@ -106,6 +127,11 @@ py::tuple refine(py::array_t<double> pep_xyz, py::array_t<int> pep_class,
     };
     std::vector<Vec3> pep = load_xyz(pep_xyz), par = load_xyz(par_xyz);
     std::vector<int> pep_cls = load_int(pep_class), par_cls = load_int(par_class);
+    if (pep_cls.size() != pep.size() || par_cls.size() != par.size())
+        throw py::value_error("atom classes must have one entry per atom");
+    for (const auto* classes : {&pep_cls, &par_cls})
+        for (int cls : *classes)
+            if (cls < -1 || cls >= n_cls) throw py::value_error("atom class outside [-1, n_cls)");
     std::vector<float> table(dope_table.data(), dope_table.data() + dope_table.size());
     const double d_max = x_start + (n_bins - 1) * dx;  // beyond the last knot: no interaction
 

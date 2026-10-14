@@ -13,6 +13,33 @@ they are not bundled, they are fetched from Hugging Face, and `DATASETS.md` cove
 
 ---
 
+## `sidechain_geometry.json` — derived
+
+Side-chain internal coordinates: per residue type and atom, the bond length to its parent, the bond
+angle, and the torsion offset. `tcren.refine.sidechain.build_sidechain` reads it to place every
+heavy atom of any of the nineteen non-glycine types from a backbone and a chi vector.
+
+- Origin: **derived by us** from the 374 `Canonical2026` crystals, over **176,475** residues. No
+  external table is used and none is needed — the same arrangement as
+  `tcren.geometry.BOND_CA` (3.7985 Å over 642 CDR gaps) and
+  `tcren.refine.substitute.virtual_cb`, which is what keeps the builder consistent with the set the
+  rest of the library is derived from.
+- **Chemistry is declared, geometry is measured.** The connectivity — which atom hangs off which
+  three, and which chi drives its torsion — is `sidechain.TOPOLOGY` in the source and carries no
+  number. Only the numbers are fitted.
+- Units: bonds in ångström, **angles and offsets in radians**. Circular quantities are circular
+  means.
+- Regenerate: `python scripts/fit_sidechain_geometry.py --structures data/Canonical2026 -o src/tcren/data/sidechain_geometry.json`
+- Check: round-tripping a deposited residue through its own chi reads **0.0784 Å** mean heavy-atom
+  RMSD (median 0.0466, p95 0.2323) over 54,954 residues; worst type ARG 0.2210 Å, best SER 0.0207 Å.
+  `tests/unit/test_sidechain.py` asserts the round trip per type.
+- Loader: `tcren.refine.sidechain.geometry()`.
+- **Not from a rotamer library.** The chi grid `background.scan_structure` samples is a plain
+  staggered grid (`-60 + k·step`, default 60°), not a backbone-dependent rotamer library, and it is
+  calibrated against the invariant that a deposited residue be admissible at its own position
+  (`scripts/calibrate_background_scan.py`). If a published rotamer library is ever adopted its
+  citation belongs here, retrieved rather than written from memory.
+
 ## `TCRen_potential.csv` — derived
 
 The classic TCRen TCR↔peptide potential. **Directed**: rows are the TCR side, columns the peptide

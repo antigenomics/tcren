@@ -146,11 +146,10 @@ def _pull_direction(s: InterfaceSprings, direction: str) -> np.ndarray:
     if direction == "tensile":
         return s.axis
     K = _stiffness_matrix(s)
-    evals, evecs = np.linalg.eigh(K)
-    top = evecs[:, -1]
-    inplane = top - (top @ s.axis) * s.axis  # remove the docking-axis component
-    n = np.linalg.norm(inplane)
-    return inplane / n if n > 1e-6 else evecs[:, 0]
+    _, _, axes = np.linalg.svd(s.axis[None, :])
+    plane = axes[1:].T
+    _, vectors = np.linalg.eigh(plane.T @ K @ plane)
+    return plane @ vectors[:, -1]
 
 
 def rupture(

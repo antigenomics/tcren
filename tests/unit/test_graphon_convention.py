@@ -12,7 +12,6 @@ import pytest
 
 from tcren.contactmap import _register
 from tcren.geometry import graphon_weights, read_back, resample_graphon
-from tcren.potts.geom import _resample
 
 GRIDS = (8, 12, 20, 32)
 LENGTHS = (5, 6, 7, 9, 12, 17, 20)
@@ -42,7 +41,6 @@ def test_endpoint_reproduces_the_old_resample(grid, loop_len):
     # 7e-15 Å is float round-off on a 30 Å distance, and 1e12 times finer than the 0.01 Å the
     # ensemble prior is quantised to on disk.
     assert np.allclose(resample_graphon(dmap, grid, convention="endpoint"), reference, atol=1e-12)
-    assert np.allclose(_resample(dmap, grid), reference, atol=1e-12)
     assert np.allclose(_register(dmap, grid), reference, atol=1e-12)
 
 

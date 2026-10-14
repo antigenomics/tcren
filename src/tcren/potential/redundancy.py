@@ -139,8 +139,8 @@ def balanced_weights(
     re-solve, duplicated on all of them, gets ``1/n``.
 
     With a single axis this reduces exactly to inverse frequency on that axis, which is
-    what :func:`epitope_weights` is. Overall scale cancels in the log-odds derivation, so
-    the result needs no normalization.
+    what :func:`epitope_weights` is. Keep this scale when using a fixed pseudocount:
+    scaling all weights cancels only without pseudocounts, or when they scale together.
 
     Complementary to :func:`cluster_weights`, which clusters the joint object by sequence
     *distance* and so also catches near-duplicates such as point mutants, at the cost of a

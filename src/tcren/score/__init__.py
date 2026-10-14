@@ -95,7 +95,8 @@ CONF_COORD = "iptm_logit"
 
 
 def _logit(p: np.ndarray, lo: float = 1e-3) -> np.ndarray:
-    q = np.clip(np.asarray(p, float), lo, 1 - lo)
+    p = np.asarray(p, float)
+    q = np.where(np.isfinite(p), np.clip(p, lo, 1 - lo), np.nan)
     return np.log(q / (1 - q))
 
 
@@ -118,12 +119,13 @@ class ScoreModel:
     n_neg: int
     n_epitopes: int
     tcren_version: str
+    confidence_available: bool = True
 
     # ------------------------------------------------------------------ coordinates
     #: below this many usable coordinates a covariance read-out is not worth reporting.
     MIN_COORDINATES = 20
 
-    def coordinates(self, table) -> tuple[np.ndarray, np.ndarray, list[str]]:
+    def coordinates(self, table, *, coordinate_names=None) -> tuple[np.ndarray, np.ndarray, list[str]]:
         """``(complete-case mask, coordinates, the coordinate names they carry)``.
 
         Two kinds of absence, handled differently and both deliberately.
@@ -136,6 +138,7 @@ class ScoreModel:
 
         A **row** missing one of the columns that are present is dropped rather than imputed: the
         whole construction is a covariance, and a filled-in value is a fabricated correlation.
+        With ``coordinate_names``, only the requested marginal's descriptors determine missingness.
         """
         have = _columns(table)
         cols = [c for c in self.transform.names if c in have]
@@ -144,6 +147,9 @@ class ScoreModel:
                 f"only {len(cols)} of the {len(self.transform.names)} descriptors this model "
                 f"reads are in the table. Regenerate with `tcren features -s <pdbs> "
                 f"-i placement,interface,topology,energetics,potts`.")
+        if coordinate_names is not None:
+            keep = set(coordinate_names)
+            cols = [c for c in cols if keep.intersection(self.transform.out_names([c]))]
         X = np.column_stack([np.asarray(_column(table, c), float) for c in cols])
         ok = np.isfinite(X).all(1)
         names = self.transform.transform_names(cols)
@@ -179,7 +185,8 @@ class ScoreModel:
         compared, as in a combinatorial peptide library, where the presentation energy is signal
         rather than the cohort's name.
         """
-        ok, Z, have = self.coordinates(table)
+        ok, Z, have = self.coordinates(
+            table, coordinate_names=self.receptor_names if receptor else None)
         sub = self._subset(receptor, have)
         return _place(ok, self.joint.log_odds(_align(Z, have, sub), subset=sub))
 
@@ -191,13 +198,14 @@ class ScoreModel:
         model also reads the correlations between channels, which is the part a per-channel view
         cannot show.
         """
-        ok, Z, have = self.coordinates(table)
+        have = self.available(table)
         keep = set(self._subset(receptor, have))
         out = {}
         for ch in CHANNELS:
             sub = [n for n in _channel_names(self.joint.names, ch) if n in keep]
             if len(sub) >= 3:
-                out[ch] = _place(ok, self.joint.log_odds(_align(Z, have, sub), subset=sub))
+                ok, Z, names = self.coordinates(table, coordinate_names=sub)
+                out[ch] = _place(ok, self.joint.log_odds(_align(Z, names, sub), subset=sub))
         return out
 
     def confidence_residual(self, table, iptm) -> np.ndarray:
@@ -207,8 +215,11 @@ class ScoreModel:
         large positive residual is a model the generator is more certain of than its own geometry
         and chemistry warrant, which is the failure mode a confident non-binder presents as. No
         binder label enters it.
+        Returns NaN when the model was fitted without enough valid confidence observations.
         """
         ok, Z, have = self.coordinates(table)
+        if not self.confidence_available:
+            return np.full(len(ok), np.nan)
         j = [self.joint.names.index(n) for n in have]
         mu, S = self.joint.mu[1][j], self.joint.cov[1][np.ix_(j, j)]
         pred = self.conf_mu + np.linalg.solve(S, (Z - mu).T).T @ self.conf_cov[j]
@@ -266,6 +277,10 @@ def holdout_model(path: str | None = None) -> ScoreModel:
             f"--manifest {MANIFEST_FILE}`.")
     z = np.load(p, allow_pickle=False)
     meta = json.loads(str(z["meta"]))
+    from ..provenance import StaleTableError, registry_digest
+    if meta.get("catalogue_digest") != registry_digest():
+        raise StaleTableError(f"{p} was fitted under a different descriptor catalogue; "
+                              "regenerate the model with `tcren fit-holdout`.")
     tr = Transformer(names=list(meta["descriptors"]))
     tr.lam = {k: float(v) for k, v in meta["lam"].items()}
     tr.loc = {k: float(v) for k, v in meta["loc"].items()}
@@ -284,7 +299,9 @@ def holdout_model(path: str | None = None) -> ScoreModel:
                       catalogue_digest=meta["catalogue_digest"],
                       n_pos=int(meta["n_pos"]), n_neg=int(meta["n_neg"]),
                       n_epitopes=int(meta["n_epitopes"]),
-                      tcren_version=meta["tcren_version"])
+                      tcren_version=meta["tcren_version"],
+                      confidence_available=bool(meta.get("confidence_available",
+                                                         meta["conf_var"] > 0)))
 
 
 def holdout_manifest():

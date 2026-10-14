@@ -192,8 +192,8 @@ def fit_potts(sites: pl.DataFrame, *, radius: float = 15.0, cutoff: float = 5.0,
     fixed = (centred_potential(coupling_matrix, centre=pin_centred)
              if coupling_matrix is not None else None)
     # A pin on a bundled matrix serialises as its name and is rebuilt on load; a pin on a matrix
-    # derived in this session has no name to rebuild from, so the array itself is stored.
-    named = coupling_matrix if isinstance(coupling_matrix, str) else None
+    # derived in this session, or an uncentred pin, stores its exact fitted array.
+    named = coupling_matrix if isinstance(coupling_matrix, str) and pin_centred else None
     X, slices, k0 = design(codes, sizes, counts, fixed)
     b, H = irls(X, sigma, w, ridge)
     bg, J = gauge(b, slices, fixed is None)

@@ -143,7 +143,7 @@ def zscore(x, reference=None, method="z") -> np.ndarray:
     # Testing `sd > 0` therefore divides by float residue and amplifies noise by ~1e16. Scale the
     # tolerance to the data so a genuinely constant (or degenerate) descriptor contributes nothing.
     if not np.isfinite(sd) or sd <= 1e-12 * max(1.0, abs(float(mu))):
-        return np.zeros_like(x)
+        return np.where(np.isfinite(x), 0.0, np.nan)
     return (x - mu) / sd
 
 
@@ -186,7 +186,7 @@ def q_score(table, reference=None, features=Q_FEATURES_GEOM, method="z", decorre
     descriptors from double-counting. The score carries **no fitted coefficient** (only the native
     covariance is estimated; :math:`\mathbf 1` is fixed), needs **no negative set**, is calibrated on
     natives so it **transfers** across inputs, and is defined for a **single structure**. It reduces to
-    the equal-weight mean when the descriptors are uncorrelated (:math:`C=I`). See the manuscript
+    the equal-weight sum when the descriptors are uncorrelated (:math:`C=I`). See the manuscript
     Methods (\S Scores).
 
     ``decorrelate=False`` recovers the legacy equal-weight mean :math:`Q=\frac1k\sum_k z(d_k)`.
@@ -209,15 +209,15 @@ def q_score(table, reference=None, features=Q_FEATURES_GEOM, method="z", decorre
     ref = native_reference() if (decorrelate and reference is None) else reference
     Z = np.vstack([zscore(_derive(table, f), None if ref is None else _derive(ref, f), method=method)
                    for f in features])                                   # k x n, standardized to ref
-    if not decorrelate:
-        return np.nanmean(Z, axis=0)
-    Zref = np.vstack([zscore(_derive(ref, f), None, method=method) for f in features])   # k x n_ref
-    C = np.atleast_2d(np.cov(Zref))                                      # native descriptor correlation
     sgn = np.ones(len(features)) if signs is None else np.asarray(signs, float)
     if len(sgn) != len(features):
         raise ValueError(f"signs has {len(sgn)} entries for {len(features)} features")
+    if not decorrelate:
+        return np.nanmean(sgn[:, None] * Z, axis=0)
+    Zref = np.vstack([zscore(_derive(ref, f), None, method=method) for f in features])   # k x n_ref
+    C = np.atleast_2d(np.cov(Zref))                                      # native descriptor correlation
     w = np.linalg.pinv(C) @ sgn                                          # C^{-1} s: the decorrelated weights
-    return np.nansum(w[:, None] * Z, axis=0)
+    return np.where(np.isfinite(Z).any(axis=0), np.nansum(w[:, None] * Z, axis=0), np.nan)
 
 
 

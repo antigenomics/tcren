@@ -59,7 +59,7 @@ def canonical_dir() -> Path:
 
     ``Native2026`` after canonical MHC superposition, so every complex sits in one frame. That is
     what lets a TCR from one crystal be read against a pMHC from another without any transform ---
-    see :func:`tcren.shuffle.graft_tcr` and :mod:`tcren.potts.cross`.
+    see :func:`tcren.shuffle.graft_tcr`.
     """
     return data_dir() / CANONICAL2026
 

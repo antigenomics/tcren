@@ -5,10 +5,11 @@ no positional slack (a ~1 Å shift, or tightening the cutoff, kills it), while o
 :func:`contact_stability` reads that slack directly off the contact map. For each TCR:peptide
 *contact* --- a receptor-residue / peptide-residue pair whose closest heavy-atom pair is within
 ``cutoff`` (the same contact definition as :func:`tcren.contacts.geometry.all_atom_contacts`) --- the
-*margin* ``m = cutoff - dmin`` is the contact's positional tolerance, and a rigid isotropic shift of
-size ``delta`` loses it with probability ``clip((delta - m) / (2*delta), 0, 1)``. Aggregated over the
+*margin* ``m = cutoff - dmin`` is the contact's positional tolerance. The linearized
+nearest-pair fragility surrogate is ``clip((delta - m) / (2*delta), 0, 1)``; it is not
+the exact loss probability under a finite isotropic displacement. Aggregated over the
 interface these give ``mean_margin`` (how deep the contacts sit), ``frac_robust`` (fraction with
-``m >= delta``) and ``exp_lost`` (expected contacts lost under a ``delta`` shift) --- a coordinate-only
+``m >= delta``) and ``exp_lost`` (sum of the linearized loss surrogates) --- a coordinate-only
 read of interface positional confidence, the physical analogue of an interface PAE.
 
 The per-residue-pair minimum-distance scan is a native ``_geom`` kernel; the numpy implementation
@@ -39,7 +40,7 @@ class StabilityReport:
         mean_margin: Mean ``cutoff - dmin`` over contacts (Å); larger = contacts sit deeper.
         frac_marg_lt1: Fraction of contacts with margin below ``delta`` (fragile).
         frac_robust: Fraction of contacts with margin at least ``delta`` (robust to a ``delta`` shift).
-        exp_lost: Expected number of contacts lost under a ``delta`` Å isotropic shift.
+        exp_lost: Sum of linearized nearest-pair loss surrogates for a ``delta`` Å shift.
     """
 
     n_contacts: int

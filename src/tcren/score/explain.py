@@ -16,9 +16,9 @@ figure by any read-out rather than one colouring per score.
 
 **The cost, and the rule it obeys.** Chain typing and the MHC call are mmseqs searches. They happen
 **once**, here, for the whole structure, and every masked copy is featurised against that one
-annotation with ``annotate=False`` (CLAUDE.md 0-mmseqs). Only residues that actually touch an
-interface are masked, because a residue making no contact moves no descriptor and its
-:math:`\Delta_i` is zero by construction rather than by measurement.
+annotation with ``annotate=False`` (CLAUDE.md 0-mmseqs). Attribution is restricted to residues that
+touch one of the selected interfaces. Noncontacting residues are not evaluated; their contribution
+to whole-structure geometry descriptors is not assumed to be zero.
 
 **A masked row that goes non-finite is reported NaN, never imputed.** Removing a residue can leave a
 descriptor undefined -- coverage entropy over an empty contact set is the case that occurs -- and
@@ -89,6 +89,7 @@ def _interface_residues(cm, chain_types, interfaces) -> list[tuple[str, int]]:
 
 
 def residue_deltas(source, *, score: str = "binder", model=None, organism: str = "human",
+                   receptor: bool = True,
                    chain_types: tuple[str, ...] | None = None,
                    interfaces: tuple[str, ...] = INTERFACES,
                    radii: tuple[float, ...] = (7.0, 8.0)) -> pl.DataFrame:
@@ -100,6 +101,8 @@ def residue_deltas(source, *, score: str = "binder", model=None, organism: str =
             ``"interface"``, ``"shape"``, ``"energetics"``, ``"mechanics"``).
         model: overrides :func:`tcren.score.holdout_model`.
         organism: passed to chain typing when the structure is not already annotated.
+        receptor: scoring mode for binder/channel readouts, as in ``binder_score``; independent
+            of which residues are selected. False includes peptide-presentation coordinates.
         chain_types: restrict to residues of these chain types, e.g. ``("PEPTIDE",)`` to colour a
             peptide only. ``None`` takes every residue on either side of ``interfaces``.
         interfaces: which interfaces define the residue set.
@@ -135,7 +138,7 @@ def residue_deltas(source, *, score: str = "binder", model=None, organism: str =
     # read on identical columns. Scoring row by row would let one mask's missing column silently
     # change which descriptors the comparison is made over.
     vals = np.asarray(_read(score, pl.DataFrame(rows, infer_schema_length=None), model,
-                            receptor=chain_types != ("PEPTIDE",)), float)
+                            receptor=receptor), float)
     full, without = float(vals[0]), vals[1:]
     lookup = {(c.chain_id, r.seq_index): r for c in s.chains for r in c.residues}
     return pl.DataFrame({

@@ -47,14 +47,24 @@ def test_chunked_equals_whole_set(structure_list, tmp_path):
     assert whole.equals(chunked), "chunking changed the descriptor table"
 
 
-def test_resume_reuses_parts_and_gives_the_same_table(structure_list, tmp_path):
-    runner = CliRunner()
-    out = tmp_path / "resumed.tsv"
-    first = _run(runner, structure_list, out, "--chunk", "2", "--resume")
-    parts = sorted((out.parent / f"{out.stem}.parts").glob("*.tsv"))
-    assert parts, "--resume must keep its part files; without them there is nothing to resume from"
-    second = _run(runner, structure_list, out, "--chunk", "2", "--resume")
-    assert first.equals(second)
+def test_resume_is_not_a_supported_scientific_run(tmp_path):
+    result = CliRunner().invoke(app, ["features", "-s", str(tmp_path), "--resume"])
+    assert result.exit_code == 2
+    assert "No such option" in result.output
+
+
+def test_failed_features_exit_nonzero_and_keep_diagnostics(tmp_path, monkeypatch):
+    import tcren.cli
+    import tcren.recognition
+
+    monkeypatch.setattr(tcren.cli, "iter_structures", lambda *a, **kw: iter([object()]))
+    monkeypatch.setattr(tcren.recognition, "recognition_table", lambda *a, **kw: [
+        {"complex.id": "failed", "error": "missing reference"}])
+    out = tmp_path / "failed.tsv"
+    result = CliRunner().invoke(app, ["features", "-s", str(tmp_path),
+                                      "-o", str(out), "--no-metadata"])
+    assert result.exit_code == 1
+    assert pl.read_csv(out, separator="\t")["error"][0] == "missing reference"
 
 
 def test_parts_are_cleaned_up_without_resume(structure_list, tmp_path):

@@ -241,3 +241,26 @@ def test_typing_is_unchanged_by_explicit_hydrogens(crystals):
     with_h = residue_pair_types(s, "tcr_peptide")
     assert base.height == with_h.height
     assert base["contact.type"].to_list() == with_h["contact.type"].to_list()
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_stacking_is_independent_of_interface_direction(reverse):
+    first, second = (("Z", 2), ("A", 1)) if reverse else (("A", 1), ("Z", 2))
+    df = pl.DataFrame({
+        "chain.id.from": [first[0]], "residue.index.from": [first[1]],
+        "chain.id.to": [second[0]], "residue.index.to": [second[1]],
+        "residue.aa.from": ["F"], "residue.aa.to": ["F"],
+        "atom.from": ["CZ"], "atom.to": ["CZ"], "dist": [4.9],
+    })
+    out = classify_contacts(df, stacking={("A", 1, "Z", 2)})
+    assert out["is_stacking"].to_list() == [True]
+
+
+def test_v2_other_flag_matches_fallback_label():
+    df = pl.DataFrame({
+        "residue.aa.from": ["A"], "residue.aa.to": ["A"],
+        "atom.from": ["CB"], "atom.to": ["CB"], "dist": [4.9],
+    })
+    out = classify_contacts(df)
+    assert out["contact.type"].to_list() == ["other"]
+    assert out["is_other"].to_list() == [True]

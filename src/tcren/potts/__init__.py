@@ -24,20 +24,7 @@ Typical use::
     map_ensemble(pairs, model)                             # the configurations, with probabilities
     threaded_ensemble(pairs, model, candidates)            # the same per candidate sequence
 
-`available_pairs` needs a structure. :mod:`tcren.potts.geom` models the Ca distance matrix instead,
-in length-normalised coordinates, and emits the same schema — so a receptor:peptide pair can be
-placed from sequence and lengths alone, with no template of the right shape::
-
-    prior = fit_geom_prior(structures)                     # or GeomPrior.from_json(...)
-    predicted_sites(prior, loops, peptide)                 # the same columns available_pairs emits
-
-That prior sees one geometry per crystal. :mod:`tcren.potts.cross` removes the scarcity: every
-complex in ``Canonical2026`` sits in one frame, so a TCR from one crystal against a pMHC from
-another is a pseudo-complex needing no transform, and within MHC class there are 79,061 of them
-against 359 solved::
-
-    rec, par = residue_tables(structures)                  # co-framed, chain-typed, MHC-annotated
-    cross_pairs(rec, par)                                  # every pairing's Ca distances
+The retired sequence-only geometry experiment is preserved in the repository attic.
 
 The marginals settle the *mean* interaction energy and nothing else: `Phi` is linear in `sigma`, so
 `<Phi> = sum_a p_a phi_a` exactly — but only with `p_model`, the coupled marginal, and only read at
@@ -45,7 +32,7 @@ the sequence being scored. :mod:`tcren.potts.ensemble` carries the read-outs a s
 cannot determine, and re-reads the marginals per candidate.
 
 The CLI mirrors it: ``tcren potts fit``, ``tcren potts score``, ``tcren potts contacts``,
-``tcren potts map``, ``tcren potts ensemble``, ``tcren potts cross``.
+``tcren potts map``, ``tcren potts ensemble``.
 """
 
 from .fit import DEFAULT_RIDGE, cluster_se, design, fit_potts, gauge, irls, kernel_table
@@ -53,11 +40,6 @@ from .kernel import (bucket_edges, colour, coupling_matrix, edges, neighbour_cou
 from .model import (AA, CDR_LOOPS, CLASSES, CROSS_DJ, DBIN, OFFSETS, REGIONS, ROLES,
                     PottsModel, centred_potential, kernel_names)
 from .em import LATENT_MARGIN, consistency, fit_potts_em, impute, latent_mask
-from .cross import (CROSS_COLUMNS, MIN_CA, PAR_COLUMNS, REC_COLUMNS, cross_from_structures, cross_pairs,
-                    partner_residues, receptor_residues, residue_tables, write_cross_pairs)
-from .geom import (BUNDLED_ENSEMBLE, BUNDLED_PRIOR, REGIONS_MODELLED, GeomPrior, feasible,
-                   fit_geom_prior, loops_from_structure, predict_contact_map,
-                   predicted_distances, predicted_ensemble, predicted_sites)
 from .ensemble import energy_ensemble, map_ensemble, site_energies, threaded_ensemble
 from .sample import (ais_log_z, count_free_energy, delta_f_empty, delta_f_threshold, energy,
                      exact_log_z, factorised_log_z, gibbs, mu_star, tilt_mean)
@@ -87,9 +69,9 @@ __all__ = [
     "LOGIT_CLIP", "observation_field", "contact_posterior", "weighted_contacts",
     "fit_selfconsistent",
     "LATENT_MARGIN", "latent_mask", "impute", "fit_potts_em", "consistency",
-    "BUNDLED_ENSEMBLE", "BUNDLED_PRIOR", "GeomPrior", "REGIONS_MODELLED", "feasible",
-    "fit_geom_prior", "loops_from_structure", "predict_contact_map", "predicted_distances",
-    "predicted_ensemble", "predicted_sites",
-    "CROSS_COLUMNS", "MIN_CA", "PAR_COLUMNS", "REC_COLUMNS", "cross_from_structures", "cross_pairs",
-    "partner_residues", "receptor_residues", "residue_tables", "write_cross_pairs",
+
+
+
+
+
 ]

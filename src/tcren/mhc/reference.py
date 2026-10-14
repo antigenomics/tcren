@@ -86,6 +86,27 @@ def reference_fasta(out_dir: Path = DATABASE_DIR) -> Path:
     return fasta
 
 
+def _db_complete(db: Path) -> bool:
+    """Check MMseqs sequence/header/index data against their offset tables, not just markers."""
+    try:
+        for suffix in ("", "_h", ".idx"):
+            prefix = db.with_name(db.name + suffix)
+            if Path(str(prefix) + ".dbtype").stat().st_size != 4:
+                return False
+            parts = ([prefix] if prefix.is_file() else
+                     [p for p in prefix.parent.glob(prefix.name + ".*")
+                      if p.name[len(prefix.name) + 1:].isdigit()])
+            size = sum(p.stat().st_size for p in parts)
+            with Path(str(prefix) + ".index").open() as fh:
+                end = max(int(row[1]) + int(row[2]) for row in
+                          (line.split() for line in fh))
+            if not size or size < end:
+                return False
+        return True
+    except (OSError, ValueError, IndexError):
+        return False
+
+
 def reference_db(cache_dir: Path = CACHE_DIR) -> Path:
     """Path to a compiled, **pre-indexed** mmseqs DB of the allele reference (built once, cached).
 
@@ -98,8 +119,8 @@ def reference_db(cache_dir: Path = CACHE_DIR) -> Path:
     The build is serialized through :func:`arda._locking.build_lock`: tcren is routinely run
     concurrently against the same cache (one process per SLURM-array task / Nextflow sample), and
     an unguarded ``createdb`` + ``createindex`` into the shared path would let every other process
-    search a half-written index. The ``createindex`` marker is written last, so its freshness gates
-    completeness.
+    search a half-written index. Builds are staged and checked before publication; the index marker
+    is published last. Fresh markers alone do not prove that the data files survived a cleanup.
     """
     import tempfile
 
@@ -112,18 +133,34 @@ def reference_db(cache_dir: Path = CACHE_DIR) -> Path:
     idx_marker = db.with_name(db.name + ".idx.dbtype")   # createindex output (written last)
 
     def _fresh() -> bool:
-        fasta_mtime = fasta.stat().st_mtime
-        return (db_marker.exists() and db_marker.stat().st_mtime >= fasta_mtime
-                and idx_marker.exists() and idx_marker.stat().st_mtime >= fasta_mtime)
+        try:
+            fasta_mtime = fasta.stat().st_mtime
+            return (db_marker.stat().st_mtime >= fasta_mtime
+                    and idx_marker.stat().st_mtime >= fasta_mtime and _db_complete(db))
+        except OSError:
+            return False
 
     if _fresh():
         return db
     cache_dir.mkdir(parents=True, exist_ok=True)
     with build_lock(cache_dir / ".alleles_db.lock", done=_fresh) as ours:
         if ours:
-            mmseqs.createdb(fasta, db, dbtype=1)
-            with tempfile.TemporaryDirectory() as tmp:
-                mmseqs.run(["createindex", str(db), tmp, "--search-type", "1"])
+            with tempfile.TemporaryDirectory(prefix=".alleles_db-build-", dir=cache_dir) as tmp:
+                staged = Path(tmp) / db.name
+                mmseqs.createdb(fasta, staged, dbtype=1)
+                mmseqs.run(["createindex", str(staged), str(Path(tmp) / "work"),
+                            "--search-type", "1", "--threads", "1"])
+                if not _db_complete(staged):
+                    raise RuntimeError("MMseqs produced an incomplete MHC reference database")
+                old = [p for p in cache_dir.glob(db.name + "*") if p.is_file()]
+                if old:
+                    backup = Path(tempfile.mkdtemp(prefix=".alleles_db-backup-", dir=cache_dir))
+                    # Remove the readiness marker first, before any data file is replaced.
+                    for p in sorted(old, key=lambda p: p != idx_marker):
+                        os.replace(p, backup / p.name)
+                for p in sorted(Path(tmp).glob(db.name + "*"),
+                                key=lambda p: p.name == idx_marker.name):
+                    os.replace(p, cache_dir / p.name)
     return db
 
 

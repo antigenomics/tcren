@@ -283,9 +283,21 @@ def iter_typed(structures: Path, organism: str = "human"):
     and the cost is roughly an order of magnitude. :func:`iter_annotated_set` sends
     every chain of every structure in a single call per organism, which is why anything resolving
     to more than one structure -- a directory, a glob, a manifest -- goes through it. A single
-    file has nothing to batch and takes the direct path.
+    file has nothing to batch and takes the direct path. Archives retain their parsed
+    structures in memory for one annotation batch, just like directory sets.
     """
     from ..structure import iter_structures, parse_structure, structure_paths
+    from ..structure.io import _TAR_SUFFIXES
+
+    if str(structures).lower().endswith(_TAR_SUFFIXES):
+        # One search batch requires retaining the parsed archive, as for a directory set.
+        parsed = [s for _pid, s in iter_structures(structures, importer=parse_structure)]
+        records = annotate_batch(parsed)
+        from ..annotation import classify_chains
+        for s, precomputed in zip(parsed, records):
+            classify_chains(s, organism=organism, precomputed_records=precomputed)
+            yield s
+        return
     try:
         many = len(structure_paths(structures)) > 1
     except Exception:  # .tar.gz and anything structure_paths cannot enumerate

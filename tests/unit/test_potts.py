@@ -824,3 +824,40 @@ def test_peptide_free_energy_rejects_a_position_carrying_two_residues():
     pairs, model = _map_inputs(n_struct=1)          # aa.par drawn per row, so positions clash
     with pytest.raises(ValueError, match="more than one residue"):
         peptide_free_energy(pairs, model)
+
+
+def test_raw_named_pin_preserves_fitted_matrix_and_roundtrip(tmp_path):
+    model = fit_potts(_synthetic_sites(n_struct=2), coupling_matrix="tcren2",
+                      pin_centred=False, couplings=False)
+    expected = model.beta_matrix * centred_potential("tcren2", centre=False)
+    np.testing.assert_allclose(model.coupling_array(), expected)
+    path = tmp_path / "raw-pin.json"
+    model.to_json(path)
+    np.testing.assert_allclose(PottsModel.from_json(path).coupling_array(), expected)
+
+
+def test_delta_f_empty_resolves_small_positive_partition():
+    from tcren.potts.sample import delta_f_empty
+    assert delta_f_empty(1e-20) == pytest.approx(np.log(np.expm1(1e-20)))
+    assert delta_f_empty(1000.0) == pytest.approx(1000.0)
+
+
+def test_coupled_threading_aligns_identified_marginals_by_site():
+    pairs, model = _sequence_sites()
+    probabilities = np.linspace(0.01, 0.99, pairs.height)
+    marg = pairs.with_columns(pl.Series("p_model", probabilities))
+    reference = peptide_free_energy(pairs, model, coupled=True, marginals=marg)
+    got = peptide_free_energy(pairs.reverse(), model, coupled=True, marginals=marg)
+    np.testing.assert_allclose(got["dF"].to_numpy(), reference["dF"].to_numpy())
+    got_reversed = peptide_free_energy(pairs, model, coupled=True, marginals=marg.reverse())
+    np.testing.assert_allclose(got_reversed["dF"].to_numpy(), reference["dF"].to_numpy())
+
+
+def test_coupled_threading_aligns_internally_computed_marginals(monkeypatch):
+    from tcren.potts import score as score_module
+    pairs, model = _sequence_sites()
+    marg = pairs.with_columns(pl.Series("p_model", np.linspace(0.01, 0.99, pairs.height)))
+    reference = peptide_free_energy(pairs, model, coupled=True, marginals=marg)
+    monkeypatch.setattr(score_module, "contact_probabilities", lambda *a, **kw: marg.reverse())
+    got = peptide_free_energy(pairs, model, coupled=True)
+    np.testing.assert_allclose(got["dF"].to_numpy(), reference["dF"].to_numpy())
