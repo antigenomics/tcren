@@ -1,6 +1,6 @@
 # TCRen audit and reconciliation — 2026-10-14
 
-## Resolution checkpoint — 2026-10-14
+## Resolution checkpoint — 2026-10-15
 
 The author authorized blocker repairs and a full fresh reproduction, then explicitly approved
 retiring tree figures/claims and correcting ergodicity and naive-Bayes interpretations while
@@ -50,6 +50,21 @@ driver and matched-result gates finish.
   and two additional physical-chain/order joins in CPL consumers before another complete restart.
   A reporting edit to the running shell driver also caused a terminal parser error; the next
   driver's source will remain fixed during execution. No publication outputs were promoted.
+- The subsequent full attempt passed native scoring, dynamics inputs, ATLAS, potency,
+  neoepitopes, legacy, fresh TCRvdb and CPL processing, then stopped on three auxiliary CDR1/2
+  reference fields absent from the binder catalogue. All 1,089 binder rows were retained.
+  These fields are now explicitly retained outside the established scan/design; no new arms
+  were introduced. Parent-shell raw-path exports and clean-output creation are also repaired.
+- The author additionally authorized unused panel cleanup and a reproducible live figure set.
+  Forty legacy/duplicate assets were moved with verified SHA-256 preservation. All 27 live
+  figures have source/build entries; four caption maps and statistical-unit/marker labels were
+  reconciled without changing values. The selected 12 structure scenes passed temporary runtime
+  verification in 89.6 s. Four geometry-height diagnostics changed under the corrected library;
+  the complete deltas were reported and remain flagged before canonical promotion.
+  One attempt was stopped explicitly before further computation while these missing render
+  edges were repaired. The existing late CPL heatmap producer was confirmed and given a complete
+  260-cell output check. Thirteen focused producer/identity checks and the read-only manuscript
+  gates pass. Full fresh reproduction, matched-result gates and rendered publication QA remain open.
 
 The [publication reconciliation](audit/2026-10-14/publication-resolution.md) inventories all 34
 live reshapers, recovered producers, exact archived tree routes, fresh-input/cache repairs and
