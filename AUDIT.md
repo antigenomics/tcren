@@ -44,8 +44,12 @@ driver and matched-result gates finish.
   374 native inputs. The benchmark was explicitly terminated before obsolete parsed driver
   functions could run cached calculations or retired tree fits. A full restart after those driver
   repairs was started from raw inputs with the final immutable wheel. Its six potential checks
-  passed again (241.52 s). It is still running; this is not a completed reproduction. Frozen
-  outputs were not promoted.
+  passed again (241.52 s), then stopped at an obsolete binder `recognize --scores` call.
+  Earlier TCRvdb processing had reused a legacy descriptor table and therefore does not establish
+  fresh reproduction. The producer audit is repairing that path, withdrawn-score dependencies,
+  and two additional physical-chain/order joins in CPL consumers before another complete restart.
+  A reporting edit to the running shell driver also caused a terminal parser error; the next
+  driver's source will remain fixed during execution. No publication outputs were promoted.
 
 The [publication reconciliation](audit/2026-10-14/publication-resolution.md) inventories all 34
 live reshapers, recovered producers, exact archived tree routes, fresh-input/cache repairs and

@@ -175,3 +175,42 @@ a green scientific claim.
   or inspect freshly rendered pages. The parent fresh pipeline owns those remaining checks.
 - Both cross-repository `git diff --check` checks passed before the final source freeze. All original
   dirty scientific outputs were excluded from this worker's source edits/retirement operations.
+
+## Preservation-gate extension: dynamics and kinetics
+
+The late acceptance checker now also protects the two named standing associations, without fitting
+or recalculating them:
+
+- Energy correspondence: compare the original `erg_fit.csv` R² = 0.45989207147101174 (printed 0.460)
+  and its reported 184 fitting observations, using the same term keys. `erg_points.csv` exposes the
+  exact structure/heldout identities and observed MD endpoint. The checker requires that complete
+  multiset to match before comparing the reported R²; it comprises 184 fitting structures plus
+  three heldout structures in the archived record. A lower R², lost endpoint/identity or changed
+  count stops publication promotion.
+- Dissociation rate: compare the original signed Pearson R = −0.5397988480206806 (printed −0.5398)
+  for `log k_off` versus `W_tensile  [incumbent]`, with n = 23. Its actual support can be recovered
+  from the archived/current mechanical rows and native feature table: class I, inner joined to
+  successful native features, finite `W_tensile` and `logkoff`. The checker matches the exact
+  identity/observed-log-rate multiset, preserving duplicate multiplicities. The archived support
+  was verified as 23 rows over 23 distinct structures, agreeing with the original summary.
+
+Every raw signed metric delta is exported unchanged. `strength_delta` additionally records
+Δ|R| for the signed kinetic association (ordinary ΔR²/ΔROC/ΔAP elsewhere). Lower |R| or a sign
+reversal is a review condition; a more negative R of the established direction is correctly
+recognized as a stronger association. This does not reinterpret R as an unsigned reported result.
+No new statistical test, control, threshold, refit or producer execution was introduced. The only
+source changes during the running scientific pipeline were its late comparison checker and focused
+synthetic checks. Five tests in the producer-regression file passed in 0.90 s, covering the earlier
+display/identity repairs and the association-direction/support guards. Archive support inspection
+read recorded inputs only.
+
+
+### 15 October API/freshness follow-up before restart
+
+The aborted fresh binder stage exposed the retired `recognize --scores` option. All executable literal callers now use the descriptor route, with the established `Phi`/`dPhi` → `F`/`dF` schema adapter where downstream readers require it. TCRvdb descriptors regenerate from the full raw set before its energy table; retired per-structure probability/strain fields are no longer required. Binder uses one batch per class, retains stderr, and its dynamic options are tuples. Pose recognition uses the current keyword contract. Contact subset geometry imports the canonical docking module and counts uppercase PEPTIDE chains. The optional Potts observed-map check uses the existing ContactMap and chain-balance implementation, without the removed interface_features import.
+
+The Kit p_bind producer/export calls have no live manuscript reader; they are retired without substitution, with source snapshots retained in the follow-up archive and original outputs preserved by the established-results archive. The two active QC diagnostics remain. Harmonization reads exactly the eleven completed cohort tables, rejects any missing table, excludes hidden interrupted chunks, and featurization deletes earlier partial chunks before rebuilding them.
+
+Installed-wheel static checks covered 132 directly scheduled scripts, 403 named tcren imports and 450 resolvable API calls: zero missing symbols or unsupported named keywords. CLI inspection resolved 21 literal calls with zero unsupported commands/options. Two dynamic wrappers remain: binder is exercised by a mocked subprocess argv test; kinetics delegates the reviewed existing mechanics/scoring calls. Static checks establish API syntax, not numerical correctness or full runtime schema. The fresh full run and preservation gates remain mandatory.
+
+Focused verification: 9 synthetic preservation, dynamic argv/schema, completed-cohort/hidden-chunk and CPL identity checks passed in 0.90 s with warnings treated as errors and pytest cache disabled. zsh syntax and git diff whitespace checks passed. No scientific producer was rerun in this follow-up. The first test invocation's nine bodies passed but pytest cache creation was sandbox-denied; disabling that test cache yielded the successful exit above.

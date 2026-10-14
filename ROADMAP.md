@@ -47,7 +47,8 @@ matched units against the accepted recorded results, including row counts and mi
 report material weakening; never silently replace a baseline, refloor a test or average away a loss.
 No sweeps, additional controls or model-selection exercise is implied by this roadmap.
 Exit: all five blocks and every publication artifact trace to that run; no resumed intermediates.
-Current: full fresh reproduction authorized and running after driver/corpus reuse repairs.
+Current: full fresh reproduction authorized; the latest attempt stopped on an obsolete producer
+CLI call. Producer/API and cached-table repairs precede another complete raw-input restart.
 Both full-manifest frozen-parameter comparison and matched accepted-result gates precede
 publication. Earlier interrupted diagnostic evidence is retained but does not complete this gate.
 
