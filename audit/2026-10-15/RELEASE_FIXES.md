@@ -31,7 +31,7 @@ or new scoring combination is authorized by this boundary.
 - [x] Run all five authorized benchmark blocks fresh from raw inputs; record every
       metric gain/loss, counts and missingness. No resumed computed intermediates.
 - [x] Open one PR to master, request Copilot review, address findings and verify CI.
-- [ ] Prepare the release at the human PyPI approval gate only after required checks.
+- [x] Release 4.0.0 after the author approved the PyPI gate; verify publication and local installation.
 
 The original dirty reduction figure and notebook result file are preserved outside
 these commits. The generated version label was refreshed with its owning script.
@@ -91,3 +91,57 @@ completed another full raw-input run. All five fresh dataset tables and all 3,67
 metric rows exactly match the preceding successful reproduction; the 1,552 paired
 comparisons above therefore describe this final package as well. Python 3.10/3.12,
 lint and warning-as-error documentation CI passed on this source revision.
+
+## Published 4.0.0 verification — 15 October 2026
+
+PyPI serves 4.0.0 wheels and the source distribution. Release tag `v4.0.0` and
+master resolve to `3cdbe1b`; tests, documentation and publishing workflows completed
+successfully. The published CPython 3.12 macOS ARM64 wheel has SHA256
+`effa605ec1cf2ac0096fb173600c8f83bdd31812e9c74715746fe8a2e6af3f88`.
+It was reinstalled noneditably in the local repository environment: package metadata
+and `tcren info` report 4.0.0, CLI help works, and all 178 installed package payload
+files match the wheel. Focused installed-wheel checks: 114 passed, one slow test
+deselected, 30.19 seconds. Both synthetic MD plot exports were visually inspected.
+
+Another authorized fresh raw-input run retained all five benchmark populations and
+availability masks. CPL, ATLAS and MD dataset tables exactly match the reviewed
+pre-release run. Whole-receptor references also match; CDR/CDR1–2/CDR3 references do
+not. Of 1,836 matched metric comparisons against that reviewed run, 1,444 are exactly
+unchanged, 164 numerically increase and 228 decrease. All changes are retained;
+correlation sign/direction is not automatically an improvement. The largest precision
+at recall 0.1 decrease is 1.0 to 0.666667 on TTDPSFLGRY (62 structures, 31 positive),
+and the largest increase is 0.625 to 1.0 on YVLDHLIVV (46 structures, 23 positive).
+Both are template-scarce regional receptor-reference arms. Against the original
+historical inputs, 1,552 paired metrics comprise 200 numerical increases, 280
+decreases and 1,072 exact ties. These supersede the earlier comparison counts only
+for the newly verified annotation environment, without deleting the earlier record.
+
+Read-only index inspection explains the discrepancy: the earlier environment used
+an ARDA cache whose searched MMseqs databases did not match the raw reference FASTAs.
+Its human database has 15,690 records versus 15,069 FASTA records, with 10,084
+sequence mismatches over 14,515 shared scaffold names. Mouse has 16,641 mismatches
+over 18,048 shared names. The current environment's databases match their human and
+mouse FASTAs exactly. ARDA code, version, FASTA/markup hashes and MMseqs version alone
+were identical and therefore failed to capture the searched database identity.
+ARDA's ancestor-based source-root detection and timestamp-only index validation
+explain the different index roots and acceptance of stale content. Neither index
+was modified during this verification. Issue #30 remains open for this dependency
+and actual-index provenance gap; the earlier regional results cannot certify stability.
+
+The requested endpoint extension rebuilds CPL activation from the seven raw response
+plates and uses the same run's authoritative CLI outputs. Per-clone CPL activation
+correlations reproduce the historical unweighted reference-sum arm to below 1e-12;
+the endpoint is log2(1 + S_CPL), not log fold change. The reduced rupture-work
+association with log10(koff) remains R = -0.5397988480 over 23 class-I WT crystals.
+The historical three-interface MD correspondence remains R² = 0.4598920715 over
+184 training structures, with three original held-out structures retained. This is
+descriptive correspondence, not an ergodicity proof or a fitted final scorer.
+The supplied delta_sum/ddG correlation remains R = 0.8006247560 over all 181 rows;
+conflicting source descriptions still prevent assigning experimental/free-energy
+provenance. Statistical reference differences retain their own units and convention.
+
+Closed with verified release linkage: #14–20, #22–25, #27–29, #31 and #36 (16 issues).
+Remaining open: #21, #26, #30 and #32–35 (seven). Final publication migration,
+historical CLI non-equivalence and the long MD reconstruction are not completed by
+this release check. No manuscript claims, final formula, fitted parameters or
+confidence-fusion rule were replaced.
