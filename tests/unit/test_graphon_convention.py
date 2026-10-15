@@ -96,7 +96,10 @@ def test_read_back_carries_a_stack_in_one_call(grid):
     stack = rng.uniform(3.0, 30.0, (7, grid, grid))
     one_call = read_back(stack, 13, 9)
     per_member = np.stack([read_back(s, 13, 9) for s in stack])
-    assert np.array_equal(one_call, per_member)
+    # BLAS can associate the two contractions differently for a stack and a
+    # matrix. Each positive weighted sum has at most 2*grid products; compare
+    # within its floating-point roundoff bound, not backend-specific bit order.
+    np.testing.assert_allclose(one_call, per_member, rtol=4 * grid * np.finfo(float).eps, atol=0)
 
 
 def test_graphon_weights_are_a_partition_of_unity():
