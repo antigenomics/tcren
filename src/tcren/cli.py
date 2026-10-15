@@ -1158,6 +1158,7 @@ def fit_holdout_cmd(
 def scoring(
     structures: list[str] = typer.Option(..., "-s", "--structures", help="structure file(s), directory, .tar.gz, glob, or a .txt manifest of paths; repeatable and comma-separable"),
     out: Path = typer.Option("scores.csv", "-o", "--out", help="per-structure interface-score table"),
+    full_ids: bool = typer.Option(False, "--full-ids", help="preserve complete input filename stems, including archive members"),
     no_superimpose: bool = typer.Option(False, "--no-superimpose", help="skip canonical orientation"),
     db: Path = typer.Option(None, "--db", help="canonical database dir (default: data/Canonical2026)"),
     organism: str = typer.Option("human", "--organism"),
@@ -1181,15 +1182,19 @@ def scoring(
     commands: ``tcren annotate``, ``tcren superimpose``, ``tcren contacts``.
 
     Columns ``Phi_tcr_pep``, ``Phi_tcr_mhc``, ``Phi_pep_mhc`` are the three interface terms
-    Φ_TP, Φ_TM, Φ_PM; ``Phi_total`` is their sum Φ. With ``--delta`` each also gets its
-    poly-alanine-referenced counterpart ``dPhi_*`` (ΔΦ_TP, ΔΦ_TM≡0, ΔΦ_PM) and ``dPhi_total`` = ΔΦ.
+    Φ_TP, Φ_TM, Φ_PM; ``Phi_total`` is their historical native-scale-weighted sum.
+    With ``--delta`` each also gets its poly-alanine-referenced counterpart ``dPhi_*``
+    (ΔΦ_TP, ΔΦ_TM≡0, ΔΦ_PM). ``dPhi_total`` retains those estimated native-scale weights.
+    ``dPhi_peptide_sum`` reports the unweighted ΔΦ_TP + ΔΦ_PM in the supplied potential scales;
+    it has no fitted combination weights or calibration to binding energy.
     The names match ``tcren recognize``, so the two tables join on ``pdb.id``.
     ΔΦ is the score to use across candidates that each carry their **own** generated pose,
     where raw Φ partly reads the pose geometry rather than the peptide sequence.
 
     ``--intra-weight w`` adds the term the three interface sums omit — ``Phi_pep_int``, the peptide's
     contact energy with **itself** (5 Å, sequence separation >= 3, MJ) — and folds ``w x Phi_pep_int``
-    into ``Phi_total``. The energy is reported raw, so the term and the weight stay separable.
+    into ``Phi_total`` after division by the intra-peptide potential's matrix scale.
+    The ``Phi_pep_int`` column itself is reported raw.
 
     ``--geometry`` appends the interface descriptors (buried surface ``burial``, peptide
     coverage ``n_pep_contacted``, ``chain_balance``, ``n_hbond``, docking ``pitch``/``crossing``)
@@ -1238,7 +1243,7 @@ def scoring(
     # here for the whole cohort in a handful of searches (one per organism) and the scorer is
     # told not to repeat it -- threads only ever hid that cost behind more concurrent mmseqs
     # processes, each of which defaults to every core.
-    structs = [s for src in resolve_sources(structures) for s in _iter_typed(src, organism)]
+    structs = [s for src in resolve_sources(structures) for s in _iter_typed(src, organism, full_ids=full_ids)]
     # ... and MHC annotation the same way: ONE mmseqs search over every candidate MHC chain of
     # every structure, mmseqs threading internally. Without this `pipeline.run` called
     # `annotate_mhc` per structure and `superimpose` re-ran BOTH annotations again, so a
@@ -1285,7 +1290,7 @@ def scoring(
         from .structure.io import import_structure
 
         items = [it for src in resolve_sources(structures)
-                 for it in iter_structures(src, importer=import_structure, on_error="skip")]
+                 for it in iter_structures(src, importer=import_structure, on_error="skip", full_ids=full_ids)]
         import os as _os2
         geo = pl.DataFrame(recognition_table(
             items, organism=organism,
@@ -1606,9 +1611,9 @@ def assess(
     budget: float = typer.Option(0.5, "--budget", help="recall budget for the expected-precision column"),
     list_bands: bool = typer.Option(False, "--list-bands", help="print the frozen band tables, then exit"),
 ) -> None:
-    """Assess modelled complexes: is the pose real, is it a binder, and which channel says so.
+    """Historical fitted assessment of modelled complexes; excluded from final fit-free models.
 
-    The one command to run on a folder of AlphaFold models. Four blocks, one table.
+    Preserved for historical reproduction. Four blocks, one table.
 
     \b
     THE SCORE SET -- every one defined for a SINGLE structure, because the transform, the class
@@ -1650,7 +1655,7 @@ def assess(
         read when a confidence is available.
 
     \b
-    THE PREDECESSOR TIER -- `S`, the fit-free composition of interface quality, footprint shape
+    THE PREDECESSOR TIER -- `S`, the reference-estimated composition of interface quality, footprint shape
     and contact energy in native-sd units. It leads the functionally validated receptor screen on
     its own and COMPOSES with binder_score rather than being replaced by it, so it is reported
     beside it rather than dropped.
@@ -1715,7 +1720,7 @@ def assess(
         typer.echo(f"  {n - scored} row(s) missing a descriptor the model reads; a covariance "
                    f"cannot impute one, so they are NaN rather than filled in")
 
-    # --- the fit-free predecessor tier, on the same rows ---------------------------------
+    # --- the historical predecessor tier, on the same rows ---------------------------------
     absent = [c for c in (*Q_FEATURES_GEOM, *T_FEATURES_TOPO) if c not in t.columns]
     if absent:
         typer.echo(f"  S skipped: missing {', '.join(absent)}")
@@ -1895,7 +1900,7 @@ def footprint(
     radii: str = typer.Option("7,8", "--radii", help="Calpha thresholds for the footprint flag complex; b0 is most informative at 7 A and b1 at 8 A"),
     group: str = typer.Option(None, "--group", help="column to fit T within (e.g. epitope); needs --meta"),
     meta: Path = typer.Option(None, "--meta", help="TSV/CSV with a 'pdb.id' column plus --group, joined before scoring"),
-    score: bool = typer.Option(False, "--score", help="append T, the fit-free directional shape score against the native crystal reference"),
+    score: bool = typer.Option(False, "--score", help="append T, the reference-estimated directional shape score against the native crystal reference"),
 ) -> None:
     """Footprint shape: how a receptor's contacts are DISTRIBUTED, not what they score.
 
@@ -1914,7 +1919,7 @@ def footprint(
     oriented -- only chain-typed with CDR region markup, which this command does for you in one
     batched annotation pass over the whole set.
 
-    ``--score`` adds ``T``, the fit-free shape score: a directional score against the Native2026
+    ``--score`` adds ``T``, the reference-estimated shape score: a directional score against the Native2026
     crystal reference, restricted to these descriptors. Nothing is fitted at call time, so it is
     **defined for a single input** and ``--group`` no longer changes any value -- the option is kept
     only because it carries the grouping column through. The cohort-fitted channel posterior this
@@ -2634,6 +2639,44 @@ def explain(
     d.write_csv(out, separator="\t")
     typer.echo(f"wrote {out}  ({d.height} residues, score={score}, "
                f"full={d['score.full'][0]:.4f})")
+
+@app.command("export", rich_help_panel=_P_ANNOT)
+def export_exact(
+    structures: list[str] = typer.Option(..., "-s", "--structures"),
+    output: Path = typer.Option(..., "-o", "--output"),
+    quantity: str = typer.Option("receptor-reference", "--quantity",
+                                help="receptor-reference, position, residue, contacts or placement"),
+    potential: str = typer.Option(..., "--potential", help="Explicit TCR:peptide potential name or CSV"),
+    mhc_potential: str = typer.Option("mj", "--mhc-potential"),
+    interface: str = typer.Option("tcr_peptide", "--interface"),
+    cutoff: float = typer.Option(5.0, "--cutoff"),
+    organism: list[str] = typer.Option(["human", "mouse"], "--organism"),
+    threads: int = typer.Option(1, "-t", "--threads"),
+) -> None:
+    """Exact virtual receptor reference or publication decomposition, with lineage and errors.
+
+    Accepts files, directories, tar archives, globs and manifests. Writes accounting, physical
+    residue identities, exact potential tables and provenance beside the output.
+    """
+    import shlex
+    import sys
+
+    from .exports import export_batch
+
+    ledger = export_batch(structures, output, quantity=quantity,
+                          peptide_potential=_load_potential(potential),
+                          mhc_potential=_load_potential(mhc_potential), interface=interface,
+                          cutoff=cutoff, organisms=tuple(organism), threads=threads,
+                          command=shlex.join(sys.argv))
+    succeeded = ledger.filter(pl.col("status") == "ok").height
+    typer.echo(f"{succeeded}/{ledger.height} structures exported; accounting: {output}.accounting.tsv")
+    if succeeded == 0:
+        raise typer.Exit(1)
+
+
+from .prediction import inspect_models_command
+app.command("inspect-models", rich_help_panel=_P_ANNOT)(inspect_models_command)
+
 
 # The __main__ guard belongs at the VERY END of the module, below the last @app.command.
 # It has been moved twice for the same reason. It first sat just after `main()`, two thirds up,

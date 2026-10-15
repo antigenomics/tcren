@@ -275,7 +275,7 @@ def _annotate(arda, pairs, organism: str, threads: int):
             raise ImportError("arda backend cannot enforce the requested thread cap") from exc
         return annotate_records(pairs, organism=organism, seqtype="aa", threads=threads)
     return arda.annotate_sequences(pairs, seqtype="aa", organism=organism)
-def iter_typed(structures: Path, organism: str = "human"):
+def iter_typed(structures: Path, organism: str = "human", *, full_ids: bool = False):
     """Yield chain-typed structures, annotating a whole set in one batch.
 
     ``classify_chains`` per structure spawns one ``mmseqs easy-search`` per structure, each
@@ -283,15 +283,16 @@ def iter_typed(structures: Path, organism: str = "human"):
     and the cost is roughly an order of magnitude. :func:`iter_annotated_set` sends
     every chain of every structure in a single call per organism, which is why anything resolving
     to more than one structure -- a directory, a glob, a manifest -- goes through it. A single
-    file has nothing to batch and takes the direct path. Archives retain their parsed
+    file has nothing to batch and takes the direct path. ``full_ids=True`` preserves complete
+    filename stems through the batched parser. Archives retain their parsed
     structures in memory for one annotation batch, just like directory sets.
     """
     from ..structure import iter_structures, parse_structure, structure_paths
     from ..structure.io import _TAR_SUFFIXES
 
-    if str(structures).lower().endswith(_TAR_SUFFIXES):
+    if full_ids or str(structures).lower().endswith(_TAR_SUFFIXES):
         # One search batch requires retaining the parsed archive, as for a directory set.
-        parsed = [s for _pid, s in iter_structures(structures, importer=parse_structure)]
+        parsed = [s for _pid, s in iter_structures(structures, importer=parse_structure, full_ids=full_ids)]
         records = annotate_batch(parsed)
         from ..annotation import classify_chains
         for s, precomputed in zip(parsed, records):

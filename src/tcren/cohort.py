@@ -1,13 +1,9 @@
-"""Cohort-relative recognition scores — the **recommended, fit-free** screening layer.
+"""Cohort-relative recognition scores — the historical reference-estimated screening layer.
 
-These carry no trained coefficients — no logistic, no fit, no training set — so they cannot leak,
-cannot go stale, and there is nothing to re-derive. The fitted composites that stood beside them
-were removed in 2.26.0; their coefficients were frozen against training sets that no longer exist,
-which made them the one part of the package a reader could not reproduce.
+Q estimates standardization and correlation weights from a cohort or a native
+reference. It is not parameter-free and is excluded from the final fit-free
+specification. Historical values and APIs are retained for reproduction.
 
-* :func:`q_score` **generalises across cohorts**: a logistic trained on one cohort learns that
-  cohort's epitope composition and does not transfer, whereas ``Q`` has nothing to transfer. With
-  ipTM it reproduces the headline synergy fit-free.
 * :func:`strain_z` grades pose forcedness (crystal < AF-real < AF-decoy) reproducibly.
 
 They are **cohort-relative** by default: each standardizes a feature over *the set being ranked*.
@@ -172,7 +168,7 @@ def native_reference() -> dict:
 
 def q_score(table, reference=None, features=Q_FEATURES_GEOM, method="z", decorrelate=True,
             signs=None) -> np.ndarray:
-    r"""Interface-quality score ``Q`` — fit-free, single-structure-capable; the default binder score.
+    r"""Interface-quality score ``Q`` — reference-estimated and single-structure-capable.
 
     The default is the **directional, decorrelated** one-class score over ``k = len(features)`` terms
 

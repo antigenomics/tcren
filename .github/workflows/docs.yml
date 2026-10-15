@@ -3,6 +3,8 @@ name: docs
 on:
   push:
     branches: [develop, master]
+  pull_request:
+    branches: [develop, master]
   workflow_dispatch:
 
 permissions:

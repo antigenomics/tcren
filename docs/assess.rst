@@ -1,6 +1,13 @@
 Assessing a modelled complex
 ============================
 
+.. important::
+
+   Final models use fixed empirical contact potentials with explicit provenance.
+   Gaussian/GLM, fitted Potts and transition models, and reference-estimated Q/T/S
+   are historical readouts, excluded from the final specification. Nothing fitted
+   at scoring time does not mean fit-free. See :doc:`fit-free`.
+
 .. currentmodule:: tcren.score
 
 A co-folding model builds a confident TCR:pMHC complex for any receptor--peptide pair, binding or
@@ -150,7 +157,7 @@ The predecessor tier
 --------------------
 
 :func:`tcren.cohort.q_score`, :func:`tcren.reliability.t_score` and
-:func:`tcren.reliability.s_score` are the fit-free directional scores this layer generalises, and
+:func:`tcren.reliability.s_score` are the reference-estimated directional scores this layer generalises, and
 they are still supported. ``S`` leads the functionally validated receptor screen on its own, and it
 *composes* with ``binder_score`` rather than being replaced by it.
 

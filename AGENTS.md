@@ -6,6 +6,13 @@ verified findings and unresolved mathematical claims, and `ROADMAP.md` for publi
 
 ## Final audit directive — 15 October 2026
 
+**Follow-up authorization:** the author subsequently authorized a separate fix branch,
+fresh reproduction, PR to master, Copilot review and release preparation to the human
+PyPI approval gate. Fixed empirical potential tables are explicitly permitted with
+provenance; learned Q/T weights and cohort normalization remain excluded from final
+models. This supersedes the audit-only stopping point below. Current implementation
+and verification status: `audit/2026-10-15/RELEASE_FIXES.md`.
+
 The author now requires **fit-free final models**, archival of fitted readouts, and CLI-owned
 scientific calculations. Gaussian readouts, confidence GLMs, fitted transition links and fitted
 Potts final scorers are historical evidence, not final-model candidates. The existing library APIs

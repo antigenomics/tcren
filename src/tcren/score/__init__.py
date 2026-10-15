@@ -177,6 +177,8 @@ class ScoreModel:
         reads "higher is better".
         """
         ok, Z, have = self.coordinates(table)
+        if not ok.any():
+            return np.full(len(ok), np.nan)
         return _place(ok, -self.joint.anomaly_on(Z, have))
 
     def binder_score(self, table, *, receptor: bool = True) -> np.ndarray:
@@ -190,6 +192,8 @@ class ScoreModel:
         ok, Z, have = self.coordinates(
             table, coordinate_names=self.receptor_names if receptor else None)
         sub = self._subset(receptor, have)
+        if not ok.any():
+            return np.full(len(ok), np.nan)
         return _place(ok, self.joint.log_odds(_align(Z, have, sub), subset=sub))
 
     def channel_scores(self, table, *, receptor: bool = True) -> dict[str, np.ndarray]:
@@ -207,7 +211,8 @@ class ScoreModel:
             sub = [n for n in _channel_names(self.joint.names, ch) if n in keep]
             if len(sub) >= 3:
                 ok, Z, names = self.coordinates(table, coordinate_names=sub)
-                out[ch] = _place(ok, self.joint.log_odds(_align(Z, names, sub), subset=sub))
+                out[ch] = (_place(ok, self.joint.log_odds(_align(Z, names, sub), subset=sub))
+                           if ok.any() else np.full(len(ok), np.nan))
         return out
 
     def confidence_residual(self, table, iptm) -> np.ndarray:
@@ -220,7 +225,7 @@ class ScoreModel:
         Returns NaN when the model was fitted without enough valid confidence observations.
         """
         ok, Z, have = self.coordinates(table)
-        if not self.confidence_available:
+        if not self.confidence_available or not ok.any():
             return np.full(len(ok), np.nan)
         j = [self.joint.names.index(n) for n in have]
         mu, S = self.joint.mu[1][j], self.joint.cov[1][np.ix_(j, j)]
@@ -368,6 +373,11 @@ def confidence_residual(table, iptm, *, model: ScoreModel | None = None) -> np.n
 def score_table(table, *, receptor: bool = True, iptm=None, model: ScoreModel | None = None):
     """Every read-out for a ``tcren features`` table, as one polars frame.
 
+    Each numeric readout has a corresponding ``<name>_available`` flag.
+    ``assessment_available`` aliases ``binder_score_available``. ``missing_descriptors``
+    is a JSON list of nonfinite model descriptors present in each row. Entirely absent columns are marginalized out; individual readouts can remain
+    available when the missing values occur only outside their coordinate subset.
+
     Adds ``binder_iptm`` when ``iptm`` is supplied: a coefficient-free heuristic sum of binder
     log-odds and logit confidence, without a calibrated likelihood-ratio or independence claim.
     It stays defined for a
@@ -394,6 +404,13 @@ def score_table(table, *, receptor: bool = True, iptm=None, model: ScoreModel | 
     if iptm is not None:
         out["confidence_residual"] = m.confidence_residual(table, iptm)
         out["binder_iptm"] = out["binder_score"] + _logit(np.asarray(iptm, float))
+    for name in list(out):
+        if name not in ID_COLUMNS:
+            out[f"{name}_available"] = np.isfinite(out[name])
+    out["assessment_available"] = out["binder_score_available"]
+    cols = [name for name in m.transform.names if name in _columns(table)]
+    missing = ~np.isfinite(np.column_stack([np.asarray(_column(table, name), float) for name in cols]))
+    out["missing_descriptors"] = [json.dumps(np.asarray(cols)[row].tolist()) for row in missing]
     return pl.DataFrame(out)
 
 

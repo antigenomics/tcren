@@ -5,6 +5,34 @@ description: tcren — TCR-pMHC contact potential (TCRen) pipeline; conventions 
 
 # tcren Skills Guide
 
+## Final-model boundary and exact exports (2026-10-15)
+
+Fixed empirical contact potentials are permitted with explicit derivation and table
+identity. Q/T/S reference moments/correlation weights, Gaussian/GLM, fitted Potts and
+transition readouts are historical APIs, excluded from final models. Older fit-free
+labels below mean no fitting at scoring time and do not establish final eligibility.
+
+`tcren export -s INPUT --potential tcren2 --quantity receptor-reference -o OUT.tsv`
+exports exact virtual receptor poly-Ala differences on unchanged contacts for all,
+CDR, CDR1/2 and CDR3, TP/TM and their totals. `--quantity position|residue|contacts|placement`
+uses the exact existing decomposition/placement APIs, not leave-one-out explain.
+Inputs include files, directories, manifests/globs and supported archives. Full stems
+and physical residue identities are retained; duplicates fail. Accounting, residue,
+annotation and potential/provenance sidecars retain failures and estimated dependencies.
+All-failed/empty commands exit nonzero. Benchmark consumers must check every input key.
+
+`tcren inspect-models manifest.tsv output/` joins native predictor confidence with
+batch annotation, contacts and descriptors. Historical fitted assessment is disabled
+by default; `--historical-assessment` explicitly opts in. AF3, TCRmodel2, Boltz2,
+tFold-TCR and AF2-multimer have format-specific support; Protenix/RF3 scalar summaries
+retain native names, with unverified token mapping explicitly unavailable. No ranking
+score is silently relabelled ipTM. See `docs/prediction.rst` and `docs/fit-free.rst`.
+
+`score_table` has per-readout availability flags and JSON `missing_descriptors`.
+`recognition_table(..., annotate=False)` reuses supplied annotated Structures.
+Parallel descriptor calls require an importable guarded script; stdin/notebooks must
+use `threads=1` or the CLI, with an explicit error rather than a silent fallback.
+
 `tcren` reproduces and extends the TCRen contact-energy potential (Nat Comput Sci 2022)
 on a pure-Python pipeline (structure parsing → contacts → TCR/MHC annotation → potential
 derivation → epitope-ranking benchmarks). Annotation uses the `arda` package

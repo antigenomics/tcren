@@ -1,6 +1,13 @@
 tcren documentation
 ====================
 
+.. important::
+
+   Final models use fixed empirical contact potentials with explicit provenance.
+   Gaussian/GLM, fitted Potts and transition models, and reference-estimated Q/T/S
+   are historical readouts, excluded from the final specification. Nothing fitted
+   at scoring time does not mean fit-free. See :doc:`fit-free`.
+
 ``tcren`` is a Python re-implementation (and extension) of the TCRen method for structure-based
 prediction of T-cell-receptor recognition of epitopes. From one TCR–peptide–MHC structure
 (experimental or modelled) it parses and annotates the complex — TCR chains via
@@ -26,9 +33,8 @@ What tcren does
   (virtual-matrix, no re-docking).
 * **Interface descriptors** -- ``features``: one flat per-structure table of 164 catalogued
   descriptors in six families, four of them computed by default (see :doc:`features`).
-* **The fit-free predecessor tier** -- ``recognize``: ``Q`` (interface geometry), ``T`` (footprint
-  shape) and their composition with the contact energy, ``S`` (see :doc:`kit`). None of them is
-  fitted, and each is defined for a single structure.
+* **The historical reference-estimated tier** -- ``recognize``: ``Q`` (interface geometry), ``T`` (footprint
+  shape) and their composition with the contact energy, ``S`` (see :doc:`kit`). Their reference statistics are estimated; these readouts are historical, not final models.
 * **Annotation & contacts** -- ``annotate`` / ``contacts``: TCR CDR/FR, MHC groove helices/floor and
   peptide markup; multi-layer (5/8/12 Å) contact tables.
 * **Canonical orientation** -- ``orient`` / ``superimpose``: one common MHC frame, docking angles,
@@ -69,6 +75,8 @@ What tcren does
    :caption: Contents
 
    getting-started
+   fit-free
+   prediction
    reproduction
    assess
    features

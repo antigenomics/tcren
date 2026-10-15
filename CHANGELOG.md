@@ -3,7 +3,24 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
-## [Unreleased] — audit and reconciliation, 2026-10-14
+## [4.0.0] — release candidate, not yet published
+
+### Added
+
+- Exact CLI receptor-reference, position/residue/contact/placement exports with
+  complete source accounting, physical identities and annotation/potential lineage.
+- Native model inspection and confidence joins; fitted assessment is explicit opt-in.
+- Component MD/reference diagnostics, initial periodic-image validation and native
+  predictor confidence adapters with unsupported token mapping explicitly unavailable.
+
+### Corrected
+
+- Undefined smoothed-reference terms avoid invalid arithmetic. Historical Gaussian
+  evaluation uses Cholesky solves; Polars 2 validates binary labels without coercion.
+- Historical assessment exports availability and missing descriptors; parallel
+  notebook calls fail with actionable instructions before annotation.
+- Documentation extra includes IPython's notebook lexer. Final-model eligibility is
+  explicit: fixed empirical potentials allowed, learned/fitted readouts historical.
 
 ### Removed
 

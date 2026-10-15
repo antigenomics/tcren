@@ -1,5 +1,10 @@
 # tcren release and documentation decision
 
+**Historical decision record.** The 3.0.0 recommendations below were superseded.
+Current candidate: 4.0.0, reflecting removed experimental APIs and the explicit
+fit-free final-model boundary. Current release gates and evidence are recorded in
+`audit/2026-10-15/RELEASE_FIXES.md`; no release completion follows from this record.
+
 Evidence base: `/Users/mikesh/vcs/code/tcren` (checkout 3.0.0), `/Users/mikesh/vcs/projects/2026-tcren2-code`, `/Users/mikesh/vcs/manuscripts/2026-tcren2-ms`. Every command below was run in this session unless marked otherwise.
 
 ---

@@ -24,7 +24,7 @@ def recognition_table(items, *, organism: str = "human", full: bool = False,
                       threads: int = 1, chunk: int = 64,
                       autodetect_species: bool = True, mechanics: bool = False,
                       include: Sequence[str] | None = None, radii: Sequence[float] = (7.0, 8.0),
-                      _mmseqs_threads: int = 0) -> list[dict]:
+                      _mmseqs_threads: int = 0, annotate: bool = True) -> list[dict]:
     """Batched feature (+score) extraction for a whole set of TCR–pMHC structures.
 
     ``items`` is an iterable of ``(id, structure-or-path)``. The set is annotated with a **single**
@@ -52,6 +52,10 @@ def recognition_table(items, *, organism: str = "human", full: bool = False,
     own mmseqs, so N batches asked for N x cores. Sharding the same work across independent
     subprocesses was measured 8x faster, which is what this now does directly.
 
+    ``annotate=False`` reuses chain and MHC annotations already attached to input structures.
+    Parallel calls require an importable script with an ``if __name__ == "__main__"`` guard;
+    use the CLI for batches or ``threads=1`` in notebooks and stdin sessions.
+
     ``chunk`` is retained for signature compatibility and is no longer used.
 
     ``autodetect_species`` searches human **and** mouse for either supported ``organism`` so a mis-declared cohort is still
@@ -73,6 +77,15 @@ def recognition_table(items, *, organism: str = "human", full: bool = False,
     from ..structure import Structure, import_structure
 
     items = list(items)
+    if threads > 1 and len(items) > 1:
+        import sys
+        from pathlib import Path
+
+        entrypoint = getattr(sys.modules.get("__main__"), "__file__", None)
+        if not entrypoint or not Path(entrypoint).is_file():
+            raise ValueError("parallel descriptors require an importable script with an "
+                             "if __name__ == '__main__' guard; use the CLI for batches "
+                             "or threads=1 in notebooks/stdin")
     ids, structs, rows = [], [], []
     for id_, src in items:
         try:
@@ -81,7 +94,7 @@ def recognition_table(items, *, organism: str = "human", full: bool = False,
         except Exception as exc:  # noqa: BLE001
             rows.append({"complex.id": id_, "error": f"{type(exc).__name__}: {str(exc)[:80]}"})
 
-    if structs:                       # stage 1: one arda call per organism + one MHC search, all cores
+    if structs and annotate:          # stage 1: one arda call per organism + one MHC search, all cores
         cores = _mmseqs_threads or (_os.cpu_count() or 1)
         other = "mouse" if organism == "human" else "human"
         orgs = ((organism, other) if autodetect_species and organism in ("human", "mouse")

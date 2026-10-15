@@ -56,3 +56,19 @@ def test_pipeline_reference_aa_adds_delta_f():
     row = score_row(res)
     assert row["dPhi_total"] == res.scores["delta_total"]
     assert "dPhi_total" not in score_row(run(_FIXTURE, superimpose=False))
+
+
+def test_score_row_exposes_raw_peptide_sum_without_changing_historical_totals():
+    """Export the existing TP+PM quantity without borrowing the historical scale weights."""
+    import polars as pl
+    from tcren.pipeline import PipelineResult
+
+    scores = {"tcr_peptide": 2.0, "tcr_mhc": 3.0, "peptide_mhc": 4.0, "total": 71.0,
+              "delta_tcr_peptide": 1.25, "delta_tcr_mhc": 0.0,
+              "delta_peptide_mhc": -4.5, "delta_total": 23.0}
+    result = PipelineResult("toy", [], pl.DataFrame(), pl.DataFrame(), scores)
+    row = score_row(result)
+    assert row["dPhi_peptide_sum"] == -3.25
+    assert row["Phi_total"] == 71.0 and row["dPhi_total"] == 23.0
+    del scores["delta_total"]
+    assert "dPhi_peptide_sum" not in score_row(result)

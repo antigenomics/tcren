@@ -501,3 +501,93 @@ def test_frozen_metadata_migration_preserves_every_parameter_array():
     assert meta['metadata_migration']['refitted'] is False
     for name, digest in record['array_sha256'].items():
         assert hashlib.sha256(z[name].tobytes()).hexdigest() == digest
+
+
+@pytest.mark.parametrize("labels", [[0., 0.5], [0., np.nan], [0., np.inf], [0., None], [0, 2], ["0", "1"]])
+def test_fit_invalid_labels_fail_without_output(labels, tmp_path):
+    import polars as pl
+    from tcren.score.fit import fit_holdout
+
+    output = tmp_path / "model.npz"
+    features = pl.DataFrame({"pdb.id": ["a", "b"]})
+    manifest = pl.DataFrame({"pdb.id": ["a", "b"], "y": labels})
+    with pytest.raises(ValueError, match="binary"):
+        fit_holdout(features, manifest, out=output)
+    assert not output.exists()
+
+
+@pytest.mark.parametrize("subset", [None, ["x2", "x0"]])
+def test_gaussian_scoring_uses_positive_definite_factorization(monkeypatch, subset):
+    from scipy.stats import multivariate_normal
+
+    joint = _toy()
+    names = joint.names if subset is None else subset
+    indices = [joint.names.index(name) for name in names]
+    X = np.random.default_rng(42).normal(size=(20, len(indices)))
+    expected = {}
+    for cls in (0, 1):
+        expected[cls] = multivariate_normal.logpdf(
+            X, mean=joint.mu[cls][indices], cov=joint.cov[cls][np.ix_(indices, indices)]
+        ) + np.log(joint.prior[cls])
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("Gaussian scoring must not invert covariance or use slogdet")
+
+    monkeypatch.setattr(np.linalg, "slogdet", forbidden)
+    monkeypatch.setattr(np.linalg, "inv", forbidden)
+    with np.errstate(all="raise"):
+        actual = joint.log_odds(X, subset=subset)
+    np.testing.assert_allclose(actual, expected[1] - expected[0], rtol=1e-10, atol=1e-10)
+
+
+@pytest.mark.parametrize("labels", [[0, 1], [0., 1.], [False, True]])
+def test_fit_accepts_binary_numeric_labels_before_descriptor_validation(labels):
+    import polars as pl
+    from tcren.score.fit import fit_holdout
+
+    features = pl.DataFrame({"pdb.id": ["a", "b"]})
+    manifest = pl.DataFrame({"pdb.id": ["a", "b"], "y": labels})
+    with pytest.raises(KeyError, match="missing.*descriptors"):
+        fit_holdout(features, manifest)
+
+
+@pytestmark_model
+def test_assessment_reports_per_readout_availability_and_missing_values():
+    import polars as pl
+    from tcren.score import score_table
+
+    model = holdout_model()
+    table = pl.DataFrame({name: [0.5, 0.5, np.nan] for name in model.transform.names})
+    table = table.with_columns(pl.Series("Phi_pep_mhc", [0.5, np.nan, np.nan]))
+    result = score_table(table, model=model, iptm=[0.8, 0.8, 0.8])
+    assert result["assessment_available"].to_list() == [True, True, False]
+    assert result["pose_score_available"].to_list() == [True, False, False]
+    assert result["confidence_residual_available"].to_list() == [True, False, False]
+    assert result["missing_descriptors"][0] == "[]"
+    assert result["missing_descriptors"][1] == '["Phi_pep_mhc"]'
+    assert np.isnan(result["binder_score"][2])
+    import json
+    assert json.loads(result["missing_descriptors"][2]) == model.transform.names
+    absent = score_table(table.drop("Phi_pep_mhc"), model=model)
+    assert absent["pose_score_available"].to_list() == [True, True, False]
+    assert absent["missing_descriptors"][1] == "[]"
+
+
+@pytestmark_model
+def test_unavailable_assessment_skips_gaussian_readouts(monkeypatch):
+    import polars as pl
+    from tcren.score import score_table
+
+    model = holdout_model()
+    table = pl.DataFrame({name: [np.nan] for name in model.transform.names})
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("No covariance calculation is needed for zero complete rows")
+
+    monkeypatch.setattr(model.joint, "log_odds", forbidden)
+    monkeypatch.setattr(model.joint, "anomaly_on", forbidden)
+    monkeypatch.setattr(np.linalg, "solve", forbidden)
+    result = score_table(table, model=model, iptm=[0.8])
+    assert result["assessment_available"].to_list() == [False]
+    for name in ("pose_score", "binder_score", "confidence_residual", "binder_iptm"):
+        assert np.isnan(result[name][0])

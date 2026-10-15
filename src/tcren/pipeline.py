@@ -211,8 +211,9 @@ def run(
     # scale (sd 0.4880 / 0.3270 / 1.3181). An unweighted sum is therefore a sum of three quantities
     # in three units. Each coefficient is 1 / the sd of that interface energy over the 374
     # Native2026 crystals -- the scale the quantity actually realises on real complexes, which
-    # absorbs both the matrix scale and the interface's size. No label and no fit enter it, the
-    # same standing as the reliability block moments. See _phi_scale.
+    # absorbs both the matrix scale and the interface's size. These are estimated native-reference
+    # weights, retained for historical reproduction and excluded from final fit-free scores.
+    # See _phi_scale; the raw peptide-reference sum is exposed separately by score_row.
     weights = {i: 1.0 / _phi_scale(i, resolved[i]) for i in _INTERFACE_POTENTIAL}
     scores["total"] = sum(weights[i] * scores[i] for i in _INTERFACE_POTENTIAL)
 
@@ -276,7 +277,10 @@ def run(
 def score_row(result: PipelineResult) -> dict:
     """Flatten a :class:`PipelineResult` to a one-row scores dict (for a CSV table).
 
-    The ``d_*`` reference-normalised columns are present only when the pipeline was run with
+    ``Phi_total`` and ``dPhi_total`` retain historical native-scale weights.
+    ``dPhi_peptide_sum`` is the unweighted sum of the TCR:peptide and peptide:MHC
+    reference differences in their supplied potential scales (no calibration to binding energy).
+    The ``dPhi_*`` reference-normalised columns are present only when the pipeline was run with
     ``reference_aa`` set, and ``Phi_pep_int`` only when it was run with a non-zero ``intra_weight``.
     """
     mhc = next((c for c in result.mhc_calls if c.chain_role == "MHCa"), None)
@@ -300,5 +304,7 @@ def score_row(result: PipelineResult) -> dict:
             "dPhi_tcr_mhc": result.scores["delta_tcr_mhc"],
             "dPhi_pep_mhc": result.scores["delta_peptide_mhc"],
             "dPhi_total": result.scores["delta_total"],
+            "dPhi_peptide_sum": (result.scores["delta_tcr_peptide"]
+                                  + result.scores["delta_peptide_mhc"]),
         })
     return row

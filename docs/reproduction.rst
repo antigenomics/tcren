@@ -3,6 +3,13 @@
 Reproducing the TCRen2 manuscript
 =================================
 
+.. important::
+
+   Final models use fixed empirical contact potentials with explicit provenance.
+   Gaussian/GLM, fitted Potts and transition models, and reference-estimated Q/T/S
+   are historical readouts, excluded from the final specification. Nothing fitted
+   at scoring time does not mean fit-free. See :doc:`fit-free`.
+
 Every number the TCRen2 paper prints comes out of three repositories, and the boundary between
 them is deliberate:
 

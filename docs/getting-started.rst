@@ -221,7 +221,7 @@ Case studies
   specific neoantigen substitutions. Positive ΔΔG = stabilising (the mutant scores lower).
 
 * **Rank candidate TCRs against a fixed pMHC.** ``tcren features`` then ``tcren recognize
-  --features`` gives ``S``, the recommended score — three fit-free blocks over interface
+  --features`` gives the historical ``S`` score — three reference-estimated blocks over interface
   geometry, footprint topology and contact energetics, each a directional score against the
   Native2026 crystals, so it is defined for a **single structure** and its value does not depend on
   what else was scored alongside it. See :func:`tcren.reliability.s_score` and :doc:`kit`.

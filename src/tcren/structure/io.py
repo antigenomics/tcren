@@ -437,6 +437,7 @@ def iter_structures(
     src: str | Path,
     importer: Callable[..., Structure] = import_structure,
     on_error: str = "raise",
+    full_ids: bool = False,
     **kwargs,
 ) -> Iterator[tuple[str, Structure]]:
     """Yield ``(pdb_id, Structure)`` for a file, directory, or ``.tar``/``.tar.gz`` archive.
@@ -451,6 +452,7 @@ def iter_structures(
         importer: per-file parser — :func:`import_structure` (default, trims the C-gene) or
             :func:`parse_structure` (parity-pure). Extra ``kwargs`` are forwarded to it.
         on_error: ``"raise"`` (default) or ``"skip"`` to ignore files that fail to parse.
+        full_ids: preserve complete filename stems rather than shortening unique PDB prefixes.
     """
     src = Path(src)
     name = src.name.lower()
@@ -466,7 +468,8 @@ def iter_structures(
     if src.is_file() and name.endswith(_TAR_SUFFIXES):
         with tarfile.open(src) as tar:
             members = [m for m in tar.getmembers() if m.isfile() and is_structure_file(m.name)]
-            ids = resolve_structure_ids(m.name for m in members)
+            ids = ({m.name: structure_stem(m.name) for m in members} if full_ids
+                   else resolve_structure_ids(m.name for m in members))
             for member in members:
                 inner, _ = _strip_gz(Path(member.name).name)
                 ext = "." + inner.rsplit(".", 1)[-1] + (".gz" if member.name.lower().endswith(".gz") else "")
@@ -483,7 +486,7 @@ def iter_structures(
         return
 
     paths = list(structure_paths(src))
-    ids = resolve_structure_ids(paths)
+    ids = ({str(p): structure_stem(p) for p in paths} if full_ids else resolve_structure_ids(paths))
     for path in paths:
         s = _safe(path, ids[str(path)])
         if s is not None:

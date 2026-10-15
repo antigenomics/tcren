@@ -62,7 +62,9 @@ def fit_holdout(features, manifest, *, out: Path | None = None) -> dict:
     for name, frame in (("features", features), ("manifest", manifest)):
         if frame[key].null_count() or frame[key].n_unique() != frame.height:
             raise ValueError(f"{name} {key!r} keys must be unique and non-null")
-    if manifest["y"].null_count() or not manifest["y"].is_in([0, 1]).all():
+    labels = manifest["y"]
+    if (labels.null_count() or not (labels.dtype.is_numeric() or labels.dtype == pl.Boolean)
+            or not np.isin(labels.to_numpy(), [0, 1]).all()):
         raise ValueError("manifest y must contain only binary labels 0 and 1")
     t = manifest.join(features, on=key, how="inner", validate="1:1")
     n_joined = t.height

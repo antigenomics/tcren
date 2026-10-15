@@ -32,6 +32,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import numpy as np
+from scipy.linalg import solve_triangular
 
 
 def _wmean_cov(X: np.ndarray, w: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -46,12 +47,12 @@ def _wmean_cov(X: np.ndarray, w: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     return mu, (Z * w[:, None]).T @ Z / (1.0 - (w ** 2).sum())
 
 
-def _positive_cov(S: np.ndarray) -> None:
+def _positive_cov(S: np.ndarray) -> np.ndarray:
     if (S.ndim != 2 or S.shape[0] == 0 or S.shape[0] != S.shape[1]
             or not np.isfinite(S).all() or not np.allclose(S, S.T, rtol=1e-10, atol=1e-12)):
         raise ValueError("covariance must be finite and symmetric positive definite")
     try:
-        np.linalg.cholesky(S)
+        return np.linalg.cholesky(S)
     except np.linalg.LinAlgError as exc:
         raise ValueError("covariance must be positive definite") from exc
 
@@ -154,23 +155,15 @@ class Joint:
             # `anomaly_on` already honours caller order; this makes the two agree.
             want = set(subset)
             X = X[:, [subset.index(n) for n in self.names if n in want]]
-            out = {}
-            for c in (0, 1):
-                S = self.cov[c][np.ix_(j, j)]
-                _positive_cov(S)
-                _, logdet = np.linalg.slogdet(S)
-                Z = X - self.mu[c][j]
-                out[c] = -0.5 * (np.einsum("ij,jk,ik->i", Z, np.linalg.inv(S), Z) + logdet) \
-                    + np.log(self.prior[c])
-            return out[1] - out[0]
+        else:
+            X = X[:, j]
         out = {}
         for c in (0, 1):
             S = self.cov[c][np.ix_(j, j)]
-            _positive_cov(S)
-            _, logdet = np.linalg.slogdet(S)
-            Z = X[:, j] - self.mu[c][j]
-            out[c] = -0.5 * (np.einsum("ij,jk,ik->i", Z, np.linalg.inv(S), Z) + logdet) \
-                + np.log(self.prior[c])
+            L = _positive_cov(S)
+            logdet = 2.0 * np.log(np.diag(L)).sum()
+            Z = solve_triangular(L, (X - self.mu[c][j]).T, lower=True, check_finite=False)
+            out[c] = -0.5 * (np.sum(Z * Z, axis=0) + logdet) + np.log(self.prior[c])
         return out[1] - out[0]
 
     def anomaly(self, X: np.ndarray, k: int | None = None) -> np.ndarray:

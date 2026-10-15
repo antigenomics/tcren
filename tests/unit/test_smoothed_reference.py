@@ -172,3 +172,24 @@ def _mean_field(cm, pot, side):
 def _min_field(cm, pot, side):
     phi, native = _fields(cm, pot, side)
     return float(np.nansum(phi[np.arange(len(native)), native] - np.nanmin(phi, axis=1)))
+
+
+@pytest.mark.parametrize("mixed", [False, True])
+def test_undefined_positions_do_not_evaluate_invalid_arithmetic(monkeypatch, mixed):
+    from types import SimpleNamespace
+    from tcren.energetics import scoring
+
+    aa = tuple("ACDEFGHIKLMNPQRSTVWY")
+    fields = np.full((2 if mixed else 1, 20), np.nan)
+    if mixed:
+        fields[1] = 1000.0
+        fields[1, 1] = np.nan
+    matrix = SimpleNamespace(aa=aa, energy=fields,
+                             positions=[("TRA", "A", i, "A") for i in range(len(fields))])
+    monkeypatch.setattr(scoring, "recognition_matrix", lambda *args, **kwargs: matrix)
+    monkeypatch.setattr(scoring, "_phi_scale", lambda *args: 1.0)
+    with np.errstate(invalid="raise", over="raise", divide="raise"):
+        result = smoothed_reference(None, None, mhc_potential=object())
+    assert result["n_positions"] == int(mixed)
+    assert result["dPhi"] == pytest.approx(np.log(19 / 20) if mixed else 0.0)
+    assert result["varPhi"] == pytest.approx(0.0, abs=1e-8)

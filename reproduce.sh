@@ -30,6 +30,16 @@
 # Each stage prints elapsed time; a diagnostic subset never establishes full reproduction.
 set -uo pipefail
 
+# Final reproduction has its own explicit raw-input driver. The old path below
+# reproduces fitted historical evidence and is never a final-model default.
+if [[ ${1-} != --historical ]]; then
+  BENCH="${TCREN2_BENCH:-$HOME/vcs/projects/2026-tcren2-code}"
+  PY="${TCREN_REPRO_PYTHON:-$BENCH/.venv/bin/python}"
+  [[ -x "$PY" ]] || { echo "missing reproduction interpreter: $PY" >&2; exit 1; }
+  exec "$PY" "$BENCH/bench/scripts/reproduce_fit_free.py" "$@"
+fi
+shift
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"                # the pytest node ids below are repo-relative
 OUT="$ROOT/reproduce"

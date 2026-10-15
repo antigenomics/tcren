@@ -1,5 +1,11 @@
 # Current stopping point — fit-free audit disposition, 15 October 2026
 
+Subsequent author authorization opened implementation and fresh reproduction on
+`codex/fit-free-release-fixes`, followed by PR to master and release preparation.
+Fixed empirical potentials are permitted; fitted/reference-estimated final readouts
+remain excluded. Follow `audit/2026-10-15/RELEASE_FIXES.md` for current progress;
+the audit-only stopping point in the historical paragraphs below is superseded.
+
 The author selected fit-free final models and archival of fitted readouts. Mark metric gains and
 regressions; use current packages, audit every non-CLI numerical route, and report code problems
 as repository issues. The current task stops at the reconciled audit record, before new tcren fixes
