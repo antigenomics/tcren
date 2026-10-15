@@ -5,6 +5,26 @@ description: tcren — TCR-pMHC contact potential (TCRen) pipeline; conventions 
 
 # tcren Skills Guide
 
+## pMHC feature–performance associations
+
+`tcren export -s structures.txt --quantity pmhc -o pmhc.tsv` calls
+`topology.pmhc.pmhc_features`: surface relief/protrusion/chemistry plus peptide
+and side-chain SASA (Å²) and exposed-area-weighted Kyte–Doolittle hydropathy.
+The receptor is removed before defining the frame; supplied coordinates remain
+unchanged. No potential required. Class II retains both MHC chains; no guessed
+core/register. Accounting and searched-index lineage sidecars apply.
+
+`tcren associate --results recorded.csv --features pmhc_by_id.tsv --scores scores.json
+--feature-columns relief,frac_above_ridge,sasa_hydropathy -o associations` compares
+explicit fixed-direction scores against ipTM on pair-specific finite rows.
+Tables require unique `id`; results additionally require dataset/task/cohort/
+mhc_class (I/II)/template_coverage, binary y and iptm. Unknown coverage is explicit.
+`associations.associate` returns metrics, feature summaries, descriptive Spearman
+associations and row membership. Classes/template strata stay separate. No fitted
+score, label-selected direction, p-value or threshold sweep. Missing features do
+not drop score rows. New output directories only; all-unavailable metrics exit
+nonzero. See `docs/associations.rst` for equations, schemas and interpretation.
+
 ## Final-model boundary and exact exports (2026-10-15)
 
 Fixed empirical contact potentials are permitted with explicit derivation and table

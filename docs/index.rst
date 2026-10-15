@@ -76,6 +76,8 @@ What tcren does
 
    getting-started
    fit-free
+   associations
+   md-validation
    prediction
    reproduction
    assess

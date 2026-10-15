@@ -2657,8 +2657,8 @@ def export_exact(
     structures: list[str] = typer.Option(..., "-s", "--structures"),
     output: Path = typer.Option(..., "-o", "--output"),
     quantity: str = typer.Option("receptor-reference", "--quantity",
-                                help="receptor-reference, position, residue, contacts or placement"),
-    potential: str = typer.Option(..., "--potential", help="Explicit TCR:peptide potential name or CSV"),
+                                help="receptor-reference, position, residue, contacts, placement or pmhc"),
+    potential: str = typer.Option(None, "--potential", help="Explicit TCR:peptide potential name or CSV; not needed for pmhc"),
     mhc_potential: str = typer.Option("mj", "--mhc-potential"),
     interface: str = typer.Option("tcr_peptide", "--interface"),
     cutoff: float = typer.Option(5.0, "--cutoff"),
@@ -2675,9 +2675,11 @@ def export_exact(
 
     from .exports import export_batch
 
+    if quantity != "pmhc" and potential is None:
+        raise typer.BadParameter("--potential is required except for --quantity pmhc")
     ledger = export_batch(structures, output, quantity=quantity,
-                          peptide_potential=_load_potential(potential),
-                          mhc_potential=_load_potential(mhc_potential), interface=interface,
+                          peptide_potential=None if quantity == "pmhc" else _load_potential(potential),
+                          mhc_potential=None if quantity == "pmhc" else _load_potential(mhc_potential), interface=interface,
                           cutoff=cutoff, organisms=tuple(organism), threads=threads,
                           command=shlex.join(sys.argv))
     succeeded = ledger.filter(pl.col("status") == "ok").height
@@ -2688,6 +2690,9 @@ def export_exact(
 
 from .prediction import inspect_models_command
 app.command("inspect-models", rich_help_panel=_P_ANNOT)(inspect_models_command)
+
+from .associations import association_command
+app.command("associate", rich_help_panel=_P_SCORE)(association_command)
 
 
 # The __main__ guard belongs at the VERY END of the module, below the last @app.command.

@@ -7,6 +7,22 @@
 
 <h1 align="center">tcren — structure-based prediction of TCR–epitope recognition</h1>
 
+### Relate score performance to the pMHC surface
+
+Export receptor-independent topology, peptide SASA and exposed hydropathy, then
+compare recorded scores with ipTM on exactly matched rows:
+
+```sh
+tcren export -s structures.txt --quantity pmhc -o pmhc.tsv
+tcren associate --results recorded.csv --features pmhc_by_id.tsv \
+  --scores directions.json --feature-columns relief,frac_above_ridge,sasa_hydropathy \
+  -o associations
+```
+
+The association command keeps MHC class, template coverage, dataset and task
+separate and retains missingness, signed losses and row membership. It fits no
+replacement score. See [input schemas, formulas and limits](docs/associations.rst).
+
 <p align="center">
   <a href="https://pypi.org/project/tcren/"><img alt="PyPI" src="https://img.shields.io/pypi/v/tcren"></a>
   <a href="https://github.com/antigenomics/tcren/actions/workflows/tests.yml"><img alt="tests" src="https://github.com/antigenomics/tcren/actions/workflows/tests.yml/badge.svg"></a>
