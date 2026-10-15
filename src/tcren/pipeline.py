@@ -239,16 +239,29 @@ def run(
         # ΔF = F(peptide) − F(poly-reference peptide) per interface. Structural mode
         # truncates the peptide and rebuilds contacts; virtual mode retains native contacts.
         # ΔF_tcr_mhc is identically 0 — the peptide is not in that interface.
-        from .energetics.mutation import reference_delta
+        from .energetics.mutation import _mutant_map, _score_one, reference_delta
 
         peptide = next((c.sequence() for c in s.chains if c.chain_type == PEPTIDE_TYPE), None)
         if peptide is None:
             raise ValueError(f"{s.pdb_id}: no peptide chain, cannot compute a ΔF reference")
+        reference = reference_aa * len(peptide)
+        reference_map = (_mutant_map(s, reference, cutoff, False,
+                                    count_atoms=contact_weight == "atomic")
+                         if reference_mode == "structural" else None)
         for iface in _INTERFACE_POTENTIAL:
+            if reference_map is not None:
+                # One coordinate truncation/contact rebuild serves both peptide interfaces.
+                scores[f"delta_{iface}"] = (
+                    _score_one(cm, peptide, resolved[iface], iface, tcr_regions, contact_weight)
+                    - _score_one(reference_map, reference, resolved[iface], iface,
+                                 tcr_regions, contact_weight)
+                    if iface != "tcr_mhc" else 0.0
+                )
+                continue
             scores[f"delta_{iface}"] = reference_delta(
                 cm, peptide, resolved[iface], interface=iface, reference_aa=reference_aa,
                 tcr_regions=tcr_regions, contact_weight=contact_weight,
-                structure=s if reference_mode == "structural" else None, cutoff=cutoff,
+                cutoff=cutoff,
             )
         scores["delta_total"] = sum(weights[i] * scores[f"delta_{i}"] for i in _INTERFACE_POTENTIAL)
 

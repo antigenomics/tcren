@@ -726,11 +726,15 @@ Per-stage wall time (best of *n*) on a TCR-pMHC complex (1ao7), Apple M-series, 
 | single-structure pipeline (no orient) | ~200 MB | parse → annotate → contacts → score → refine |
 | + `superimpose` (loads canonical DB) | ~780 MB | holds Canonical2026 in RAM; skip with `--no-superimpose` |
 
-Annotation is the only network/compute-heavy step and is always **batched** (one mmseqs2 search over
+Annotation is always **batched** (one mmseqs2 search over
 all chains; mmseqs2 parallelises internally — never per-structure, never Python-threaded). Threads are
 used only for the embarrassingly-parallel, mmseqs-free stages (structural alignment, write, rendering):
 `tcren orient -t N`. Screening a peptide/TCR panel is embarrassingly parallel — references are
 annotated and oriented **once**, so the hot loop is just refine + contacts + score per complex.
+Contact-table energy sums are vectorized. Structural alanine scoring builds one
+reference map per structure for both peptide interfaces; SASA and geometry still
+require coordinates. For multiple outer workers, set `POLARS_MAX_THREADS=1` and
+BLAS thread limits before starting Python to avoid nested thread pools.
 
 ## Tests
 

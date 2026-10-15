@@ -54,6 +54,11 @@ Use ``--reference-mode structural`` explicitly for the manuscript. The default
 ``virtual`` mode remains available for exact historical reproduction. Output rows
 and provenance identify the mode; do not mix modes in a comparison. Structural
 peptide references require alanine and use the selected cutoff and contact weighting.
+The peptide reference contact map is built once per structure and reused across
+both peptide interfaces. Potential sums then operate on the contact tables;
+SASA and coordinate-based descriptors still require their structural calculations.
+When running multiple outer workers, set ``POLARS_MAX_THREADS=1`` and the BLAS
+thread limit before starting Python to avoid nested thread pools.
 
 The receptor export substitutes alanine in all, CDR, CDR1/2 or CDR3 receptor
 positions, separately for TCR:peptide and TCR:MHC and their explicit sum.

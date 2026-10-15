@@ -17,6 +17,12 @@ calculation. Rows and provenance identify the mode. Compare both on matched rows
 and retain regressions; never repair a scientific mismatch by rewriting the intended
 Methods to describe an accidental CLI path.
 
+Performance: build the structural peptide reference map once per structure and
+reuse it across interfaces. Profile contact construction separately from table
+scoring and coordinate/SASA descriptors. With multiple outer workers, set
+`POLARS_MAX_THREADS=1`, `OPENBLAS_NUM_THREADS=1`, `OMP_NUM_THREADS=1` and
+`VECLIB_MAXIMUM_THREADS=1` before Python starts; do not nest their thread pools.
+
 ## pMHC feature–performance associations
 
 `tcren export -s structures.txt --quantity pmhc -o pmhc.tsv` calls
