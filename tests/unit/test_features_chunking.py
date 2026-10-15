@@ -57,7 +57,7 @@ def test_failed_features_exit_nonzero_and_keep_diagnostics(tmp_path, monkeypatch
     import tcren.cli
     import tcren.recognition
 
-    monkeypatch.setattr(tcren.cli, "iter_structures", lambda *a, **kw: iter([object()]))
+    monkeypatch.setattr(tcren.cli, "iter_structures", lambda *a, **kw: iter([("failed", object())]))
     monkeypatch.setattr(tcren.recognition, "recognition_table", lambda *a, **kw: [
         {"complex.id": "failed", "error": "missing reference"}])
     out = tmp_path / "failed.tsv"

@@ -257,7 +257,13 @@ def annotate_batch(
         arda = _import_arda()
     pairs = [(f"{idx}|{cid}", seq) for idx, cid, seq in flat]
     for org in organisms:
-        records = _annotate(arda, pairs, org, threads)
+        identity_reader = getattr(arda, "reference_index_identity", None)
+        identity = identity_reader(org, seqtype="aa") if identity_reader else {"status": "unavailable"}
+        records = list(_annotate(arda, pairs, org, threads))
+        if identity_reader and identity_reader(org, seqtype="aa") != identity:
+            raise RuntimeError("annotation index changed during the search")
+        for structure in structures:
+            structure.annotation_provenance.setdefault("arda", {})[org] = identity
         for (idx, cid, _seq), rec in zip(flat, records):
             out[idx][org][cid] = rec
     return out
@@ -283,7 +289,7 @@ def iter_typed(structures: Path, organism: str = "human", *, full_ids: bool = Fa
     and the cost is roughly an order of magnitude. :func:`iter_annotated_set` sends
     every chain of every structure in a single call per organism, which is why anything resolving
     to more than one structure -- a directory, a glob, a manifest -- goes through it. A single
-    file has nothing to batch and takes the direct path. ``full_ids=True`` preserves complete
+    file uses the same batch path to retain searched-index identity. ``full_ids=True`` preserves complete
     filename stems through the batched parser. Archives retain their parsed
     structures in memory for one annotation batch, just like directory sets.
     """
@@ -308,8 +314,10 @@ def iter_typed(structures: Path, organism: str = "human", *, full_ids: bool = Fa
     if many:
         yield from iter_annotated_set(structures)
         return
-    for _pid, s in iter_structures(structures, importer=parse_structure):
-        classify_chains(s, organism=organism)
+    parsed = [s for _pid, s in iter_structures(structures, importer=parse_structure)]
+    records = annotate_batch(parsed)
+    for s, precomputed in zip(parsed, records):
+        classify_chains(s, organism=organism, precomputed_records=precomputed)
         yield s
 
 

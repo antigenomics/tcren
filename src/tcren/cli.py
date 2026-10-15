@@ -1103,9 +1103,10 @@ def recognize(
     table.write_csv(str(out), separator="\t")
     # stamped like `tcren features`: without this the same binary's `--features` reader refuses
     # its own output as written by something that does not stamp.
-    from .provenance import stamp
+    from .provenance import annotation_indexes, stamp
     stamp(out, command=f"tcren recognize -s {structures} -o {out}", columns=table.columns,
-          extra={"structures": table.height})
+          extra={"structures": table.height,
+                 "searched_indexes": annotation_indexes(s for _, s in items)})
     typer.echo(f"wrote {out} ({len(rows)} rows)")
 
 
@@ -1282,6 +1283,8 @@ def scoring(
         raise typer.BadParameter(f"no structures scored from {list(structures)}")
     table = pl.DataFrame(rows, strict=False)
 
+    from .provenance import annotation_indexes, stamp
+    indexes = annotation_indexes(structs)
     if geometry:
         # Reuse the recognition descriptors verbatim rather than recomputing geometry here:
         # `tcren recognize` stays the one definition of every descriptor.
@@ -1295,12 +1298,15 @@ def scoring(
         geo = pl.DataFrame(recognition_table(
             items, organism=organism,
             threads=threads if threads > 0 else (_os2.cpu_count() or 1)))
+        indexes = annotation_indexes((s for _, s in items), indexes)
         geo = geo.with_columns(pl.Series("Q", q_score(geo, features=Q_FEATURES_GEOM)))
         keep = ["complex.id", *Q_FEATURES_GEOM, "pitch", "crossing", "Q"]
         geo = geo.select([c for c in keep if c in geo.columns]).rename({"complex.id": "pdb.id"})
         table = table.join(geo, on="pdb.id", how="left")
 
     table.write_csv(str(out))
+    stamp(out, command=f"tcren scoring -s {structures} -o {out}", columns=table.columns,
+          extra={"structures": table.height, "searched_indexes": indexes})
     typer.echo(f"wrote {out} ({table.height} rows"
                + (f", {failed} failed" if failed else "") + ")")
     if failed:  # an error buried in a column is an error nobody reads
@@ -1555,7 +1561,7 @@ def _score_feature_table(path: Path, out: Path) -> None:
 
     from .provenance import StaleTableError, check
     try:
-        check(path)
+        source_provenance = check(path)
     except StaleTableError as exc:
         raise typer.BadParameter(str(exc)) from exc
 
@@ -1596,7 +1602,8 @@ def _score_feature_table(path: Path, out: Path) -> None:
     scores.write_csv(str(out), separator="\t")
     from .provenance import stamp
     stamp(out, command=f"tcren recognize --features {path} -o {out}", columns=scores.columns,
-          extra={"features_table": str(path), "rows": scores.height})
+          extra={"features_table": str(path), "rows": scores.height,
+                 "searched_indexes": source_provenance.get("searched_indexes", {})})
     typer.echo(f"wrote {out} ({scores.height} rows, {len(scores.columns) - 1} scores)")
 
 
@@ -1838,10 +1845,15 @@ def features(
 
     n_threads = threads if threads > 0 else (_os.cpu_count() or 1)
 
+    from .provenance import annotation_indexes
+    indexes = {}
+
     def _featurise(batch: list) -> pl.DataFrame:
-        return pl.DataFrame(recognition_table(
+        result = pl.DataFrame(recognition_table(
             batch, organism=organism, include=fams, radii=rr,
             autodetect_species=autodetect_species, threads=n_threads))
+        indexes.update(annotation_indexes((s for _, s in batch), indexes))
+        return result
 
     if chunk > 0:
         # Chunking exists for memory, not for speed. A parsed complex is about a megabyte, so a
@@ -1882,7 +1894,7 @@ def features(
     stamp(out, command=f"tcren features -s {structures} -i {','.join(fams)} -o {out}",
           columns=table.columns,
           extra={"structures": table.height, "families": list(fams), "radii": list(rr),
-                 "chunk": chunk or None})
+                 "chunk": chunk or None, "searched_indexes": indexes})
     n_err = int(table["error"].is_not_null().sum()) if "error" in table.columns else 0
     typer.echo(f"features [{','.join(fams)}]: {table.height} structures, "
                f"{len(table.columns) - 1 - n_meta} descriptors -> {out}"

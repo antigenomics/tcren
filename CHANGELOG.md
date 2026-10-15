@@ -3,7 +3,16 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
-## [4.0.0] — release candidate, not yet published
+## [4.0.1] — unreleased
+
+### Fixed
+
+- Require ARDA's content-validated reference indexes and correct source-root detection.
+- Capture actual searched sequence/header/index SHA256 identities around batched
+  receptor and MHC annotation; reject mid-search changes and mixed input generations.
+- Retain searched-index provenance in scoring, feature, recognition and exact-export sidecars.
+
+## [4.0.0] — 2026-10-15
 
 ### Added
 

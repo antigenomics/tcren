@@ -130,6 +130,8 @@ class Structure:
     #: MhcCall list, cached by annotate_mhc / annotate_mhc_batch so the batched path does not have
     #: to be repeated per structure downstream (CLAUDE.md 0-mmseqs). None until annotated.
     mhc_calls: list | None = None
+    #: Actual searched-index identities captured around annotation, never inferred from version labels.
+    annotation_provenance: dict = field(default_factory=dict, repr=False)
 
     def chain(self, chain_id: str) -> Chain:
         """Return the chain with the given id (raises ``KeyError`` if absent)."""
