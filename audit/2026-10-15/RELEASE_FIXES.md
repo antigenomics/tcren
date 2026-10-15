@@ -145,3 +145,110 @@ Remaining open: #21, #26, #30 and #32–35 (seven). Final publication migration,
 historical CLI non-equivalence and the long MD reconstruction are not completed by
 this release check. No manuscript claims, final formula, fitted parameters or
 confidence-fusion rule were replaced.
+
+## Searched-index repair and receptor reproduction — 15 October 2026
+
+The authorized follow-up repairs ARDA's root selection and stale-index acceptance.
+ARDA PR [148](https://github.com/antigenomics/arda/pull/148), producing revision
+`97159efbecc80625d3eb4d80f7c82339cfb19aea`, merged as
+`2c9962674b4a2c44e0c826ffdb55c856cc4ca82c` after the author's explicit admin-bypass
+authorization and successful CI verification. It recognizes a source checkout only when
+its `src/arda/paths.py` resolves to the loaded module. Explicit `ARDA_HOME` remains
+supported. Reference indexes now use content-validated immutable generations keyed
+by source FASTA, database type and MMseqs version, with sequence, header, index and
+split-payload hashes checked before reuse. Legacy indexes remain preserved.
+
+tcren PR [38](https://github.com/antigenomics/tcren/pull/38) merged as
+`b593c421c4dee280382ec592b3819988e9160dd7`. Annotation captures actual ARDA and MHC
+searched-index identities before and after a search, rejects changes during search
+and mixed generations across chunks, and carries the identities through scoring,
+features, recognition and exports. The geometry scoring path records both annotation
+passes; recognition from features inherits the input stamp. MHC hashes identify the
+searched bytes; they do not assert correspondence to an MHC source FASTA. Missing
+backend identity is explicitly unavailable rather than certified.
+
+The installed candidate versions are tcren 4.0.1 and ARDA 2.36.2; these patch versions
+have not been published to PyPI. Their locked wheel SHA256 values are respectively
+`32e0559325e997aba4c1db379a6d9a12a4317b46164c94883cec654cdf61e4a7`
+and `3e6d0700b72489050325e22b306f93108100a41e78b42b31ce818c6879ede5cf`.
+All 178 tcren and 63 ARDA installed payload files match their producing wheels.
+Installed-wheel tcren checks: 1,132 passed, six skipped, 141 slow tests deselected;
+ARDA checks: 1,350 passed, 16 skipped. Both Ruff and warning-as-error Sphinx gates
+passed, as did tcren Python 3.10/3.12 and ARDA pull-request CI.
+
+Direct parsing of repaired MMseqs sequence/header/index payloads confirms identical
+FASTA and searched name sets with zero sequence mismatches: human 15,069 records,
+mouse 18,800 records. The independent fresh receptor runs retain this semantic
+validation, locked wheels, commands, raw-input identities and searched-index hashes
+in their private benchmark deliverable. Geometry, interface and topology are direct
+descriptor arms; fitted readouts and both banned pitch fields remain excluded.
+
+The affected receptor reproduction retains 618 TCRvdb models (309 positive) and
+1,089 VDJdb models (523 positive), with both TCRvdb epitopes and all 22 VDJdb
+epitope/template-coverage cases separate. It evaluates 124 eligible direct
+placement/interface/topology descriptors, six energetic arms, 12 exact receptor
+reference arms and two native confidences. There are no missing/unexpected CLI rows,
+annotation errors, changed labels or baseline key-membership differences. Per-arm
+undefined descriptors retain their actual finite support.
+
+All 3,000 matched metric rows against the recorded published-4.0.0 route are exact
+ties, with exactly equal raw values for every shared same-definition score. Against
+the earlier stale-index attempt, 3,000 comparable rows contain 2,216 ties, 328
+numerical increases and 456 decreases. Against the historical feature snapshots,
+26,000 same-name metric rows contain 25,728 ties, 120 increases, 144 decreases and
+eight undefined correlations for constant GLCTLVAML contact-type quantities. These
+are repeated metric rows across endpoints and separately matched ipTM/pLDDT
+comparisons, not independent experiments. No arm becomes newly finite or unavailable.
+Every signed delta, finite count and unavailable metric is retained in the benchmark's
+`results/receptor-index-20261015-a3/metrics.csv` and `availability.csv`.
+
+All combined-interface `g_*` contact-graph and contacted-pMHC `fp_*` footprint values
+match the historical feature snapshots exactly; `m_*` spectral differences are at
+most 1.5543122344752192e-15. The largest other feature difference is 2.3874e-12;
+floating-point changes can resolve old ranking ties. Historical feature snapshots
+lack verified catalogue/annotation lineage, so their same-name comparisons remain
+cross-version diagnostics rather than causal estimates of this repair.
+
+Topology is retained explicitly alongside placement and chemistry. The combined
+CDR-to-pMHC graph, pMHC footprint complex and CDR-to-peptide/MHC-helix soft proximity
+spectra are distinct objects. As exploratory examples among 124 descriptors,
+`m_erank_tm` ROC-AUC is 0.861677 versus ipTM 0.776993 on the same 423 YLQPRTFLL
+models, and 0.695062 versus 0.813580 on the same 195 GLCTLVAML models. The existing
+CDR3-length-dependency warning remains attached to this descriptor. RAQAPPPSW
+`g_loop_overlap` has ROC-AUC 0.754630 versus matched ipTM 0.087963 on 33 supported
+models (nine positive, 24 negative); the 11 unsupported models are all positive and
+remain explicitly unavailable. No full-cohort graph-performance claim follows.
+These observations support case-specific inspection, with chemistry, placement,
+topology and native confidence reported separately; no sign optimization, threshold
+or new scalar confidence fusion is introduced.
+
+Both authorized raw-input reconstructions completed with identical population
+accounting, labels and finite support. The independently rebuilt ARDA indexes have
+identical source and searched payload hashes across all six cohort/CLI stages
+(18 stage/index identities including the common MHC input). MHC was a shared,
+hash-recorded reference input, not an independent source-validation experiment.
+Both cohorts' energy and exact receptor-reference tables agree exactly. All
+highlighted `g_*`, `fp_*`, `m_*` and `D2_pep24` values and metrics also agree exactly.
+
+Whole-output bitwise reproduction does **not** pass: four other topology columns,
+`co_pep`, `co_mhc`, `partcoef_tcr` and `partcoef_pmhc`, differ by at most
+1.1102230246251565e-16. Source inspection identifies unordered Polars group
+reductions followed by floating means in `topology/literature.py`; summation is
+not associative. Across 114,400 repeated metric rows, 448 current values differ,
+112 historical delta fields differ, and 40 decrease flags differ. The largest
+metric delta is template-scarce ATDALMTGF `co_pep` precision at recall 0.1:
+0.631578947368421 to 0.6111111111111112 (delta -0.020467836257309857; 42 models,
+21 positive). No score was rounded to hide tie breaking. All 864 availability rows
+retain their finite counts; only three historical maximum-difference summaries
+change, by at most 2.7756e-17. Complete value/metric/availability differences and
+the false strict-exact-reconstruction flag remain in the benchmark deliverable.
+This separate numerical limit does not invalidate the verified index repair or
+certify all topology rankings as bitwise stable. It was recorded without another
+library change or scientific rerun.
+
+Issue [#30 was closed with the complete verification and numerical-limit record](https://github.com/antigenomics/tcren/issues/30#issuecomment-6193696693).
+Both merged master CI/documentation workflows passed. Open issues are now #21,
+#26 and #32–35; this closure does not complete manuscript/figure migration, restore
+missing historical lineage or establish bitwise stability of the four literature
+topology columns. The private benchmark report supplies task-specific descriptor
+recommendations and links every raw-value, metric and availability delta.
