@@ -70,6 +70,7 @@ What tcren does
 
    getting-started
    reproduction
+   md-validation
    assess
    features
    descriptor_table

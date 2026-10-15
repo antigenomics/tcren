@@ -1734,3 +1734,13 @@ from tcren.docking import docking_angles
 - nbconvert: pass `--ExecutePreprocessor.kernel_name=python3` (or `=tcren-nb`) or cells silently don't run.
 - MHC allele strings from the mapper carry full resolution (e.g. `HLA-A*02:608N`); for
   IEDB-style matching, truncate to 2-field group (`HLA-A*02`).
+
+## Recorded MD validation
+
+Use `tcren.validation.md` for component-relative RMSD, exact-time saved-frame
+minimum potential, contact occupancy, docking and numerical energy/force checks.
+The input trajectory must be PBC-corrected; `scripts/inspect_gromacs_trajectory.py`
+provides whole/compact-first-frame/continuous GROMACS export with source hashes.
+Sequence and atom correspondence are checked; predictor confidence is not inferred
+for MD coordinates. Whole-system potential is not binding energy. See
+`docs/md-validation.rst` for APIs and units.

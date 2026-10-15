@@ -3,6 +3,14 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
+## [Unreleased]
+
+### Added
+
+- Recorded MD validation: component-relative RMSD, exact-time saved-frame selection,
+  contact occupancy, docking readouts and same-frame energy/force diagnostics.
+  Add a provenance-recording GROMACS trajectory export wrapper and focused tests.
+
 ## [3.9.0] — 2026-09-07
 
 ### Added
