@@ -44,11 +44,13 @@ def pmhc_features(structure) -> dict:
     sr = ShrakeRupley(n_points=100, probe_radius=1.4)
     # Atoms farther than the sum of expanded radii cannot occlude peptide SASA.
     # Filter before invoking the existing native-neighbour SASA implementation.
-    peptide_xyz = np.array([a.coord for r in peptide[0].residues for a in r.atoms])
+    peptide_xyz = np.array([a.coord for r in peptide[0].residues for a in r.atoms
+                            if a.element not in {"H", "D"}])
     if not len(peptide_xyz):
         raise ValueError("peptide has no atoms")
     tree = cKDTree(peptide_xyz)
-    atoms = [a for c in selected.chains for r in c.residues for a in r.atoms]
+    atoms = [a for c in selected.chains for r in c.residues for a in r.atoms
+             if a.element not in {"H", "D"}]
     radius = max(sr.radii_dict[a.element] for a in atoms) + sr.probe_radius
     model = Model(0)
     neighbours = tree.query(np.array([a.coord for a in atoms]))[0] <= 2 * radius
@@ -60,6 +62,8 @@ def pmhc_features(structure) -> dict:
             biores = Residue((" ", residue.seq_index, " "), residue.resname, " ")
             biochain.add(biores)
             for atom in residue.atoms:
+                if atom.element in {"H", "D"}:
+                    continue
                 if chain.chain_type != "PEPTIDE" and id(atom) not in nearby:
                     continue
                 if atom.name in biores:  # Match the writer's single-conformer atom convention.

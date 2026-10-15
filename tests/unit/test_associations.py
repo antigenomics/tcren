@@ -66,6 +66,17 @@ def test_pmhc_features_do_not_depend_on_receptor():
             assert actual[k] == expected[k]
     assert actual["peptide_sasa_A2"] > actual["sidechain_sasa_A2"] > 0
     assert np.isfinite(actual["sasa_hydropathy"])
+    # Explicit hydrogens must not alter the heavy-atom exposure convention.
+    from dataclasses import replace
+    from tcren.structure.model import Atom
+
+    for chain in stripped.chains:
+        residue = chain.residues[0]
+        chain.residues[0] = replace(residue, atoms=residue.atoms + (
+            Atom("H", "H", residue.atoms[0].coord + np.array([0., 0., 20.])),))
+    hydrogenated = pmhc_features(stripped)
+    for key in ("peptide_sasa_A2", "sidechain_sasa_A2", "sasa_hydropathy"):
+        assert hydrogenated[key] == pytest.approx(actual[key])
 
 
 def test_association_cli_writes_provenance_and_refuses_overwrite(tmp_path):
