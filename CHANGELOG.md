@@ -17,6 +17,8 @@ All notable changes to `tcren` are recorded here. Format follows
 
 ### Fixed
 
+- Reuse one rebuilt structural alanine contact map across peptide interfaces in
+  `scoring --delta --reference-mode structural`, preserving reference scores.
 - Require ARDA's content-validated reference indexes and correct source-root detection.
 - Capture actual searched sequence/header/index SHA256 identities around batched
   receptor and MHC annotation; reject mid-search changes and mixed input generations.

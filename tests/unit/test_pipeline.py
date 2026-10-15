@@ -72,3 +72,40 @@ def test_score_row_exposes_raw_peptide_sum_without_changing_historical_totals():
     assert row["Phi_total"] == 71.0 and row["dPhi_total"] == 23.0
     del scores["delta_total"]
     assert "dPhi_peptide_sum" not in score_row(result)
+
+
+@pytest.mark.parametrize("contact_weight", ["residue", "atomic"])
+@pytest.mark.parametrize("regions", ["all", "cdr", "cdr+fr"])
+def test_structural_reference_reuses_one_map(monkeypatch, contact_weight, regions):
+    from tcren.annotation import classify_chains
+    from tcren.contactmap import ContactMap
+    from tcren.energetics.mutation import reference_delta
+    from tcren.mhc import annotate_mhc
+    from tcren.pipeline import _resolve_potentials
+    from tcren.structure.io import import_structure
+    from tcren.structure.model import PEPTIDE_TYPE
+    import tcren.energetics.mutation as mutation
+
+    structure = import_structure(_FIXTURE)
+    classify_chains(structure)
+    structure.mhc_calls = annotate_mhc(structure)
+    peptide = next(c.sequence() for c in structure.chains if c.chain_type == PEPTIDE_TYPE)
+    cm = ContactMap.from_structure(structure, count_atoms=contact_weight == "atomic")
+    potentials = _resolve_potentials(None)
+    expected = {i: reference_delta(cm, peptide, potentials[i], interface=i,
+                                  structure=structure, tcr_regions=regions,
+                                  contact_weight=contact_weight)
+                for i in ("tcr_peptide", "tcr_mhc", "peptide_mhc")}
+    original = mutation._mutant_map
+    rebuilds = []
+
+    def counted(*args, **kwargs):
+        rebuilds.append(1)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(mutation, "_mutant_map", counted)
+    result = run(structure, typed=True, superimpose=False, reference_aa="A",
+                 reference_mode="structural", contact_weight=contact_weight,
+                 tcr_regions=regions)
+    assert len(rebuilds) == 1
+    assert {i: result.scores[f"delta_{i}"] for i in expected} == expected
