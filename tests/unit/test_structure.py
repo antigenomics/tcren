@@ -124,7 +124,7 @@ def test_fast_pdb_path_matches_biopython_exactly(asset, monkeypatch):
                    (rr.seq_index, rr.pdb_index, rr.insertion_code, rr.aa, rr.resname)
             assert len(rf.atoms) == len(rr.atoms)
             for af, ar in zip(rf.atoms, rr.atoms):
-                assert (af.name, af.element) == (ar.name, ar.element)
+                assert (af.name, af.element, af.altloc) == (ar.name, ar.element, ar.altloc)
                 assert np.array_equal(af.coord, ar.coord)
 
 

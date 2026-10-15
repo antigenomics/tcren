@@ -76,6 +76,12 @@ Historical release notes are in `CHANGELOG.md`; publication gates are in `ROADMA
 inputs. There is no resume mode or computed part cache. Empty/all-failed feature runs
 exit nonzero and retain their diagnostic table.
 
+`structure.Atom.altloc` retains source alternate-location labels without changing atom
+order or contact inclusion. `validation.structures.close_atom_pairs` exports both labels,
+`alternate_location_involved`, `possible_disulfide`, and `bond_classification="unknown"`.
+Adjacent-residue exclusions are heuristic; alternate labels do not establish cross-residue
+incompatibility. PDB/mmCIF writers keep the existing one-conformer selection and its label.
+
 Native array boundaries reject invalid dimensions, indices and scalar domains before access.
 Frozen model loaders reject stale catalogues. A model without sufficient valid confidence
 training returns an unavailable (NaN) confidence residual. Feature/manifest joins validate

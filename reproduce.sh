@@ -1,33 +1,11 @@
 #!/usr/bin/env bash
-# tcren — reproduce every number the TCRen2 manuscript prints. 2026-09-05
-#
-# Run ./bootstrap.sh FIRST. That script owns the environment and the ~620 MB of structures, and it
-# is deliberately outside any time budget. This one assumes both are already on disk and fails
-# immediately, by name, if they are not.
-#
-#   ./reproduce.sh                  every stage, in order
-#   ./reproduce.sh --list           the stages and what each one costs
-#   ./reproduce.sh --library-only   stop after the four stages this repository owns
-#   ./reproduce.sh potential model  run these stages only (repeatable)
-#
-# THE THREE-REPOSITORY BOUNDARY. Every descriptor, potential, score and fit lives HERE. The
-# evaluation (ROC/PR/CI, the cohort tables, the ledger) lives in the benchmark repository and the
-# LaTeX lives in the manuscript repository. This script therefore runs four stages itself and then
-# hands off, locating the other two by environment variable:
-#
-#   TCREN2_BENCH   default ~/vcs/projects/2026-tcren2-code   its ./recompute.sh
-#   TCREN2_MS      default ~/vcs/manuscripts/2026-tcren2-ms  its make
-#
-# Point them somewhere else and the handoff follows; if either is absent the `bench` / `paper`
-# stage EXITS NON-ZERO naming the path it looked for. It does not skip.
-#
-# THERE IS NO --skip-slow FLAG, on purpose. The benchmark repository has one and its own header
-# claims it drops only stages "no reported table reads" — which is false for four of the eight it
-# names. A flag that quietly changes which numbers a run produces is worse than a run that takes
-# longer, so this script has one path through it. To run less, name the stages you want.
-#
-# Historical timings do not cover the sampled-potential and full hold-out checks now required.
-# Each stage prints elapsed time; a diagnostic subset never establishes full reproduction.
+# Run the five fit-free benchmark blocks from raw inputs through the benchmark CLI.
+# Requires bootstrap inputs, a pinned interpreter and a new output directory:
+#   ./reproduce.sh --output /absolute/new/run --baseline-spec /absolute/baseline.json
+# TCREN2_BENCH selects the benchmark checkout; TCREN_REPRO_PYTHON selects its interpreter.
+# Use --help for the current driver. --historical explicitly selects the archived fitted
+# manuscript workflow below; its --list/--library-only/subset flags are diagnostic only.
+# No computed intermediates are resumed or reused by the final-model route.
 set -uo pipefail
 
 # Final reproduction has its own explicit raw-input driver. The old path below

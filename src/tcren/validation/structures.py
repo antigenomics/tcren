@@ -107,6 +107,9 @@ def close_atom_pairs(path, *, cutoff=2.0):
 
     Same-residue and same-chain neighboring residues are excluded. SG–SG CYS
     pairs are labelled possible disulfides, without asserting a covalent bond.
+    Source alternate-location labels are retained; differing labels alone do not
+    establish incompatible conformers across residues. Bond classification is
+    explicitly unknown: adjacency exclusions are a sequence heuristic, not a bond graph.
     """
     if not np.isfinite(cutoff) or cutoff <= 0:
         raise ValueError("Expected positive finite cutoff in Å")
@@ -135,6 +138,8 @@ def close_atom_pairs(path, *, cutoff=2.0):
             "distance_A": distance,
             "interchain": c1 != c2,
             "possible_disulfide": a1.name == a2.name == "SG" and r1.aa == r2.aa == "C",
+            "alternate_location_involved": bool(a1.altloc or a2.altloc),
+            "bond_classification": "unknown",
         }
         for suffix, cid, residue, atom in [("from", c1, r1, a1), ("to", c2, r2, a2)]:
             row.update(
@@ -145,6 +150,7 @@ def close_atom_pairs(path, *, cutoff=2.0):
                     f"insertion_code.{suffix}": residue.insertion_code,
                     f"residue.{suffix}": residue.aa,
                     f"atom.{suffix}": atom.name,
+                    f"altloc.{suffix}": atom.altloc,
                 }
             )
         rows.append(row)

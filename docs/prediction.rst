@@ -146,8 +146,13 @@ Atom selections must be one-dimensional integer indices; fractional, boolean and
 out-of-range indices are rejected before coordinate selection.
 ``minimum_potential_frame`` requires exact saved-frame/energy timestamps in ps and kJ/mol.
 It selects whole-system potential, never binding energy. ``close_atom_pairs`` exports atom
-identities for nonlocal heavy-atom proximity pairs, labelling possible disulfides; it is not a
-MolProbity clashscore. See issues #25 and #26. Missing original MD settings must remain explicit.
+identities and source ``altloc.from/to`` labels for nonlocal heavy-atom proximity pairs,
+with ``alternate_location_involved`` and possible-disulfide flags. Bond classification
+is explicitly unknown; adjacent-residue exclusions are a sequence heuristic, not a
+bond graph. Different altloc letters across residues do not establish conformer
+incompatibility. All parsed conformers still contribute to contact geometry; writers
+retain their existing one-conformer selection and preserve the selected label. This is
+not a MolProbity clashscore. See issues #25 and #26. Missing original MD settings must remain explicit.
 
 The native inspection also exports ``interfaces.tsv``: directional AF3 chain-pair confidence
 with observed directed-contact counts, including zero-contact pairs. AF2 pair matrices remain

@@ -3,8 +3,10 @@
 ## Final author-directed audit disposition — 2026-10-15
 
 The author permits explicitly marked metric regressions, requires current packages and CLI-owned
-calculations, and selected **fit-free final models with fitted readouts archived**. The assignment
-now ends at the reconciled audit/issue record, before follow-up tcren fixes or a replacement paper.
+calculations, and selected **fit-free final models with fitted readouts archived**. That audit assignment
+ended at the reconciled issue record. The subsequent author request authorized library fixes,
+fresh fit-free reproduction and release preparation; see [release fixes](audit/2026-10-15/RELEASE_FIXES.md).
+Replacement-paper work remains outside this follow-up.
 This supersedes the earlier frozen-final-model/full-publication promotion plan; historical results
 and their coefficients remain preserved as evidence. See
 [the final audit record](audit/2026-10-15/FINAL_AUDIT.md),
