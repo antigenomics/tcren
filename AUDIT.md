@@ -1,5 +1,41 @@
 # TCRen audit and reconciliation — 2026-10-14
 
+## Final author-directed audit disposition — 2026-10-15
+
+The author permits explicitly marked metric regressions, requires current packages and CLI-owned
+calculations, and selected **fit-free final models with fitted readouts archived**. The assignment
+now ends at the reconciled audit/issue record, before follow-up tcren fixes or a replacement paper.
+This supersedes the earlier frozen-final-model/full-publication promotion plan; historical results
+and their coefficients remain preserved as evidence. See
+[the final audit record](audit/2026-10-15/FINAL_AUDIT.md),
+[the historical fitted-readout snapshot](attic/2026-10-fit-free-disposition/MANIFEST.json), and the
+manuscript's `FIT_FREE_DISPOSITION.md` and 504-file verified publication archive.
+
+New issues are filed in antigenomics/tcren: [annotation/potential lineage](https://github.com/antigenomics/tcren/issues/30),
+[receptor-reference CLI/accounting](https://github.com/antigenomics/tcren/issues/31),
+[Potts geometry/approximation semantics](https://github.com/antigenomics/tcren/issues/32),
+[fit-free final-model disposition](https://github.com/antigenomics/tcren/issues/33),
+[exact residue/render CLI exports](https://github.com/antigenomics/tcren/issues/34), and
+[independent local fitted algorithms](https://github.com/antigenomics/tcren/issues/35).
+The observed smoothed-reference arithmetic warning is already tracked by
+[issue 17](https://github.com/antigenomics/tcren/issues/17).
+
+Attempt 9 was stopped before publication when a matched comparison first exposed binder losses.
+The author's later directive explicitly permits these marked losses. Templated predecessor S macro
+ROC increased 0.734546→0.742799 (6 cohorts;297 structures,142 positive/155 negative); template-free
+macro ROC decreased 0.510021→0.506157 (16 cohorts;792 structures,381 positive/411 negative).
+CLGGLLTMV ROC decreased 0.512287→0.463138 (46 structures,23/23); LLYDANYFL decreased 0.425439→0.394737
+(43 structures,19/24). YLQPRTFLL coupled S ROC increased 0.8544→0.8557 and PR-AUC0.7746→0.7760
+(423 structures,174/249). GLCTLVAML ROC stayed 0.7495, PR-AUC0.8590→0.8591 (195 structures,135/60).
+Q and generator-confidence ranking records were unchanged. These are matched **historical-arm**
+comparisons from attempt 9, not new fit-free final-model claims or a complete reproduction.
+
+The historical region partition changed 643 of 26,868 matched contacted receptor residues; the
+archive also mixes potential generations. An actual raw-input diagnostic returned identical
+receptor-reference values under current extant ARDA 2.5.7 and 2.20.0, ruling out that version change
+as a demonstrated explanation. No guessed region masks or old coefficients were restored.
+The latest package audit and CLI/software verification are recorded in the final audit record.
+
 ## Resolution checkpoint — 2026-10-15
 
 The author authorized blocker repairs and a full fresh reproduction, then explicitly approved

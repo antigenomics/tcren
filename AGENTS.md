@@ -4,6 +4,23 @@
 TCR:peptide–MHC complexes. Read `skills/tcren/SKILL.md` for APIs, `AUDIT.md` for
 verified findings and unresolved mathematical claims, and `ROADMAP.md` for publication gates.
 
+## Final audit directive — 15 October 2026
+
+The author now requires **fit-free final models**, archival of fitted readouts, and CLI-owned
+scientific calculations. Gaussian readouts, confidence GLMs, fitted transition links and fitted
+Potts final scorers are historical evidence, not final-model candidates. The existing library APIs
+and coefficient files remain inspectable for historical reproduction; their presence does not
+approve them for the final paper. Native-reference covariance/correlation weights and empirical
+potential tables must expose their estimated dependencies rather than claiming coefficient-free
+status by default. See the manuscript's `FIT_FREE_DISPOSITION.md`.
+
+Metric regressions are allowed when explicitly marked alongside gains on identical populations;
+never hide losses, change floors, mix populations, or substitute a new fitted scorer. Audit direct
+Python producers when the CLI lacks an equivalent quantity; report the gap/error as a repository
+issue instead of swapping in a different calculation. The current assignment ends after reconciling
+and recording the audit evidence. Stop before follow-up library fixes or replacement-paper work.
+This directive supersedes older frozen-final-model and metric-nonregression publication rules below.
+
 ## Ownership and evidence
 
 - Library code, equations, tests and API documentation belong here.

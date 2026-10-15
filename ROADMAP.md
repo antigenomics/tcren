@@ -1,3 +1,13 @@
+# Current stopping point — fit-free audit disposition, 15 October 2026
+
+The author selected fit-free final models and archival of fitted readouts. Mark metric gains and
+regressions; use current packages, audit every non-CLI numerical route, and report code problems
+as repository issues. The current task stops at the reconciled audit record, before new tcren fixes
+or replacement-paper work. The historical frozen-model publication roadmap below is superseded.
+
+See `audit/2026-10-15/FINAL_AUDIT.md`, GitHub issues 30–36, and the manuscript's
+`FIT_FREE_DISPOSITION.md`. No successful complete CLI reproduction or final paper is claimed.
+
 # Publication roadmap
 
 Updated 2026-10-15. The goal is a reproducible, interpretable paper supported by the existing five

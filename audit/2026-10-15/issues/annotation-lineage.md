@@ -1,0 +1,7 @@
+A raw-input audit found mixed-generation artifacts on unchanged cohort membership. Across1,089 binder structures,643 of26,868 matched contacted receptor residues change region labels between historical and current tables (210 CDR3→FR4,16 CDR3→FR3,1 FR3→CDR3). Historical per-chain AIRR records and a complete reference/environment identity are absent.
+
+The historical recognition output predates a later Figure2 potential export. The export matches the359-structure potential; the earlier362-structure potential differs in all380 cells (maximum absolute cell difference0.10430459). These artifacts cannot establish one immutable producing recipe.
+
+A diagnostic using the existing reference producer on all1,089 raw structures returned identical numeric values under ARDA2.5.7 and2.20.0; current version drift alone is not the demonstrated cause. No guessed anchor expansion or coefficient adjustment should be used to chase old metrics.
+
+Follow-up: export annotation policy, package/executable versions, raw-reference hashes, potential hash/recipe and exact region-to-residue assignments with CLI provenance. A benchmark caller also forces human-only annotation for Native2026, which contains human and mouse; reconcile that explicit policy with automatic-species reference producers. Preserve all matched gains/losses and counts. This is an audit finding; historical fitted readouts are not final-model candidates under the author's latest policy.

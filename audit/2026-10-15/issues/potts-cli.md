@@ -1,0 +1,5 @@
+bench/eda/cpl_predict_ddf.py accepts a Potts model but builds availability with default15 Å radius/5 Å cutoff, ignoring the supplied model's own geometry. The bundled default agrees; a custom model can silently use inconsistent geometry.
+
+Its softplus sums are uncoupled log Z₀. Fixed-marginal substitution arms are first-order linear-response approximations, not exact coupled finite-substitution free energies. These decompositions and normalized CPL weighting do not have equivalent complete CLI routes; potts scan is not equivalent to every direct producer arm.
+
+Follow-up: use/validate model geometry, retain physical chain and residue correspondence, define each exact/approximate equation and its units, and make the CLI own authoritative calculations rather than duplicate benchmark math. Preserve existing numeric evidence and mark interpretations/dispositions. The author requires fit-free final models; fitted Potts parameters must be explicitly classified as historical/methodological evidence, not silently promoted into a final scorer.
