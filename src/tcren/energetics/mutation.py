@@ -67,7 +67,8 @@ def _score_one(
     return float(res["score"][0])
 
 
-def _mutant_map(structure: Structure, mutant: str, cutoff: float, sidechain: bool) -> ContactMap:
+def _mutant_map(structure: Structure, mutant: str, cutoff: float, sidechain: bool,
+                count_atoms: bool = False) -> ContactMap:
     """The mutant's own contact map, from rebuilt coordinates.
 
     Threads the whole peptide, so every position is truncated to backbone + Cβ. That is right when
@@ -78,7 +79,8 @@ def _mutant_map(structure: Structure, mutant: str, cutoff: float, sidechain: boo
     from ..refine.substitute import substitute_peptide
 
     return ContactMap.from_structure(
-        substitute_peptide(structure, mutant), cutoff=cutoff, sidechain=sidechain
+        substitute_peptide(structure, mutant), cutoff=cutoff, sidechain=sidechain,
+        count_atoms=count_atoms,
     )
 
 
@@ -179,7 +181,8 @@ def ddg(
         contact_map, native, potential, interface, tcr_regions, contact_weight, weights
     )
     mutant_map = (contact_map if structure is None
-                  else _mutant_map(structure, mutant, cutoff, sidechain))
+                  else _mutant_map(structure, mutant, cutoff, sidechain,
+                                   count_atoms=contact_weight == "atomic"))
     # A rebuilt mutant has its own contact rows, so a weight vector indexed on the native map
     # would be silently misaligned; drop it rather than mis-apply it.
     e_mutant = _score_one(

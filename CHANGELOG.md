@@ -7,6 +7,10 @@ All notable changes to `tcren` are recorded here. Format follows
 
 ### Added
 
+- Explicit structural alanine-reference mode in scoring and receptor exports,
+  using existing coordinate truncation and rebuilt contacts. Historical virtual
+  mode remains reproducible; row/provenance metadata distinguishes the modes.
+
 - Exact pMHC-only surface/SASA exports and descriptive feature–performance
   associations versus ipTM, with matched rows, class/template strata, fixed
   score directions, input hashes and complete missingness accounting.

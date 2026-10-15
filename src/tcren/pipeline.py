@@ -126,6 +126,7 @@ def run(
     reference_aa: str | None = None,
     intra_weight: float = 0.0,
     typed: bool = False,
+    reference_mode: str = "virtual",
 ) -> PipelineResult:
     """Run the full pipeline on one structure (path or parsed :class:`Structure`).
 
@@ -152,8 +153,11 @@ def run(
         reference_aa: if set (typically ``"A"``), also report the reference-normalised
             energies ``delta_<interface>`` and ``delta_total`` --- each interface's
             :func:`tcren.ddg.reference_delta`, i.e. its energy minus the energy of a
-            poly-``reference_aa`` peptide threaded onto the same contact map. Off by
+            poly-``reference_aa`` peptide using the selected reference mode. Off by
             default, so the default ``scores`` dict is unchanged.
+        reference_mode: ``structural`` truncates the reference peptide to alanine and
+            rebuilds contacts; ``virtual`` preserves the historical fixed-map calculation.
+            Structural mode requires alanine as the reference residue.
         typed: the structure's chains are already typed, so skip :func:`classify_chains`.
             Chain typing costs one ``mmseqs easy-search`` per structure and a caller scoring a
             whole cohort should have typed it in one batched call
@@ -170,6 +174,10 @@ def run(
         A :class:`PipelineResult` with the markup, contacts, per-interface scores and (if
         requested) the canonical-frame oriented structure.
     """
+    if reference_mode not in ("virtual", "structural"):
+        raise ValueError("reference_mode must be virtual or structural")
+    if reference_mode == "structural" and reference_aa not in (None, "A"):
+        raise ValueError("structural reference requires reference_aa='A'")
     if contact_weight not in ("residue", "atomic"):
         raise ValueError(f"contact_weight must be 'residue' or 'atomic', got {contact_weight!r}")
     s = structure if isinstance(structure, Structure) else import_structure(structure)
@@ -228,9 +236,8 @@ def run(
         scores["total"] += intra_weight * scores["peptide_internal"] / resolved["peptide_internal"].scale()
 
     if reference_aa is not None:
-        # ΔF = F(peptide) − F(poly-reference peptide) per interface, on THIS structure's own
-        # contact map. On a fixed map it is F minus a constant and changes no ranking; it only
-        # bites across candidates that each carry their own pose (see ddg.reference_delta).
+        # ΔF = F(peptide) − F(poly-reference peptide) per interface. Structural mode
+        # truncates the peptide and rebuilds contacts; virtual mode retains native contacts.
         # ΔF_tcr_mhc is identically 0 — the peptide is not in that interface.
         from .energetics.mutation import reference_delta
 
@@ -241,6 +248,7 @@ def run(
             scores[f"delta_{iface}"] = reference_delta(
                 cm, peptide, resolved[iface], interface=iface, reference_aa=reference_aa,
                 tcr_regions=tcr_regions, contact_weight=contact_weight,
+                structure=s if reference_mode == "structural" else None, cutoff=cutoff,
             )
         scores["delta_total"] = sum(weights[i] * scores[f"delta_{i}"] for i in _INTERFACE_POTENTIAL)
 
@@ -266,6 +274,7 @@ def run(
         pdb_id=s.pdb_id, mhc_calls=calls, markup=residue_annotation(s),
         contacts=cm.contacts, scores=scores, oriented=oriented, rmsd=rmsd,
         extra={
+            "reference_mode": reference_mode if reference_aa is not None else None,
             "real_interface": real_interface,
             "n_contacts": n_contacts,
             "scanning_angle": scanning_angle,
@@ -300,6 +309,7 @@ def score_row(result: PipelineResult) -> dict:
         row["Phi_pep_int"] = result.scores["peptide_internal"]
     if "delta_total" in result.scores:
         row.update({
+            "reference_mode": result.extra.get("reference_mode", "virtual"),
             "dPhi_tcr_pep": result.scores["delta_tcr_peptide"],
             "dPhi_tcr_mhc": result.scores["delta_tcr_mhc"],
             "dPhi_pep_mhc": result.scores["delta_peptide_mhc"],

@@ -252,3 +252,28 @@ Both merged master CI/documentation workflows passed. Open issues are now #21,
 missing historical lineage or establish bitwise stability of the four literature
 topology columns. The private benchmark report supplies task-specific descriptor
 recommendations and links every raw-value, metric and availability delta.
+
+## Author correction: structural alanine reference
+
+The author clarified that the manuscript reference must truncate the selected
+residues to alanine and rebuild contacts. The virtual fixed-map formula above
+records the earlier release implementation, not the intended manuscript method.
+The historical results remain intact and must be labelled virtual. Fresh
+manuscript reproduction uses `scoring --delta --reference-mode structural` and
+`export --quantity receptor-reference --reference-mode structural`.
+The existing substitution API supplies backbone/Cβ coordinates (constructing Cβ
+where absent); no relaxation or parameter fitting is introduced. Raw contact
+energies are unaffected. Structural-versus-virtual differences are method changes,
+not numerical reproduction errors. Gains and losses must both remain visible.
+
+Focused validation: 33 export, structural mutation and pipeline tests passed;
+whole-source/test Ruff and warning-as-error Sphinx passed. The structural test
+checks direct coordinate truncation, changed contact counts, residue/atomic
+weighting, receptor regions and preservation of the input structure.
+
+Installed-wheel verification additionally completed 1,147 non-slow tests with four
+skips. One canonical-orientation test failed because the wheel's default data root
+lacked canonical structures; it passed when rerun with the configured
+`TCREN_HOME` repository root. The source-only suite cannot load native extensions,
+so the installed-wheel run is the broader verification evidence. No scientific
+baseline or test threshold was changed.

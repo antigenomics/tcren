@@ -5,6 +5,18 @@ description: tcren — TCR-pMHC contact potential (TCRen) pipeline; conventions 
 
 # tcren Skills Guide
 
+## Structural alanine reference (manuscript convention)
+
+Use `scoring --delta --reference-mode structural` for peptide references and
+`export --quantity receptor-reference --reference-mode structural` for receptor
+references. These reuse the existing coordinate substitution, preserve backbone/Cβ,
+truncate other side-chain atoms, construct Cβ for glycine, and rebuild contacts at
+the selected cutoff. The default `virtual` preserves the older fixed-contact-map
+identity substitution for historical reproduction; it is not the manuscript
+calculation. Rows and provenance identify the mode. Compare both on matched rows
+and retain regressions; never repair a scientific mismatch by rewriting the intended
+Methods to describe an accidental CLI path.
+
 ## pMHC feature–performance associations
 
 `tcren export -s structures.txt --quantity pmhc -o pmhc.tsv` calls

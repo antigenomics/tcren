@@ -1172,6 +1172,7 @@ def scoring(
     intra_weight: float = typer.Option(0.0, "--intra-weight", help="weight of the intra-peptide term: report Phi_pep_int and add w x it to Phi_total (0 = off, the default)"),
     delta: bool = typer.Option(False, "--delta", help="also report the poly-alanine-referenced ΔΦ per interface and ΔΦ total"),
     reference_aa: str = typer.Option("A", "--reference-aa", help="reference residue for --delta (default: alanine)"),
+    reference_mode: str = typer.Option("virtual", "--reference-mode", help="structural: truncate to alanine and rebuild contacts; virtual: historical fixed-map substitution"),
     geometry: bool = typer.Option(False, "--geometry", help="also report the interface-geometry descriptors and the decorrelated quality score Q"),
     skip_errors: bool = typer.Option(False, "--skip-errors", help="drop structures that fail instead of writing an error row"),
     threads: int = typer.Option(1, "-t", "--threads", help="worker processes for a multi-structure run (0 = all cores); each also gets mmseqs threads"),
@@ -1225,6 +1226,10 @@ def scoring(
     from .pipeline import run as run_pipeline, score_row
     from .structure.io import resolve_sources
 
+    if reference_mode not in ("virtual", "structural"):
+        raise typer.BadParameter("--reference-mode must be virtual or structural")
+    if reference_mode == "structural" and (not delta or reference_aa != "A"):
+        raise typer.BadParameter("--reference-mode structural requires --delta --reference-aa A")
     if regions not in TCR_REGIONS:
         raise typer.BadParameter("--regions must be one of all|cdr|cdr+fr")
     if contact_weight not in ("residue", "atomic"):
@@ -1236,7 +1241,8 @@ def scoring(
     }
     kw = dict(organism=organism, superimpose=not no_superimpose, db_dir=db, cutoff=cutoff,
               potentials=potentials, tcr_regions=regions, contact_weight=contact_weight,
-              reference_aa=reference_aa if delta else None, intra_weight=intra_weight)
+              reference_aa=reference_aa if delta else None, intra_weight=intra_weight,
+              reference_mode=reference_mode)
     def score_struct(s, typed=False):
         return score_row(run_pipeline(s, typed=typed, **kw))
 
@@ -1306,7 +1312,8 @@ def scoring(
 
     table.write_csv(str(out))
     stamp(out, command=f"tcren scoring -s {structures} -o {out}", columns=table.columns,
-          extra={"structures": table.height, "searched_indexes": indexes})
+          extra={"structures": table.height, "searched_indexes": indexes,
+                 "reference_mode": reference_mode if delta else None})
     typer.echo(f"wrote {out} ({table.height} rows"
                + (f", {failed} failed" if failed else "") + ")")
     if failed:  # an error buried in a column is an error nobody reads
@@ -2660,6 +2667,7 @@ def export_exact(
                                 help="receptor-reference, position, residue, contacts, placement or pmhc"),
     potential: str = typer.Option(None, "--potential", help="Explicit TCR:peptide potential name or CSV; not needed for pmhc"),
     mhc_potential: str = typer.Option("mj", "--mhc-potential"),
+    reference_mode: str = typer.Option("virtual", "--reference-mode", help="receptor-reference only: structural alanine truncation or historical virtual identities"),
     interface: str = typer.Option("tcr_peptide", "--interface"),
     cutoff: float = typer.Option(5.0, "--cutoff"),
     organism: list[str] = typer.Option(["human", "mouse"], "--organism"),
@@ -2677,11 +2685,15 @@ def export_exact(
 
     if quantity != "pmhc" and potential is None:
         raise typer.BadParameter("--potential is required except for --quantity pmhc")
+    if reference_mode not in ("virtual", "structural"):
+        raise typer.BadParameter("--reference-mode must be virtual or structural")
+    if reference_mode == "structural" and quantity != "receptor-reference":
+        raise typer.BadParameter("structural reference requires --quantity receptor-reference")
     ledger = export_batch(structures, output, quantity=quantity,
                           peptide_potential=None if quantity == "pmhc" else _load_potential(potential),
                           mhc_potential=None if quantity == "pmhc" else _load_potential(mhc_potential), interface=interface,
                           cutoff=cutoff, organisms=tuple(organism), threads=threads,
-                          command=shlex.join(sys.argv))
+                          command=shlex.join(sys.argv), reference_mode=reference_mode)
     succeeded = ledger.filter(pl.col("status") == "ok").height
     typer.echo(f"{succeeded}/{ledger.height} structures exported; accounting: {output}.accounting.tsv")
     if succeeded == 0:

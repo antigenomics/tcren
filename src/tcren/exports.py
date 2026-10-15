@@ -1,7 +1,8 @@
 """Exact, fit-free table exports for benchmark and figure producers.
 
-No structures are mutated: receptor referencing substitutes identities on the same
-contact map. Each export uses the existing numerical API, retaining its conventions.
+Input structures remain unchanged: receptor referencing either substitutes identities
+on the same contact map or truncates a copied structure and rebuilds contacts.
+Each export uses the existing numerical API, retaining its conventions.
 """
 from __future__ import annotations
 
@@ -27,14 +28,30 @@ QUANTITIES = ("receptor-reference", "position", "residue", "contacts", "placemen
 
 
 def receptor_reference(contact_map: ContactMap, peptide_potential: Potential,
-                       mhc_potential: Potential) -> dict:
-    """Φ(real receptor) − Φ(virtual poly-Ala receptor), in each potential's units.
+                       mhc_potential: Potential, *, structure=None,
+                       cutoff: float = 5.0) -> dict:
+    """Φ(real receptor) − Φ(poly-Ala receptor), in each potential's units.
 
-    All/CDR/CDR12/CDR3 substitutions retain contacts and coordinates exactly. This
-    is a contact-potential difference, not a structural mutation or binding ΔG.
+    Without ``structure``, all/CDR/CDR12/CDR3 substitutions retain the contact map.
+    With ``structure``, truncate the selected receptor residues to alanine and rebuild
+    contacts at ``cutoff``. Neither mode is a calibrated binding free energy.
     """
     from .pipeline import _interface_energy
 
+    rebuilt = {}
+    if structure is not None:
+        from .refine.substitute import substitute_residues
+        for name, regions in RECEPTOR_REGIONS.items():
+            targets = {}
+            for chain in structure.chains:
+                if chain.chain_type not in ("TRA", "TRB"):
+                    continue
+                residues = (chain.residues if regions is None else
+                            [r for region in chain.regions if region.region_type in regions
+                             for r in region.residues])
+                targets.update({(chain.chain_id, r.seq_index): "A" for r in residues})
+            rebuilt[name] = ContactMap.from_structure(
+                substitute_residues(structure, targets), cutoff=cutoff)
     row = {"pdb.id": contact_map.pdb_id}
     for interface, suffix, potential in (("tcr_peptide", "tcr_pep", peptide_potential),
                                           ("tcr_mhc", "tcr_mhc", mhc_potential)):
@@ -44,7 +61,8 @@ def receptor_reference(contact_map: ContactMap, peptide_potential: Potential,
             replacement = (pl.lit("A") if regions is None else
                            pl.when(pl.col("region.type.from").is_in(regions))
                            .then(pl.lit("A")).otherwise(pl.col("residue.aa.from")))
-            reference = contacts.with_columns(replacement.alias("residue.aa.from"))
+            reference = (rebuilt[name].interface(interface) if structure is not None else
+                         contacts.with_columns(replacement.alias("residue.aa.from")))
             row[f"dFT_{suffix}_{name}"] = real - _interface_energy(reference, potential)
         if interface == "tcr_peptide":
             row["n_tcr_res_tp"] = contacts.select("chain.id.from", "residue.index.from").n_unique()
@@ -98,11 +116,15 @@ def placement_table(structure) -> pl.DataFrame:
 
 def export_structure(structure, quantity: str, peptide_potential: Potential,
                      mhc_potential: Potential, *, cutoff: float = 5.0,
-                     interface: str = "tcr_peptide") -> pl.DataFrame:
+                     interface: str = "tcr_peptide", reference_mode: str = "virtual") -> pl.DataFrame:
     """Export one annotated structure using the exact existing scientific APIs."""
     from .energetics.scoring import position_profile
     from .viz.pymol import residue_importance
 
+    if reference_mode not in ("virtual", "structural"):
+        raise ValueError("reference_mode must be virtual or structural")
+    if reference_mode == "structural" and quantity != "receptor-reference":
+        raise ValueError("structural reference requires receptor-reference quantity")
     if quantity not in QUANTITIES:
         raise ValueError(f"quantity must be one of {QUANTITIES}")
     if not math.isfinite(cutoff) or cutoff <= 0:
@@ -123,7 +145,9 @@ def export_structure(structure, quantity: str, peptide_potential: Potential,
     cm = ContactMap.from_structure(structure, cutoff=cutoff)
     potential = peptide_potential if interface == "tcr_peptide" else mhc_potential
     if quantity == "receptor-reference":
-        return pl.DataFrame([receptor_reference(cm, peptide_potential, mhc_potential)])
+        return pl.DataFrame([receptor_reference(cm, peptide_potential, mhc_potential,
+                            structure=structure if reference_mode == "structural" else None,
+                            cutoff=cutoff)]).with_columns(pl.lit(reference_mode).alias("reference_mode"))
     if quantity == "position":
         if interface == "tcr_mhc":
             raise ValueError("position decomposition requires a peptide interface")
@@ -182,7 +206,8 @@ def annotation_lineage(organisms) -> dict:
 
 
 def export_batch(sources, output, *, quantity, peptide_potential, mhc_potential,
-                 cutoff=5.0, interface="tcr_peptide", organisms=("human", "mouse"), threads=1, command="tcren export"):
+                 cutoff=5.0, interface="tcr_peptide", organisms=("human", "mouse"), threads=1,
+                 command="tcren export", reference_mode="virtual"):
     """Write exact tables plus complete per-input accounting and residue assignments.
 
     Inputs are files, directories, tar archives, globs or text manifests. Errors remain in the
@@ -195,6 +220,10 @@ def export_batch(sources, output, *, quantity, peptide_potential, mhc_potential,
     from .structure import iter_structures, parse_structure, structure_paths
     from .structure.io import _TAR_SUFFIXES, resolve_sources, structure_stem
 
+    if reference_mode not in ("virtual", "structural"):
+        raise ValueError("reference_mode must be virtual or structural")
+    if reference_mode == "structural" and quantity != "receptor-reference":
+        raise ValueError("structural reference requires receptor-reference quantity")
     if threads < 1 or not organisms or set(organisms) - {"human", "mouse"}:
         raise ValueError("positive threads and human/mouse organisms are required")
     if quantity not in QUANTITIES or interface not in {"tcr_peptide", "tcr_mhc", "peptide_mhc"}:
@@ -262,7 +291,8 @@ def export_batch(sources, output, *, quantity, peptide_potential, mhc_potential,
                     identity = residue_identity(structure)
                     identities.append(identity)
                     table = export_structure(structure, quantity, peptide_potential, mhc_potential,
-                                             cutoff=cutoff, interface=interface)
+                                             cutoff=cutoff, interface=interface,
+                                             reference_mode=reference_mode)
                     if "pdb.id" not in table.columns:
                         table = table.with_columns(pl.lit(structure.pdb_id).alias("pdb.id"))
                     tables.append(table)
@@ -301,6 +331,7 @@ def export_batch(sources, output, *, quantity, peptide_potential, mhc_potential,
         "n_input": len(accounting), "n_ok": succeeded,
         "n_error": len(accounting) - succeeded, "sources": [str(p) for p in paths],
         "reference_semantics": ("pMHC only; supplied conformation; no potential or receptor coordinates" if quantity == "pmhc"
+                                else "structural alanine truncation; contacts rebuilt" if reference_mode == "structural"
                                 else "virtual receptor identities on unchanged contact map"),
         "residue_phi_accounting": "each contact contributes to both endpoints; sum is 2*Phi"})
     return ledger

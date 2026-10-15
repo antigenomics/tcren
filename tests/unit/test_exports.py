@@ -133,3 +133,54 @@ def test_all_failed_cli_retains_accounting(tmp_path):
 def test_export_rejects_invalid_cutoff():
     with pytest.raises(ValueError, match="cutoff"):
         exports.export_structure(typed_structure(), "contacts", classic(), mj(), cutoff=float("nan"))
+
+
+def test_structural_reference_rebuilds_contacts_and_preserves_input():
+    """Directly truncated coordinates are the oracle; the virtual map must differ."""
+    from tcren.pipeline import _interface_energy, run, score_row
+    from tcren.refine.substitute import substitute_peptide, substitute_residues
+
+    s = typed_structure()
+    s.mhc_calls = []
+    cm = ContactMap.from_structure(s)
+    before = cm.contacts.clone()
+    pot, other = classic(), mj()
+    peptide = next(c.sequence() for c in s.chains if c.chain_type == 'PEPTIDE')
+    ref = substitute_peptide(s, 'A' * len(peptide))
+    rc = ContactMap.from_structure(ref)
+    assert rc.interface('tcr_peptide').height < cm.interface('tcr_peptide').height
+    structural = {}
+    for weight in ('residue', 'atomic'):
+        actual = run(s, typed=True, superimpose=False, reference_aa='A',
+                     reference_mode='structural', contact_weight=weight,
+                     potentials={'tcr_peptide': 'karnaukhov2022'})
+        real_map = ContactMap.from_structure(s, count_atoms=weight == 'atomic')
+        ref_map = ContactMap.from_structure(ref, count_atoms=weight == 'atomic')
+        expected = (_interface_energy(real_map.interface('tcr_peptide'), pot, contact_weight=weight)
+                    - _interface_energy(ref_map.interface('tcr_peptide'), pot, contact_weight=weight))
+        structural[weight] = expected
+        assert actual.scores['delta_tcr_peptide'] == pytest.approx(expected)
+        assert score_row(actual)['reference_mode'] == 'structural'
+    virtual = run(s, typed=True, superimpose=False, reference_aa='A',
+                  potentials={'tcr_peptide': 'karnaukhov2022'})
+    assert virtual.scores['delta_tcr_peptide'] != pytest.approx(structural['residue'])
+    targets = {(c.chain_id, r.seq_index): 'A' for c in s.chains
+               if c.chain_type in ('TRA', 'TRB') for r in c.residues}
+    receptor_map = ContactMap.from_structure(substitute_residues(s, targets))
+    actual = exports.receptor_reference(cm, pot, other, structure=s)
+    for interface, suffix, potential in [('tcr_peptide', 'tcr_pep', pot), ('tcr_mhc', 'tcr_mhc', other)]:
+        expected = (_interface_energy(cm.interface(interface), potential)
+                    - _interface_energy(receptor_map.interface(interface), potential))
+        assert actual[f'dFT_{suffix}_all'] == pytest.approx(expected)
+    assert actual['dFT_tcr_pep_cdr12'] == pytest.approx(0)
+    assert actual['dFT_tcr_pep_cdr3'] == pytest.approx(actual['dFT_tcr_pep_all'])
+    assert_frame_equal(ContactMap.from_structure(s).contacts, before)
+
+
+def test_structural_reference_cli_requires_alanine_delta(tmp_path):
+    result = CliRunner().invoke(app, ['scoring', '-s', str(PDB), '-o',
+                                     str(tmp_path / 'scores.csv'),
+                                     '--reference-mode', 'structural'])
+    assert result.exit_code == 2
+    assert 'requires' in result.output
+    assert not (tmp_path / 'scores.csv').exists()

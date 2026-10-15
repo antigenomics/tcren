@@ -29,8 +29,10 @@ the contact sum is Phi = sum over (i,j) in C of V(a_i,a_j). The identities a_i a
 a_j are the observed amino acids. The virtual reference difference is
 DeltaPhi = Phi(observed) - Phi(reference), with C unchanged. Lower values follow
 the energy direction. These are dimensionless statistical-potential sums, not a
-calibrated binding free energy. Structural mutation recomputes coordinates and
-contacts and is a different observable.
+calibrated binding free energy. The manuscript reference uses structural alanine truncation: preserve backbone
+and C-beta coordinates, remove the remaining side-chain atoms, construct C-beta
+for glycine using the existing substitution geometry, and rebuild contacts.
+This differs from the historical virtual reference and can change rankings.
 
 ``scoring --delta`` references peptide identities. ``dPhi_peptide_sum`` is the
 unweighted TCR:peptide plus peptide:MHC reference sum. Historical ``Phi_total`` and
@@ -41,12 +43,17 @@ introduced:
 
 .. code-block:: console
 
-   tcren scoring -s structures/ --delta --no-superimpose --tcr-peptide-potential tcren2 -o peptide.csv
-   tcren export -s structures/ --potential tcren2 --quantity receptor-reference -o receptor.tsv
+   tcren scoring -s structures/ --delta --reference-mode structural --no-superimpose --tcr-peptide-potential tcren2 -o peptide.csv
+   tcren export -s structures/ --potential tcren2 --quantity receptor-reference --reference-mode structural -o receptor.tsv
    tcren export -s structures/ --potential tcren2 --quantity position -o positions.tsv
    tcren export -s structures/ --potential tcren2 --quantity residue -o residues.tsv
    tcren export -s structures/ --potential tcren2 --quantity contacts -o contacts.tsv
    tcren export -s structures/ --potential tcren2 --quantity placement -o placement.tsv
+
+Use ``--reference-mode structural`` explicitly for the manuscript. The default
+``virtual`` mode remains available for exact historical reproduction. Output rows
+and provenance identify the mode; do not mix modes in a comparison. Structural
+peptide references require alanine and use the selected cutoff and contact weighting.
 
 The receptor export substitutes alanine in all, CDR, CDR1/2 or CDR3 receptor
 positions, separately for TCR:peptide and TCR:MHC and their explicit sum.
