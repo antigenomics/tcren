@@ -381,3 +381,20 @@ Structures come from the Hugging Face dataset
 from), and ``Canonical2026`` (``Native2026`` re-oriented). When orienting a new complex an installed
 library lazily fetches the canonical reference structures (1ao7/1fyt) from the Hub, so no local
 dataset is required.
+
+MHC allele ambiguity
+--------------------
+
+A model often contains only the MHC groove. Alleles differing outside that observed
+sequence cannot be distinguished, including expression variants. ``tcren scoring``
+therefore reports ``allele_candidates`` (semicolon-separated co-best alleles among
+returned search hits) alongside ``allele`` (the lexicographically first representative).
+The candidate list is bounded by the search hit limit, not an exhaustive genotype.
+Neither the representative nor a null suffix establishes experimental restriction
+or expression. The Python ``MhcCall.allele_candidates`` tuple carries the same evidence;
+``annotation.batch.mhc_annotation`` exports it as ``mhc.allele_candidates``.
+
+Keep experimental peptide/HLA metadata separately and check the coordinate-derived
+peptide and MHC evidence before joining assay labels. A filename match alone does
+not establish that a model contains the experimental pMHC. ARDA supplies TCR FR/CDR
+markup; TCRen's MHC mapper and canonical alignment supply groove markup.

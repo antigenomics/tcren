@@ -41,6 +41,8 @@ class MhcCall:
     tstart: int
     tend: int
     cigar: str
+    # Co-best alleles among returned search hits; not an exhaustive genotype call.
+    allele_candidates: tuple[str, ...] = ()
 
 
 def _candidate_chains(structure: Structure):
@@ -53,13 +55,27 @@ def _candidate_chains(structure: Structure):
 
 
 def _best_hits(tsv: Path) -> dict[str, dict]:
-    """Parse the mmseqs TSV, keeping the highest-bitscore hit per query chain."""
+    """Keep co-best allele evidence and a deterministic representative alignment.
+
+    Truncated groove sequences commonly match several alleles exactly, including
+    null alleles whose distinguishing mutation lies outside the observed chain.
+    Search output order must not turn that ambiguity into a null-allele call.
+    """
     if not tsv.exists() or tsv.stat().st_size == 0:
         return {}
     df = pl.read_csv(tsv, separator="\t", has_header=False, new_columns=_COLUMNS)
     best = {}
-    for row in df.sort("bits", descending=True).iter_rows(named=True):
-        best.setdefault(row["query"], row)
+    for row in df.sort(["bits", "target", "tstart", "qstart"],
+                       descending=[True, False, False, False]).iter_rows(named=True):
+        query = row["query"]
+        allele = reference.parse_header(row["target"])["allele"]
+        if query not in best:
+            row["allele_candidates"] = [allele]
+            best[query] = row
+        elif row["bits"] == best[query]["bits"]:
+            candidates = best[query]["allele_candidates"]
+            if allele not in candidates:
+                candidates.append(allele)
     return best
 
 
@@ -132,6 +148,7 @@ def calls_from_hits(candidates, best: dict[str, dict], key=None) -> list[MhcCall
                 tstart=int(hit["tstart"]),
                 tend=int(hit["tend"]),
                 cigar=hit["cigar"],
+                allele_candidates=tuple(hit.get("allele_candidates", (meta["allele"],))),
             )
         )
     _reconcile_class(calls)

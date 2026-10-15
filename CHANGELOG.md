@@ -17,6 +17,9 @@ All notable changes to `tcren` are recorded here. Format follows
 
 ### Fixed
 
+- Preserve co-best MHC allele candidates and select a deterministic representative,
+  avoiding search-order-dependent null-allele labels for cropped grooves.
+
 - Reuse one rebuilt structural alanine contact map across peptide interfaces in
   `scoring --delta --reference-mode structural`, preserving reference scores.
 - Require ARDA's content-validated reference indexes and correct source-root detection.

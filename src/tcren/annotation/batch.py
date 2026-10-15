@@ -138,7 +138,7 @@ def mhc_annotation(
     from ..annotation import classify_chains
     from ..annotation.arda_adapter import _import_arda
     from ..mhc import reference
-    from ..mhc.mapper import MhcCall, _best_hits, _candidate_chains, _reconcile_class
+    from ..mhc.mapper import _best_hits, _candidate_chains, calls_from_hits
     from ..structure import parse_structure, structure_id_from_path, structure_paths
     from ..structure.io import resolve_structure_ids
 
@@ -192,20 +192,8 @@ def mhc_annotation(
     # 3) Build MhcCalls per structure from the sliced hits, reconcile class, summarise.
     rows = []
     for idx, s in enumerate(structures):
-        calls: list[MhcCall] = []
-        for c in _candidate_chains(s):
-            hit = best.get(f"{idx}|{c.chain_id}")
-            if hit is None:
-                continue
-            meta = reference.parse_header(hit["target"])
-            calls.append(MhcCall(
-                chain_id=c.chain_id, chain_role=meta["chain_role"],
-                mhc_class=meta["mhc_class"], allele=meta["allele"], locus=meta["locus"],
-                species=meta["species"], identity=float(hit["pident"]), bits=float(hit["bits"]),
-                qstart=int(hit["qstart"]), qend=int(hit["qend"]),
-                tstart=int(hit["tstart"]), tend=int(hit["tend"]), cigar=hit["cigar"],
-            ))
-        _reconcile_class(calls)
+        calls = calls_from_hits(_candidate_chains(s), best,
+                                key=lambda c, i=idx: f"{i}|{c.chain_id}")
         mhca = next((c for c in calls if c.chain_role == "MHCa"), None)
         if any(c.chain_role == "MHCb" for c in calls):
             mhc_class = "MHCII"
@@ -215,7 +203,9 @@ def mhc_annotation(
             mhc_class = None
         rows.append({
             "pdb.id": s.pdb_id, "mhc.class": mhc_class,
-            "mhc.allele": mhca.allele if mhca else None, "status": "ok",
+            "mhc.allele": mhca.allele if mhca else None,
+            "mhc.allele_candidates": ";".join(mhca.allele_candidates) if mhca else None,
+            "status": "ok",
         })
     return pl.DataFrame(rows)
 def annotate_batch(

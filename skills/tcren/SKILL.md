@@ -1647,3 +1647,15 @@ from tcren.docking import docking_angles
 - nbconvert: pass `--ExecutePreprocessor.kernel_name=python3` (or `=tcren-nb`) or cells silently don't run.
 - MHC allele strings from the mapper carry full resolution (e.g. `HLA-A*02:608N`); for
   IEDB-style matching, truncate to 2-field group (`HLA-A*02`).
+
+### MHC sequence ambiguity and assay joins
+
+`MhcCall.allele` is a deterministic lexicographic representative of co-best returned
+MMseqs hits, not a resolved genotype. `allele_candidates` preserves their distinct
+alleles (bounded by the hit limit). `scoring` exports a semicolon-separated
+`allele_candidates`; `annotation.batch.mhc_annotation` uses `mhc.allele_candidates`.
+A cropped groove cannot distinguish alleles differing outside its sequence, or infer
+null expression from a tied hit. Keep the experimental restriction separate. Validate
+coordinate peptide, TCR junctions and MHC evidence before attaching experimental
+labels; a matching filename/hash is insufficient. ARDA owns TCR FR/CDR coordinates;
+`annotate_mhc_batch` owns MHC class/role and canonical groove-region projection.

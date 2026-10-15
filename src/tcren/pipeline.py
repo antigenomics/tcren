@@ -310,6 +310,7 @@ def score_row(result: PipelineResult) -> dict:
         "pdb.id": result.pdb_id,
         "mhc.class": mhc.mhc_class if mhc else None,
         "allele": mhc.allele if mhc else None,
+        "allele_candidates": ";".join(mhc.allele_candidates) if mhc else None,
         "rmsd": result.rmsd,
         # Same names as tcren.recognition.RECOGNITION_FEATURES, so the two tables join and the
         # project has ONE vocabulary for these quantities.
