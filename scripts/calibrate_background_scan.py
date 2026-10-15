@@ -26,6 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from tcren.annotation.batch import iter_annotated_set  # noqa: E402
 from tcren.energetics import background as bg  # noqa: E402
+from tcren.paths import native_dir  # noqa: E402
 
 SETTINGS = [(120.0, 0.4), (120.0, 0.6), (120.0, 0.8),
             (60.0, 0.4), (60.0, 0.6), (60.0, 0.8),
@@ -34,7 +35,7 @@ SETTINGS = [(120.0, 0.4), (120.0, 0.6), (120.0, 0.8),
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--structures", default=str(Path.home() / "hf/tcren_structures/Native2026"))
+    ap.add_argument("--structures", default=str(native_dir()))
     ap.add_argument("-n", "--limit", type=int, default=40)
     ap.add_argument("--side", default="to", choices=("to", "from"))
     ap.add_argument("--interface", default="tcr_peptide")

@@ -33,7 +33,8 @@ def compatible_sequence_span(sequence, query, terminal_budget=0):
     """Unique exact shared span, allowing only a stated number of missing query termini.
 
     No substitutions or internal deletions; repeated/ambiguous spans return None.
-    Extra resolved reference termini are allowed and the matched offset is reported.
+    Ambiguity is rejected at the first matching truncation level, including repeated
+    alternatives beside a unique span. Extra reference termini are allowed.
     """
     if not query or terminal_budget < 0 or terminal_budget >= len(query):
         raise ValueError("nonempty query and terminal budget smaller than query length required")
@@ -43,7 +44,9 @@ def compatible_sequence_span(sequence, query, terminal_budget=0):
             right = missing - left
             fragment = query[left : len(query) - right]
             start = sequence.find(fragment)
-            if start >= 0 and sequence.find(fragment, start + 1) < 0:
+            if start >= 0:
+                if sequence.find(fragment, start + 1) >= 0:
+                    return None
                 matches.append(dict(reference_start=start, input_start=left, length=len(fragment)))
         if matches:
             return matches[0] if len({tuple(sorted(row.items())) for row in matches}) == 1 else None
