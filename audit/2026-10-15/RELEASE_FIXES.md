@@ -270,3 +270,10 @@ Focused validation: 33 export, structural mutation and pipeline tests passed;
 whole-source/test Ruff and warning-as-error Sphinx passed. The structural test
 checks direct coordinate truncation, changed contact counts, residue/atomic
 weighting, receptor regions and preservation of the input structure.
+
+Installed-wheel verification additionally completed 1,147 non-slow tests with four
+skips. One canonical-orientation test failed because the wheel's default data root
+lacked canonical structures; it passed when rerun with the configured
+`TCREN_HOME` repository root. The source-only suite cannot load native extensions,
+so the installed-wheel run is the broader verification evidence. No scientific
+baseline or test threshold was changed.
