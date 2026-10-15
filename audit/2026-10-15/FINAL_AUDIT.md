@@ -12,7 +12,7 @@ Earlier cleanup moved 40 unused/duplicate assets with exact hashes. Trees and th
 
 ## Matched recorded gains and regressions
 
-These are predecessor/historical-arm comparisons from attempt 9, using the repaired local tcren wheel with its then-locked runtime. They are not results from a new final fit-free model, nor a full cohort rerun under the later package update. ROC-AUC and PR-AUC are dimensionless.
+These are predecessor/historical-arm comparisons from attempt 9, using the repaired local tcren wheel with its then-locked runtime. They are not results from a new final fit-free model, nor a full cohort rerun under the later package update. ROC-AUC and PR-AUC are dimensionless. Binder rows refer to the benchmark candidate `QxdPhi_TCR (Eq7)`; TCRvdb rows refer to `Q x dPhi_tcr (coupled)`. Macro ROC is the arithmetic mean of within-cohort ROC values in the named stratum, with no pooled-stratum average.
 
 | Population / quantity | Observations (positive / negative) | Before | After | Delta |
 |---|---:|---:|---:|---:|
@@ -55,3 +55,7 @@ Both isolated runtimes now use ARDA 2.36.1, NumPy 2.5.4, Polars 2.0.0, SciPy 1.1
 - Source Ruff and diff whitespace checks passed. Benchmark focused checks passed **24 tests**, 3.49 s, with warnings treated as errors. Manuscript read-only gates passed after notice-only wording was made compatible with the unchanged corpus gate: 18 main labels, 31 note sections, 45 supplementary floats, 53 plot scripts and 28 existing PDFs; no numerical body or vocabulary-gate rule changed. A read-only gate never certifies fresh PDFs.
 
 No follow-up tcren fixes, new fitted models, new scientific controls, threshold changes, replacement paper or release follow from this record. The next implementation phase starts from the filed discrepancies and the explicit fit-free specification.
+
+## Visible integration checkpoints
+
+Library audit/disposition: `6d5526e`; benchmark historical-report source: `c7143ad`; manuscript archive/status: `ee071f8`. These are local commits in the visible integration checkouts. No remote push or release was performed. The committed blob contents of all 9 library archive files and all 504 manuscript snapshot files were independently SHA-256 verified; see `committed-archive-verification.json`. Historical archived originals intentionally retain their original line endings and whitespace; active source/status changes pass whitespace checks.
