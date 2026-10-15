@@ -171,9 +171,11 @@ tcren scoring -s models/ --delta --geometry -t 8 -o scores.csv   # a directory, 
 tcren scoring -s models.txt -o scores.csv
 
 # --delta adds the poly-alanine reference ΔΦ per interface (ΔΦ_TCR:MHC is identically 0).
+# Manuscript reference: add --reference-mode structural to truncate alanine and rebuild contacts.
+# Default virtual mode retains historical fixed-map identity substitution.
 # Use ΔΦ, not Φ, when each candidate carries its OWN generated pose: raw Φ then partly reads
 # the pose the predictor chose rather than the peptide.
-tcren scoring -s 'models/*.pdb.gz' --delta -o scores.csv
+tcren scoring -s 'models/*.pdb.gz' --delta --reference-mode structural -o scores.csv
 
 # --geometry adds the interface descriptors and Q, the directional decorrelated
 # interface-quality score (native-crystal calibrated, so it is defined for a single structure).
