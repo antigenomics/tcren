@@ -79,6 +79,8 @@ def map_mhc(structure: Structure, sensitivity: float = 5.7) -> list[MhcCall]:
     if not candidates:
         return []
     ref_db = reference.reference_db()  # prebuilt mmseqs DB (createdb cached), not the FASTA
+    from ..provenance import searched_index_identity
+    identity = searched_index_identity(ref_db)
 
     calls: list[MhcCall] = []
     with tempfile.TemporaryDirectory() as tmp:
@@ -92,6 +94,10 @@ def map_mhc(structure: Structure, sensitivity: float = 5.7) -> list[MhcCall]:
                            search_type=1, sensitivity=sensitivity, max_seqs=50,
                            threads=int(os.environ.get("TCREN_MMSEQS_THREADS", "1")))
         best = _best_hits(out_tsv)
+
+    if searched_index_identity(ref_db) != identity:
+        raise RuntimeError("MHC annotation index changed during the search")
+    structure.annotation_provenance["mhc"] = identity
 
     calls = calls_from_hits(candidates, best)
     return calls

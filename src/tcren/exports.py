@@ -188,7 +188,7 @@ def export_batch(sources, output, *, quantity, peptide_potential, mhc_potential,
     from .annotation import classify_chains
     from .annotation.batch import annotate_batch
     from .mhc import annotate_mhc_batch
-    from .provenance import stamp
+    from .provenance import annotation_indexes, stamp
     from .structure import iter_structures, parse_structure, structure_paths
     from .structure.io import _TAR_SUFFIXES, resolve_sources, structure_stem
 
@@ -291,7 +291,8 @@ def export_batch(sources, output, *, quantity, peptide_potential, mhc_potential,
     from importlib.resources import files
     manifest_text = files("tcren.data").joinpath("potentials.json").read_text()
     stamp(output, command=command, columns=table.columns, extra={
-        **lineage, "organisms": list(organisms), "quantity": quantity, "interface": interface, "cutoff_A": cutoff,
+        **lineage, "searched_indexes": annotation_indexes(s for s, _ in parsed),
+        "organisms": list(organisms), "quantity": quantity, "interface": interface, "cutoff_A": cutoff,
         "threads": threads, "potentials": potentials, "bundled_potential_manifest": json.loads(manifest_text),
         "custom_potential_derivation": "not inferred; supplied matrix is exported and hashed",
         "n_input": len(accounting), "n_ok": succeeded,

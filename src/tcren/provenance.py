@@ -18,7 +18,50 @@ import hashlib
 import json
 from pathlib import Path
 
-__all__ = ["registry_digest", "sidecar_path", "stamp", "read", "check", "StaleTableError"]
+__all__ = ["registry_digest", "sidecar_path", "stamp", "read", "check", "StaleTableError",
+           "searched_index_identity", "annotation_indexes"]
+
+
+def searched_index_identity(prefix: str | Path) -> dict:
+    """Hash the exact MMseqs database prefix and its sequence/header/index payloads.
+
+    Split payloads are included. This records searched bytes, not a claim of source
+    correspondence; validation remains the owning resolver's responsibility.
+    """
+    prefix = Path(prefix).resolve()
+    paths = sorted(p for p in prefix.parent.glob(prefix.name + "*") if p.is_file())
+    hashes = {}
+    for path in paths:
+        digest = hashlib.sha256()
+        with path.open("rb") as stream:
+            for block in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(block)
+        hashes[path.name] = digest.hexdigest()
+    return {"database_path": str(prefix), "files_sha256": hashes,
+            "status": "recorded" if hashes else "unavailable"}
+
+
+def annotation_indexes(structures, previous: dict | None = None) -> dict:
+    """Combine actual search identities, rejecting mixed reference generations.
+
+    ``previous`` supports memory-bounded input chunks without retaining structures.
+    Empty dictionaries explicitly mean that no searched identity was recorded.
+    """
+    merged = dict(previous or {})
+    for structure in structures:
+        for backend, identities in getattr(structure, "annotation_provenance", {}).items():
+            if backend == "arda":
+                current = dict(merged.get(backend, {}))
+                for organism, identity in identities.items():
+                    if organism in current and current[organism] != identity:
+                        raise RuntimeError("mixed annotation indexes across input structures")
+                    current[organism] = identity
+                merged[backend] = current
+            else:
+                if backend in merged and merged[backend] != identities:
+                    raise RuntimeError("mixed annotation indexes across input structures")
+                merged[backend] = identities
+    return merged
 
 
 class StaleTableError(RuntimeError):

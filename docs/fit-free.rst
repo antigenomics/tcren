@@ -8,6 +8,19 @@ GLM, fitted Potts or fitted transition readout belongs to the final specificatio
 Q/T/S also use estimated reference moments or correlation weights and remain
 historical. These APIs and their measured results are preserved.
 
+Searched annotation references
+--------------------------------
+
+ARDA 2.36.2 or later validates the source reference and actual MMseqs database
+payloads by content, preserving legacy indexes as evidence. Source-root discovery
+recognizes ARDA itself rather than an unrelated enclosing project.
+``scoring``, ``features``, ``recognize`` and ``export`` retain ``searched_indexes``
+in provenance sidecars: resolved database prefixes and SHA256 identities of the
+searched sequence, header and index files, including split payloads. These are
+captured around annotation, not inferred from package versions after scoring.
+Mid-search changes and mixed generations across input chunks fail explicitly.
+An empty identity record does not certify annotation provenance.
+
 Contact sums and references
 ---------------------------
 

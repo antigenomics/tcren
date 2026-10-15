@@ -21,6 +21,12 @@ and physical residue identities are retained; duplicates fail. Accounting, resid
 annotation and potential/provenance sidecars retain failures and estimated dependencies.
 All-failed/empty commands exit nonzero. Benchmark consumers must check every input key.
 
+Annotation requires ARDA >=2.36.2. `Structure.annotation_provenance` captures the
+resolved searched database prefix and sequence/header/index SHA256 values around
+each batch. Scoring, feature, recognition and export sidecars retain these under
+`searched_indexes`; mixed generations or mid-search changes raise. An empty record
+means no searched identity was supplied, never version-only proof of reproducibility.
+
 `tcren inspect-models manifest.tsv output/` joins native predictor confidence with
 batch annotation, contacts and descriptors. Historical fitted assessment is disabled
 by default; `--historical-assessment` explicitly opts in. AF3, TCRmodel2, Boltz2,
@@ -37,7 +43,7 @@ use `threads=1` or the CLI, with an explicit error rather than a silent fallback
 on a pure-Python pipeline (structure parsing → contacts → TCR/MHC annotation → potential
 derivation → epitope-ranking benchmarks). Annotation uses the `arda` package
 (mmseqs2-backed), a runtime dependency published to PyPI as `arda-mapper` (imports as `arda`,
-`>=2.5.7`) — no separate checkout and **no `ARDA_HOME`** (arda auto-fetches its reference and a
+`>=2.36.2`) — no separate checkout and **no `ARDA_HOME`** (arda auto-fetches its reference and a
 static mmseqs binary on first use). Repo-local `.venv` via uv, no conda (`bash setup.sh`).
 
 ## The flat middle became four named sub-packages (2.29.0) — old imports still work

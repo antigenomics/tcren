@@ -118,9 +118,16 @@ def annotate_mhc_batch(structures: list[Structure], sensitivity: float = 5.7,
                 for i, c in flat:
                     fh.write(f">{i}|{c.chain_id}\n{c.sequence()}\n")
             out_tsv = tmp / "hits.tsv"
-            mmseqs.easy_search(query_fa, reference.reference_db(), out_tsv,
+            from ..provenance import searched_index_identity
+            target = reference.reference_db()
+            identity = searched_index_identity(target)
+            mmseqs.easy_search(query_fa, target, out_tsv,
                                tmp / "mmseqs_tmp", search_type=1, sensitivity=sensitivity,
                                max_seqs=50, threads=threads)
+            if searched_index_identity(target) != identity:
+                raise RuntimeError("MHC annotation index changed during the search")
+            for structure in structures:
+                structure.annotation_provenance["mhc"] = identity
             best = _best_hits(out_tsv)
     for i, s in enumerate(structures):
         calls = calls_from_hits(_candidate_chains(s), best, key=lambda c, i=i: f"{i}|{c.chain_id}")
