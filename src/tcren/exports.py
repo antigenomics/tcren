@@ -23,7 +23,7 @@ from .potential import Potential
 
 RECEPTOR_REGIONS = {"all": None, "cdr": ("CDR1", "CDR2", "CDR3"),
                     "cdr12": ("CDR1", "CDR2"), "cdr3": ("CDR3",)}
-QUANTITIES = ("receptor-reference", "position", "residue", "contacts", "placement")
+QUANTITIES = ("receptor-reference", "position", "residue", "contacts", "placement", "pmhc")
 
 
 def receptor_reference(contact_map: ContactMap, peptide_potential: Potential,
@@ -107,6 +107,9 @@ def export_structure(structure, quantity: str, peptide_potential: Potential,
         raise ValueError(f"quantity must be one of {QUANTITIES}")
     if not math.isfinite(cutoff) or cutoff <= 0:
         raise ValueError("cutoff must be finite and positive")
+    if quantity == "pmhc":
+        from .topology.pmhc import pmhc_features
+        return pl.DataFrame([{"pdb.id": structure.pdb_id, **pmhc_features(structure)}])
     types = {c.chain_type for c in structure.chains}
     if types & {"TRG", "TRD", "IGH", "IGK", "IGL"}:
         raise ValueError("export is restricted to alpha-beta TCR complexes")
@@ -279,7 +282,7 @@ def export_batch(sources, output, *, quantity, peptide_potential, mhc_potential,
         schema={"pdb.id": pl.String})
     residue_table.write_csv(str(output) + ".residues.tsv", separator="\t")
     potentials = {}
-    for label, potential in (("peptide", peptide_potential), ("mhc", mhc_potential)):
+    for label, potential in (() if quantity == "pmhc" else (("peptide", peptide_potential), ("mhc", mhc_potential))):
         path = Path(str(output) + f".{label}.potential.tsv")
         potential.matrix.write_csv(path, separator="\t")
         potentials[label] = {"name": potential.name, "sha256": _sha256(path),
@@ -297,6 +300,7 @@ def export_batch(sources, output, *, quantity, peptide_potential, mhc_potential,
         "custom_potential_derivation": "not inferred; supplied matrix is exported and hashed",
         "n_input": len(accounting), "n_ok": succeeded,
         "n_error": len(accounting) - succeeded, "sources": [str(p) for p in paths],
-        "reference_semantics": "virtual receptor identities on unchanged contact map",
+        "reference_semantics": ("pMHC only; supplied conformation; no potential or receptor coordinates" if quantity == "pmhc"
+                                else "virtual receptor identities on unchanged contact map"),
         "residue_phi_accounting": "each contact contributes to both endpoints; sum is 2*Phi"})
     return ledger

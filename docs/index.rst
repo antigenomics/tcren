@@ -76,6 +76,7 @@ What tcren does
 
    getting-started
    fit-free
+   associations
    prediction
    reproduction
    assess

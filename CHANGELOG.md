@@ -5,6 +5,12 @@ All notable changes to `tcren` are recorded here. Format follows
 
 ## [4.0.1] — unreleased
 
+### Added
+
+- Exact pMHC-only surface/SASA exports and descriptive feature–performance
+  associations versus ipTM, with matched rows, class/template strata, fixed
+  score directions, input hashes and complete missingness accounting.
+
 ### Fixed
 
 - Require ARDA's content-validated reference indexes and correct source-root detection.
