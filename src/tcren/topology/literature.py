@@ -139,6 +139,7 @@ def _contact_frame(structure: Structure, cutoff: float) -> pl.DataFrame | None:
             pl.concat_str([pl.col("chain.type.from"), pl.col("region.type.from")],
                           separator=":").alias("loop"),
             pl.col("chain.id.from").alias("cf"),
+            pl.col("chain.id.to").alias("ct"),
             pl.col("residue.index.from").cast(pl.Int64).alias("rf"),
             pl.col("residue.index.to").cast(pl.Int64).alias("rt"),
             pl.lit(target).alias("target")))
@@ -146,7 +147,7 @@ def _contact_frame(structure: Structure, cutoff: float) -> pl.DataFrame | None:
         return None
     t = (pl.concat(frames, how="vertical")
          .filter(pl.col("loop").is_in(list(_CELL_LOOPS)))
-         .unique(subset=["cf", "rf", "target", "rt"]))
+         .unique(subset=["cf", "rf", "ct", "target", "rt"]))
     return None if t.is_empty() else t
 
 
@@ -173,8 +174,9 @@ def participation_coefficient(t: pl.DataFrame) -> dict[str, float]:
     if a.height:
         out["partcoef_tcr"] = float((1 - a["sq"] / a["k"] ** 2).mean())
     # pMHC side: does an engaged target residue read one CDR loop or several?
-    b = (t.group_by(["target", "rt", "loop"]).len()
-         .group_by(["target", "rt"]).agg(pl.col("len").sum().alias("k"),
+    target_keys = ["target", "ct", "rt"] if "ct" in t.columns else ["target", "rt"]
+    b = (t.group_by([*target_keys, "loop"]).len()
+         .group_by(target_keys).agg(pl.col("len").sum().alias("k"),
                                          (pl.col("len") ** 2).sum().alias("sq")))
     if b.height:
         out["partcoef_pmhc"] = float((1 - b["sq"] / b["k"] ** 2).mean())
@@ -185,9 +187,10 @@ def contact_order(t: pl.DataFrame) -> dict[str, float]:
     r"""Plaxco's length-normalised sequence spread, per target.
 
     For each CDR loop, the mean absolute sequence separation :math:`|i - j|` between the distinct
-    target residues it reaches; averaged over loops and divided by the target's own span *L* in
-    residues, which is the normalisation Plaxco's result rests on. Higher means one loop reaches
-    residues far apart in the target sequence.
+    target residues it reaches, divided by that chain's contacted span *L* in residues, then
+    averaged over supported loop–chain pairs. Separate MHC chains have separate sequence axes.
+    Higher means one loop reaches residues far apart in the target sequence. Legacy frames without
+    ``ct`` are treated as carrying one chain per target category.
 
     Args:
         t: the long contact frame from :func:`_contact_frame`.
@@ -197,21 +200,24 @@ def contact_order(t: pl.DataFrame) -> dict[str, float]:
         no loop reaches more than one of its residues.
     """
     out = {"co_pep": float("nan"), "co_mhc": float("nan")}
+    if "ct" not in t.columns:
+        t = t.with_columns(pl.col("target").alias("ct"))
     for target, key in (("peptide", "co_pep"), ("mhc", "co_mhc")):
         g = t.filter(pl.col("target") == target)
         if not g.height:
             continue
-        span = int(g["rt"].max()) - int(g["rt"].min()) + 1
-        if span < 2:
-            continue
         seps = []
-        for (_loop,), h in g.group_by(["loop"]):
-            idx = np.unique(h["rt"].to_numpy())
-            if len(idx) > 1:
-                d = np.abs(idx[:, None] - idx[None, :])[np.triu_indices(len(idx), 1)]
-                seps.append(float(d.mean()))
+        for _, chain in g.group_by("ct"):
+            span = int(chain["rt"].max()) - int(chain["rt"].min()) + 1
+            if span < 2:
+                continue
+            for _, h in chain.group_by("loop"):
+                idx = np.unique(h["rt"].to_numpy())
+                if len(idx) > 1:
+                    d = np.abs(idx[:, None] - idx[None, :])[np.triu_indices(len(idx), 1)]
+                    seps.append(float(d.mean()) / span)
         if seps:
-            out[key] = float(np.mean(seps)) / span
+            out[key] = float(np.mean(seps))
     return out
 
 

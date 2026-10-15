@@ -1,6 +1,13 @@
 Reliability: scoring one modelled structure
 ===========================================
 
+.. important::
+
+   Final models use fixed empirical contact potentials with explicit provenance.
+   Gaussian/GLM, fitted Potts and transition models, and reference-estimated Q/T/S
+   are historical readouts, excluded from the final specification. Nothing fitted
+   at scoring time does not mean fit-free. See :doc:`fit-free`.
+
 .. currentmodule:: tcren.reliability
 
 A generator's confidence is not a binding prediction. On the balanced VDJdb panel, models in
@@ -14,7 +21,7 @@ read-out for one structure at a time.
 .. math::  S \;=\; \frac{Q}{\sigma_Q} \;+\; \frac{T}{\sigma_T}
            \;+\; \frac{\Pi - \mu_\Pi}{\sigma_\Pi}
 
-Each block is a fit-free directional score :math:`z(x)^\top C^{-1} s` standardized against the
+Each block is a reference-estimated directional score :math:`z(x)^\top C^{-1} s` standardized against the
 **Native2026 crystals**: :math:`Q` the interface geometry (:data:`tcren.cohort.Q_FEATURES_GEOM`),
 :math:`T` the footprint *shape* free of its size (:data:`T_FEATURES_TOPO`), and :math:`\Pi` the
 interface energy read against the partition function (``neg_energy`` from :mod:`tcren.potts`).

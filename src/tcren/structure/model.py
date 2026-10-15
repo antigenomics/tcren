@@ -29,6 +29,7 @@ class Atom:
     name: str
     element: str
     coord: np.ndarray  # float64, shape (3,)
+    altloc: str = ""  # source alternate-location label; empty when unspecified
 
 
 @dataclass(frozen=True, slots=True)

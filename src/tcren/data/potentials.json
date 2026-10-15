@@ -25,7 +25,7 @@
     },
     "tcren2": {
       "file": "TCRen2_potential.csv",
-      "description": "TCRen2: the default TCR:peptide potential. Redundancy-balanced derivation over the fully annotated alpha-beta TCR:pMHC crystals of Native2026 -- 362 of 374; derive-potential admits nothing else, by design -- each structure weighted by the mean of 1/(structures sharing its epitope) and 1/(structures sharing its CDR3a/CDR3b pair).",
+      "description": "TCRen2: the default TCR:peptide potential. Redundancy-balanced derivation over the fully annotated alpha-beta TCR:pMHC crystals of Native2026 that the RCSB still holds -- 359 of 374. derive-potential admits nothing else, by design: the alpha-beta restriction is unconditional, and entries the RCSB has withdrawn are dropped against data/pdb_withdrawn.csv, which names each one and its reason. Three are dropped here: 1jtr and 4zez are superseded by 1mwa and 5jzi, both already in the set, so keeping them counted one complex twice in a set built to be non-redundant; 4euq was withdrawn with no successor because its TCR alpha chain was modelled from the wrong gene at positions 93-98, the CDR3a region this potential reads. Each surviving structure is weighted by the mean of 1/(structures sharing its epitope) and 1/(structures sharing its CDR3a/CDR3b pair). Against the 362-structure derivation this replaces, the matrix agrees at r = 0.9996 over all 380 cells with a largest shift of 0.104 on a range of 2.95, so the correction is a provenance fix and not a change of instrument.",
       "source": "structure-dir",
       "structure_dir": "Native2026",
       "flags": [
@@ -62,6 +62,40 @@
       "aaindex": [
         "BETM990101"
       ]
+    },
+    "tcren2_em": {
+      "file": "TCRen2_sc_potential.csv",
+      "description": "TCRen2-EM: the same estimator, reference state and pseudocount as tcren2, over the same Native2026 crystals, but tallying every AVAILABLE residue pair weighted by the probability the coupled contact model gives it rather than the contacts one crystal happens to show. Each step recomputes the contact posterior under the current model, re-derives the matrix from those probability-weighted counts, damps it against the previous matrix and refits with the new matrix pinned as the pair term, until the matrix stops moving. Weighting whole configurations by their probability is exact and free: sum_delta P(delta | obs) n_ab(delta) equals sum_a p_a by linearity of expectation, so configurations are never enumerated. It ships BESIDE tcren2 and does not replace it -- Pearson r = 0.944 against TCRen2 over the 380 cells, a smaller perturbation than the r = 0.867 between TCRen2 and the 2022 matrix, concentrated in the cells the crystal tally left thin. Scores under the two are not interchangeable.",
+      "source": "structure-dir",
+      "structure_dir": "Native2026",
+      "command": "potts selfcon",
+      "structure_flag": "-s",
+      "flags": [
+        "--balance",
+        "both",
+        "--margin",
+        "0.5",
+        "--damping",
+        "0.5",
+        "--steps",
+        "25",
+        "--tol",
+        "5e-3",
+        "--draws",
+        "400",
+        "--chains",
+        "64",
+        "--burn",
+        "100",
+        "--thin",
+        "3",
+        "--seed",
+        "0"
+      ],
+      "pseudocount": 1,
+      "tolerance": 0.005,
+      "reproduce": "benchmark",
+      "tolerance_reason": "The E-step is a block-Gibbs sample, so the derived cells carry Monte-Carlo error that no seed removes across a re-run: max_abs_de plateaus at 0.0039 at draws=100 and 0.0022 at draws=400, a ratio of 0.553 against the 0.500 that quartering the variance predicts. 5e-3 is that floor. Every other entry here reproduces at 1e-9 and must keep doing so."
     }
   },
   "known_unresolved": []

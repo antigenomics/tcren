@@ -47,3 +47,29 @@ def test_matches_biopython_fitting_aligner():
     placed = "YFAMYGEKVAHTHVDTLYVRYHYYTWAVWAYTWY"
     free = "GSHSMRYFFTSVSRPGRGEPRFIAVGYVDDTQFVRFDSDAASQRMEPRAPWIEQEGPEYWDGE"
     assert _align.fitting_score(placed, free) == _pseudo_aligner().score(placed, free)
+
+
+def test_traceback_attains_fitting_score_across_gap_transitions():
+    """Both gap-state traceback transitions must preserve the DP optimum."""
+    from itertools import product
+    import random
+
+    def check(placed, free):
+        pairs = _align.align(placed, free)
+        score = sum(11 if placed[i] == free[j] == 'W' else
+                    4 if placed[i] == free[j] == 'A' else -3 for i, j in pairs)
+        for (i, j), (next_i, next_j) in zip(pairs, pairs[1:]):
+            assert next_i > i and next_j > j
+            gap = next_i - i - 1
+            if gap:
+                score -= 11 + gap - 1
+        assert score == _align.fitting_score(placed, free), (placed, free, pairs)
+
+    check('WAWAAWAWAWAA', 'WWAAWWA')
+    short = [''.join(s) for n in range(5) for s in product('WA', repeat=n)]
+    for placed in short:
+        for free in short:
+            check(placed, free)
+    rng = random.Random(3)
+    for _ in range(500):
+        check(''.join(rng.choices('WA', k=12)), ''.join(rng.choices('WA', k=7)))

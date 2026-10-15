@@ -79,3 +79,21 @@ def test_contact_stability_margins_and_fragility():
     assert st["frac_robust"] == pytest.approx(0.5)
     assert st["frac_marg_lt1"] == pytest.approx(0.5)
     assert st["exp_lost"] == pytest.approx(0.25)             # 0 + clip((1-0.5)/2)
+
+
+def test_native_geometry_rejects_invalid_buffers_and_parameters():
+    xyz = np.zeros((1, 3)); ids = np.zeros(1, np.int32); rad = np.ones(1)
+    calls = [
+        lambda: _geom.shrake_rupley(xyz, rad, n_points=0),
+        lambda: _geom.shrake_rupley(np.zeros((1, 2)), rad),
+        lambda: _geom.shrake_rupley(xyz, np.empty(0)),
+        lambda: _geom.shrake_rupley(xyz, np.array([np.nan])),
+        lambda: _geom.interface_hbonds(xyz, np.zeros((1, 2))),
+        lambda: _geom.contact_descriptors(xyz, np.empty(0, np.int32), xyz, ids, xyz, xyz),
+        lambda: _geom.interface_clashes(xyz, rad, xyz, np.empty(0)),
+        lambda: _geom.contact_stability(xyz, ids, xyz, np.empty(0, np.int32)),
+        lambda: _geom.contact_stability(xyz, ids, xyz, ids, delta=0),
+    ]
+    for call in calls:
+        with pytest.raises(ValueError):
+            call()

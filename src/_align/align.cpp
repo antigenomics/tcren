@@ -154,10 +154,11 @@ std::vector<std::pair<int, int>> align(const std::string& placed, const std::str
         }
         const char bp = bM[i][j];
         if (bp == 2) { --j; }                           // free skip of a free-seq residue
-        else if (bp == 3) { inGap = true; }             // entering a gap run
+        else if (bp == 3) { --j; inGap = true; }        // free skip from G[i][j-1]
         else {                                          // match column (placed i-1, free j-1)
             out.emplace_back(i - 1, j - 1);
             --i; --j;
+            inGap = bp == 1;                            // diagonal from G[i-1][j-1]
         }
     }
     std::reverse(out.begin(), out.end());

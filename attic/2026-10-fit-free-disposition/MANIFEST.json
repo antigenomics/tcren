@@ -1,0 +1,59 @@
+{
+  "reason": "Author-selected fit-free final models; fitted readouts preserved as historical evidence, not deleted from supported historical API.",
+  "files": [
+    {
+      "path": "src/tcren/data/holdout_model.npz",
+      "archive": "snapshot/src/tcren/data/holdout_model.npz",
+      "bytes": 323603,
+      "sha256": "e1655ee57f6f77971fc5f4f5aa71835c5b3bd048085f2b2d0f55bc487d518be3"
+    },
+    {
+      "path": "src/tcren/data/holdout_manifest.csv.gz",
+      "archive": "snapshot/src/tcren/data/holdout_manifest.csv.gz",
+      "bytes": 336993,
+      "sha256": "2555841a03355ffb8535cea26c7955c79e9084c63b30fc857323ffa26257f695"
+    },
+    {
+      "path": "src/tcren/cohort.py",
+      "archive": "snapshot/src/tcren/cohort.py",
+      "bytes": 21512,
+      "sha256": "e55a63cfbba2391b6fd7132adccd836159fac5bfcc4448b0090a51ee68dc5614"
+    },
+    {
+      "path": "src/tcren/reliability.py",
+      "archive": "snapshot/src/tcren/reliability.py",
+      "bytes": 15989,
+      "sha256": "13991d8cab00ede191c3d3b6993b91dad4d898f8d56f0a8c59d53825ba5641d7"
+    },
+    {
+      "path": "src/tcren/score/__init__.py",
+      "archive": "snapshot/src/tcren/score/__init__.py",
+      "bytes": 19478,
+      "sha256": "0d8ee5df2396294d622ce58dfbd7e2408a94148767fc2d16adbdf0f4a8887643"
+    },
+    {
+      "path": "src/tcren/score/explain.py",
+      "archive": "snapshot/src/tcren/score/explain.py",
+      "bytes": 8243,
+      "sha256": "c13d24810b284adbd63238960ec70c20837845bc0c6c44525321a877cc2e4519"
+    },
+    {
+      "path": "src/tcren/score/fit.py",
+      "archive": "snapshot/src/tcren/score/fit.py",
+      "bytes": 6815,
+      "sha256": "3337e2b4ce6eba2e660e7f489464c76024f569ad3e64ed0d9a7e9ee40bd874b1"
+    },
+    {
+      "path": "src/tcren/score/model.py",
+      "archive": "snapshot/src/tcren/score/model.py",
+      "bytes": 11956,
+      "sha256": "0111c20d628842e62d3653e610ee7f2e514c832fb5550ef7c32230d0d3c11d45"
+    },
+    {
+      "path": "src/tcren/score/transform.py",
+      "archive": "snapshot/src/tcren/score/transform.py",
+      "bytes": 10609,
+      "sha256": "e354508bc8b5854c2688bf10d34526ad4190461994a09a59a69a6a7cc8e19b99"
+    }
+  ]
+}

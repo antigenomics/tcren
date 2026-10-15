@@ -39,7 +39,15 @@ extensions = [
     "sphinx.ext.viewcode",
     "sphinx.ext.githubpages",
     "nbsphinx",
+    # docs/rederivation.md is Markdown -- 238 lines and eight tables of a derivation sweep that
+    # would have to be retyped in reStructuredText to render otherwise. Registering the parser is
+    # two lines against a manual conversion, so the file is left as Markdown. Keep myst-parser in
+    # the `docs` extra AND in .github/workflows/docs.yml, whose install list is hand-maintained.
+    "myst_parser",
 ]
+
+# nbsphinx claims ``.ipynb``; myst_parser claims ``.md``; everything else stays reStructuredText.
+source_suffix = {".rst": "restructuredtext", ".md": "markdown", ".ipynb": "jupyter_notebook"}
 
 autosummary_generate = False
 napoleon_use_ivar = True  # render dataclass "Attributes:" inline (avoids duplicate objects)

@@ -5,9 +5,10 @@ from .aaindex import (AAindexEntry, aaindex, catalogue, entry, identify,
                       parse_aaindex3)
 from .model import (AA20, AA21, HydrophobicityFit, Potential,
                     PotentialDecomposition, betancourt, keskin, mj, mj1996,
-                    mj_partition_energy, tcren, tcren2)
+                    mj_partition_energy, tcren, tcren2, tcren2_em)
 from .redundancy import (alphabeta_ids, balanced_weights, cluster_weights,
-                         epitope_weights, nonredundant_ids)
+                         epitope_weights, nonredundant_ids, withdrawn_entries,
+                         withdrawn_ids)
 
 __all__ = [
     "AA20",
@@ -20,6 +21,7 @@ __all__ = [
     "symmetrize_counts",
     "tcren",
     "tcren2",
+    "tcren2_em",
     "mj",
     "mj1996",
     "mj_partition_energy",
@@ -32,6 +34,8 @@ __all__ = [
     "betancourt",
     "keskin",
     "nonredundant_ids",
+    "withdrawn_entries",
+    "withdrawn_ids",
     "alphabeta_ids",
     "cluster_weights",
     "epitope_weights",

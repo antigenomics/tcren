@@ -76,8 +76,8 @@ MATRIX_FEATURES: tuple[str, ...] = (
 #: the peptide.
 MHC_HELIX_REGIONS: tuple[str, ...] = ("HELIX_A1", "HELIX_A2", "HELIX_B1")
 
-#: Length scale of the Gaussian proximity kernel, Angstrom. The contact criterion's own 5 A, so the
-#: binary contact map is this kernel's ``sigma -> 0`` limit rather than an independent choice.
+#: Length scale of the Gaussian proximity kernel, Angstrom, matching the contact cutoff's scale.
+#: This smooth proximity weight is not a binary contact indicator, even as sigma tends to zero.
 _SIGMA = 5.0
 
 #: Two descriptors that :mod:`tcren.pose` has computed since the pose layer was written and that no

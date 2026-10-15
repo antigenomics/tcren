@@ -25,6 +25,7 @@
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
+#include <limits>
 #include <vector>
 
 namespace py = pybind11;
@@ -73,6 +74,15 @@ double anchor_rmsd(const std::vector<Vec3>& coords, const std::vector<int>& movi
 py::tuple ccd_close(py::array_t<double> coords_in, py::array_t<int> bonds_in,
                     py::array_t<int> moving_in, py::array_t<double> targets_in,
                     py::array_t<double> weights_in, int max_iter, double tol) {
+    // Widths must be checked before unchecked column reads, not only indices afterwards.
+    if (coords_in.ndim() != 2 || coords_in.shape(1) != 3 ||
+        targets_in.ndim() != 2 || targets_in.shape(1) != 3 ||
+        bonds_in.ndim() != 2 || bonds_in.shape(1) != 2 ||
+        moving_in.ndim() != 1 || weights_in.ndim() != 1 ||
+        coords_in.shape(0) > std::numeric_limits<int>::max())
+        throw py::value_error("invalid CCD array rank or width");
+    if (max_iter < 0 || !std::isfinite(tol) || tol < 0)
+        throw py::value_error("max_iter and finite tolerance must be nonnegative");
     auto cr = coords_in.unchecked<2>();
     std::vector<Vec3> coords(cr.shape(0));
     for (py::ssize_t i = 0; i < cr.shape(0); ++i) coords[i] = {cr(i, 0), cr(i, 1), cr(i, 2)};
@@ -93,6 +103,13 @@ py::tuple ccd_close(py::array_t<double> coords_in, py::array_t<int> bonds_in,
     std::vector<double> w(wr.shape(0));
     for (py::ssize_t i = 0; i < wr.shape(0); ++i) w[i] = wr(i);
 
+    for (const auto* points : {&coords, &targets})
+        for (const auto& p : *points)
+            if (!std::isfinite(p.x) || !std::isfinite(p.y) || !std::isfinite(p.z))
+                throw py::value_error("CCD coordinates must be finite");
+    for (double weight : w)
+        if (!std::isfinite(weight) || weight < 0)
+            throw py::value_error("CCD weights must be finite and nonnegative");
     const int n = static_cast<int>(coords.size());
 
     // Validate every index/length BEFORE releasing the GIL: the inner loops index std::vector with

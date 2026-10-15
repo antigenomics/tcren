@@ -31,6 +31,11 @@ Where the original tcren scored TCR:peptide contacts alone, this version also sc
 and peptide:MHC interfaces, which a full picture of TCR:pMHC binding mechanics and any ΔΔG
 estimate both need.
 
+**Final-model scope (15 October 2026):** fixed empirical potentials are permitted
+with explicit provenance. Gaussian/GLM, fitted Potts/transition and reference-estimated
+Q/T/S readouts remain historical APIs, excluded from final models. See
+[the fit-free contract](docs/fit-free.rst). A complete fresh reproduction is still required.
+
 ## What it is evaluated on
 
 Five benchmark blocks, chosen to cover the problems users actually bring to a modelled TCR:pMHC
@@ -224,7 +229,7 @@ tcren features -s candidates/ -o feats.tsv
 tcren assess   --features feats.tsv -o scores.tsv
 tcren assess   --features cpl_feats.tsv --peptide -o cpl.tsv   # when the PEPTIDE is what varies
 
-# The fit-free predecessor tier on the same table: Q (interface geometry), T (footprint shape) and
+# The historical reference-estimated tier on the same table: Q (interface geometry), T (footprint shape) and
 # their composition with the contact energy, S. Still shipped, still reported, and it COMPOSES with
 # the score set rather than being replaced by it.
 tcren recognize --features feats.tsv -o qts.tsv
@@ -359,7 +364,7 @@ combinatorial library or a mutational scan. Otherwise the five descriptors compu
 receptor are marginalized out, because they are constant across every structure of one epitope on one
 allele and a model reading them reaches the cohort's name without reading an interface.
 
-`assess` also emits, on the same rows: the fit-free predecessor tier `S`; the rank and percentile
+`assess` also emits, on the same rows: the historical reference-estimated tier `S`; the rank and percentile
 within the set with the expected mean score at a recall budget; and — when the table carries ipTM —
 the generator diagnostic, which band the model falls in, how often models in that band turned out to
 be non-binders, and what `S` still separates *inside* it. On the balanced 22-cohort VDJdb panel the
@@ -611,7 +616,7 @@ Worked examples of every view, with images: **[Figure gallery](https://docs.isal
 | `tcren.binder` | the pre-energy check that an interface is a plausible dock at all — a rule over contact count and docking geometry, not a model |
 | `tcren.recognition` / `descriptors` | the descriptor catalogue: 164 columns in six families, what each means, its units and its known defects (`DESCRIPTORS`, `STATUS`), plus the 40-column interface block this layer computes itself |
 | `tcren.score` | the score set — one frozen object, five read-outs (`peptide_score`, `pose_score`, `confidence_residual`, `binder_score`, `channel_scores`), each defined for a single structure |
-| `tcren.cohort` / `reliability` | the fit-free predecessor tier: `Q`, `T`, `S`, the AlphaFold band table and the screening cut |
+| `tcren.cohort` / `reliability` | the historical reference-estimated tier: `Q`, `T`, `S`, the AlphaFold band table and the screening cut |
 | `tcren.docking` | canonical frame, `superimpose` onto the canonical DB, docking angles, reverse-dock detection |
 | `tcren.refine` | peptide substitution + refinement (DOPE MC; CCD/OpenMM/ProMod3/FlexPepDock engines); register QC |
 | `tcren.clashes` / `mechanics` | steric-clash report; interface spring-network stiffness + rupture model; peptide backbone dynamics |

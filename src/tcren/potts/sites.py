@@ -13,7 +13,7 @@ import numpy as np
 import polars as pl
 
 from ..structure.model import Structure
-from .model import AA, CLASSES, DBIN, PottsModel, REGIONS, ROLES
+from .model import AA, CLASSES, DBIN, N_ORIENT, OBIN, PottsModel, REGIONS, ROLES
 
 #: MHC chain types carrying a groove. B2M is out: it has no groove region and sits under the
 #: floor rather than under the receptor.
@@ -30,18 +30,30 @@ MHC_RECEPTOR_REGIONS: tuple[str, ...] = tuple(
     f"{c}:{r}" for c in MHC_PARTNER for r in GROOVE_REGIONS) + ("other",)
 
 SITE_COLUMNS: tuple[str, ...] = (
-    "pdb.id", "aa.rec", "chain.rec", "region.rec", "pos.rec",
+    "pdb.id", "chain.id.rec", "chain.id.par", "aa.rec", "chain.rec", "region.rec", "pos.rec",
     "aa.par", "pos.par", "par.len", "role.par", "cls", "d_heavy", "d_ca", "sigma",
 )
 
+#: Emitted beside :data:`SITE_COLUMNS` by :func:`available_pairs`, and read by
+#: :func:`site_codes` only when the model carries a fitted ``g_orient``. Kept out of
+#: ``SITE_COLUMNS`` so every table written before the block existed still satisfies the schema.
+ORIENT_COLUMN: str = "cos_cb"
+
 
 def _sided(structure: Structure, partner: tuple[str, ...],
-           receptor: tuple[str, ...] | None = None) -> pl.DataFrame | None:
-    """``pose._interface_layers`` plus the normalised partner key and both annotation joins."""
+           receptor: tuple[str, ...] | None = None,
+           probe: float = 5.0) -> pl.DataFrame | None:
+    """``pose._interface_layers`` plus the normalised partner key and both annotation joins.
+
+    ``probe`` is the radius the **heavy-atom** layer is built at. It is not the contact definition:
+    ``available_pairs`` calls a contact at ``cutoff`` whatever the probe is, so ``sigma`` never
+    moves with it. What it decides is whether a non-contact carries a distance at all -- the
+    difference between "this pair did not contact" and "this pair missed by 0.2 Å".
+    """
     from ..contacts.table import residue_annotation
     from ..contacts.definitions import _interface_layers
 
-    w = _interface_layers(structure, 5.0, partner=partner, receptor=receptor)
+    w = _interface_layers(structure, probe, partner=partner, receptor=receptor)
     if w.is_empty() or "d3" not in w.columns:
         return None
     # The partner-side key is whichever end of the pair the normalised receptor key is not. Chain
@@ -69,7 +81,8 @@ def _sided(structure: Structure, partner: tuple[str, ...],
 
 def available_pairs(structure: Structure, partner: str = "peptide", *,
                     receptor: str = "tcr",
-                    radius: float = 15.0, cutoff: float = 5.0) -> pl.DataFrame:
+                    radius: float = 15.0, cutoff: float = 5.0,
+                    probe: float | None = None) -> pl.DataFrame:
     """Every receptor:partner residue pair inside ``radius``, with whether it contacted.
 
     Three arms, and they are three **separate Hamiltonians**, not one field read three ways: the
@@ -89,6 +102,15 @@ def available_pairs(structure: Structure, partner: str = "peptide", *,
             model fitted here carries :data:`MHC_RECEPTOR_REGIONS`, not the TCR loop set.
         radius: Availability radius, Å, on the Cα–Cα distance.
         cutoff: Contact definition, Å, on the closest heavy-atom distance.
+        probe: Radius the heavy-atom layer is measured out to. ``None`` (default) uses ``radius``,
+            so every available pair carries a real ``d_heavy``. Measured on 3UTS the default
+            reaches 0 nulls over 171 pairs where a ``cutoff``-wide probe left 154 (90.1 %), at no
+            measurable cost, and ``sigma`` is identical either way — the contact call keys on
+            ``cutoff`` and never on the probe. A narrower probe is still accepted and is clamped
+            up to ``cutoff``; it makes ``d_heavy`` null for every pair that missed, which
+            :func:`tcren.potts.selfcon.observation_field` reads as a confident non-contact.
+            :mod:`tcren.potts.em` needs the layer to reach past ``cutoff`` in both directions,
+            because a latent band that only reaches inwards can turn contacts off and never on.
 
     Returns:
         One row per site: ``pdb.id``, the two residue types and positions, the receptor chain and
@@ -110,15 +132,17 @@ def available_pairs(structure: Structure, partner: str = "peptide", *,
         raise ValueError("receptor='mhc' pairs with partner='peptide' (the presentation arm); "
                          f"got partner={partner!r}")
     w = _sided(structure, ("PEPTIDE",) if partner == "peptide" else MHC_PARTNER,
-               receptor=MHC_PARTNER if receptor == "mhc" else None)
+               receptor=MHC_PARTNER if receptor == "mhc" else None,
+               probe=radius if probe is None else max(probe, cutoff))
     if w is None:
-        return pl.DataFrame(schema={c: pl.Utf8 for c in SITE_COLUMNS})
+        return pl.DataFrame(schema={c: pl.Utf8 for c in SITE_COLUMNS} | {ORIENT_COLUMN: pl.Float64})
     if receptor == "mhc":
         # The groove is the receptor here, so it is `region.rec` that must be a groove region --
         # an MHC residue outside the groove (b2m, the alpha-3 domain) is not presenting anything.
         w = w.filter(pl.col("region.rec").is_in(list(GROOVE_REGIONS)))
         if w.is_empty():
-            return pl.DataFrame(schema={c: pl.Utf8 for c in SITE_COLUMNS})
+            return pl.DataFrame(schema={c: pl.Utf8 for c in SITE_COLUMNS}
+                                | {ORIENT_COLUMN: pl.Float64})
     if partner == "peptide":
         peptide = next((c.sequence() for c in structure.chains
                         if c.chain_type == "PEPTIDE"), "")
@@ -136,28 +160,79 @@ def available_pairs(structure: Structure, partner: str = "peptide", *,
     else:
         w = w.filter(pl.col("region.par").is_in(list(GROOVE_REGIONS)))
         if w.is_empty():
-            return pl.DataFrame(schema={c: pl.Utf8 for c in SITE_COLUMNS})
-        lens = {r.region_type: len(r.residues) for c in structure.chains for r in c.regions
+            return pl.DataFrame(schema={c: pl.Utf8 for c in SITE_COLUMNS}
+                                | {ORIENT_COLUMN: pl.Float64})
+        lens = {f"{c.chain_id}:{r.region_type}": len(r.residues) for c in structure.chains for r in c.regions
                 if r.region_type in GROOVE_REGIONS}
         w = w.with_columns(
             (pl.col("key.par.res") - pl.col("region.start.par")).alias("pos.par"),
-            pl.col("region.par").replace_strict(lens, default=0)
+            (pl.col("key.par.chain") + ":" + pl.col("region.par")).replace_strict(lens, default=0)
               .cast(pl.Int64).alias("par.len"),
             pl.col("region.par").alias("role.par"),
             pl.lit("mhc").alias("cls"))
-    return (w.rename({"aa.tcr": "aa.rec", "aa.pep": "aa.par",
-                      "d1": "d_heavy", "d3": "d_ca"})
-            .with_columns((pl.col("d_heavy").is_not_null() & (pl.col("d_heavy") <= cutoff))
-                          .cast(pl.Float64).alias("sigma"))
-            .filter(pl.col("d_ca").is_not_null() & (pl.col("d_ca") <= radius)
-                    & pl.col("aa.rec").is_in(list(AA)) & pl.col("aa.par").is_in(list(AA)))
-            .select(list(SITE_COLUMNS))
-            .sort("pdb.id", maintain_order=True))
+    out = (w.rename({"aa.tcr": "aa.rec", "aa.pep": "aa.par",
+                     "d1": "d_heavy", "d3": "d_ca"})
+           .with_columns(pl.col("key.tcr.chain").alias("chain.id.rec"),
+                         pl.col("key.par.chain").alias("chain.id.par"),
+                         pl.lit(radius if probe is None else max(probe, cutoff)).alias("probe"),
+                         (pl.col("d_heavy").is_not_null() & (pl.col("d_heavy") <= cutoff))
+                         .cast(pl.Float64).alias("sigma"))
+           .filter(pl.col("d_ca").is_not_null() & (pl.col("d_ca") <= radius)
+                   & pl.col("aa.rec").is_in(list(AA)) & pl.col("aa.par").is_in(list(AA)))
+           .select([*SITE_COLUMNS, "probe", "key.tcr.chain", "key.tcr.res", "key.par.chain", "key.par.res"])
+           .sort("pdb.id", maintain_order=True))
+    return out.join(_orientation(structure, out), on=["key.tcr.chain", "key.tcr.res",
+                                                      "key.par.chain", "key.par.res"],
+                    how="left").select([*SITE_COLUMNS, "probe", "cos_cb"])
+
+
+def _orientation(structure: Structure, pairs: pl.DataFrame) -> pl.DataFrame:
+    """``cos_cb`` per pair --- does the receptor residue turn toward the partner residue?
+
+    Built from the **virtual** Cβ of :func:`tcren.geometry.virtual_cb` rather than the solved one,
+    so a crystal and a drawn geometry are described by the same quantity. Fitting on the real side
+    chain and scoring on a reconstructed one would be a train/test mismatch, and the reconstruction
+    keeps most of the signal anyway (Pearson 0.81; see :func:`tcren.geometry.orientation_cosine`).
+    Residue identities index the compact Cα arrays; unavailable geometry stays NaN.
+    """
+    from ..geometry import orientation_cosine
+
+    keys = ["key.tcr.chain", "key.tcr.res", "key.par.chain", "key.par.res"]
+    empty = pl.DataFrame(schema={"key.tcr.chain": pl.Utf8, "key.tcr.res": pl.Int64,
+                                 "key.par.chain": pl.Utf8, "key.par.res": pl.Int64,
+                                 "cos_cb": pl.Float64})
+    if pairs.is_empty():
+        return empty
+    by_chain = {c.chain_id: c for c in structure.chains}
+    frames = []
+    for (rec_id, par_id), group in pairs.group_by(["key.tcr.chain", "key.par.chain"]):
+        rec_chain, par_chain = by_chain.get(rec_id), by_chain.get(par_id)
+        if rec_chain is None or par_chain is None:
+            continue
+        rec_res = [r for r in rec_chain.residues if r.ca is not None]
+        par_res = [r for r in par_chain.residues if r.ca is not None]
+        rec_ix = {r.seq_index: i for i, r in enumerate(rec_res)}
+        par_ix = {r.seq_index: i for i, r in enumerate(par_res)}
+        rec_ca = np.asarray([r.ca for r in rec_res], float)
+        par_ca = np.asarray([r.ca for r in par_res], float)
+        if len(rec_ca) < 3 or len(par_ca) < 1:
+            continue
+        cos = orientation_cosine(rec_ca, par_ca)
+        want = group.filter(pl.col("key.tcr.res").is_in(list(rec_ix))
+                            & pl.col("key.par.res").is_in(list(par_ix)))
+        if want.is_empty():
+            continue
+        i = np.array([rec_ix[v] for v in want["key.tcr.res"]])
+        j = np.array([par_ix[v] for v in want["key.par.res"]])
+        frames.append(want.select(keys).with_columns(pl.Series("cos_cb", cos[i, j])))
+    measured = pl.concat(frames) if frames else empty
+    return (pairs.select(keys).unique().join(measured, on=keys, how="left", validate="1:1")
+            .with_columns(pl.col("cos_cb").fill_null(float("nan"))))
 
 
 def site_codes(sites: pl.DataFrame, model: PottsModel | None = None, *,
                radius: float = 15.0, dbin: float = DBIN,
-               regions: tuple[str, ...] | None = None):
+               regions: tuple[str, ...] | None = None, orient: bool | None = None):
     """Integer code arrays per one-body block, plus the block sizes and the annotated frame.
 
     Bin edges are **global** (base 0), never derived from the frame's own minimum: a parameter
@@ -167,9 +242,16 @@ def site_codes(sites: pl.DataFrame, model: PottsModel | None = None, *,
     Returns:
         ``(codes, sizes, frame)`` — ``codes`` is one integer array per block in the order
         receptor residue, partner residue, distance bin, receptor region, partner role, partner
-        class; ``sizes`` the number of levels of each; ``frame`` the input with ``loop``,
-        ``pchain`` and a global ``sid`` added.
+        class, and — when the model carries a fitted ``g_orient`` and the frame carries
+        ``cos_cb`` — orientation bin; ``sizes`` the number of levels of each; ``frame`` the input
+        with ``loop``, ``pchain`` and a global ``sid`` added.
     """
+    if "chain.id.par" not in sites.columns:
+        if sites.filter(pl.col("cls") != "peptide").height:
+            raise ValueError("MHC sites require chain.id.par; regenerate legacy sites from structures")
+        sites = sites.with_columns(pl.lit("PEP").alias("chain.id.par"))
+    if "chain.id.rec" not in sites.columns:
+        sites = sites.with_columns(pl.col("chain.rec").alias("chain.id.rec"))
     aa = tuple(model.alphabet) if model else AA
     # An explicit level set is how the peptide:MHC arm keeps its groove regions: the default
     # REGIONS are TCR loops, and every groove region would fall into "other".
@@ -178,6 +260,9 @@ def site_codes(sites: pl.DataFrame, model: PottsModel | None = None, *,
     classes = tuple(model.classes) if model else CLASSES
     if model is not None:
         radius, dbin = model.radius, model.dbin
+        if orient is None:
+            orient = bool(model.g_orient)
+    orient = bool(orient)
     aa_ix = {a: i for i, a in enumerate(aa)}
 
     q = sites.with_columns(
@@ -187,8 +272,8 @@ def site_codes(sites: pl.DataFrame, model: PottsModel | None = None, *,
           .otherwise(pl.lit("other")).alias("loop"),
         # The partner-chain key: one chain on the peptide arm, the groove region on the MHC arm,
         # which is the unit `pos.par` is numbered within.
-        pl.when(pl.col("cls") == "peptide").then(pl.lit("PEP"))
-          .otherwise(pl.col("role.par")).alias("pchain"),
+        pl.when(pl.col("cls") == "peptide").then(pl.col("chain.id.par"))
+          .otherwise(pl.col("chain.id.par") + ":" + pl.col("role.par")).alias("pchain"),
     ).with_row_index("sid")
 
     nb = int(np.floor(radius / dbin)) + 1
@@ -201,6 +286,16 @@ def site_codes(sites: pl.DataFrame, model: PottsModel | None = None, *,
         np.array([classes.index(c) for c in q["cls"]], dtype=np.int64),
     ]
     sizes = [len(aa), len(aa), nb, len(regions), len(roles), len(classes)]
+    # The orientation block is opt-in on both sides: a model fitted without it has no coefficients
+    # to index, and a frame without `cos_cb` has nothing to bin. Either way the block is absent and
+    # every pre-existing model scores exactly as it did.
+    if orient and "cos_cb" in q.columns:
+        if not np.isfinite(q["cos_cb"].to_numpy()).all():
+            raise ValueError("orientation model requires a finite cos_cb at every site; "
+                             "missing Cα geometry cannot be binned")
+        codes.append(np.clip(np.floor((q["cos_cb"].to_numpy() + 1.0) / OBIN).astype(np.int64),
+                             0, N_ORIENT - 1))
+        sizes.append(N_ORIENT)
     return codes, sizes, q
 
 
@@ -209,7 +304,13 @@ def eta(codes, model: PottsModel) -> np.ndarray:
     J = model.coupling_array()
     blocks = [np.asarray(model.h_rec), np.asarray(model.h_par), np.asarray(model.g_dist),
               np.asarray(model.g_region), np.asarray(model.g_role), np.asarray(model.g_class)]
+    if model.g_orient:
+        blocks.append(np.asarray(model.g_orient))
     out = np.full(len(codes[0]), float(model.alpha))
+    if len(codes) != len(blocks):
+        raise ValueError(f"the site codes carry {len(codes)} blocks and the model {len(blocks)} — "
+                         "pass a frame with `cos_cb` to score a model fitted with `g_orient`, or "
+                         "a model without it")
     for ck, b in zip(codes, blocks):
         if ck.size and int(ck.max()) >= len(b):
             raise ValueError("a site falls outside the model's blocks — the model was fitted with "

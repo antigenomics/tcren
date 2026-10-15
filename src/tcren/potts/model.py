@@ -59,6 +59,13 @@ CLASSES: tuple[str, ...] = ("peptide", "mhc")
 #: that every block stays categorical and the design stays a sum of one-hots.
 DBIN: float = 0.5
 
+#: Width of an orientation bin, in cosine. ``cos = +1`` is a side chain aimed straight at the
+#: partner residue and ``-1`` points away, so eight bins of 0.25 span the range.
+OBIN: float = 0.25
+
+#: Orientation bins over ``[-1, 1]``.
+N_ORIENT: int = int(round(2.0 / OBIN))
+
 #: Within-loop coupling classes, one representative per ``{d, -d}`` pair over ``|di| <= 2``,
 #: ``|dj| <= 2`` minus ``(0, 0)``. ``di`` is a receptor sequence offset **inside one loop**,
 #: ``dj`` a partner offset inside one chain.
@@ -79,12 +86,14 @@ CDR_LOOPS: tuple[str, ...] = tuple(
 )
 
 
-def kernel_names(joint: bool) -> list[str]:
+def kernel_names(joint: bool, far: bool = False) -> list[str]:
     """Names of the coupling classes, in the order :func:`tcren.potts.edges` returns them."""
     names = [f"K({di:+d},{dj:+d})" for di, dj in OFFSETS]
     names += [f"L(|dj|={dj},{'same' if s else 'cross'}chain)" for dj in CROSS_DJ for s in (1, 0)]
     if joint:
         names += ["M(same receptor residue, peptide vs MHC)"]
+    if far:
+        names += ["X(same receptor residue, |dj| > 2)"]
     return names
 
 
@@ -101,8 +110,17 @@ class PottsModel:
             ``coupling_matrix_name`` is set.
         beta_matrix: Scale on the named potential when ``J`` is not free.
         coupling_matrix_name: Bundled potential the coupling is fixed to (``tcren2``, ``mj``,
-            ``mj1996``, ``keskin``, ``tcren``), or ``None`` for a free ``J``.
+            ``mj1996``, ``keskin``, ``tcren``, ``tcren2_em``), or ``None`` for a free ``J`` or for a pin on a
+            matrix that is not one of the bundled five.
+        coupling_pinned: Whether ``coupling`` holds a **pinned** matrix rather than a free ``J``.
+            A pin on an unnamed matrix — one derived in this session rather than shipped — has to
+            store the matrix itself to round-trip, so it lands in ``coupling`` and this flag is
+            what tells the two apart. ``beta_matrix`` is its single fitted scale either way.
         g_dist: Cα-distance-bin coefficients, bin ``b`` covering ``[b*DBIN, (b+1)*DBIN)`` Å.
+        g_orient: Orientation-bin coefficients over :data:`N_ORIENT` bins of
+            :func:`tcren.geometry.orientation_cosine` --- *does the residue turn toward the
+            partner*. Empty in every model fitted before the block existed, and empty means the
+            block contributes nothing, so those models round-trip and score unchanged.
         g_region: Receptor-region coefficients over :data:`REGIONS`.
         g_role: Partner-role coefficients over :data:`ROLES`.
         g_class: Partner-class coefficients over :data:`CLASSES`.
@@ -111,9 +129,14 @@ class PottsModel:
         radius: Availability radius, Å (Cα–Cα). A pair beyond it is not a site.
         cutoff: Contact definition, Å (closest heavy atom).
         joint: Whether the model was fitted over both partners at once.
+        far: Whether the long-offset exclusion class is fitted. A receptor residue's grip on the
+            peptide is a contiguous run of two or three positions --- ``K(+0,+1)`` and ``K(+0,+2)``
+            are the fitted cooperativity that builds it --- and nothing in the model says the run
+            stops. This class is what says so, and it is off in every shipped model, so a model
+            written before it round-trips unchanged.
         alphabet: The residue alphabet ``h`` and ``J`` are indexed by.
         n_structures / n_sites / n_contacts: What the fit was estimated on.
-        pseudo_loglik: Penalised pseudo-log-likelihood at the optimum.
+        pseudo_loglik: Unpenalized weighted pseudo-log-likelihood at the penalized optimum.
         notes: Free text, e.g. the structure set.
     """
 
@@ -128,10 +151,13 @@ class PottsModel:
     coupling: list[list[float]] | None = None
     beta_matrix: float | None = None
     coupling_matrix_name: str | None = None
+    coupling_pinned: bool = False
+    g_orient: list[float] = field(default_factory=list)
     kernel_se: list[float] = field(default_factory=list)
     radius: float = 15.0
     cutoff: float = 5.0
     joint: bool = False
+    far: bool = False
     alphabet: str = "".join(AA)
     regions: list[str] = field(default_factory=lambda: list(REGIONS))
     roles: list[str] = field(default_factory=lambda: list(ROLES))
@@ -146,19 +172,23 @@ class PottsModel:
     # -- coupling -----------------------------------------------------------------------------
 
     def coupling_array(self) -> np.ndarray:
-        """``J`` as a 20x20 array, whether it was fitted freely or fixed to a named potential."""
+        """``J`` as a 20x20 array, whether it was fitted freely or fixed to a matrix."""
         if self.coupling is not None:
-            return np.asarray(self.coupling, dtype=float)
+            J = np.asarray(self.coupling, dtype=float)
+            return float(self.beta_matrix) * J if self.coupling_pinned else J
         if self.coupling_matrix_name is None:
             raise ValueError("model has neither a free coupling nor a coupling_matrix_name")
         return float(self.beta_matrix) * centred_potential(self.coupling_matrix_name,
                                                            tuple(self.alphabet))
 
     def n_parameters(self) -> int:
-        """Free parameters, counting a fixed-matrix coupling as the single scale it is."""
+        """Stored fitted coefficients, including redundant/unobserved levels.
+
+        Not identifiable degrees of freedom; a pinned matrix contributes its single scale.
+        """
         n = 1 + len(self.h_rec) + len(self.h_par) + len(self.g_dist) + len(self.g_region)
-        n += len(self.g_role) + len(self.g_class) + len(self.kernel)
-        return n + (400 if self.coupling is not None else 1)
+        n += len(self.g_role) + len(self.g_class) + len(self.g_orient) + len(self.kernel)
+        return n + (1 if self.coupling_pinned or self.coupling is None else 400)
 
     # -- serialisation ------------------------------------------------------------------------
 
@@ -178,7 +208,7 @@ class PottsModel:
         return cls(**json.loads(text))
 
 
-def centred_potential(name: str, alphabet: tuple[str, ...] = AA, *,
+def centred_potential(name, alphabet: tuple[str, ...] = AA, *,
                       centre: bool = True) -> np.ndarray:
     """``-M`` onto ``alphabet``, double-centred by default — positive means more contact.
 
@@ -199,22 +229,28 @@ def centred_potential(name: str, alphabet: tuple[str, ...] = AA, *,
     uncentred, the model's referenced energy equals the potential's own up to the fitted scale.
 
     Args:
-        name: One of ``tcren2``, ``tcren``, ``mj``, ``mj1996``, ``keskin``.
+        name: One of ``tcren2``, ``tcren2_em``, ``tcren``, ``mj``, ``mj1996``, ``keskin``; or a
+            :class:`~tcren.potential.Potential` — including one derived in this session, which is
+            what :func:`tcren.potts.selfcon.fit_selfconsistent` pins on each step and is the
+            reason this is not a name-only lookup.
         alphabet: Residue order of the returned array.
         centre: Double-centre the matrix. See above for which setting a task wants.
 
     Returns:
         A ``(len(alphabet), len(alphabet))`` array; cells absent from the potential are ``0``.
     """
-    from ..potential.model import _double_centred
+    from ..potential.model import Potential, _double_centred
     from ..potential import model as _m
 
-    loader = {"tcren2": _m.tcren2, "tcren": _m.tcren, "mj": _m.mj,
-              "mj1996": _m.mj1996, "keskin": _m.keskin}.get(name)
-    if loader is None:
-        raise ValueError(f"unknown potential {name!r}; expected one of tcren2, tcren, mj, "
-                         f"mj1996, keskin")
-    pot = loader()
+    if isinstance(name, Potential):
+        pot = name
+    else:
+        loader = {"tcren2": _m.tcren2, "tcren2_em": _m.tcren2_em, "tcren": _m.tcren,
+                  "mj": _m.mj, "mj1996": _m.mj1996, "keskin": _m.keskin}.get(name)
+        if loader is None:
+            raise ValueError(f"unknown potential {name!r}; expected a Potential or one of "
+                             f"tcren2, tcren2_em, tcren, mj, mj1996, keskin")
+        pot = loader()
     M, index = _double_centred(pot) if centre else pot.as_matrix()
     out = np.zeros((len(alphabet), len(alphabet)))
     for i, a in enumerate(alphabet):

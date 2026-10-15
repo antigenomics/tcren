@@ -18,6 +18,27 @@ from tcren.structure.io import import_structure
 PDB = Path(__file__).resolve().parents[1] / "assets" / "pdb" / "1ao7.pdb"
 
 
+def test_residue_selection_does_not_change_binder_scoring_mode(monkeypatch):
+    import polars as pl
+    from tcren.score import holdout_model
+    from tcren.score import explain
+    from tcren.structure.model import Chain, Residue, Structure
+    from tcren.descriptors import table as descriptors
+
+    m = holdout_model()
+    values = {name: 0.5 for name in m.transform.names}
+    feature_table = pl.DataFrame([values])
+    s = Structure("synthetic", [Chain("P", [Residue(1, 1, "", "A", "ALA", ())],
+                                     chain_type="PEPTIDE")], mhc_calls=[])
+    monkeypatch.setattr(descriptors, "_featurise_families", lambda *args: dict(values))
+    monkeypatch.setattr(explain, "_interface_residues", lambda *args: [("P", 1)])
+    all_residues = residue_deltas(s, model=m)
+    peptide_only = residue_deltas(s, model=m, chain_types=("PEPTIDE",))
+    assert peptide_only["score.full"][0] == all_residues["score.full"][0]
+    full_mode = residue_deltas(s, model=m, chain_types=("PEPTIDE",), receptor=False)
+    assert full_mode["score.full"][0] == pytest.approx(m.binder_score(feature_table, receptor=False)[0])
+
+
 @pytest.fixture(scope="module")
 def s1ao7():
     pytest.importorskip("arda")            # classify_chains needs the arda backend

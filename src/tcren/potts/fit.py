@@ -17,6 +17,7 @@ separate step rather than a constraint.
 from __future__ import annotations
 
 import numpy as np
+from scipy.special import expit
 import polars as pl
 import scipy.sparse as sp
 
@@ -68,17 +69,49 @@ def irls(X, y: np.ndarray, w: np.ndarray, ridge: float, *, free=(0,),
 
     Returns ``(coefficients, penalised Hessian)``. ``free`` names columns exempt from the ridge.
     """
+    if y.shape != (X.shape[0],) or w.shape != y.shape or not len(y):
+        raise ValueError("responses and weights must match nonempty design rows")
+    if not np.isfinite(y).all() or np.any((y < 0) | (y > 1)):
+        raise ValueError("responses must be finite probabilities in [0, 1]")
+    if not np.isfinite(w).all() or np.any(w < 0) or not np.any(w > 0):
+        raise ValueError("weights must be finite and nonnegative with positive total")
+    if not np.isfinite(X.data).all() or not np.isfinite(ridge) or ridge < 0:
+        raise ValueError("design must be finite and ridge finite and nonnegative")
+    if 0 in free and (np.all(y[w > 0] == 0) or np.all(y[w > 0] == 1)):
+        raise ValueError("an unpenalized intercept requires both response classes")
+    if not isinstance(maxit, (int, np.integer)) or maxit < 1 or not np.isfinite(tol) or tol <= 0:
+        raise ValueError("maxit must be positive integer and tol positive finite")
     p = X.shape[1]
+    if any(not isinstance(i, (int, np.integer)) or i < 0 or i >= p for i in free):
+        raise ValueError("free coefficient indices must lie within the design")
     lam = np.full(p, float(ridge))
     lam[list(free)] = 0.0
     b = np.zeros(p)
     for _ in range(maxit):
-        mu = 1.0 / (1.0 + np.exp(-(X @ b)))
+        mu = expit(X @ b)
         H = (X.T @ sp.diags(w * mu * (1 - mu)) @ X).toarray() + np.diag(lam)
         step = np.linalg.solve(H, X.T @ (w * (y - mu)) - lam * b)
-        b = b + step
+        if not np.isfinite(step).all():
+            raise ValueError("IRLS produced a nonfinite step")
+        # Full Newton steps are retained unless they reduce the penalized objective.
+        def objective(coef):
+            field = X @ coef
+            return float(np.sum(w * (y * field - np.logaddexp(0., field)))
+                         - .5 * np.dot(lam, coef * coef))
+
+        old = objective(b)
+        scale = 1.
+        while objective(b + scale * step) < old - 1e-12 * (1. + abs(old)):
+            scale *= .5
+            if scale < 2. ** -40:
+                raise ValueError("IRLS line search failed to improve its objective")
+        b = b + scale * step
         if np.max(np.abs(step)) < tol:
             break
+    else:
+        raise ValueError(f"IRLS did not converge in {maxit} iterations")
+    mu = expit(X @ b)
+    H = (X.T @ sp.diags(w * mu * (1 - mu)) @ X).toarray() + np.diag(lam)
     return b, H
 
 
@@ -121,10 +154,11 @@ def cluster_se(X, resid: np.ndarray, gid: np.ndarray, n_groups: int, H) -> np.nd
 
 
 def fit_potts(sites: pl.DataFrame, *, radius: float = 15.0, cutoff: float = 5.0,
-              couplings: bool = True, coupling_matrix: str | None = None,
+              couplings: bool = True, coupling_matrix: "str | object | None" = None,
               pin_centred: bool = True,
               weights: dict[str, float] | None = None, ridge: float = DEFAULT_RIDGE,
-              joint: bool | None = None, regions: tuple[str, ...] | None = None,
+              joint: bool | None = None, far: bool = False, orient: bool = False,
+              regions: tuple[str, ...] | None = None,
               notes: str = "") -> PottsModel:
     """Fit the model to a table of available pairs.
 
@@ -134,7 +168,9 @@ def fit_potts(sites: pl.DataFrame, *, radius: float = 15.0, cutoff: float = 5.0,
         cutoff: Contact definition, Å — recorded on the model; ``sigma`` is already computed.
         couplings: Fit the ``sigma``–``sigma`` kernel. ``False`` gives the factorised model, whose
             partition function is then exact.
-        coupling_matrix: Fix ``J`` to one scale on this bundled potential (``tcren2``, ``mj``, …)
+        coupling_matrix: Fix ``J`` to one scale on this potential — a bundled name (``tcren2``,
+            ``mj``, …) or a :class:`~tcren.potential.Potential` object, which is how a matrix
+            derived in this session gets pinned
             instead of fitting 400 free cells. Competing matrices fitted this way carry identical
             parameter counts, so their pseudo-log-likelihoods compare directly.
         pin_centred: Double-centre ``coupling_matrix`` before pinning (default). ``False`` pins the
@@ -148,6 +184,13 @@ def fit_potts(sites: pl.DataFrame, *, radius: float = 15.0, cutoff: float = 5.0,
             TCR loop set. The peptide:MHC arm passes :data:`tcren.potts.MHC_RECEPTOR_REGIONS`,
             because there the receptor is the groove and every TCR loop level would be unused
             while every groove region collapsed into ``other``.
+        far: Include the long-offset exclusion class, ``X(same receptor residue, |dj| > 2)``.
+            Off by default, so every shipped model is unaffected.
+        orient: Fit the ``g_orient`` block --- *does the receptor residue turn toward the partner*.
+            Needs a ``cos_cb`` column on ``sites``, which :func:`available_pairs` emits. Held at a
+            fixed Cα distance the cosine separates contact from non-contact at ROC-AUC 0.69-0.84
+            over 4-12 Å, so this is information the distance block does not carry. Off by default,
+            so every shipped model is unaffected.
         joint: Include the cross-class coupling family. Defaults to whether both partner classes
             are present.
         notes: Free text stored on the model.
@@ -166,23 +209,29 @@ def fit_potts(sites: pl.DataFrame, *, radius: float = 15.0, cutoff: float = 5.0,
     sites = sites.filter(pl.col("d_ca") <= radius).sort("pdb.id", maintain_order=True)
     if sites.is_empty():
         raise ValueError("no available pairs inside the radius")
-    codes, sizes, q = site_codes(sites, radius=radius, regions=regions)
+    if orient and "cos_cb" not in sites.columns:
+        raise ValueError("orient=True needs a `cos_cb` column; `available_pairs` emits one, and a "
+                         "table written before it existed has to be regenerated")
+    codes, sizes, q = site_codes(sites, radius=radius, regions=regions, orient=orient)
     if joint is None:
         joint = q["cls"].n_unique() > 1
     sigma = q["sigma"].to_numpy()
     w = (np.ones(q.height) if weights is None
          else q["pdb.id"].replace_strict(weights, default=1.0).to_numpy().astype(float))
 
-    edge_lists = edges(q, joint=joint) if couplings else []
+    edge_lists = edges(q, joint=joint, far=far) if couplings else []
     counts = (neighbour_counts(edge_lists, sigma, q.height) if edge_lists
               else np.zeros((q.height, 0)))
     fixed = (centred_potential(coupling_matrix, centre=pin_centred)
-             if coupling_matrix else None)
+             if coupling_matrix is not None else None)
+    # A pin on a bundled matrix serialises as its name and is rebuilt on load; a pin on a matrix
+    # derived in this session, or an uncentred pin, stores its exact fitted array.
+    named = coupling_matrix if isinstance(coupling_matrix, str) and pin_centred else None
     X, slices, k0 = design(codes, sizes, counts, fixed)
     b, H = irls(X, sigma, w, ridge)
     bg, J = gauge(b, slices, fixed is None)
 
-    mu = 1.0 / (1.0 + np.exp(-(X @ b)))
+    mu = expit(X @ b)
     upid, gid = np.unique(q["pdb.id"].to_numpy(), return_inverse=True)
     se = cluster_se(X, w * (sigma - mu), gid, len(upid), H)
     pll = float(np.sum(w * (sigma * np.log(np.clip(mu, 1e-300, 1.0))
@@ -193,12 +242,15 @@ def fit_potts(sites: pl.DataFrame, *, radius: float = 15.0, cutoff: float = 5.0,
         h_rec=bg[slices[0]].tolist(), h_par=bg[slices[1]].tolist(),
         g_dist=bg[slices[2]].tolist(), g_region=bg[slices[3]].tolist(),
         g_role=bg[slices[4]].tolist(), g_class=bg[slices[5]].tolist(),
+        g_orient=bg[slices[6]].tolist() if orient else [],
         kernel=bg[k0:].tolist(), kernel_se=se[k0:].tolist(),
-        coupling=(J.tolist() if J is not None else None),
+        coupling=(J.tolist() if J is not None
+                  else (fixed.tolist() if named is None and fixed is not None else None)),
         beta_matrix=(None if fixed is None else float(bg[slices[-1]][0])),
-        coupling_matrix_name=coupling_matrix,
+        coupling_matrix_name=named,
+        coupling_pinned=bool(fixed is not None and named is None),
         regions=list(regions) if regions else list(REGIONS),
-        radius=radius, cutoff=cutoff, joint=bool(joint),
+        radius=radius, cutoff=cutoff, joint=bool(joint), far=bool(far),
         n_structures=int(len(upid)), n_sites=int(q.height), n_contacts=int(sigma.sum()),
         pseudo_loglik=pll, notes=notes)
 
@@ -211,7 +263,7 @@ def kernel_table(model: PottsModel) -> pl.DataFrame:
     negative: a made contact recruits its own sequence neighbours onto the same partner residue and
     suppresses the diagonal one.
     """
-    names = kernel_names(model.joint)
+    names = kernel_names(model.joint, model.far)
     se = list(model.kernel_se) or [float("nan")] * len(model.kernel)
     return pl.DataFrame({"class": names[:len(model.kernel)],
                          "K": model.kernel, "se": se[:len(model.kernel)]}).with_columns(

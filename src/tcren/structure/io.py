@@ -120,6 +120,7 @@ def _select_atoms(residue, keep_hydrogens: bool) -> tuple[Atom, ...]:
                     name=child.get_name().strip(),
                     element=element,
                     coord=np.asarray(child.get_coord(), dtype=np.float64),
+                    altloc=child.get_altloc().strip(),
                 )
             )
     return tuple(atoms)
@@ -194,6 +195,7 @@ def _parse_pdb_fast(raw: bytes, pdb_id: str, keep_hydrogens: bool) -> Structure 
 
     name_tab, name_ix = decoded(col(12, 16, "S4"), strip=True)
     el_tab, el_ix = decoded(elements)
+    alt_tab, alt_ix = decoded(col(16, 17, "S1"), strip=True)
     keep = np.ones(n, bool) if keep_hydrogens else (elements != b"H")
 
     # A residue break is any change in (chain, resseq, icode, resname) -- the same test
@@ -204,12 +206,14 @@ def _parse_pdb_fast(raw: bytes, pdb_id: str, keep_hydrogens: bool) -> Structure 
     bounds = list(zip(np.r_[0, starts].tolist(), np.r_[starts, n].tolist()))
 
     name_ix, el_ix, keep_l = name_ix.tolist(), el_ix.tolist(), keep.tolist()
+    alt_ix = alt_ix.tolist()
     by_chain: dict[str, list[Residue]] = {}
     for lo, hi in bounds:
         resname = resnames[lo].decode().strip().upper()
         if resname in _WATER:
             continue
-        atoms = tuple(Atom(name=name_tab[name_ix[i]], element=el_tab[el_ix[i]], coord=xyz[i])
+        atoms = tuple(Atom(name=name_tab[name_ix[i]], element=el_tab[el_ix[i]], coord=xyz[i],
+                           altloc=alt_tab[alt_ix[i]])
                       for i in range(lo, hi) if keep_l[i])
         if not atoms:
             continue
@@ -437,6 +441,7 @@ def iter_structures(
     src: str | Path,
     importer: Callable[..., Structure] = import_structure,
     on_error: str = "raise",
+    full_ids: bool = False,
     **kwargs,
 ) -> Iterator[tuple[str, Structure]]:
     """Yield ``(pdb_id, Structure)`` for a file, directory, or ``.tar``/``.tar.gz`` archive.
@@ -451,6 +456,7 @@ def iter_structures(
         importer: per-file parser — :func:`import_structure` (default, trims the C-gene) or
             :func:`parse_structure` (parity-pure). Extra ``kwargs`` are forwarded to it.
         on_error: ``"raise"`` (default) or ``"skip"`` to ignore files that fail to parse.
+        full_ids: preserve complete filename stems rather than shortening unique PDB prefixes.
     """
     src = Path(src)
     name = src.name.lower()
@@ -466,7 +472,8 @@ def iter_structures(
     if src.is_file() and name.endswith(_TAR_SUFFIXES):
         with tarfile.open(src) as tar:
             members = [m for m in tar.getmembers() if m.isfile() and is_structure_file(m.name)]
-            ids = resolve_structure_ids(m.name for m in members)
+            ids = ({m.name: structure_stem(m.name) for m in members} if full_ids
+                   else resolve_structure_ids(m.name for m in members))
             for member in members:
                 inner, _ = _strip_gz(Path(member.name).name)
                 ext = "." + inner.rsplit(".", 1)[-1] + (".gz" if member.name.lower().endswith(".gz") else "")
@@ -483,7 +490,7 @@ def iter_structures(
         return
 
     paths = list(structure_paths(src))
-    ids = resolve_structure_ids(paths)
+    ids = ({str(p): structure_stem(p) for p in paths} if full_ids else resolve_structure_ids(paths))
     for path in paths:
         s = _safe(path, ids[str(path)])
         if s is not None:
@@ -500,7 +507,7 @@ def pdb_lines(structure: Structure, transform=None, keep_hydrogens: bool = True)
 
     One conformer per atom name per residue (drops duplicate altlocs). ``transform`` is an
     optional ``coord -> coord`` callable (e.g. for an oriented frame); identity if ``None``.
-    Author residue numbers + insertion codes are preserved.
+    Author residue numbers, insertion codes and the chosen conformer label are preserved.
     """
     lines: list[str] = []
     serial = 1
@@ -517,7 +524,7 @@ def pdb_lines(structure: Structure, transform=None, keep_hydrogens: bool = True)
                 seen.add(atom.name)
                 x, y, z = transform(atom.coord) if transform else atom.coord
                 lines.append(
-                    f"ATOM  {serial % 100000:>5} {_atom_name_field(atom.name)} "
+                    f"ATOM  {serial % 100000:>5} {_atom_name_field(atom.name)}{(atom.altloc or ' ')[:1]}"
                     f"{res.resname:>3} {chain_id}{res.pdb_index:>4}{icode}   "
                     f"{x:8.3f}{y:8.3f}{z:8.3f}  1.00  0.00          {element:>2}"
                 )
@@ -562,7 +569,7 @@ def cif_lines(structure: Structure, transform=None, keep_hydrogens: bool = True)
                 x, y, z = transform(atom.coord) if transform else atom.coord
                 icode = (res.insertion_code or "?")[:1] or "?"
                 lines.append(
-                    f"ATOM {serial} {element} {atom.name} . {res.resname} {chain_id} "
+                    f"ATOM {serial} {element} {atom.name} {atom.altloc or '.'} {res.resname} {chain_id} "
                     f"{res.pdb_index} {icode} {x:.3f} {y:.3f} {z:.3f} 1.00 0.00 "
                     f"{res.pdb_index} {chain_id} 1"
                 )

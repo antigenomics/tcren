@@ -13,6 +13,33 @@ they are not bundled, they are fetched from Hugging Face, and `DATASETS.md` cove
 
 ---
 
+## `sidechain_geometry.json` — derived
+
+Side-chain internal coordinates: per residue type and atom, the bond length to its parent, the bond
+angle, and the torsion offset. `tcren.refine.sidechain.build_sidechain` reads it to place every
+heavy atom of any of the nineteen non-glycine types from a backbone and a chi vector.
+
+- Origin: **derived by us** from the 374 `Canonical2026` crystals, over **176,475** residues. No
+  external table is used and none is needed — the same arrangement as
+  `tcren.geometry.BOND_CA` (3.7985 Å over 642 CDR gaps) and
+  `tcren.refine.substitute.virtual_cb`, which is what keeps the builder consistent with the set the
+  rest of the library is derived from.
+- **Chemistry is declared, geometry is measured.** The connectivity — which atom hangs off which
+  three, and which chi drives its torsion — is `sidechain.TOPOLOGY` in the source and carries no
+  number. Only the numbers are fitted.
+- Units: bonds in ångström, **angles and offsets in radians**. Circular quantities are circular
+  means.
+- Regenerate: `python scripts/fit_sidechain_geometry.py --structures data/Canonical2026 -o src/tcren/data/sidechain_geometry.json`
+- Check: round-tripping a deposited residue through its own chi reads **0.0784 Å** mean heavy-atom
+  RMSD (median 0.0466, p95 0.2323) over 54,954 residues; worst type ARG 0.2210 Å, best SER 0.0207 Å.
+  `tests/unit/test_sidechain.py` asserts the round trip per type.
+- Loader: `tcren.refine.sidechain.geometry()`.
+- **Not from a rotamer library.** The chi grid `background.scan_structure` samples is a plain
+  staggered grid (`-60 + k·step`, default 60°), not a backbone-dependent rotamer library, and it is
+  calibrated against the invariant that a deposited residue be admissible at its own position
+  (`scripts/calibrate_background_scan.py`). If a published rotamer library is ever adopted its
+  citation belongs here, retrieved rather than written from memory.
+
 ## `TCRen_potential.csv` — derived
 
 The classic TCRen TCR↔peptide potential. **Directed**: rows are the TCR side, columns the peptide
@@ -23,11 +50,32 @@ side, so it must not be symmetrised or decomposed.
   the published 2024 derivation, not a re-run.
 - Loader: `tcren.potential.tcren()`.
 
-## `TCRen_potential_rederived.csv` — derived
+## `TCRen2_potential.csv` — derived
 
-The same quantity re-derived on Native2026. Shipped for comparison; no scoring path defaults to it.
+The **default** TCR↔peptide potential since 2.11.0, and the matrix the TCRen2 manuscript reports.
+**Directed**, like `TCRen_potential.csv`: rows are the TCR side, columns the peptide side.
 
-- Regenerate: `tcren derive-potential` over Native2026.
+- Origin: derived by us from the `Native2026` TCR:pMHC crystals, redundancy-balanced on both the
+  epitope and the receptor axis. Since 3.3.0 the derivation runs on **359 of the 374** deposited
+  structures — the unconditional αβ filter drops 12 (3 pMHC-only, 8 single-chain, 1 γδ) and the
+  withdrawn-entry rule drops 3 more.
+- Regenerate: `tcren fetch-data`, then
+  `tcren derive-potential --structure-dir "$TCREN_DATA_DIR/Native2026" --balance both -o TCRen2_potential.csv`.
+  `data/potentials.json` records the recipe verbatim and
+  `tests/regression/test_shipped_potentials.py` reproduces the file from it.
+- Loader: `tcren.potential.tcren2()`; it is the default the TCR:peptide interface scores under.
+
+## `pdb_withdrawn.csv` — curated (2026-09-04)
+
+The PDB entries the RCSB has withdrawn that appear in a bundled structure set: 4 rows, each with
+its status, its successor if it has one, the reason, and the date the RCSB holdings endpoint was
+checked. `derive-potential` drops them unless `--keep-withdrawn` is passed.
+
+- Origin: verified one id at a time against the RCSB holdings endpoint
+  (`https://data.rcsb.org/rest/v1/holdings/removed/<id>`), not taken on trust.
+- Regenerate: re-query that endpoint for every id in the structure set; the file is hand-curated
+  from its replies, so there is no single command.
+- Loader: `tcren.potential.withdrawn_entries()` / `withdrawn_ids()`.
 
 ## `MJ_Keskin_potentials.csv` — published (identified 2026-08-29)
 
@@ -150,3 +198,29 @@ changed since 1982.
   scale `surface_map(..., scale="mj")` selects. Two unrelated derivations of the same axis, so a
   transcription slip would break the agreement rather than hide in it.
 - Loader: `tcren.surface.KYTE_DOOLITTLE`.
+
+## `holdout_model.npz` and `holdout_manifest.csv.gz` — derived frozen model
+
+The bundled model retains the original frozen numerical parameters. The manifest names its
+training population; the original metadata records 6,429 positive and 1,155 negative complete
+training observations over 31 epitopes. Shared nonlinear preprocessing was trained on both
+classes; binder moments and confidence moments use label-selected positives. The tier-1
+one-class readouts therefore do not imply label-free or negative-independent training.
+
+- Loader: `tcren.score.holdout_model()`; manifest: `tcren.score.holdout_manifest()`.
+- Historical recipe: `tcren features -s <manifest structures> -o hold.tsv`, then
+  `tcren fit-holdout --features hold.tsv --manifest src/tcren/data/holdout_manifest.csv.gz -o refit.npz`.
+  Always write a separate output: evaluation never overwrites the shipped frozen fit.
+- Metadata-only migration, 2026-10-14: corrected reduced spring units, finite-grid rupture scope,
+  truncated Betti difference and approximate contact-loss labels. `training_catalogue_digest`
+  retains the original fitted catalogue; `catalogue_digest` identifies the corrected interface.
+  `audit/2026-10-14/frozen-metadata-migration.json` records both digests, old/new bundle hashes,
+  and the SHA-256 of all five unchanged numeric arrays. No refitting occurred.
+- Semantic migration: class-II chain-keyed literature descriptors, constrained shear direction,
+  Potts chain-keyed sites/sampling, and corrected structure-selection/annotation/frame boundaries
+  can change future descriptor outputs. Array identity establishes parameter preservation only;
+  it does not certify equivalence of corrected features, a fresh refit, or scientific results.
+  Matched fresh reproduction owns compatibility assessment before publication or release.
+- Spring units use the default multiplicity/distance² with distances in Å: reduced stiffness
+  Å^-2, force Å^-1, work dimensionless, all with an unspecified energy scale. No SI calibration
+  was inferred. Unit/count spring weighting has a different arbitrary scale, documented by the API.

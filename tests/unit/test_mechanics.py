@@ -64,6 +64,16 @@ def test_stiffness_tensor_z_springs_are_tensile_dominant():
     assert K_shear == pytest.approx(0.0, abs=1e-6)
 
 
+def test_shear_direction_maximises_stiffness_in_the_docking_plane():
+    from tcren.mechanics.springs import _pull_direction
+
+    s = InterfaceSprings(np.zeros((3, 3)), np.eye(3), np.array([1., 2., 3.]),
+                         np.ones(3), np.array([0., 0., 1.]))
+    d = _pull_direction(s, "shear")
+    assert d @ s.axis == pytest.approx(0.0, abs=1e-12)
+    assert d @ np.diag([1., 2., 3.]) @ d == pytest.approx(2.0)
+
+
 def test_stiffness_tensor_under_three_springs_is_nan(monkeypatch):
     """< 3 springs cannot define the tensor; every descriptor is nan, n_spring is exact."""
     # patch the module that DEFINES the name, not the package that re-exports it: `stiffness_tensor`
@@ -218,3 +228,29 @@ def test_recognize_mechanics_matches_standalone():
     annotate_mhc(s)
     for k, v in interface_mechanics(s).items():
         assert row[k] == pytest.approx(v), k
+
+@pytest.mark.parametrize('kw', [dict(direction='typo'), dict(steps=0), dict(steps=1.5),
+                                dict(steps=True), dict(break_strain=-1),
+                                dict(break_strain=np.inf), dict(cutoff=0)])
+def test_rupture_rejects_invalid_domains_before_structure_access(kw):
+    with pytest.raises(ValueError):
+        rupture(object(), **kw)
+
+
+def test_rupture_is_a_finite_grid_observable(monkeypatch):
+    import tcren.mechanics.springs as mech
+    s = _springs([[0, 0, 0]] * 3, [[0, 0, 1]] * 3, [1, 1, 1])
+    monkeypatch.setattr(mech, 'interface_springs', lambda *a, **k: s)
+    r = mech.rupture(object(), break_strain=3, steps=2)
+    # At displacements 1 and 2 A, all three springs survive. This is the historical
+    # right-grid sum, not an integral to complete separation.
+    assert r['rupture_force'] == pytest.approx(6.)
+    assert r['rupture_work'] == pytest.approx(9.)
+
+
+def test_stiffness_rejects_invalid_spring_arrays():
+    from tcren.mechanics.springs import _stiffness_matrix
+    s = _z_springs()
+    s.k[0] = -1
+    with pytest.raises(ValueError, match='spring arrays'):
+        _stiffness_matrix(s)

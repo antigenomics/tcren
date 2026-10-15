@@ -73,3 +73,27 @@ def test_intra_peptide_potential_defaults_to_mj_and_is_overridable():
                   potentials={"peptide_internal": "keskin"})
     assert swapped.scores["peptide_internal"] != default.scores["peptide_internal"]
     assert swapped.scores["tcr_peptide"] == default.scores["tcr_peptide"]
+
+
+def test_tcren2_em_resolves_by_name():
+    # `tcren2_em` shipped in 3.4.0 as a Python loader only, so every CLI option that resolves a
+    # potential -- `-p`, `--tcr-peptide-potential`, `--coupling-matrix` -- fell through to a path
+    # lookup and reported "FileNotFoundError: tcren2_em". _BUNDLED_POTENTIALS is the one map.
+    from tcren.potential import tcren2_em
+
+    resolved = _resolve_potentials({"tcr_peptide": "tcren2_em"})
+    assert resolved["tcr_peptide"].name == tcren2_em().name
+    # It is a different matrix from the default, or the arm would not be worth having.
+    assert resolved["tcr_peptide"].name != tcren2().name
+
+
+def test_tcren2_em_reaches_the_potts_pin():
+    # The Potts pin keeps its OWN loader dict, so the two can drift; centred_potential is the
+    # entry point `potts fit --coupling-matrix` resolves against.
+    import numpy as np
+
+    from tcren.potts import centred_potential
+
+    em = centred_potential("tcren2_em")
+    assert em.shape == (20, 20)
+    assert not np.allclose(em, centred_potential("tcren2"))

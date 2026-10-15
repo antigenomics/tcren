@@ -1,6 +1,13 @@
 Assessing a modelled complex
 ============================
 
+.. important::
+
+   Final models use fixed empirical contact potentials with explicit provenance.
+   Gaussian/GLM, fitted Potts and transition models, and reference-estimated Q/T/S
+   are historical readouts, excluded from the final specification. Nothing fitted
+   at scoring time does not mean fit-free. See :doc:`fit-free`.
+
 .. currentmodule:: tcren.score
 
 A co-folding model builds a confident TCR:pMHC complex for any receptor--peptide pair, binding or
@@ -14,7 +21,7 @@ Two commands
 
 .. code-block:: console
 
-   $ tcren features -s models/ -i placement,interface,topology,energetics -o feats.tsv
+   $ tcren features -s models/ --all -o feats.tsv
    $ tcren assess --features feats.tsv -o scores.tsv
 
 The first is the expensive pass and runs once. The second is arithmetic over that table.
@@ -37,8 +44,8 @@ What each column is for
    * - ``pose_score``
      - 1
      - Is this the kind of interface real complexes make? A one-class distance to the manifold
-       hold-out binders occupy. **No negative and no binder label enter it** — the same standing as
-       :func:`tcren.cohort.q_score`. This is the bad-pose channel.
+       hold-out binders occupy. Binder moments use labelled positives, and preprocessing uses both
+       classes. Tier 1 names the one-class readout, not negative-independent training.
    * - ``binder_score``
      - 2
      - Log-odds that the complex is a genuine recognition interface.
@@ -52,12 +59,12 @@ What each column is for
        a property of the reference frame, not a defect.
    * - ``confidence_residual``
      - 1
-     - The reported ipTM minus what the coordinates say it should have been. A large positive
+     - The reported logit(ipTM) minus its binder-conditional mean on that axis. A large positive
        residual is a model the generator is more certain of than its own geometry warrants.
    * - ``binder_iptm``
      - 2
-     - ``binder_score`` plus ``logit(ipTM)``. Two log-odds added, no coefficient to fit, still
-       defined for one structure. The recommended read when a confidence is available.
+     - ``binder_score`` plus ``logit(ipTM)``. A coefficient-free heuristic, without a calibrated
+       likelihood-ratio or conditional-independence interpretation. The recommended read when a confidence is available.
 
 Higher is better throughout.
 
@@ -74,7 +81,8 @@ reading one family of descriptors costs an index and nothing else:
 ``shape``
    the footprint's shape, free of its size.
 ``energetics``
-   the contact chemistry, in kT.
+   the contact chemistry on its statistical potential scale. The conventional kT label
+   denotes a reduced scale; it does not establish a calibrated binding free energy.
 ``mechanics``
    the interface read as a network of breakable springs.
 
@@ -111,6 +119,11 @@ Cost is one descriptor pass per interface residue — a few minutes for a comple
 the MHC call are mmseqs searches and run **once** for the whole structure, never per mask. A masked
 row whose descriptors go undefined is reported as a null delta rather than imputed.
 
+``chain_types`` restricts reported residues without changing the score. The Python API accepts
+``receptor=False`` to explain the full peptide-presentation score; the default and CLI explain
+the receptor marginal. Noncontact residues are omitted, without claiming their contributions
+to whole-chain geometry descriptors vanish.
+
 Reproducing the frozen model
 ----------------------------
 
@@ -122,15 +135,29 @@ The coefficients are frozen, and the inputs they were frozen against are named:
    $ tcren features -s <those structures> -o hold.tsv
    $ tcren fit-holdout --features hold.tsv -o refit.npz
 
-``refit.npz`` matches the shipped model bit for bit. :func:`holdout_manifest` returns the 8,292
+The frozen numerical parameters retain their original training catalogue. The 2026-10-14
+metadata migration records corrected definitions and changed descriptor semantics without
+refitting; it does not establish a bit-for-bit refit under corrected feature extraction.
+A fresh refit writes a separate model and requires a matched comparison before promotion. :func:`holdout_manifest` returns the 8,292
 structures with their dataset, epitope, label and ipTM. Refit on your own hold-out by passing
 ``--manifest``, then read it back with ``tcren assess --model``.
+
+Confidence probability scale
+----------------------------
+
+Let ``z = logit(ipTM)`` and let ``m(x)`` be its Gaussian conditional mean given transformed
+structural coordinates ``x``. The library residual is ``z - m(x)``. Applying sigmoid to
+``m(x)`` gives a plug-in original-scale prediction, not ``E[ipTM | x]``: nonlinear expectation
+and back-transformation generally do not commute. The benchmark owns its fitted GLM and
+operating-point correction producers; those are separate from the library conditional residual.
+Future confidence fitting validates that the joint covariance is positive semidefinite via
+the Schur complement, without modifying the shipped arrays.
 
 The predecessor tier
 --------------------
 
 :func:`tcren.cohort.q_score`, :func:`tcren.reliability.t_score` and
-:func:`tcren.reliability.s_score` are the fit-free directional scores this layer generalises, and
+:func:`tcren.reliability.s_score` are the reference-estimated directional scores this layer generalises, and
 they are still supported. ``S`` leads the functionally validated receptor screen on its own, and it
 *composes* with ``binder_score`` rather than being replaced by it.
 

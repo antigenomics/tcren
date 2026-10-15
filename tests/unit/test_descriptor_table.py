@@ -23,7 +23,7 @@ def test_every_descriptor_carries_units_and_a_definition():
 def test_units_come_from_a_closed_vocabulary():
     """Units are what a transform has to respect, so they are a fixed set, not free text."""
     allowed = {
-        "A", "A^2", "A^3", "deg", "rad", "cosine", "kT", "kT/site", "N", "N/m", "J",
+        "A", "A^2", "A^3", "deg", "rad", "cosine", "kT", "kT/site", "reduced A^-1", "reduced A^-2", "reduced dimensionless",
         "count", "fraction", "signed fraction", "ratio", "log-odds", "log-odds^2",
         "class I / II",
     }
@@ -80,3 +80,23 @@ def test_the_appendix_escaper_does_not_mangle_ordinary_words():
     assert _tex("Calpha") == r"C$\alpha$"
     assert _tex("CDR3alpha") == r"CDR3$\alpha$"
     assert _tex("chi = b0 - b1") == r"$\chi$ = b0 - b1"
+
+
+def test_mouse_batch_precomputes_both_species(monkeypatch):
+    from tcren.descriptors import table
+    from tcren.annotation import batch, arda_adapter
+    from tcren import annotation, mhc
+    from tcren.structure import Structure
+
+    seen = []
+    def annotate(structures, arda, organisms, threads):
+        seen.append(organisms)
+        return [{org: {} for org in organisms} for _ in structures]
+
+    monkeypatch.setattr(batch, "_batch_annotate", annotate)
+    monkeypatch.setattr(arda_adapter, "_import_arda", lambda: None)
+    monkeypatch.setattr(annotation, "classify_chains", lambda *a, **k: None)
+    monkeypatch.setattr(mhc, "annotate_mhc_batch", lambda *a, **k: None)
+    monkeypatch.setattr(table, "_featurise_one", lambda args: {"complex.id": args[0]})
+    table.recognition_table([("one", Structure("one", []))], organism="mouse")
+    assert seen == [("mouse", "human")]

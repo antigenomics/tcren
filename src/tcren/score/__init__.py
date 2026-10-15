@@ -9,7 +9,7 @@ it on a single AlphaFold model.
 score                         tier  what is estimated
 ============================  ====  ==========================================================
 :func:`peptide_score`         0     nothing; the direction is fixed by the potential
-:func:`pose_score`            1     a covariance over hold-out binders -- no negative, no label
+:func:`pose_score`            1     binder moments; shared transform fitted on both classes
 :func:`confidence_residual`   1     the same covariance, read as a conditional mean
 :func:`binder_score`          2     class means and covariances, from hold-out binder labels
 :func:`channel_scores`        2     the same object, marginalized to one descriptor family
@@ -40,10 +40,11 @@ the functionally validated receptor screen on its own, and it *composes* with
 **Provenance, and why this is not the read-out that was withdrawn.** ``P_native`` was removed from
 the project because its coefficients were frozen against a training set no reader could
 reconstruct. These are frozen against a named one: :func:`holdout_manifest` returns the structure
-ids and labels the fit used, they ship inside the wheel, and ``tcren fit-holdout`` regenerates
-:data:`MODEL_FILE` from them. The model also records the SHA-256 digest of the descriptor
-catalogue it was fitted under, and assessing a feature table written under a different catalogue
-raises rather than silently mixing generations.
+ids and labels the fit used and ship inside the wheel. ``tcren fit-holdout`` implements the
+historical recipe. The bundle retains its training catalogue digest and records the 2026-10-14
+metadata-only migration to corrected definitions. Numerical feature compatibility requires
+matched fresh reproduction; unchanged parameters alone do not certify it. Feature tables must
+carry the current catalogue stamp.
 
 Example::
 
@@ -66,7 +67,7 @@ from pathlib import Path
 import numpy as np
 
 from ..recognition import DESCRIPTORS
-from .model import Joint
+from .model import Joint, conditional_variance
 from .transform import Transformer, kind, working_set
 
 __all__ = ["CHANNELS", "CHANNEL_OF", "MODEL_FILE", "ScoreModel", "Transformer", "binder_score",
@@ -95,7 +96,8 @@ CONF_COORD = "iptm_logit"
 
 
 def _logit(p: np.ndarray, lo: float = 1e-3) -> np.ndarray:
-    q = np.clip(np.asarray(p, float), lo, 1 - lo)
+    p = np.asarray(p, float)
+    q = np.where(np.isfinite(p), np.clip(p, lo, 1 - lo), np.nan)
     return np.log(q / (1 - q))
 
 
@@ -118,12 +120,13 @@ class ScoreModel:
     n_neg: int
     n_epitopes: int
     tcren_version: str
+    confidence_available: bool = True
 
     # ------------------------------------------------------------------ coordinates
     #: below this many usable coordinates a covariance read-out is not worth reporting.
     MIN_COORDINATES = 20
 
-    def coordinates(self, table) -> tuple[np.ndarray, np.ndarray, list[str]]:
+    def coordinates(self, table, *, coordinate_names=None) -> tuple[np.ndarray, np.ndarray, list[str]]:
         """``(complete-case mask, coordinates, the coordinate names they carry)``.
 
         Two kinds of absence, handled differently and both deliberately.
@@ -136,6 +139,7 @@ class ScoreModel:
 
         A **row** missing one of the columns that are present is dropped rather than imputed: the
         whole construction is a covariance, and a filled-in value is a fabricated correlation.
+        With ``coordinate_names``, only the requested marginal's descriptors determine missingness.
         """
         have = _columns(table)
         cols = [c for c in self.transform.names if c in have]
@@ -144,6 +148,9 @@ class ScoreModel:
                 f"only {len(cols)} of the {len(self.transform.names)} descriptors this model "
                 f"reads are in the table. Regenerate with `tcren features -s <pdbs> "
                 f"-i placement,interface,topology,energetics,potts`.")
+        if coordinate_names is not None:
+            keep = set(coordinate_names)
+            cols = [c for c in cols if keep.intersection(self.transform.out_names([c]))]
         X = np.column_stack([np.asarray(_column(table, c), float) for c in cols])
         ok = np.isfinite(X).all(1)
         names = self.transform.transform_names(cols)
@@ -163,12 +170,15 @@ class ScoreModel:
     def pose_score(self, table) -> np.ndarray:
         """Tier 1. How far this interface sits from the manifold real binders occupy.
 
-        A partial Mahalanobis to the binder Gaussian. **No negative and no binder label enter it**,
-        which is the same standing as the shipped ``q_score`` and ``t_score``. Higher is more
+        A partial Mahalanobis to the binder Gaussian. Binder moments use label-selected positives;
+        the frozen preprocessing was fitted on both classes. Tier 1 describes the readout, not
+        negative-independent or label-free training. Higher is more
         plausible: the sign is flipped from the raw distance so that every score in this module
         reads "higher is better".
         """
         ok, Z, have = self.coordinates(table)
+        if not ok.any():
+            return np.full(len(ok), np.nan)
         return _place(ok, -self.joint.anomaly_on(Z, have))
 
     def binder_score(self, table, *, receptor: bool = True) -> np.ndarray:
@@ -179,8 +189,11 @@ class ScoreModel:
         compared, as in a combinatorial peptide library, where the presentation energy is signal
         rather than the cohort's name.
         """
-        ok, Z, have = self.coordinates(table)
+        ok, Z, have = self.coordinates(
+            table, coordinate_names=self.receptor_names if receptor else None)
         sub = self._subset(receptor, have)
+        if not ok.any():
+            return np.full(len(ok), np.nan)
         return _place(ok, self.joint.log_odds(_align(Z, have, sub), subset=sub))
 
     def channel_scores(self, table, *, receptor: bool = True) -> dict[str, np.ndarray]:
@@ -191,13 +204,15 @@ class ScoreModel:
         model also reads the correlations between channels, which is the part a per-channel view
         cannot show.
         """
-        ok, Z, have = self.coordinates(table)
+        have = self.available(table)
         keep = set(self._subset(receptor, have))
         out = {}
         for ch in CHANNELS:
             sub = [n for n in _channel_names(self.joint.names, ch) if n in keep]
             if len(sub) >= 3:
-                out[ch] = _place(ok, self.joint.log_odds(_align(Z, have, sub), subset=sub))
+                ok, Z, names = self.coordinates(table, coordinate_names=sub)
+                out[ch] = (_place(ok, self.joint.log_odds(_align(Z, names, sub), subset=sub))
+                           if ok.any() else np.full(len(ok), np.nan))
         return out
 
     def confidence_residual(self, table, iptm) -> np.ndarray:
@@ -205,10 +220,13 @@ class ScoreModel:
 
         ``E[logit ipTM | x]`` under the binder Gaussian, subtracted from the reported value. A
         large positive residual is a model the generator is more certain of than its own geometry
-        and chemistry warrant, which is the failure mode a confident non-binder presents as. No
-        binder label enters it.
+        and chemistry warrant. Training uses label-selected binders and shared preprocessing fitted
+        on both classes.
+        Returns NaN when the model was fitted without enough valid confidence observations.
         """
         ok, Z, have = self.coordinates(table)
+        if not self.confidence_available or not ok.any():
+            return np.full(len(ok), np.nan)
         j = [self.joint.names.index(n) for n in have]
         mu, S = self.joint.mu[1][j], self.joint.cov[1][np.ix_(j, j)]
         pred = self.conf_mu + np.linalg.solve(S, (Z - mu).T).T @ self.conf_cov[j]
@@ -266,6 +284,10 @@ def holdout_model(path: str | None = None) -> ScoreModel:
             f"--manifest {MANIFEST_FILE}`.")
     z = np.load(p, allow_pickle=False)
     meta = json.loads(str(z["meta"]))
+    from ..provenance import StaleTableError, registry_digest
+    if meta.get("catalogue_digest") != registry_digest():
+        raise StaleTableError(f"{p} was fitted under a different descriptor catalogue; "
+                              "regenerate the model with `tcren fit-holdout`.")
     tr = Transformer(names=list(meta["descriptors"]))
     tr.lam = {k: float(v) for k, v in meta["lam"].items()}
     tr.loc = {k: float(v) for k, v in meta["loc"].items()}
@@ -277,6 +299,9 @@ def holdout_model(path: str | None = None) -> ScoreModel:
     j.alpha = {0: float(meta["alpha"][0]), 1: float(meta["alpha"][1])}
     lam, U = np.linalg.eigh(j.cov[1])
     j.lam1, j.U1 = np.maximum(lam, 1e-12), U
+    available = bool(meta.get("confidence_available", meta["conf_var"] > 0))
+    if available:
+        conditional_variance(j.cov[1], z["conf_cov"], float(meta["conf_var"]))
     return ScoreModel(transform=tr, joint=j,
                       receptor_names=tuple(meta["receptor_coordinates"]),
                       conf_mu=float(meta["conf_mu"]), conf_cov=z["conf_cov"],
@@ -284,7 +309,9 @@ def holdout_model(path: str | None = None) -> ScoreModel:
                       catalogue_digest=meta["catalogue_digest"],
                       n_pos=int(meta["n_pos"]), n_neg=int(meta["n_neg"]),
                       n_epitopes=int(meta["n_epitopes"]),
-                      tcren_version=meta["tcren_version"])
+                      tcren_version=meta["tcren_version"],
+                      confidence_available=bool(meta.get("confidence_available",
+                                                         meta["conf_var"] > 0)))
 
 
 def holdout_manifest():
@@ -294,7 +321,8 @@ def holdout_manifest():
     descriptors themselves are not shipped -- 8,292 rows by 147 columns is 19 MB and a wheel is
     not the place for it -- but they are recomputable: ``tcren fetch-data`` brings down the
     structure sets these ids name, ``tcren features`` writes the table, and ``tcren fit-holdout``
-    returns the shipped model from the two.
+    fits a separate output from the two. Corrected descriptor semantics require a matched
+    comparison before replacing the historical frozen model.
     """
     import gzip
 
@@ -345,8 +373,14 @@ def confidence_residual(table, iptm, *, model: ScoreModel | None = None) -> np.n
 def score_table(table, *, receptor: bool = True, iptm=None, model: ScoreModel | None = None):
     """Every read-out for a ``tcren features`` table, as one polars frame.
 
-    Adds ``binder_iptm`` when ``iptm`` is supplied: the naive-Bayes sum of two log-odds, which
-    needs no coefficient because both terms are already on that scale and stays defined for a
+    Each numeric readout has a corresponding ``<name>_available`` flag.
+    ``assessment_available`` aliases ``binder_score_available``. ``missing_descriptors``
+    is a JSON list of nonfinite model descriptors present in each row. Entirely absent columns are marginalized out; individual readouts can remain
+    available when the missing values occur only outside their coordinate subset.
+
+    Adds ``binder_iptm`` when ``iptm`` is supplied: a coefficient-free heuristic sum of binder
+    log-odds and logit confidence, without a calibrated likelihood-ratio or independence claim.
+    It stays defined for a
     single structure. On the functionally validated receptor screen it reads 0.771 against the
     posterior's 0.768 and ipTM's 0.795, and it is the recommended read when a confidence is
     available.
@@ -370,6 +404,13 @@ def score_table(table, *, receptor: bool = True, iptm=None, model: ScoreModel | 
     if iptm is not None:
         out["confidence_residual"] = m.confidence_residual(table, iptm)
         out["binder_iptm"] = out["binder_score"] + _logit(np.asarray(iptm, float))
+    for name in list(out):
+        if name not in ID_COLUMNS:
+            out[f"{name}_available"] = np.isfinite(out[name])
+    out["assessment_available"] = out["binder_score_available"]
+    cols = [name for name in m.transform.names if name in _columns(table)]
+    missing = ~np.isfinite(np.column_stack([np.asarray(_column(table, name), float) for name in cols]))
+    out["missing_descriptors"] = [json.dumps(np.asarray(cols)[row].tolist()) for row in missing]
     return pl.DataFrame(out)
 
 

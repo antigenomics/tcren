@@ -1,13 +1,9 @@
-"""Cohort-relative recognition scores — the **recommended, fit-free** screening layer.
+"""Cohort-relative recognition scores — the historical reference-estimated screening layer.
 
-These carry no trained coefficients — no logistic, no fit, no training set — so they cannot leak,
-cannot go stale, and there is nothing to re-derive. The fitted composites that stood beside them
-were removed in 2.26.0; their coefficients were frozen against training sets that no longer exist,
-which made them the one part of the package a reader could not reproduce.
+Q estimates standardization and correlation weights from a cohort or a native
+reference. It is not parameter-free and is excluded from the final fit-free
+specification. Historical values and APIs are retained for reproduction.
 
-* :func:`q_score` **generalises across cohorts**: a logistic trained on one cohort learns that
-  cohort's epitope composition and does not transfer, whereas ``Q`` has nothing to transfer. With
-  ipTM it reproduces the headline synergy fit-free.
 * :func:`strain_z` grades pose forcedness (crystal < AF-real < AF-decoy) reproducibly.
 
 They are **cohort-relative** by default: each standardizes a feature over *the set being ranked*.
@@ -59,7 +55,7 @@ __all__ = ["zscore", "q_score", "phi_score",
 #: (mean absolute Spearman 0.20).
 Q_FEATURES = ("burial", "n_pep_contacted", "chain_balance", "n_hbond", "pp_combo")
 
-#: The four load-bearing descriptors. ``n_pep_contacted`` is dropped: it is the weakest term and
+#: The four descriptors kept. ``n_pep_contacted`` is dropped: it is the weakest term and
 #: removing it *raises* macro AUROC 0.795 -> 0.801 on TCRvdb (benchmark ledger, energy memo). Pass
 #: ``features=Q_FEATURES_CORE`` to :func:`q_score` for the simpler, marginally better score.
 Q_FEATURES_CORE = ("burial", "chain_balance", "n_hbond", "pp_combo")
@@ -143,7 +139,7 @@ def zscore(x, reference=None, method="z") -> np.ndarray:
     # Testing `sd > 0` therefore divides by float residue and amplifies noise by ~1e16. Scale the
     # tolerance to the data so a genuinely constant (or degenerate) descriptor contributes nothing.
     if not np.isfinite(sd) or sd <= 1e-12 * max(1.0, abs(float(mu))):
-        return np.zeros_like(x)
+        return np.where(np.isfinite(x), 0.0, np.nan)
     return (x - mu) / sd
 
 
@@ -172,7 +168,7 @@ def native_reference() -> dict:
 
 def q_score(table, reference=None, features=Q_FEATURES_GEOM, method="z", decorrelate=True,
             signs=None) -> np.ndarray:
-    r"""Interface-quality score ``Q`` — fit-free, single-structure-capable; the default binder score.
+    r"""Interface-quality score ``Q`` — reference-estimated and single-structure-capable.
 
     The default is the **directional, decorrelated** one-class score over ``k = len(features)`` terms
 
@@ -186,7 +182,7 @@ def q_score(table, reference=None, features=Q_FEATURES_GEOM, method="z", decorre
     descriptors from double-counting. The score carries **no fitted coefficient** (only the native
     covariance is estimated; :math:`\mathbf 1` is fixed), needs **no negative set**, is calibrated on
     natives so it **transfers** across inputs, and is defined for a **single structure**. It reduces to
-    the equal-weight mean when the descriptors are uncorrelated (:math:`C=I`). See the manuscript
+    the equal-weight sum when the descriptors are uncorrelated (:math:`C=I`). See the manuscript
     Methods (\S Scores).
 
     ``decorrelate=False`` recovers the legacy equal-weight mean :math:`Q=\frac1k\sum_k z(d_k)`.
@@ -209,15 +205,15 @@ def q_score(table, reference=None, features=Q_FEATURES_GEOM, method="z", decorre
     ref = native_reference() if (decorrelate and reference is None) else reference
     Z = np.vstack([zscore(_derive(table, f), None if ref is None else _derive(ref, f), method=method)
                    for f in features])                                   # k x n, standardized to ref
-    if not decorrelate:
-        return np.nanmean(Z, axis=0)
-    Zref = np.vstack([zscore(_derive(ref, f), None, method=method) for f in features])   # k x n_ref
-    C = np.atleast_2d(np.cov(Zref))                                      # native descriptor correlation
     sgn = np.ones(len(features)) if signs is None else np.asarray(signs, float)
     if len(sgn) != len(features):
         raise ValueError(f"signs has {len(sgn)} entries for {len(features)} features")
+    if not decorrelate:
+        return np.nanmean(sgn[:, None] * Z, axis=0)
+    Zref = np.vstack([zscore(_derive(ref, f), None, method=method) for f in features])   # k x n_ref
+    C = np.atleast_2d(np.cov(Zref))                                      # native descriptor correlation
     w = np.linalg.pinv(C) @ sgn                                          # C^{-1} s: the decorrelated weights
-    return np.nansum(w[:, None] * Z, axis=0)
+    return np.where(np.isfinite(Z).any(axis=0), np.nansum(w[:, None] * Z, axis=0), np.nan)
 
 
 

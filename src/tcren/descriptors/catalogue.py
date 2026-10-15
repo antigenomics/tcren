@@ -252,7 +252,7 @@ DESCRIPTORS: dict[str, tuple[str, bool]] = {
 #:     where the receptor sits on the groove and how it leans.
 #: ``"topological"``
 #:     An invariant of the contact complex under continuous deformation -- Betti numbers, the
-#:     Euler characteristic, and their size-normalized forms. **This is the interface surface**:
+#:     truncated Betti difference b0 - b1, and their size-normalized forms. **This is the interface surface**:
 #:     how many patches it falls into and how many holes it has, whatever its shape.
 #: ``"compositional"``
 #:     A count over the *labelled* contact set, or a ratio, share, entropy or Hill number built
@@ -346,7 +346,7 @@ INVARIANCE: dict[str, str] = {
         "n_pep_int", "chain_balance", "cdr3_dominance", "cdr3_ab_imbalance",
         "chain_cdr_imbalance",
     )},
-    # topology: the Betti/Euler block is topological; the diversity block reads the labelling
+    # topology: the Betti/truncated-difference block is topological; the diversity block reads the labelling
     **{d: "topological" for d in (
         "fp_b0_r7", "fp_b1_r7", "fp_chi_r7", "fp_b0_frac_r7",
         "fp_b0_r8", "fp_b1_r8", "fp_chi_r8", "fp_b0_frac_r8",
@@ -374,7 +374,7 @@ INVARIANCE: dict[str, str] = {
 #: Units and a one-line definition for every descriptor. The single source the docs table is
 #: generated from, so a new descriptor cannot reach a feature table undocumented.
 #:
-#: ``units`` is what the number is measured in -- ``A``, ``A^2``, ``deg``, ``rad``, ``kT``, ``N/m``,
+#: ``units`` is what the number is measured in -- ``A``, ``A^2``, ``deg``, ``rad``, ``kT``, ``reduced A^-2``,
 #: or one of the dimensionless kinds ``count``, ``fraction``, ``signed fraction``, ``ratio``,
 #: ``cosine``, ``log-odds``, ``indicator``. It is what a transform has to respect: a count is
 #: variance-stabilized by a square root, a fraction by the arcsine (the classical angular
@@ -562,18 +562,18 @@ DETAIL.update({
  "psi": ("kT/site", "log_lik per available site, so interfaces of different size compare."),
  "n_contacts": ("count", "Available residue pairs that engaged. Distinct from the footprint's loop tally."),
  # --- kinetics --------------------------------------------------------------------------------
- "exp_lost": ("count", "Expected TCR:peptide contacts lost under a 1 A isotropic shift."),
+ "exp_lost": ("count", "Linearized nearest-atom-pair contact-loss sum under a 1 A isotropic shift; not an exact residue-contact expectation."),
  "mean_margin": ("A", "Mean contact margin, cutoff minus minimum heavy-atom distance."),
  "frac_robust": ("fraction", "Share of TCR:peptide contacts with at least 1 A of margin."),
  "n_spring": ("count", "Springs in the interface network; every other kinetics column is NaN below three."),
- "S_tot": ("N/m", "Trace of the stiffness tensor; total interface stiffness."),
- "K_tens": ("N/m", "Tensile stiffness along the docking axis."),
- "K_shear": ("N/m", "In-plane stiffness, S_tot minus K_tens."),
- "aniso": ("ratio", "K_shear / K_tens; how much stiffer the interface is along the pull than across it."),
- "lam_max": ("N/m", "Largest eigenvalue of the stiffness tensor."),
- "lam_min": ("N/m", "Smallest eigenvalue of the stiffness tensor."),
- "rupture_force": ("N", "Peak resisting force under steered separation along the weaker axis."),
- "rupture_work": ("J", "Force integrated to full separation; the off-rate proxy, and a geometry-only quantity no potential enters."),
+ "S_tot": ("reduced A^-2", "Trace of the stiffness tensor; total interface stiffness."),
+ "K_tens": ("reduced A^-2", "Tensile stiffness along the docking axis."),
+ "K_shear": ("reduced A^-2", "In-plane stiffness, S_tot minus K_tens."),
+ "aniso": ("ratio", "K_shear / K_tens; in-plane summed stiffness relative to stiffness along the pull."),
+ "lam_max": ("reduced A^-2", "Largest eigenvalue of the stiffness tensor."),
+ "lam_min": ("reduced A^-2", "Smallest eigenvalue of the stiffness tensor."),
+ "rupture_force": ("reduced A^-1", "Peak resisting force on the finite displacement grid along the tensile docking axis by default."),
+ "rupture_work": ("reduced dimensionless", "Right-grid force-displacement sum up to twice the longest spring rest length, stopping early if all springs break; no energy calibration."),
  "couple_pep": ("count", "Peptide residues contacting both the MHC and the TCR."),
  "couple_mhc": ("count", "MHC residues contacting both the peptide and the TCR."),
  "couple_tcr": ("count", "TCR residues in the Valpha-Vbeta interface that also contact the pMHC."),
@@ -590,7 +590,7 @@ for _r in (7, 8):
             "disconnected patches the footprint falls into."),
         f"fp_b1_r{_r}": ("count",
             f"Betti-1 at {_r} A: how many holes the footprint encloses."),
-        f"fp_chi_r{_r}": ("count", f"Euler characteristic b0 - b1 at {_r} A."),
+        f"fp_chi_r{_r}": ("count", f"Truncated Betti difference b0 - b1 at {_r} A; equals Euler characteristic only when higher Betti numbers vanish."),
         f"fp_b0_frac_r{_r}": ("fraction",
             f"Patches per contacted residue at {_r} A; the size-free form of Betti-0."),
     })

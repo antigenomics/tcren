@@ -578,7 +578,7 @@ CDR3-frame descriptors (18) — ``--full``
 The FramePose layer the whole-TCR features miss: each CDR3 loop projected onto the **pMHC groove
 frame** (basis ``u, w, n``; origin = peptide Cα centroid). Computed by
 :func:`tcren.recognition.recognition_features` with ``full=True``
-(:data:`~tcren.recognition.CDR3_FRAME_FEATURES`). The ``cdr3b_*`` strain terms are the load-bearing
+(:data:`~tcren.recognition.CDR3_FRAME_FEATURES`). The ``cdr3b_*`` strain terms are the
 signal for forced-pose / hallucination detection. Columns are prefixed by loop (``cdr3a_`` for TRA,
 ``cdr3b_`` for TRB):
 

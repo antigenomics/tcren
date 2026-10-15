@@ -41,14 +41,16 @@ def _prepare(sites: pl.DataFrame, model: PottsModel):
     # `log Z` depend on how the pair table happened to be concatenated. With `_rng_for` below, this
     # is the second half of "a per-structure score is a function of the structure".
     sites = (sites.filter(pl.col("d_ca") <= model.radius)
-             .sort("pdb.id", "chain.rec", "region.rec", "pos.rec", "pos.par"))
+             .sort([c for c in ("pdb.id", "chain.id.rec", "chain.rec", "region.rec",
+                               "pos.rec", "cls", "chain.id.par", "role.par", "pos.par")
+                    if c in sites.columns]))
     codes, _, q = site_codes(sites, model)
     e = eta(codes, model)
     sigma = q["sigma"].to_numpy()
     upid, gid = np.unique(q["pdb.id"].to_numpy(), return_inverse=True)
     starts = np.searchsorted(gid, np.arange(len(upid) + 1))
     kv = np.asarray(model.kernel, dtype=float)
-    edge_lists = edges(q, joint=model.joint) if kv.size else []
+    edge_lists = edges(q, joint=model.joint, far=model.far) if kv.size else []
     E, eoff = bucket_edges(edge_lists, starts[:-1], kv) if edge_lists else (
         np.zeros((0, 3), np.int64), np.zeros(len(upid) + 1, np.int64))
     return upid, starts, e, sigma, E, eoff, kv, q
@@ -78,6 +80,11 @@ def _init_workers(payload: dict) -> None:
 
 def _run_chunk(args):
     body, idx, kw = args
+    if body not in _BODIES:
+        # A spawned worker imports this module, not whatever registered the body. The ensemble
+        # bodies register themselves into `_BODIES` on import, so import them on demand rather
+        # than at module scope, which would be a cycle (`ensemble` imports from here).
+        from . import ensemble  # noqa: F401
     return [_BODIES[body](s, **kw) for s in idx]
 
 
@@ -276,14 +283,14 @@ def contact_map(sites: pl.DataFrame, model: PottsModel, *, by: str = "loop", cha
     ``by="pair"``
         the ungrouped table, exactly :func:`contact_probabilities`.
 
-    The residues of a loop are distinct pairs with different probabilities, so the number of
-    simultaneous contacts is Poisson-binomially distributed and has no closed form. The event "at
-    least one" does, and it is what a frequency map measures:
+    The returned ``p_any`` uses an independence approximation to the coupled marginals.
+    Under independence the contact count is Poisson-binomial and the event "at least one" is:
 
     .. math:: P(N \ge 1) \;=\; 1 - \prod_j (1 - p_j)
 
     where :math:`p_j` is the model marginal of pair :math:`j` in the group and :math:`N` the number
-    of contacts the group makes. It is accumulated in :math:`\log(1 - p)` so a twelve-residue loop
+    of contacts the group makes. Coupled marginals alone do not determine this union probability;
+    an exact coupled union requires joint configuration samples. It is accumulated in :math:`\log(1 - p)` so a twelve-residue loop
     does not underflow, and a pair at :math:`p_j = 1` forces the group to 1 exactly rather than to
     ``nan``.
 
@@ -302,7 +309,7 @@ def contact_map(sites: pl.DataFrame, model: PottsModel, *, by: str = "loop", cha
 
     Returns:
         For ``"pair"``, :func:`contact_probabilities`' frame unchanged. Otherwise the grouping
-        columns plus ``p_any`` (the predicted frequency above), ``p_expected`` (the expected number
+        columns plus ``p_any`` (the independence approximation above), ``p_expected`` (the expected number
         of contacts in the group, :math:`\sum_j p_j`), ``n_pairs`` (available pairs in the group),
         ``n_observed`` (how many of them this structure made) and ``observed`` (1 if any did, else
         0 — the indicator the prediction is scored against).
@@ -318,6 +325,8 @@ def contact_map(sites: pl.DataFrame, model: PottsModel, *, by: str = "loop", cha
     if by == "pair" or p.is_empty():
         return p
     keys = ["pdb.id", *_MAP_KEYS[by]]
+    if p.filter(pl.col("cls") != "peptide").height:
+        keys += ["cls", "chain.id.par", "role.par"]
     return (p.group_by(keys)
             .agg([(1.0 - (-pl.col("p_model")).log1p().sum().exp()).alias("p_any"),
                   pl.col("p_model").sum().alias("p_expected"),
@@ -394,6 +403,7 @@ def peptide_free_energy(sites: pl.DataFrame, model: PottsModel, *, coupled: bool
                                     "log_z0": pl.Float64, "dF": pl.Float64,
                                     "n_pairs": pl.Int64, "is_observed": pl.Int64})
     aa = tuple(model.alphabet)
+    sites = sites.filter(pl.col("d_ca") <= model.radius)
     codes, _sizes, q = site_codes(sites, model)
     # A partner position is one residue of one chain, so every site carrying it must agree on the
     # identity. Averaging over a disagreement would silently score a sequence that does not exist.
@@ -411,9 +421,23 @@ def peptide_free_energy(sites: pl.DataFrame, model: PottsModel, *, coupled: bool
     eta_all = rest[:, None] + h_par[None, :] + J[codes[0], :]
 
     if coupled:
-        p = (marginals if marginals is not None else
-             contact_probabilities(sites, model, chains=chains, burn=burn, draws=draws, thin=thin,
-                                   seed=seed, workers=workers))["p_model"].to_numpy()
+        marg = (marginals if marginals is not None else
+                contact_probabilities(sites, model, chains=chains, burn=burn, draws=draws,
+                                      thin=thin, seed=seed, workers=workers))
+        keys = [c for c in ("chain.id.rec", "chain.id.par") if c in sites.columns] + ["pdb.id", "chain.rec", "region.rec", "pos.rec", "cls", "role.par", "pos.par"]
+        if all(k in marg.columns for k in keys):
+            # contact_probabilities sorts sites; align by identity, never arrival order.
+            aligned = (q.select(keys).with_row_index("_order")
+                       .join(marg.select(*keys, "p_model"), on=keys, how="left",
+                             validate="1:1").sort("_order"))
+            if aligned["p_model"].null_count():
+                raise ValueError("marginals must match every site by identity")
+            p = aligned["p_model"].to_numpy()
+        elif marg.columns == ["p_model"]:
+            # Retain the historical explicit positional-vector input.
+            p = marg["p_model"].to_numpy()
+        else:
+            raise ValueError("marginals must carry site identity columns or only p_model")
         if p.shape != (q.height,):
             raise ValueError(f"marginals must have one row per site ({q.height}), got {p.shape}")
         # log Z is linear in eta to first order with slope <sigma>; the constant cancels in dF
@@ -595,7 +619,7 @@ def connected_correlations(sites: pl.DataFrame, model: PottsModel, *, chains: in
     dn = np.where(acc["dn"] > 0, acc["dn"], np.nan)
     mn = np.where(m_n > 0, m_n, np.nan)
     return pl.DataFrame({
-        "class": kernel_names(model.joint)[:n_k],
+        "class": kernel_names(model.joint, model.far)[:n_k],
         "n_edges": acc["dn"].astype(np.int64),
         "c_data": acc["d2"] / dn - (acc["d1a"] / dn) * (acc["d1b"] / dn),
         "c_model": acc["m2"] / mn - (acc["m1a"] / mn) * (acc["m1b"] / mn),
@@ -636,3 +660,96 @@ def score_structure(structure, model: PottsModel | None = None, *, partner: str 
     if pairs.is_empty():
         return {"pdb.id": structure.pdb_id, "n_sites": 0, "n_contacts": 0}
     return score_sites(pairs, model, **kwargs).to_dicts()[0]
+
+
+def map_agreement(sites: pl.DataFrame, *, column: str = "p_model",
+                  observed: str = "sigma") -> pl.DataFrame:
+    r"""How well a predicted contact map agrees with the one a structure actually made.
+
+    Two numbers, because they answer different questions and no single one answers both:
+
+    ``js``
+        **Placement.** Jensen--Shannon similarity between the two maps read as distributions over
+        sites, :math:`q_a = \sigma_a / \sum \sigma` and :math:`r_a = p_a / \sum p`:
+
+        .. math:: \mathrm{js} = 1 - \tfrac12 D_{\mathrm{KL}}(q \| m)
+                                  - \tfrac12 D_{\mathrm{KL}}(r \| m),
+                  \qquad m = \tfrac12 (q + r)
+
+        in bits, so it lies in :math:`[0, 1]`: 1 is identical placement, 0 disjoint support. It is
+        **scale-free in the level** by construction --- normalising divides the total out --- which
+        is why ``ratio`` is reported beside it and not folded in.
+
+        :math:`\mathrm{js} = 1` requires the model to put *all* its mass on exactly the contacting
+        cells in equal proportion. This also holds for :math:`p_a=c\sigma_a`,
+        with any :math:`0<c<1`; it does not require a deterministic map. The level
+        ratio distinguishes these proportional maps.
+
+    ``ratio``
+        **Level.** :math:`\sum_a p_a / \sum_a \sigma_a`. One is the count reproduced.
+
+    ``auc`` is reported too, as the ordering read alone.
+
+    **Not R².** On a binary outcome ``1 - SS_res/SS_tot`` *is* the Brier skill score --- they agree
+    to three decimals on every map we have checked --- so reporting both is reporting one number
+    twice. It is also dominated by the many easy zeros and scales with prevalence, so two maps with
+    different site counts are not comparable under it. That is exactly the comparison this function
+    exists for, which is why the placement read-out here is normalised and symmetric instead.
+
+    Args:
+        sites: A scored site table --- from :func:`contact_probabilities`,
+            or ``tcren potts contacts``.
+            Grouped by ``pdb.id``; rows with a null ``observed`` are read as non-contacts.
+        column: The probability column to score.
+        observed: The observed indicator column.
+
+    Returns:
+        One row per ``pdb.id``: ``sites``, ``contacts``, ``expected``, ``ratio``, ``js``, ``auc``.
+    """
+    if column not in sites.columns:
+        raise ValueError(f"no {column!r} column; scored tables carry p_model, p_independent and "
+                         f"p_conditional")
+    out = []
+    for pid, d in sites.group_by("pdb.id", maintain_order=True):
+        y = d[observed].fill_null(0).to_numpy().astype(float)
+        p = d[column].fill_null(0.0).to_numpy().astype(float)
+        n_obs, n_exp = float(y.sum()), float(p.sum())
+        out.append({
+            "pdb.id": pid[0] if isinstance(pid, tuple) else pid,
+            "sites": int(d.height), "contacts": int(n_obs), "expected": n_exp,
+            "ratio": n_exp / n_obs if n_obs else float("nan"),
+            "js": _js_similarity(y, p),
+            "auc": _rank_auc(p, y > 0.5),
+        })
+    return pl.DataFrame(out)
+
+
+def _js_similarity(y: np.ndarray, p: np.ndarray, eps: float = 1e-12) -> float:
+    """1 - JSD in bits between the two maps normalised to distributions over sites."""
+    if y.sum() <= 0 or p.sum() <= 0:
+        return float("nan")
+    q, r = y / y.sum(), p / p.sum()
+    m = 0.5 * (q + r)
+    def kl(a, b):
+        return float(np.sum(np.where(a > 0, a * np.log2((a + eps) / (b + eps)), 0.0)))
+    return 1.0 - 0.5 * (kl(q, m) + kl(r, m))
+
+
+def _rank_auc(score: np.ndarray, truth: np.ndarray) -> float:
+    """ROC-AUC by rank sum, ties averaged. A flat predictor must read 0.5, not better."""
+    pos, neg = int(truth.sum()), int((~truth).sum())
+    if not pos or not neg:
+        return float("nan")
+    order = np.argsort(score, kind="mergesort")
+    ranks = np.empty(len(score), float)
+    ranks[order] = np.arange(1, len(score) + 1)
+    srt = score[order]
+    i = 0
+    while i < len(srt):
+        j = i
+        while j + 1 < len(srt) and srt[j + 1] == srt[i]:
+            j += 1
+        if j > i:
+            ranks[order[i:j + 1]] = ranks[order[i:j + 1]].mean()
+        i = j + 1
+    return float((ranks[truth].sum() - pos * (pos + 1) / 2) / (pos * neg))

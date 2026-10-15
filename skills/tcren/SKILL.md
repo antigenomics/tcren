@@ -5,6 +5,34 @@ description: tcren — TCR-pMHC contact potential (TCRen) pipeline; conventions 
 
 # tcren Skills Guide
 
+## Final-model boundary and exact exports (2026-10-15)
+
+Fixed empirical contact potentials are permitted with explicit derivation and table
+identity. Q/T/S reference moments/correlation weights, Gaussian/GLM, fitted Potts and
+transition readouts are historical APIs, excluded from final models. Older fit-free
+labels below mean no fitting at scoring time and do not establish final eligibility.
+
+`tcren export -s INPUT --potential tcren2 --quantity receptor-reference -o OUT.tsv`
+exports exact virtual receptor poly-Ala differences on unchanged contacts for all,
+CDR, CDR1/2 and CDR3, TP/TM and their totals. `--quantity position|residue|contacts|placement`
+uses the exact existing decomposition/placement APIs, not leave-one-out explain.
+Inputs include files, directories, manifests/globs and supported archives. Full stems
+and physical residue identities are retained; duplicates fail. Accounting, residue,
+annotation and potential/provenance sidecars retain failures and estimated dependencies.
+All-failed/empty commands exit nonzero. Benchmark consumers must check every input key.
+
+`tcren inspect-models manifest.tsv output/` joins native predictor confidence with
+batch annotation, contacts and descriptors. Historical fitted assessment is disabled
+by default; `--historical-assessment` explicitly opts in. AF3, TCRmodel2, Boltz2,
+tFold-TCR and AF2-multimer have format-specific support; Protenix/RF3 scalar summaries
+retain native names, with unverified token mapping explicitly unavailable. No ranking
+score is silently relabelled ipTM. See `docs/prediction.rst` and `docs/fit-free.rst`.
+
+`score_table` has per-readout availability flags and JSON `missing_descriptors`.
+`recognition_table(..., annotate=False)` reuses supplied annotated Structures.
+Parallel descriptor calls require an importable guarded script; stdin/notebooks must
+use `threads=1` or the CLI, with an explicit error rather than a silent fallback.
+
 `tcren` reproduces and extends the TCRen contact-energy potential (Nat Comput Sci 2022)
 on a pure-Python pipeline (structure parsing → contacts → TCR/MHC annotation → potential
 derivation → epitope-ranking benchmarks). Annotation uses the `arda` package
@@ -35,6 +63,51 @@ when writing new code, since that is where the docstrings and the layering audit
 `energetics.ddg` is `energetics.mutation` because as a submodule it shadowed the `ddg` *function*
 of the same name on the package. Section headings below still use several of the deprecated names;
 they resolve, and this table is the map.
+
+## Current audit boundary (2026-10-14)
+
+The geometry prior, coordinate-chain and cross-product experiment, its bundled geometry
+resources and CLI commands `potts geom`, `chain`, `cross`, `predict` are archived under
+`attic/2026-10-audit`. The retained contact model still uses supplied coordinates;
+`potts contacts`, `agreement`, fitting and self-consistent regeneration remain supported.
+Historical release notes are in `CHANGELOG.md`; publication gates are in `ROADMAP.md`.
+
+`features --chunk N` limits structures held in memory and always recomputes from raw
+inputs. There is no resume mode or computed part cache. Empty/all-failed feature runs
+exit nonzero and retain their diagnostic table.
+
+`structure.Atom.altloc` retains source alternate-location labels without changing atom
+order or contact inclusion. `validation.structures.close_atom_pairs` exports both labels,
+`alternate_location_involved`, `possible_disulfide`, and `bond_classification="unknown"`.
+Adjacent-residue exclusions are heuristic; alternate labels do not establish cross-residue
+incompatibility. PDB/mmCIF writers keep the existing one-conformer selection and its label.
+
+Native array boundaries reject invalid dimensions, indices and scalar domains before access.
+Frozen model loaders reject stale catalogues. A model without sufficient valid confidence
+training returns an unavailable (NaN) confidence residual. Feature/manifest joins validate
+unique non-null keys and binary labels; fit metadata reports unmatched and incomplete counts.
+
+The 2026-10-14 definition migration preserves frozen coefficient arrays and numerical fit
+metadata; `audit/2026-10-14/frozen-metadata-migration.json` records their hashes and both
+catalogue digests. This is not a refit or proof that corrected class-II/shear features reproduce
+historical outputs. Mechanics defaults have reduced stiffness Å^-2, force Å^-1 and dimensionless
+work; no SI energy calibration is supplied. `fp_chi_*` is β₀−β₁, equal to full Euler characteristic
+only when higher Betti numbers vanish. `exp_lost` is a linearized nearest-pair loss sum.
+
+Potts `available_pairs` exports `chain.id.rec`, `chain.id.par` and heavy-distance `probe`.
+Kernel and marginal joins retain physical chains. Legacy peptide-only tables can infer one partner;
+legacy MHC tables must be regenerated. `threaded_ensemble` requires peptide-only sites and exact
+candidate `par.len`, and carries every Gibbs chain's final state into the next candidate.
+`n_parameters` counts stored coefficients, including orientation, not identifiable degrees of
+freedom. The imputation fitter combines Gibbs imputation with conditional pseudolikelihood;
+it has no likelihood-EM monotonicity theorem. Coupled-marginal `p_any` remains an explicitly
+labelled independence approximation. Sampling trajectories after these repairs require fresh
+reproduction before scientific promotion.
+
+`scripts/check_fresh_holdout.py --features <fresh harmonization parquet> --out <report.json>`
+requires every shipped manifest ID and compares a temporary full refit against the frozen arrays
+and numerical metadata under the existing exact full-scale contract. It never installs the refit.
+The driver owns raw-input freshness; invoking this checker on an old table is not reproduction.
 
 ## Batch annotation — never loop (mmseqs2 is the parallel layer)
 
@@ -226,6 +299,15 @@ QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses ar
   contact map the energy is additive over contacts, so the parts sum to the whole. Once atoms move
   they do not — truncating every side chain at once loses contacts each residue alone retains — so
   the 3D scan and the 3D reference are two different measurements. Both are correct; say which.
+- **CLI: `tcren score --delta [--reference structural|virtual]`**, one `dphi` column per candidate.
+  `structural` (the default) passes `structure=` and rebuilds the poly-Ala contact map;
+  `virtual` re-indexes poly-Ala on the template's map. **They are different quantities** — on
+  2b4/3QIB under `karnaukhov2022` the references read **-1.3916** and **-0.0166** natural-log units
+  against a scored energy of -2.3104, and poly-Ala keeps 62-85 % of the crystal's TCR:peptide
+  contacts. Φ(reference) is candidate-independent, so it is computed once per template.
+- **CLI: `-c` takes a per-template manifest**, a TSV/CSV headed `complex.id` + `peptide`; each
+  structure scores only its own rows. 204 units with their own pools = ONE call and ONE batched
+  mmseqs pass, not 204 of each. A plain one-per-line file is unchanged. `tcren rank` reads it too.
 - **`interface="complex"` sums both peptide-bearing interfaces** (TCR:peptide with `potential`,
   peptide:MHC with `mhc_potential=`, default MJ), matching `cpl.response_matrix`'s cell convention.
   `ddg`, `neoantigen_ddg` and `reference_delta` all take it; CLI is `tcren ddg --interface complex`.
@@ -245,6 +327,45 @@ QC for **generated** (AlphaFold/TCRmodel) complexes: their peptide-swap poses ar
   |ρ|≤0.3 (cache-free recompute, `scripts/atlas_tcren.py` + `atlas_within_series.py`, manuscript repo).
   Turning ATLAS Garcia-like (thread a within-TCR panel on one pose) partly recovers the signal — proof
   it's the task setup (within-receptor ranking vs cross-complex affinity), not the potential.
+
+## The background in 3D — `tcren.energetics.background` / `tcren.refine.sidechain` (3.10.0)
+
+- **Why alanine and not "any other residue": `substitute_residues` truncates at Cβ, and alanine's
+  heavy atoms ARE N/CA/C/O/CB.** For an alanine target the truncation *is* the mutant — no rotamer,
+  no relaxation, no choice. Every other target is a Cβ stub with the right label and the wrong
+  reach, which is why the shipped scores reference poly-alanine and why a 20-letter reference had to
+  wait for a side-chain builder. What the reference removes is measured: over 370 crystals and
+  **8,002** TCR:peptide contacts at 5 Å, only **37.77 %** survive truncation to backbone + Cβ and
+  **45.03 %** are made by side-chain atoms on both sides (`bench/eda/sidechain_reach.py`).
+- **`smoothed_reference` is a VIRTUAL scan and `background.scan_structure` is the structural one.**
+  The first holds σ fixed and re-indexes the potential, so a contact a long arginine reaches across
+  is still charged to the alanine replacing it. The second **builds** every candidate at every
+  rotamer of a χ grid. Report which; never swap them silently.
+- **Three outcomes, not one.** `p = 0` is *no contact*; `p > 0` is *contact*; and every rotamer
+  clashing is **collision**, which makes the candidate INADMISSIBLE — it leaves the background
+  average with the prior renormalised over survivors, rather than entering at its least-bad rotamer.
+  That last is the whole point: `w / w.sum()` reports an impossible substitution as the least-bad
+  one and lets it set `F_i`. `reference_free_energy` takes `F_i` over the admissible set `A_i`, and
+  `n_admissible` = |A_i| is a read-out — on 1ao7 the A\*02:01 P2 pocket admits **3 of 20** and the
+  exposed P8 admits 19.
+- **Measured over 60 crystals, 596 positions, 585,720 cells: 14.48 % collision, 81.48 % no contact,
+  4.04 % contact**; |A_i| mean **17.17** of 20 (p05 12, p95 20).
+- **`sidechain.TOPOLOGY` is chemistry and carries no number; the geometry is fitted** from 374
+  Canonical2026 crystals over 176,475 residues into `data/sidechain_geometry.json`
+  (`scripts/fit_sidechain_geometry.py`). Round-trip through a residue's own χ: **0.0784 Å** mean
+  heavy-atom RMSD over 54,954 residues. `nerf` and `dihedral` invert to 2.4e-14 — **a sign error in
+  `dihedral` leaves every bond and angle right and every atom 180° out, reading as a plausible 4 Å
+  RMSD rather than an exception**, which is why `_selfcheck` exists.
+- **ONE batched call per structure** into `_relax.substitution_scan`; it releases the GIL and threads
+  over positions itself. Never per residue, never a Python pool. Agrees with `scan_numpy` to
+  **2.2e-16**, 100× faster, **27.5 ms** a structure. Threads run over the `20 P` (position,
+  candidate) cells from an atomic cursor, not over positions — the peptide side has only nine —
+  and a clashed rotamer is abandoned at the first overlap. Peptide 505 ms serial to 23.1 ms on
+  16 cores; receptor 6,372 to 234 ms.
+- **The grid is calibrated against one invariant — a deposited residue must be admissible at its own
+  position.** `step=60°`, `clash_tol=0.8 Å` reads **0.9725** over 400 residues in 40 crystals;
+  30° does **not** beat it (0.9700) at 15× the cost, so the residual is strain, not coarseness.
+  `scripts/calibrate_background_scan.py`.
 
 ## Potential decomposition + the MJ reference tables — `tcren.potential`
 
@@ -330,7 +451,12 @@ contact_probabilities(pairs, model)                # p_independent / p_model / p
 tcren potts fit      -s structures/ -o potts.json --balance both
 tcren potts score    -s structures/ -o scores.tsv          # bundled model by default
 tcren potts contacts -s complex.pdb -o contacts.tsv
+tcren potts contacts -s complex.pdb -m potts_tcr_peptide_sc -o contacts.tsv   # a bundled name
 ```
+
+`-m/--model` takes a **bundled name** — `potts_tcr_peptide` (default), `potts_tcr_peptide_sc`,
+`potts_tcr_mhc`, `potts_pep_mhc` — or a JSON path, on `score` / `contacts` / `map` / `ensemble` /
+`scan`.
 
 **Fitting needs no partition function.** `P(sigma_a | rest)` is logistic in
 `eta_a + sum_k K_k n_k(a)` with `n_k(a)` the count of contacting neighbours in coupling class `k`,
@@ -346,10 +472,17 @@ schedule was too short.
 the projection is a separate step, never a constraint. After it, `J` is directly comparable with a
 double-centred `Potential`.
 
-**Three coupling families**, all on sequence offsets so no extra coordinates are needed:
+**Four coupling families**, all on sequence offsets so no extra coordinates are needed:
 `K(di,dj)` within one loop (`|di|,|dj| <= 2`, 12 classes), `L(|dj|, same chain?)` across two
-hypervariable loops (6), and `M` for the same receptor residue against both partners (1, joint
-models only). Everything else is asserted uncoupled.
+hypervariable loops (6), `M` for the same receptor residue against both partners (1, joint models
+only), and `X(same receptor residue, |dj| > 2)` (1, `far=True` only, new in 3.8.0). Everything else
+is asserted uncoupled.
+
+**`X` is the exclusion class and it is opt-in.** `K(+0,+1)` and `K(+0,+2)` say a receptor residue
+grips a contiguous run of peptide positions; nothing then says the run stops. `fit_potts(...,
+far=True)` fits the class that does, at **K = -0.457, s.e. 0.049, z = -9.34** on 367 crystals,
++81.8 nats for one parameter. Every shipped model has `far=False`, so it changes nothing already
+written. It bites under a *predicted* Ca geometry, not on the crystal's own.
 
 **The result to know.** On the 362 alpha-beta Native2026 crystals every **axial** class is positive
 and every **off-axis** class negative — `K(+1,0) = +0.79`, `K(0,+1) = +0.66` against
@@ -421,6 +554,231 @@ of a within-region coordinate. Distance-bin edges are **global** (base 0), never
 frame's own minimum, or a model fitted on one set indexes the wrong coefficients on another.
 `psi` (log-likelihood per available pair), not `log_lik`, is the column to compare across
 interfaces of different size.
+
+## Does the residue turn toward the peptide? — `g_orient` (3.9.0)
+
+The Ca geometry says a pair is close enough; whether the residue **faces** it is a separate
+question the site table could not ask, carrying `d_heavy` and `d_ca` and no Cβ.
+
+```python
+model = fit_potts(pairs, coupling_matrix="tcren2", orient=True)   # needs `cos_cb` on `pairs`
+```
+
+- `geometry.orientation_cosine` — cosine between the Ca→Cβ direction and the direction to the
+  partner Ca. `+1` aimed at it, `-1` away. Held at a fixed Ca distance it separates contact from
+  non-contact at **ROC-AUC 0.69–0.84** over 4–12 Å.
+- Fitted as `g_orient` (8 bins, 369 crystals, `J` pinned to `tcren2`): **+787.0 nats for 8
+  parameters**, against the 3.8.0 exclusion class's +81.8 for one. Monotone across 3.05 log-odds,
+  −1.29 at cos ∈ [−1, −0.75) to +1.76 at [+0.75, +1].
+- **The Cβ is reconstructed, not read.** `geometry.virtual_cb` builds it from three consecutive Ca
+  (0.547 Å mean residual), and `available_pairs` uses the same reconstruction on a crystal — so
+  fitting and scoring describe **one** quantity rather than two. Pearson 0.81 against the real side
+  chain. Glycine is not a special case: this is where a Cβ *would* sit, so nothing is missing.
+- **It pays on a crystal, not on a drawn geometry.** Held out over 24 crystals, on the complex's
+  own Ca: js **0.7052 → 0.7290**, ROC-AUC **0.9599 → 0.9691** (the 3.8.0 exclusion class moved js
+  0.7133 → 0.7162 and left AUC flat). On a `potts.chain` draw it is neutral (0.4200 → 0.4203) —
+  `cos_cb` is a deterministic function of the Ca trace, so it is only as receptor-specific as the
+  trace. **Use it when you hold coordinates.**
+- **Opt-in on both sides.** A model with `g_orient == []`, or a frame with no `cos_cb`, carries six
+  blocks and scores exactly as before. All four bundled models have `g_orient == []`, and
+  `SITE_COLUMNS` is unchanged — `cos_cb` rides beside it.
+
+## EM over the borderline contact calls — `tcren.potts.em` / `tcren potts fit --em`
+
+`fit_potts` treats `sigma` as data. A contact is called by thresholding the closest heavy-atom
+distance at 5 A, so a pair within half an angstrom of that line is **a coin toss recorded as a
+fact**. Those sites are latent, and Monte-Carlo EM is what a latent indicator asks for.
+
+- **E-step** — sample `sigma_latent | sigma_observed` by block Gibbs with every confident site
+  CLAMPED. The couplings are why this is worth doing: a borderline pair beside three made contacts
+  is imputed differently from one standing alone.
+- **M-step** — the existing penalised pseudolikelihood on the completed data, `draws` completions
+  stacked at weight `1/draws` so the effective sample size, and therefore what the ridge means, is
+  unchanged. Each completion gets a `#m` suffix on its `pdb.id`, because every coupling edge in
+  `tcren.potts.kernel` joins on that column and unsuffixed copies would link sites across draws.
+
+```python
+from tcren.potts import available_pairs, fit_potts, fit_potts_em, latent_mask, consistency
+
+pairs = available_pairs(structure, probe=5.5)   # NOTE the probe -- see below
+ref   = fit_potts(pairs)
+model, trace = fit_potts_em(pairs, init=ref, draws=5, steps=10, seed=0)
+consistency(ref, model)                          # per block: how far it moved, in what units
+```
+
+```
+tcren potts fit -s <structures> -o potts_em.json --em --em-draws 5 --em-trace-out em_trace.tsv
+```
+
+**THE LATENT BAND MUST REACH BOTH WAYS, and by default it does not.** `available_pairs` measures
+`d_heavy` only out to its own `cutoff`, so every pair that MISSED carries a null distance. A band
+built on that table is one-sided: on the 17 bundled test structures it selects **44 sites, every
+one of them a contact**, so EM could remove contacts and never add them — a systematic bias, not a
+small one. Pass `probe=cutoff + margin` (which populates `d_heavy` past the cutoff and does NOT
+move `sigma`) and the same band selects **115 sites, 44 contacts and 71 near misses**.
+`latent_mask` raises rather than proceeding one-sided.
+
+**This adds a fit; it does not replace one.** The shipped pseudolikelihood models are unchanged and
+are the point of comparison. `consistency(reference, other)` scales each block's shift by the
+reference fit's own cluster-robust s.e. where it has one (`kernel`) and by the block s.d. where it
+does not; a block with no spread (`g_class` on a single-partner model) reads `degenerate` rather
+than being divided by ~0.
+
+**Gotchas.** MCEM with a fixed `draws` does NOT converge to a point — it random-walks in a ball
+whose radius is the Monte-Carlo noise, so `max_shift` has a floor `tol` may sit below. Read
+`max_shift_vs_init` beside it: a run that is only jittering has a flat one. Everything is seeded,
+so a run is exactly reproducible regardless. `margin=0` makes every site observed and reduces the
+whole thing to `fit_potts` exactly, which is the test that it is an extension and not a rewrite. A
+redundancy `weights` dict is keyed on the UNSUFFIXED `pdb.id` and is multiplied by the `1/draws`.
+
+## Self-consistent TCRen — `tcren.potts.selfcon` / `tcren potts selfcon`
+
+**The matrix it produces is shipped: `tcren.potential.tcren2_em()`, `data/TCRen2_sc_potential.csv`,
+manifest key `tcren2_em`, and the model pinned to it as `potts_tcr_peptide_sc`. Both are reachable
+by name from the CLI** — `-p tcren2_em`, `--tcr-peptide-potential tcren2_em`,
+`--coupling-matrix tcren2_em`, `-m potts_tcr_peptide_sc`. **`tcren2()` is still the default
+potential** — TCRen2-EM ships beside it,
+Pearson r = 0.944 against TCRen2 over the 380 cells against r = 0.867 between TCRen2 and the 2022
+matrix, so it is a smaller step than the re-derivation was and the two are still not
+interchangeable.
+
+`derive_tcren` tallies the amino-acid pairs of the contacts a crystal **shows**; `fit_potts` reads
+the finished matrix back as its pair term. The loop was never closed. `fit_selfconsistent` closes
+it: each step recomputes the contact posterior under the current model, re-derives the potential
+from those contacts **weighted by their probability**, damps it against the previous matrix, and
+refits with the new matrix pinned as the pair term.
+
+```python
+from tcren.potts import available_pairs, fit_selfconsistent
+from tcren.potential import balanced_weights
+
+pairs = pl.concat([available_pairs(s, probe=6.5) for s in structures])   # NOTE the probe
+pot, model, trace = fit_selfconsistent(pairs, margin=0.5, damping=0.5, steps=15,
+                                       weights=balanced_weights(markup))
+pot.to_csv("TCRen_sc.csv")          # a drop-in Potential: -p TCRen_sc.csv anywhere
+```
+
+```
+tcren potts selfcon -s <structures> --balance both --margin 0.5 \
+    -o TCRen_sc.csv --model-out potts_sc.json --trace-out sc_trace.tsv
+```
+
+**`--tol` sits on `max_abs_de`, which is a maximum over 380 cells and therefore has a high
+Monte-Carlo floor. Do not lower it without raising `draws`, and do not expect `draws` to rescue an
+arbitrarily small value.** Measured on Native2026: the plateau falls 0.00391 (`draws=100`) →
+0.00217 (`draws=400`), a ratio of 0.553 against the 0.500 that quartering the variance predicts, so
+1e-3 needs roughly 1,800 draws and would measure nothing — across those same steps `r_vs_initial`
+moves by 6.2e-5 and `beta_matrix` by 2.1e-4. Read **`rms_de`** instead when the question is whether
+the matrix is still moving; averaging over the cells rather than maximising puts its floor about
+`sqrt(380)` lower. The loop breaks the moment `max_abs_de <= tol`, so a tol near the floor also
+decides how many steps you get.
+
+**Weighting each configuration by its probability costs nothing.** The tally over whole contact
+configurations, `sum_delta P(delta | obs) * n_ab(delta)`, **equals** `sum_a p_a` by linearity of
+expectation — the same identity behind `energy_ensemble`. So configurations never have to be
+enumerated to get the counts; `map_ensemble` lists them as a read-out, not as a dependency.
+
+**The estimator is untouched.** `derive_tcren(weight_col=...)` already took a per-contact fractional
+weight, so the log-odds, its contact-fraction reference state and its pseudocount are the shipped
+ones. Only the counts change.
+
+**The observation is one additive field on `eta`**, `logit = (5 - d_heavy)/margin`, clipped at +-40.
+So the E-step is the existing block-Gibbs sampler with a modified vector — no clamping machinery,
+no second code path. One knob spans the family: `margin -> 0` pins the crystal map, `0.5 A` releases
+the threshold band, a large margin lets the crystal enter only through the fit.
+
+**The pair term is PINNED, not free** — `J` carries one coefficient (`beta_matrix`) instead of 400.
+That is what closes the loop: a free `J` absorbs the pair structure and leaves the re-derived matrix
+no route back into `P(sigma)`. `fit_potts(coupling_matrix=)` now accepts a `Potential` object, not
+only one of the five bundled names, and a model pinned that way stores the matrix so it round-trips
+(`PottsModel.coupling_pinned`).
+
+**THE SAME PROBE RULE AS EM.** Build the table with `probe = cutoff + 3*margin` or `d_heavy` is null
+for every non-contact and the field can only ever REMOVE contacts. `tcren potts pairs --probe` and
+`tcren potts selfcon` both handle it.
+
+**Measured, Native2026, `--balance both`, 359 structures after the withdrawn drop.** At `margin = 0`
+the loop reaches its fixed point at step 2 with `max_abs_de = 0.0` **exactly**, contact mass
+7,799.0, and reads **R = 0.9977 against the shipped TCRen2** (mean |delta| 0.0075 over 380 cells,
+largest 0.53 on K:K, the rarest pair). The residual is the availability set, not the loop: the 15 A
+Ca radius holds **7,799 of the deposited derivation's 7,816 TCR:peptide contacts (99.78 %)** — the
+17 it misses sit one or two apiece across 17 structures, side chains touching while their Ca sit
+further apart than the radius.
+
+**Gotchas.** This is EM-SHAPED BUT IS NOT EM: the potential update is a re-derivation, not the
+maximiser of one objective, so `pseudo_loglik` need not rise and on the bundled crystals it does not
+(-337.94, -335.05, then drifting to -335.74 over six steps). Convergence is declared on
+`max_abs_de`, which contracts at the damping rate. Read `contact_mass` against the crystal's own
+contact total — a loop inventing contacts shows up there — and `mass_from_uncertain` for how much of
+the tally came from sites the crystal did not settle. Never mutate a `Potential` in place:
+`as_matrix()` caches with no invalidation and the bundled loaders are `lru_cache`d, so build a fresh
+one each step (`fit_selfconsistent` does).
+
+## Contact ensembles — `tcren.potts.ensemble` / `tcren potts ensemble`
+
+The marginals settle the **mean** interaction energy and nothing else. `Phi(sigma) = sum_a sigma_a
+phi_a` is linear in `sigma`, so by linearity of expectation
+
+```
+<Phi> = sum_a <sigma_a> phi_a          for ANY joint over sigma, coupled or not
+```
+
+Dependence between sites does not break that. It fixes the two conditions, and **both are easy to
+violate**:
+
+1. `<sigma_a>` must be `p_model`, the marginal of the COUPLED model by block Gibbs — not
+   `p_independent`, the factorised `sigmoid(eta_a)`.
+2. It must be read **at the sequence being scored**. `ddg(weights=...)` and
+   `cpl.predict_response(tcr_weights=...)` take ONE weight vector computed on the template and
+   apply it to every threaded candidate. A candidate residue enters `eta_a` twice, through
+   `h_par` and through `J`, so the ensemble itself moves under substitution:
+   `sum_a p_a(template) phi_a(x)` is not `sum_a p_a(x) phi_a(x)`.
+
+```python
+from tcren.potts import PottsModel, available_pairs, energy_ensemble, map_ensemble, threaded_ensemble
+
+pairs = available_pairs(structure)              # the sites
+m     = PottsModel.bundled()
+energy_ensemble(pairs, m)                       # phi_mean, phi_var, phi_free, map_entropy, hamming_obs
+map_ensemble(pairs, m, by="position", top_k=20) # the configurations, ranked, with p_hat
+threaded_ensemble(pairs, m, candidates)         # per candidate; marginals RECOMPUTED
+threaded_ensemble(pairs, m, candidates, coupled=False)   # the shipped frozen-marginal approximation
+```
+
+```
+tcren potts ensemble -s <structures> -o ensemble.tsv --maps maps.tsv --by position -k 20
+```
+
+**What the joint buys over the marginals.** `phi_var` needs `<sigma_a sigma_b>` and is invisible to
+any set of marginals; `phi_free = -1/beta log <exp(-beta Phi)>` is a soft minimum over
+configurations (`beta -> 0` recovers the mean, `beta -> inf` the best map the geometry admits);
+`map_entropy = <E> + log Z` is how many maps the interface is choosing between. On the 14 alphabeta
+complexes in `tests/assets/pdb`, **Var Phi runs 0.341 to 1.286 squared TCRen units** — a 3.8-fold
+range, so plasticity varies between complexes as much as the mean energy does.
+
+**A configuration needs coarse-graining before it has a probability, and the granularity is
+measured.** On 1ao7 (174 available sites, 6,400 draws) the raw site-level map recurs NEVER — 6,400
+distinct configurations out of 6,400 draws, each at `p_hat = 1.6e-4`, because the space is `2^174`.
+Coarse-grained to which **peptide positions** are engaged, the same draws give **41 distinct
+patterns, the most likely at `p_hat` = 0.3219 — and that modal pattern is the crystal's own.**
+`by="loop"` (39 groups, 3,308 patterns, top 0.0216) is at the edge of what 6,400 draws resolve;
+`by="pair"` is only meaningful where `exact_log_z` can enumerate instead. Across the 14 complexes
+the modal pattern is the observed one in **6 of 14**.
+
+**The identity is the cheapest available correctness check.** `phi_mean` must equal
+`sum_a p_model_a * phi_a` from an independently seeded `contact_probabilities` run to within
+Monte-Carlo error; disagreement means one path is wrong or a chain has not mixed. `energy_ensemble`
+carries `phi_mean_from_marginals` so a caller can check it without a second Gibbs run.
+
+**Gotchas.** `anchor="observed"` starts the chains at the structure's own map — that is the
+"configurations that do not differ much from the observed one" ensemble, and it is NOT a
+Hamming-ball constraint: an unconstrained chain started there still samples `P(sigma)`, and
+`hamming_obs` reports how far it travels. A site the potential does not define (TCRen2 has no
+`from = C` row, so it is 380 cells and not 400) contributes **zero** and is counted in
+`n_undefined` per structure, never swallowed. `threaded_ensemble` is serial over structures and
+uses its current candidate-initialization policy (it does not retain every candidate’s final
+state as a warm start); `coupled=False` is there so the shipped approximation and
+the ensemble mean can be measured against each other on identical rows.
 
 ## Ring stacking — `tcren.stacking.ring_stacking` (geometry, NOT an energy)
 
@@ -538,6 +896,14 @@ interfaces of different size.
   residue even in an all-stabilising interface. **Each contact is attributed to BOTH residues it
   joins, so the per-residue phi sums to 2x the interface total** — an attribution, not a partition;
   a test pins that factor of two.
+- **`groove_importance_scene(pid, canon_dir, importance, by='p_expected', spectrum=..., surface=False)`**
+  is `groove_scene`'s framing — peptide threaded along the cleft, seen from above, helices and floor
+  kept as furniture — with the peptide coloured by a per-residue value carried in on the B-factor
+  column. Two differences from `importance_scene` and both matter: it **zooms the groove, not the
+  coloured selection**, so several complexes rendered this way are directly comparable; and it ramps
+  over the column's own range, which is right for a one-sided quantity such as
+  `potts.contact_map(by="position")`. Use `importance_scene` for a signed share, which centres on
+  zero.
 - Chain roles after `tcren orient`: A=Vα, B=Vβ, C=peptide, D=MHCα, E=MHCβ/β2m — `CHAIN_COLOURS`.
 - Notebooks: `notebooks/pymol_canonical_figures.ipynb` (static gallery) and
   `notebooks/pymol_interactive.py` (**marimo**, `pip install 'tcren[marimo]'`). marimo is reactive,
@@ -602,6 +968,26 @@ interfaces of different size.
   because they are constant across every structure of one epitope on one allele and a model
   reading them reaches the cohort's name without reading an interface.
 
+- **Which read-out answers which question.** There are **two ranking tasks**, and magnitude is a
+  level rather than a third task. Read down this list and stop at the first row that matches:
+
+  | the question you are actually asking | what to read | how to get it |
+  |---|---|---|
+  | *Which peptide does this fixed receptor read?* | `peptide_score` | `tcren assess --peptide`, or `tcren ddg` / `tcren cpl` directly |
+  | *Which receptor recognises this fixed epitope?* | `binder_iptm` if the table carries ipTM, else `binder_score`, reported beside `S` | `tcren assess` |
+  | *Is this pose real at all — I have no label and no cohort?* | `pose_score` | `tcren assess` |
+  | *Is the generator's confidence warranted?* | `confidence_residual`, then `p_nonbinder_af` | `tcren assess` on a table with an `iptm` column |
+  | *Which part of the structure says so?* | `channel_*` | `tcren assess` |
+  | *Which residue carries it?* | `residue_deltas` `delta` | `tcren explain --score <read-out>` |
+  | *How fast does it come apart?* | the mechanics read-outs — a bound structure reaches the **off-rate**, not the equilibrium constant | `tcren mechanics` |
+
+  Two traps this ordering exists to avoid. `peptide_score` **reads below chance on a receptor
+  benchmark**, and that is a property of its poly-alanine reference frame rather than a fault — it
+  is the wrong instrument for the second row, not a broken one. And the two composite arms
+  (`S` + `binder_score`) z-sum quantities on different natural scales, so they need a **cohort** to
+  set that scale; every other read-out above is defined for one structure on its own. Report the
+  two modes apart.
+
 - **The fit-free predecessor tier is still shipped**, and `tcren recognize --features feats.tsv`
   emits it: `complex.id` + **`Q`** (interface quality), **`T`** (the shape block) and **`S`**
   (their composition with the energy block). `S` leads the functionally validated receptor screen
@@ -615,9 +1001,11 @@ interfaces of different size.
   `tcren diagnose` command, went at **2.28.0**, because the Platt links and the four correction
   coefficients were fitted out of fold. None of them returns.
 
-- **`tcren fit-holdout` reproduces the frozen model bit for bit** from the shipped manifest plus a
-  descriptor table you regenerate with `tcren features`. The 19 MB descriptor table does not ship;
-  the 8,292-row manifest does. This is the contract that `P_native` could not offer.
+- **`tcren fit-holdout` reproduces the frozen model to a relative 1e-5** — not bit for bit — from
+  the shipped manifest plus a descriptor table you regenerate with `tcren features`. The 19 MB
+  descriptor table does not ship; the 8,292-row manifest does. This is the contract that `P_native`
+  could not offer, and 1e-5 is the bound the optimiser earns rather than a round number (see the
+  reliability section for the measured spreads).
 
 - **Six families, split by invariance** (`tcren.recognition.DESCRIPTORS`, `FAMILIES`); a
   *family* is a slice of the descriptor table and a **channel is one of the five score channels**
@@ -695,7 +1083,13 @@ r   = confidence_residual(features, iptm)        # reported logit(ipTM) - E[logi
   = 20 usable coordinates the model raises and names the `tcren features` call that fixes it.
 - `holdout_manifest()` returns the 8,292 structures the fit used with dataset, epitope, label and
   ipTM. The descriptors do not ship (8,292 × 147 is 19 MB); `tcren fetch-data` → `tcren features` →
-  `tcren fit-holdout` returns the shipped arrays bit for bit.
+  `tcren fit-holdout` returns the shipped arrays to **a relative 1e-5, not bit for bit**. That
+  bound is what the optimiser earns rather than a round number: each of the 55 Yeo-Johnson lambdas
+  comes from `scipy.stats.yeojohnson_normmax`, whose Brent search stops at its own tolerance of
+  about 1.5e-8, and every array fitted through the transform inherits it. Measured between macOS
+  arm64 and Linux x86_64: one lambda differs by 8.4e-8 absolute, the class means by at most 6.0e-9
+  on 18 of the 149 coordinates, the covariances by at most 2.5e-8 on 50 of the 22,201 entries. A
+  test that asserted rtol 1e-9 was green locally and red on CI, which is how this was found.
 
 **The fit-free predecessor tier**, still shipped and still reported:
 
@@ -790,6 +1184,47 @@ the actionable one: on the balanced VDJdb panel the **top ipTM decile is 26.2 %*
 `p_binder` at 2.28.0**, and there is no `tcren diagnose` — `confidence_residual` replaced the
 fitted confidence correction at tier 1, reading no label anywhere.
 
+## Per-residue attribution — `tcren.score.residue_deltas` / `tcren explain` (3.2.0)
+
+The five channels say which *part of the structure* a read-out comes from; this says which
+**residue**, for any read-out and any channel.
+
+```python
+from tcren.score import residue_deltas
+d = residue_deltas("model.pdb", score="binder")          # or "pose", "peptide", or a channel name
+```
+
+```bash
+tcren explain -s model.pdb --score binder -o deltas.tsv
+tcren explain -s model.pdb --score energetics --chain-types PEPTIDE -o pep.tsv
+```
+
+One row per interface residue: `chain.id, residue.index, residue.pdb, residue.aa, score.full,
+score.without, delta`, where **`delta` = L(x) − L(x without residue i)** — the score of the complex
+minus the score of the same complex with that residue's atoms removed. Positive means the residue
+carries the score. The table feeds `viz.pymol.importance_scene` unchanged, so one implementation
+colours a structure by `binder_score`, `pose_score` or any single channel; before this, only the
+peptide read-out had a colouring at all.
+
+- **Why leave-one-out and not a decomposition.** `peptide_score` is a sum over contacts and
+  `energetics.scoring.position_profile` already splits it **exactly** — prefer that one there. The
+  other four are functions of ~149 whole-structure scalars through a full covariance per class, so
+  no residue owns a share of one and there is nothing to split. The leave-one-out difference is
+  defined for all of them.
+- **Chain typing and the MHC call run once for the whole structure.** Every masked copy is
+  featurised with `annotate=False` against that one annotation, so **no mmseqs call is made per
+  residue.** Cost is one descriptor pass per interface residue, about 2 s each, so a complex is a
+  few minutes.
+- Only residues touching a requested interface are masked. This is a restricted attribution;
+  noncontact residues can affect whole-chain geometry descriptors. `chain_types` filters reported
+  residues without changing the score mode. Python callers may pass `receptor=False` explicitly
+  for the full peptide-presentation score; the default and CLI use receptor mode.
+- A masked row whose descriptors go undefined is reported as a **null** delta, never imputed:
+  `ScoreModel.coordinates` drops such a row on purpose, and that is surfaced rather than filled in.
+- `importance_scene` handles the null: since 3.3.0 a non-finite value is dropped and drawn as pale
+  cartoon rather than formatted into `cmd.alter` as `b=nan`, which PyMOL evaluates as Python and
+  raises `NameError` on — with its own error printer swallowing the reason.
+
 ## Footprint shape — `tcren.footprint` / `tcren footprint`
 
 - **Reach for it when the energy is at chance but the pose still looks wrong.** It reads the same
@@ -835,7 +1270,7 @@ fitted confidence correction at tier 1, reading no label anywhere.
 - `n_loop_contacts` counts only what the partition sees — the six CDR loops. Framework contacts are
   excluded by construction, so it is smaller than the full interface count. The topology features
   are **not** restricted this way: they use every contacted pMHC residue.
-- **It is not `n_contacts`, and the distinction is load-bearing.** `n_contacts` belongs to the
+- **It is not `n_contacts`, and the two are counted differently.** `n_contacts` belongs to the
   `potts` family — the available pairs that engaged, 29 on 1ao7 against this module's 66 — and it
   is the column the frozen Potts moments in `data/reliability_moments.json` are standardized on.
   Through 2.19.0 both passes wrote the one name and the later pass won, so a table carrying the
@@ -937,8 +1372,8 @@ fitted confidence correction at tier 1, reading no label anywhere.
 - **It rotates side chains a model has; it does not build missing ones.** `substitute_peptide` strips
   past Cβ, so that path still returns 44 of 77 heavy atoms — side-chain *construction* is a separate,
   open roadmap row (`refine/CPP_REWRITE.md`).
-- Conventions the kernel relies on: the input conformer is index 0 of every enumeration (so a repack
-  can never be worse than its input), and weighting is **mean field** (each residue against its
+- Conventions the kernel relies on: the input conformer is index 0 of every enumeration (so each local
+  frozen-environment objective cannot worsen; this is not a guarantee for the assembled pose), and weighting is **mean field** (each residue against its
   neighbours at their input conformation — coupled side chains are not resolved).
 
 ## Peptide position — `tcren.scoring`

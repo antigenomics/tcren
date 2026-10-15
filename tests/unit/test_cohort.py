@@ -94,6 +94,28 @@ def test_zscore_constant_column_does_not_divide_by_zero():
     assert np.all(zscore(np.full(20, 3.7)) == 0.0)
 
 
+def test_zscore_constant_reference_preserves_missing_values():
+    result = zscore([3.7, np.nan], reference=[3.7, 3.7])
+    assert result[0] == 0.0
+    assert np.isnan(result[1])
+
+
+def test_q_missing_block_stays_missing_in_reliability_score():
+    from tcren.reliability import T_FEATURES_TOPO, s_score
+
+    table = {name: [np.nan] for name in (*Q_FEATURES_GEOM, *T_FEATURES_TOPO)}
+    assert np.isnan(q_score(table)[0])
+    assert np.isnan(s_score(table)[0])
+
+
+def test_q_legacy_mean_honours_and_validates_signs():
+    args = dict(table={"x": [2.]}, reference={"x": [0., 1., 2.]},
+                features=["x"], decorrelate=False)
+    assert np.allclose(q_score(**args, signs=[-1]), -q_score(**args, signs=[1]))
+    with pytest.raises(ValueError, match="signs"):
+        q_score(**args, signs=[1, -1])
+
+
 def test_strain_is_zero_mean_when_self_calibrated():
     # Without a reference the cohort standardises to itself, so the gradient is invisible.
     assert abs(float(np.nanmean(strain_z(_table())))) < 1e-9

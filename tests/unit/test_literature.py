@@ -69,6 +69,36 @@ def test_contact_order_is_nan_on_a_single_contacted_residue():
     assert math.isnan(contact_order(t)["co_pep"])
 
 
+def test_contact_frame_preserves_equal_indices_on_distinct_target_chains(monkeypatch):
+    from tcren.topology.literature import _contact_frame
+    from tcren.contactmap import ContactMap
+
+    edges = pl.DataFrame({"chain.type.from": ["TRA"] * 2,
+                          "region.type.from": ["CDR3"] * 2,
+                          "chain.id.from": ["T"] * 2, "residue.index.from": [1] * 2,
+                          "chain.id.to": ["A", "B"], "residue.index.to": [5] * 2})
+    class Map:
+        def interface(self, name):
+            return edges if name == "tcr_mhc" else edges.head(0)
+    monkeypatch.setattr(ContactMap, "from_structure", lambda *args, **kwargs: Map())
+    frame = _contact_frame(None, 5.)
+    assert frame.height == 2
+    assert set(frame["ct"]) == {"A", "B"}
+
+
+def test_participation_keeps_distinct_mhc_residues_separate():
+    t = pl.DataFrame({"cf": ["T"] * 2, "rf": [1, 2],
+                      "loop": ["TRA:CDR1", "TRB:CDR1"], "target": ["mhc"] * 2,
+                      "rt": [5, 5], "ct": ["A", "B"]})
+    assert participation_coefficient(t)["partcoef_pmhc"] == pytest.approx(0.0)
+
+
+def test_contact_order_uses_each_target_chains_sequence_span():
+    t = pl.DataFrame({"loop": ["TRA:CDR3"] * 4, "target": ["mhc"] * 4,
+                      "rt": [1, 3, 101, 103], "ct": ["A", "A", "B", "B"]})
+    assert contact_order(t)["co_mhc"] == pytest.approx(2.0 / 3.0)
+
+
 def test_every_feature_is_catalogued_with_units_and_an_invariance_class():
     """A descriptor the catalogue does not name cannot be reached by any caller downstream."""
     for name in LITERATURE_FEATURES:

@@ -1,12 +1,17 @@
 # tcren release and documentation decision
 
+**Historical decision record.** The 3.0.0 recommendations below were superseded.
+Current candidate: 4.0.0, reflecting removed experimental APIs and the explicit
+fit-free final-model boundary. Current release gates and evidence are recorded in
+`audit/2026-10-15/RELEASE_FIXES.md`; no release completion follows from this record.
+
 Evidence base: `/Users/mikesh/vcs/code/tcren` (checkout 3.0.0), `/Users/mikesh/vcs/projects/2026-tcren2-code`, `/Users/mikesh/vcs/manuscripts/2026-tcren2-ms`. Every command below was run in this session unless marked otherwise.
 
 ---
 
 ## 1. Do we need a release?
 
-**Yes. Cut 3.0.0.** Nine of the eleven load-bearing clauses in the manuscript's Code availability paragraph name software that does not exist in the newest published wheel, so a reader who runs `pip install tcren` today gets 2.23.0 and cannot produce a single score-set number the paper reports.
+**Yes. Cut 3.0.0.** Nine of the eleven clauses in the manuscript's Code availability paragraph name software that does not exist in the newest published wheel, so a reader who runs `pip install tcren` today gets 2.23.0 and cannot produce a single score-set number the paper reports.
 
 ### The gap
 
@@ -20,7 +25,7 @@ Evidence base: `/Users/mikesh/vcs/code/tcren` (checkout 3.0.0), `/Users/mikesh/v
 
 ### What the manuscript promises
 
-**Code availability**, `/Users/mikesh/vcs/manuscripts/2026-tcren2-ms/manuscript-latex/main.tex:722-739`, verbatim in the load-bearing parts:
+**Code availability**, `/Users/mikesh/vcs/manuscripts/2026-tcren2-ms/manuscript-latex/main.tex:722-739`, verbatim, in part:
 
 > "TCRen2 is openly available at https://github.com/antigenomics/tcren and on PyPI as tcren, and every score reported in this paper is produced by that released software rather than by analysis code held privately."
 

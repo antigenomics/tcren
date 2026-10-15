@@ -20,20 +20,34 @@ Typical use::
     score_sites(pairs, model)                              # energy, log Z, likelihood
     contact_probabilities(pairs, model)                    # per-site contact probability
     contact_map(pairs, model, by="loop")                   # loop x peptide-position frequency map
+    energy_ensemble(pairs, model)                          # <Phi>, Var Phi, free energy, entropy
+    map_ensemble(pairs, model)                             # the configurations, with probabilities
+    threaded_ensemble(pairs, model, candidates)            # the same per candidate sequence
+
+The retired sequence-only geometry experiment is preserved in the repository attic.
+
+The marginals settle the *mean* interaction energy and nothing else: `Phi` is linear in `sigma`, so
+`<Phi> = sum_a p_a phi_a` exactly — but only with `p_model`, the coupled marginal, and only read at
+the sequence being scored. :mod:`tcren.potts.ensemble` carries the read-outs a set of marginals
+cannot determine, and re-reads the marginals per candidate.
 
 The CLI mirrors it: ``tcren potts fit``, ``tcren potts score``, ``tcren potts contacts``,
-``tcren potts map``.
+``tcren potts map``, ``tcren potts ensemble``.
 """
 
 from .fit import DEFAULT_RIDGE, cluster_se, design, fit_potts, gauge, irls, kernel_table
 from .kernel import (bucket_edges, colour, coupling_matrix, edges, neighbour_counts)
 from .model import (AA, CDR_LOOPS, CLASSES, CROSS_DJ, DBIN, OFFSETS, REGIONS, ROLES,
                     PottsModel, centred_potential, kernel_names)
+from .em import LATENT_MARGIN, consistency, fit_potts_em, impute, latent_mask
+from .ensemble import energy_ensemble, map_ensemble, site_energies, threaded_ensemble
 from .sample import (ais_log_z, count_free_energy, delta_f_empty, delta_f_threshold, energy,
                      exact_log_z, factorised_log_z, gibbs, mu_star, tilt_mean)
 from .score import (bound_unbound, connected_correlations, contact_map, contact_probabilities,
-                    peptide_free_energy,
+                    map_agreement, peptide_free_energy,
                     count_profile, sample_maps, score_sites, score_structure)
+from .selfcon import (LOGIT_CLIP, contact_posterior, fit_selfconsistent, observation_field,
+                      weighted_contacts)
 from .sites import (GROOVE_REGIONS, MHC_PARTNER, MHC_RECEPTOR_REGIONS, available_pairs, eta,
                     site_codes)
 
@@ -47,8 +61,17 @@ __all__ = [
     "gibbs", "ais_log_z", "exact_log_z", "factorised_log_z", "energy",
     "tilt_mean", "mu_star", "count_free_energy", "delta_f_empty", "delta_f_threshold",
     "bound_unbound", "count_profile",
-    "score_sites", "contact_probabilities", "contact_map",
+    "score_sites", "contact_probabilities", "map_agreement", "contact_map",
     "peptide_free_energy", "connected_correlations",
     "sample_maps",
     "score_structure",
+    "energy_ensemble", "map_ensemble", "threaded_ensemble", "site_energies",
+    "LOGIT_CLIP", "observation_field", "contact_posterior", "weighted_contacts",
+    "fit_selfconsistent",
+    "LATENT_MARGIN", "latent_mask", "impute", "fit_potts_em", "consistency",
+
+
+
+
+
 ]

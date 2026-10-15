@@ -9,7 +9,7 @@ invertible affine map. The Jacobian belongs to the density.
 
 **What loses information under truncation is marginalization, not a determinant**, and for a
 Gaussian a marginal is a sub-block of Sigma. Every ``channel_scores`` value is such a sub-block, so
-this identity is load-bearing rather than decorative: if it did not hold, the channels would be a
+this identity is not decorative: if it did not hold, the channels would be a
 second model wearing the first one's name.
 
 **The frozen coefficients are reproducible from inputs that ship beside them.** This is the test
@@ -146,6 +146,92 @@ def test_every_channel_is_populated_and_they_are_not_the_same_number():
         for b in names[i + 1:]:
             ok = np.isfinite(ch[a]) & np.isfinite(ch[b])
             assert not np.allclose(ch[a][ok], ch[b][ok]), f"{a} and {b} are the same vector"
+
+
+@pytestmark_model
+def test_marginal_scores_ignore_missing_excluded_coordinates():
+    import polars as pl
+
+    m = holdout_model()
+    table = pl.DataFrame({name: [0.5] for name in m.transform.names})
+    missing = table.with_columns(pl.lit(None).cast(pl.Float64).alias("Phi_pep_mhc"))
+    assert np.allclose(m.binder_score(missing), m.binder_score(table))
+    assert np.isnan(m.binder_score(missing, receptor=False)[0])
+    missing = table.with_columns(pl.lit(None).cast(pl.Float64).alias("burial"))
+    full_channels, channels = m.channel_scores(table), m.channel_scores(missing)
+    assert np.allclose(channels["placement"], full_channels["placement"])
+    assert np.isnan(channels["interface"][0])
+
+
+@pytestmark_model
+def test_model_loader_rejects_a_stale_catalogue(tmp_path):
+    import json
+    from tcren.provenance import StaleTableError
+
+    with np.load(MODEL_FILE, allow_pickle=False) as bundle:
+        arrays = dict(bundle)
+    meta = json.loads(str(arrays["meta"]))
+    meta["catalogue_digest"] = "outdated"
+    arrays["meta"] = json.dumps(meta)
+    path = tmp_path / "stale.npz"
+    np.savez(path, **arrays)
+    with pytest.raises(StaleTableError, match="catalogue"):
+        holdout_model(str(path))
+
+
+@pytestmark_model
+def test_unfitted_confidence_is_unavailable_and_infinite_input_stays_missing():
+    from dataclasses import replace
+    import polars as pl
+    from tcren.score import _logit
+
+    m = holdout_model()
+    table = pl.DataFrame({name: [0.5] for name in m.transform.names})
+    untrained = replace(m, confidence_available=False)
+    assert np.isnan(untrained.confidence_residual(table, [0.9])[0])
+    assert np.isnan(_logit([np.inf, -np.inf, np.nan])).all()
+    assert np.isfinite(_logit([0., 0.5, 1.])).all()
+
+
+@pytest.mark.parametrize("invalid", ["duplicate_features", "duplicate_manifest", "null_key", "label"])
+def test_fit_rejects_ambiguous_keys_and_nonbinary_labels_before_fitting(invalid):
+    import polars as pl
+    from tcren.score.fit import fit_holdout
+
+    features = pl.DataFrame({"pdb.id": ["a", "b"]})
+    manifest = pl.DataFrame({"pdb.id": ["a", "b"], "y": [0., 1.], "epitope": ["e", "e"]})
+    if invalid == "duplicate_features":
+        features = pl.concat([features, features.head(1)])
+    elif invalid == "duplicate_manifest":
+        manifest = pl.concat([manifest, manifest.head(1)])
+    elif invalid == "null_key":
+        features = features.with_columns(pl.lit(None).cast(pl.String).alias("pdb.id"))
+    else:
+        manifest = manifest.with_columns(pl.lit(0.5).alias("y"))
+    with pytest.raises(ValueError, match="unique|non-null|binary"):
+        fit_holdout(features, manifest)
+
+
+@pytest.mark.parametrize("confidence", [None, np.inf, 0.5])
+def test_synthetic_fit_records_confidence_availability_and_join_counts(monkeypatch, confidence):
+    import polars as pl
+    from tcren.score import fit
+
+    # Keep the real fitter and transforms; two catalogue descriptors suffice to test the guard.
+    monkeypatch.setattr(fit, "working_set", lambda **kwargs: ["burial", "chain_balance"])
+    rng = np.random.default_rng(19)
+    ids = [f"synthetic-{i}" for i in range(260)]
+    features = pl.DataFrame({"pdb.id": ids, "burial": rng.uniform(0.1, 0.9, 260),
+                             "chain_balance": rng.uniform(0.1, 0.9, 260)})
+    manifest = pl.DataFrame({"pdb.id": ids + ["unmatched"], "y": [1] * 210 + [0] * 51,
+                             "epitope": ["synthetic"] * 261})
+    if confidence is not None:
+        manifest = manifest.with_columns(pl.lit(confidence).alias("iptm"))
+    meta = fit.fit_holdout(features, manifest)
+    assert meta["confidence_available"] == (confidence == 0.5)
+    assert meta["n_pos"] == 210 and meta["n_neg"] == 50
+    assert meta["n_unmatched_features"] == 0 and meta["n_unmatched_manifest"] == 1
+    assert meta["n_incomplete"] == 0
 
 
 @pytestmark_model
@@ -336,6 +422,20 @@ def test_transforming_a_subset_of_columns_matches_transforming_all_of_them():
         assert np.allclose(part[:, k], full[:, cols.index(n)], equal_nan=True), n
 
 
+def test_each_transform_preserves_all_nonfinite_inputs():
+    from tcren.recognition import DESCRIPTORS
+    from tcren.score.transform import Transformer, kind
+
+    representatives = {}
+    for name in DESCRIPTORS:
+        representatives.setdefault(kind(name), name)
+    for name in representatives.values():
+        transform = Transformer(names=[name]).fit(np.array([[0.2], [0.8]]))
+        values = transform.transform(np.array([[np.inf], [-np.inf], [np.nan], [0.5]]))
+        assert np.isnan(values[:3]).all(), name
+        assert np.isfinite(values[3]).all(), name
+
+
 @pytestmark_model
 def test_a_table_missing_a_whole_family_is_still_scored():
     """`tcren features -i placement,interface,topology` omits potts and kinetics: 18 coordinates.
@@ -356,3 +456,138 @@ def test_a_table_missing_a_whole_family_is_still_scored():
     a, b = full["binder_score"].to_numpy()[ok], thin["binder_score"].to_numpy()[ok]
     assert not np.allclose(a, b), "dropping five coordinates must change the posterior"
     assert np.corrcoef(a, b)[0, 1] > 0.5, "and must not scramble it either"
+
+@pytest.mark.parametrize('bad', [-1, 0, 7, 1.5, True])
+def test_joint_rejects_invalid_projection_width(bad):
+    with pytest.raises(ValueError):
+        _toy().project(bad)
+
+
+def test_joint_validates_weights_subsets_and_anomaly_width():
+    from tcren.score.model import _wmean_cov
+    X = np.array([[0., 1.], [1., 0.], [2., 2.]])
+    for w in ([.2, .2, .2], [-.1, .5, .6], [1., 0., 0.], [np.nan, .5, .5]):
+        with pytest.raises(ValueError):
+            _wmean_cov(X, np.array(w))
+    j = _toy(p=2)
+    for subset in ([], ['missing'], ['x0', 'x0']):
+        with pytest.raises(ValueError):
+            j.log_odds(X, subset=subset)
+    assert np.array_equal(j.anomaly(X, k=0), np.zeros(len(X)))
+    with pytest.raises(ValueError):
+        j.anomaly(X, k=-1)
+    j.cov[0] = -np.eye(2)
+    with pytest.raises(ValueError, match='positive definite'):
+        j.log_odds(X)
+
+
+def test_confidence_schur_complement_rejects_inconsistent_augmentation():
+    from tcren.score.model import conditional_variance
+    assert conditional_variance(np.eye(2), np.array([.2, .3]), .5) == pytest.approx(.37)
+    assert conditional_variance(np.eye(2), np.zeros(2), 0.) == 0.
+    with pytest.raises(ValueError, match='positive semidefinite'):
+        conditional_variance(np.eye(2), np.ones(2), .5)
+
+
+def test_frozen_metadata_migration_preserves_every_parameter_array():
+    import hashlib
+    import json
+
+    record = json.loads((pathlib.Path(__file__).resolve().parents[2]
+                         / 'audit/2026-10-14/frozen-metadata-migration.json').read_text())
+    z = np.load(MODEL_FILE, allow_pickle=False)
+    meta = json.loads(str(z['meta']))
+    assert meta['training_catalogue_digest'] == record['training_catalogue_digest']
+    assert meta['metadata_migration']['refitted'] is False
+    for name, digest in record['array_sha256'].items():
+        assert hashlib.sha256(z[name].tobytes()).hexdigest() == digest
+
+
+@pytest.mark.parametrize("labels", [[0., 0.5], [0., np.nan], [0., np.inf], [0., None], [0, 2], ["0", "1"]])
+def test_fit_invalid_labels_fail_without_output(labels, tmp_path):
+    import polars as pl
+    from tcren.score.fit import fit_holdout
+
+    output = tmp_path / "model.npz"
+    features = pl.DataFrame({"pdb.id": ["a", "b"]})
+    manifest = pl.DataFrame({"pdb.id": ["a", "b"], "y": labels})
+    with pytest.raises(ValueError, match="binary"):
+        fit_holdout(features, manifest, out=output)
+    assert not output.exists()
+
+
+@pytest.mark.parametrize("subset", [None, ["x2", "x0"]])
+def test_gaussian_scoring_uses_positive_definite_factorization(monkeypatch, subset):
+    from scipy.stats import multivariate_normal
+
+    joint = _toy()
+    names = joint.names if subset is None else subset
+    indices = [joint.names.index(name) for name in names]
+    X = np.random.default_rng(42).normal(size=(20, len(indices)))
+    expected = {}
+    for cls in (0, 1):
+        expected[cls] = multivariate_normal.logpdf(
+            X, mean=joint.mu[cls][indices], cov=joint.cov[cls][np.ix_(indices, indices)]
+        ) + np.log(joint.prior[cls])
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("Gaussian scoring must not invert covariance or use slogdet")
+
+    monkeypatch.setattr(np.linalg, "slogdet", forbidden)
+    monkeypatch.setattr(np.linalg, "inv", forbidden)
+    with np.errstate(all="raise"):
+        actual = joint.log_odds(X, subset=subset)
+    np.testing.assert_allclose(actual, expected[1] - expected[0], rtol=1e-10, atol=1e-10)
+
+
+@pytest.mark.parametrize("labels", [[0, 1], [0., 1.], [False, True]])
+def test_fit_accepts_binary_numeric_labels_before_descriptor_validation(labels):
+    import polars as pl
+    from tcren.score.fit import fit_holdout
+
+    features = pl.DataFrame({"pdb.id": ["a", "b"]})
+    manifest = pl.DataFrame({"pdb.id": ["a", "b"], "y": labels})
+    with pytest.raises(KeyError, match="missing.*descriptors"):
+        fit_holdout(features, manifest)
+
+
+@pytestmark_model
+def test_assessment_reports_per_readout_availability_and_missing_values():
+    import polars as pl
+    from tcren.score import score_table
+
+    model = holdout_model()
+    table = pl.DataFrame({name: [0.5, 0.5, np.nan] for name in model.transform.names})
+    table = table.with_columns(pl.Series("Phi_pep_mhc", [0.5, np.nan, np.nan]))
+    result = score_table(table, model=model, iptm=[0.8, 0.8, 0.8])
+    assert result["assessment_available"].to_list() == [True, True, False]
+    assert result["pose_score_available"].to_list() == [True, False, False]
+    assert result["confidence_residual_available"].to_list() == [True, False, False]
+    assert result["missing_descriptors"][0] == "[]"
+    assert result["missing_descriptors"][1] == '["Phi_pep_mhc"]'
+    assert np.isnan(result["binder_score"][2])
+    import json
+    assert json.loads(result["missing_descriptors"][2]) == model.transform.names
+    absent = score_table(table.drop("Phi_pep_mhc"), model=model)
+    assert absent["pose_score_available"].to_list() == [True, True, False]
+    assert absent["missing_descriptors"][1] == "[]"
+
+
+@pytestmark_model
+def test_unavailable_assessment_skips_gaussian_readouts(monkeypatch):
+    import polars as pl
+    from tcren.score import score_table
+
+    model = holdout_model()
+    table = pl.DataFrame({name: [np.nan] for name in model.transform.names})
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("No covariance calculation is needed for zero complete rows")
+
+    monkeypatch.setattr(model.joint, "log_odds", forbidden)
+    monkeypatch.setattr(model.joint, "anomaly_on", forbidden)
+    monkeypatch.setattr(np.linalg, "solve", forbidden)
+    result = score_table(table, model=model, iptm=[0.8])
+    assert result["assessment_available"].to_list() == [False]
+    for name in ("pose_score", "binder_score", "confidence_residual", "binder_iptm"):
+        assert np.isnan(result[name][0])

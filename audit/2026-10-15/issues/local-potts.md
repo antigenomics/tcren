@@ -1,0 +1,5 @@
+bench/eda/potts_fit.py implements a separate grouped-binomial amino-acid/geometry fit with its own IRLS, gauge and sandwich covariance. The tcren potts fit CLI models coupled contact configurations. These are distinct statistical models, not two equivalent frontends. Replacing the producer command without proving the quantity would silently change the computation.
+
+Likewise benchmark-local PCA transform/joint code fits nonlinear transforms and Gaussian class moments rather than routing authoritatively through assess; equivalence to the shipped object is not an established identity.
+
+The author has explicitly retired fitted final readouts. Keep these branches and all empirical outputs as historical evidence; remove their final-model/figure status through the archive disposition. Audit any retained methodological computation independently, identify every estimated parameter and equation, and avoid calling independently fitted local models CLI reproductions. No replacement fitted scorer is authorized by the audit.

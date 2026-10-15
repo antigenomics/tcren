@@ -34,7 +34,7 @@ CLASS_COLOUR = {
 }
 CLASS_GLOSS = {
     "geometric": "preserved by isometry\\na length, area, angle or cosine",
-    "topological": "preserved by homeomorphism\\nBetti numbers, Euler characteristic",
+    "topological": "preserved by homeomorphism\\nBetti numbers, b0 - b1",
     "compositional": "a count over the labelled\\ncontact set, or a share of one",
     "energetic": "a statistical-potential\\nor Potts energy",
     "categorical": "which class of MHC\\npresents the peptide",

@@ -27,7 +27,7 @@ from pathlib import Path
 
 import numpy as np
 
-from ..paths import data_dir
+from ..paths import CANONICAL2026, canonical_dir
 from ..structure.model import Structure
 from .align import OrientationResult, _matched_anchors, apply_transform
 from .chains import rename_chains
@@ -41,7 +41,7 @@ def _metadata_path(db_dir: Path) -> Path:
     for cand in (db_dir / "orient_metadata.json", db_dir.parent / "orient_metadata.json"):
         if cand.exists():
             return cand
-    if db_dir.name == "Canonical2026":  # the shipped database — its metadata rides in the package
+    if db_dir.name == CANONICAL2026:  # the shipped database — its metadata rides in the package
         packaged = Path(str(resources.files("tcren.data").joinpath("orient_metadata.json")))
         if packaged.exists():
             return packaged
@@ -129,7 +129,7 @@ def superimpose(
         annotate_mhc(structure)
     mhc_class, species = _query_class_species(structure)
 
-    db_dir = Path(db_dir) if db_dir is not None else data_dir() / "Canonical2026"
+    db_dir = Path(db_dir) if db_dir is not None else canonical_dir()
     refs = _canonical_references(db_dir, mhc_class, species, organism)
     if not refs:
         raise ValueError(f"no {mhc_class}/{species} structures in canonical database {db_dir}")

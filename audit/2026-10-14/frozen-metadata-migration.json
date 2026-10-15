@@ -1,0 +1,33 @@
+{
+  "date": "2026-10-14",
+  "previous_file_sha256": "509b347e633648c6b25f4a6295d0c82548c8db7262e0754de8f612e5b2da9a77",
+  "migrated_file_sha256": "e1655ee57f6f77971fc5f4f5aa71835c5b3bd048085f2b2d0f55bc487d518be3",
+  "training_catalogue_digest": "194108b01c537472f9f94f6526fcb301d45b31ca7847f67cddd1f4656c6808f1",
+  "current_catalogue_digest": "222b4733759b81c4b26dd8024ae3517732a4875b4a83809168b60eadde96285b",
+  "array_sha256": {
+    "mu0": "1c81fdeb399f1072d4a7139ed5e5460fde3b82a28bd199dc38219377f1e0e342",
+    "mu1": "5386a5e9a6c48e3fe51e646dd52956fe6089c2ce63bc5377c95a2f0ffade0162",
+    "cov0": "b015e73b18aad55432f14915fff725ed02a60782883c6fc93cbfcb4686564b6c",
+    "cov1": "fdcf80fa81684fa4c00662526466e9661695dd7bf404d1dc84e81d2719793758",
+    "conf_cov": "18a7cd4305a1e4fabf7eaa0244838afcf7a485a2b5e35ce39985592598e69321"
+  },
+  "arrays_equal": true,
+  "refitted": false,
+  "metadata_migration": {
+    "date": "2026-10-14",
+    "refitted": false,
+    "numeric_arrays_unchanged": true,
+    "numerical_compatibility": "requires matched fresh reproduction; no equivalence certified",
+    "definition_corrections": [
+      "mechanics reduced units and finite-grid scope",
+      "fp_chi is beta0-beta1",
+      "linearized nearest-pair contact-loss surrogate"
+    ],
+    "changed_feature_semantics": [
+      "class-II partner chain identity and chain-specific contact order",
+      "constrained maximum-stiffness shear direction",
+      "Potts chain-keyed sites and warm-start sampling",
+      "disconnected-chain selection, capped annotation retries and degenerate docking-frame rejection"
+    ]
+  }
+}

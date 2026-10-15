@@ -244,12 +244,13 @@ def _cdr3_peptide_dmaps(structure):
 
 
 def _register(dmap, grid: int):
-    """Resample an (L x M) map onto a (grid x grid) grid in graphon coords ``(i/(L+1), j/(M+1))``."""
-    import numpy as np
-    from scipy.ndimage import map_coordinates
-    u, v = np.meshgrid(np.linspace(0, dmap.shape[0] - 1, grid),
-                       np.linspace(0, dmap.shape[1] - 1, grid), indexing="ij")
-    return map_coordinates(dmap, [u.ravel(), v.ravel()], order=1, mode="nearest").reshape(grid, grid)
+    """Resample an (L x M) map onto a (grid x grid) grid, ``"endpoint"`` graphon coordinates.
+
+    Delegates to :func:`tcren.geometry.resample_graphon`; ``"endpoint"`` is what this has always
+    done and what every published ``registered_map`` number was computed under.
+    """
+    from .geometry import resample_graphon
+    return resample_graphon(dmap, grid, convention="endpoint")
 
 
 def registered_map(structure, *, grid: int = 8, target: str = "peptide",

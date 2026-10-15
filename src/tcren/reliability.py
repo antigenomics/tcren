@@ -8,7 +8,7 @@ property:
 .. math::  S \;=\; \frac{Q}{\sigma_Q} \;+\; \frac{T}{\sigma_T}
            \;+\; \frac{\Pi - \mu_\Pi}{\sigma_\Pi}
 
-Three blocks, each a fit-free directional score :math:`z(x)^\top C^{-1} s` over the **Native2026
+Three blocks, each a reference-estimated directional score :math:`z(x)^\top C^{-1} s` over the **Native2026
 crystals**, divided by that block's native spread. No cohort, no EM, no anchors, no label anywhere,
 and every term is defined for a single row.
 

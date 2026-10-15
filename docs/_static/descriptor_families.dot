@@ -22,7 +22,7 @@ digraph descriptor_families {
     label="invariance\nwhat they mean"; fontname="Helvetica-Bold"; fontsize=11;
     color="#BFBFBF"; style=rounded;
     "geometric" [fillcolor="#0072B2", fontcolor="white", label="geometric\n65 descriptors\npreserved by isometry\na length, area, angle or cosine"];
-    "topological" [fillcolor="#D55E00", fontcolor="white", label="topological\n14 descriptors\npreserved by homeomorphism\nBetti numbers, Euler characteristic"];
+    "topological" [fillcolor="#D55E00", fontcolor="white", label="topological\n14 descriptors\npreserved by homeomorphism\nBetti numbers, b0 - b1"];
     "compositional" [fillcolor="#009E73", fontcolor="white", label="compositional\n64 descriptors\na count over the labelled\ncontact set, or a share of one"];
     "energetic" [fillcolor="#CC79A7", fontcolor="white", label="energetic\n20 descriptors\na statistical-potential\nor Potts energy"];
     "categorical" [fillcolor="#999999", fontcolor="white", label="categorical\n1 descriptor\nwhich class of MHC\npresents the peptide"];

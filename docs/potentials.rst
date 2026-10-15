@@ -35,10 +35,23 @@ Shipped matrices
      - ``TCRen2_potential.csv``
      - 380
      - **TCRen2 — the default TCR:peptide potential since 2.11.0.** Redundancy-balanced
-       derivation over the **362 fully annotated αβ** ``Native2026`` crystals — the only
+       derivation over the **359 fully annotated αβ** ``Native2026`` crystals the RCSB still
+       holds — the only
        kind ``derive-potential`` accepts — weighting each structure on both the epitope and
        the receptor axis (``--balance both``). This is the matrix the TCRen2 manuscript
        reports.
+   * - ``tcren2_em``
+     - ``TCRen2_sc_potential.csv``
+     - 380
+     - **TCRen2-EM — the self-consistent matrix, shipped beside TCRen2 and not in place of
+       it.** The same estimator, reference state, pseudocount and crystals as ``tcren2``;
+       what changes is what is counted. Every *available* residue pair contributes, weighted
+       by the probability the coupled contact model gives it, and the matrix is re-derived and
+       refitted until it stops moving
+       (:func:`tcren.potts.fit_selfconsistent`, :func:`tcren.potential.tcren2_em`). It moves
+       TCRen2 less than the 2022 → 2026 re-derivation did — Pearson *r* = 0.944 against
+       TCRen2, against *r* = 0.867 between TCRen2 and ``classic`` — and the movement lands in
+       the cells the crystal tally left thin.
    * - ``mj1996``
      - ``MJ1996_contact_energies.csv``
      - 400
@@ -68,11 +81,27 @@ Shipped matrices
 shared cells, with a maximum absolute difference of 0.943 on a TCRen2 range of
 2.95 (-1.25 to +1.70).
 They are not interchangeable, and a score computed under one cannot be compared with a
-score computed under the other. ``tcren2`` also changed at 2.11.0 (374 → 362 structures),
-so scores are not comparable across that boundary either.
+score computed under the other. ``tcren2`` also changed at 2.11.0 (374 → 362 structures) and
+again at 3.3.0 (362 → 359, when three withdrawn PDB entries were dropped), so scores are not
+strictly comparable across either boundary. The second change is small — the two matrices agree
+at *r* = 0.9996 over all 380 cells with a largest shift of 0.104 — but it is still a different
+matrix.
 
 Cysteine is dropped from the ``from`` axis as a data convention, which is why the TCRen
 matrices carry 380 cells (19 × 20) rather than 400.
+
+Reading one out
+---------------
+
+Any table the scoring commands resolve can be written to a CSV under the same name:
+
+.. code-block:: console
+
+   $ tcren potential-table -p tcren2_em -o TCRen2_sc_potential.csv
+   TCRen2-EM: 380 pairs over 20 residues -> TCRen2_sc_potential.csv
+
+``-p`` takes a bundled name or a path, exactly as it does on ``score``, ``ddg``, ``cpl`` and
+``rank``, and nothing is computed — the output is the shipped matrix in long form.
 
 Reproducing them
 ----------------
@@ -94,16 +123,49 @@ Reproducing them
    $ tcren derive-potential \
        --structure-dir "$TCREN_DATA_DIR/Native2026" \
        --balance both \
-       --ab-only \
        -o TCRen2_potential.csv
 
-``--ab-only`` keeps the 362 complexes that carry both CDR3s and a peptide. Without it the 12
-single-chain, γδ and pMHC-only files are kept, and because ``--balance`` skips a structure with a
-null on any axis, each of those would enter at weight 1.0 — the maximum.
+That is the whole command, and it is the one the released matrix was derived with. There is no
+flag controlling the α:β restriction because it is unconditional: a structure missing either CDR3
+or the peptide is out of scope for this potential, and the command says so as it drops them. On
+``Native2026`` it keeps **362 of 374** — the 12 it drops are 3 pMHC-only, 8 single-chain and one
+γδ. It then drops the PDB entries the RCSB has withdrawn, listed with their reasons in
+``data/pdb_withdrawn.csv``, which removes three more and leaves **359**. Two of those three,
+``1jtr`` and ``4zez``, are superseded by ``1mwa`` and ``5jzi``, both already in the set, so keeping
+them counted one complex twice in a set built to be non-redundant, and the redundancy weighting
+cannot see it because the two carry different ids. The third, ``4euq``, has no successor: the RCSB
+records that its TCR α chain was modelled from the wrong gene at positions 93–98, which is the
+CDR3α region this potential reads. ``--keep-withdrawn`` restores all three, for auditing the
+difference and nothing else. Making it optional would be a trap rather than a convenience, because ``--balance`` skips a
+structure carrying a null on any weighting axis and the derivation then defaults it to weight 1.0,
+the maximum, so the least usable files would have counted for the most.
 
 The second command runs the whole pipeline — parse, annotate, contacts, derive — over all
 374 structures in roughly 20 seconds, so there is no reason to cache a derived matrix
 rather than rebuild it.
+
+``tcren2_em``, from the same crystals, through the self-consistent loop:
+
+.. code-block:: console
+
+   $ tcren potts selfcon \
+       -s "$TCREN_DATA_DIR/Native2026" \
+       --balance both --margin 0.5 --damping 0.5 \
+       --steps 25 --tol 5e-3 --draws 400 \
+       -o TCRen2_sc_potential.csv \
+       --model-out potts_tcr_peptide_sc.json \
+       --trace-out TCRen2_sc_trace.tsv
+
+This one is **minutes rather than seconds**, and it is the only shipped matrix that does not
+reproduce bit for bit. Its E-step is a block-Gibbs sample, so the derived cells carry
+Monte-Carlo error that no seed removes across a re-run at a different draw count; the manifest
+records a ``tolerance`` of 5e-3 for it and ``reproduce: benchmark``, so
+:mod:`tests.regression.test_shipped_potentials` checks it only under ``RUN_BENCHMARK=1``. Every
+other entry still reproduces at 1e-9 and must keep doing so — a loose tolerance is right for a
+sampled estimator and wrong for a closed-form one, where it would hide exactly the drift that
+test exists to catch. :doc:`potts` derives the loop and states the reduction gate:
+at ``--margin 0`` the crystal pins every site and the probability-weighted tally reproduces the
+plain one exactly.
 
 Weighting
 ---------
@@ -127,8 +189,8 @@ which is *less* than either agrees with the unweighted matrix.
     nine-times-crystallized epitope is a genuinely new recognition event, and scores
     :math:`(1/9 + 1)/2 = 0.556` rather than the :math:`1/9` a product rule would give it.
     A structure unique on every axis gets 1.0; a true re-solve, duplicated on all of them,
-    gets :math:`1/n`. With one axis this is plain inverse frequency. Overall scale cancels
-    in the log-odds, so no normalization is applied. The epitope axis keys on the peptide
+    gets :math:`1/n`. With one axis this is plain inverse frequency. No normalization is
+    applied: a fixed pseudocount makes the absolute weight scale part of the estimator. The epitope axis keys on the peptide
     sequence and the receptor axis on the CDR3α/CDR3β pair jointly. Helpers:
     :func:`tcren.potential.balanced_weights` and its single-axis alias
     :func:`tcren.potential.epitope_weights`.
@@ -259,3 +321,18 @@ two must carry the flags that reproduce the file; the regression test will run t
 entry with source ``unknown`` fails the suite unless it is also listed under
 ``known_unresolved``, which exists to record historical files whose provenance cannot be
 recovered — not as a place to put new ones.
+
+Three optional keys exist for recipes that are not ``derive-potential`` over a fixed table, and
+``tcren2_em`` is the first entry to use any of them:
+
+``command``
+    The CLI subcommand, default ``derive-potential``.
+``structure_flag``
+    The flag that subcommand takes its structure directory on, default ``--structure-dir``.
+    ``potts selfcon`` takes ``-s``.
+``tolerance`` and ``reproduce``
+    How close the rebuild has to land, default ``1e-9``, and whether the check is deferred to
+    ``RUN_BENCHMARK=1``. **Set a tolerance above 1e-9 only when the estimator itself is
+    sampled.** A closed-form derivation over a fixed contact table is deterministic and must
+    reproduce bit for bit; loosening it there hides drift instead of tolerating noise. State the
+    measured floor in ``tolerance_reason`` so the number is auditable rather than chosen.

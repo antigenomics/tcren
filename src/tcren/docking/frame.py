@@ -82,6 +82,8 @@ def _canonical_basis(structure: Structure) -> tuple[np.ndarray, np.ndarray, np.n
         raise ValueError("too few Cα atoms to define the canonical frame")
     com = ca.mean(axis=0)
     _, s, vt = np.linalg.svd(ca - com, full_matrices=False)
+    if not np.isfinite(s).all() or s[0] == 0 or s[1] <= np.finfo(float).eps * max(ca.shape) * s[0]:
+        raise ValueError("degenerate Cα geometry cannot define the canonical frame")
     z, y, x = vt[0].copy(), vt[1].copy(), vt[2].copy()  # PC1, PC2, PC3
     var = (s ** 2) / float(np.sum(s ** 2))
     tcr = _chain_ca(structure, _TCR_TYPES)
@@ -141,7 +143,7 @@ def canonical_frame(
             tran = align.translation @ r_canon + t_canon
             return CanonResult(rot, tran, align.rmsd, align.n_anchor_atoms,
                                align.reference_id, "native")
-        except Exception:
+        except (FileNotFoundError, ValueError):
             if reference_id is not None:
                 raise
     basis, centroid, _ = _canonical_basis(structure)

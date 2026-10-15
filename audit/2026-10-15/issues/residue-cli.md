@@ -1,0 +1,5 @@
+The established Figure3 structure display calls position_profile for an exact position-wise energy decomposition. CLI explain computes leave-one-out changes; they are different quantities and cannot be substituted merely to make a build run. Figure4 calls viz.residue_importance; Figure5 consumes direct contact and placement outputs. Their current Python producers therefore do not establish CLI-only reproduction of the selected publication panels.
+
+Follow-up: add or identify CLI exports for the exact existing decomposition/contact/placement quantities, with named physical chain/residue identity, explicit potentials, units and full observation accounting. Verify numerical equality to the existing API on valid inputs, then make figure producers reshape authoritative CLI tables. Do not replace the published quantity with a different explain score or fit new display coefficients. Archive images/manifests and mark pixel/geometry changes explicitly.
+
+The prior render audit generated all12 selected scenes in temporary output; this verified the Python recipes, not a CLI-only publication pipeline. Final publication eligibility remains open.

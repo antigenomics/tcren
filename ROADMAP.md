@@ -1,128 +1,91 @@
-# tcren — roadmap
+# Current stopping point — fit-free audit disposition, 15 October 2026
 
-Where the project is going, and what each direction is waiting on. The single place for forward
-plans: [STATUS.md](STATUS.md) is where the project *is*, [CHANGELOG.md](CHANGELOG.md) is what has
-landed, and this file is what has not.
+Subsequent author authorization opened implementation and fresh reproduction on
+`codex/fit-free-release-fixes`, followed by PR to master and release preparation.
+Fixed empirical potentials are permitted; fitted/reference-estimated final readouts
+remain excluded. Follow `audit/2026-10-15/RELEASE_FIXES.md` for current progress;
+the audit-only stopping point in the historical paragraphs below is superseded.
 
-Last reviewed against `master` at v3.0.0 (2026-09-03); the previous review was 2026-08-27 at v2.12.1.
+The author selected fit-free final models and archival of fitted readouts. Mark metric gains and
+regressions; use current packages, audit every non-CLI numerical route, and report code problems
+as repository issues. The current task stops at the reconciled audit record, before new tcren fixes
+or replacement-paper work. The historical frozen-model publication roadmap below is superseded.
 
-## Landed since the last review
+See `audit/2026-10-15/FINAL_AUDIT.md`, GitHub issues 30–36, and the manuscript's
+`FIT_FREE_DISPOSITION.md`. No successful complete CLI reproduction or final paper is claimed.
 
-- **v2.11.0** — TCRen2 became the **default** TCR:peptide potential, and the shipped matrix was
-  re-derived on the 362 fully annotated αβ complexes of Native2026 (down from all 374).
-  `derive-potential` now derives from αβ TCR:pMHC only, unconditionally.
-- **v2.12.0** — **`P_native` shipped and is the recommended score**: three channels (geometry,
-  footprint topology, contact energetics), each a conditional-linear-Gaussian Bayes network fitted
-  by expectation maximization with no binding label, combined by adding log-odds; `tcren features`
-  and `tcren recognize --features` are the two commands that reach it. The combiner zoo it replaces
-  was deleted in the same release — see [OBSOLETE.md](OBSOLETE.md) for the list. **Reversed in
-  v2.26.0**, which discarded `P_native` outright; the entry stays as the record of what v2.12.0
-  shipped.
-- **v2.12.1** — `paths.tcren_home()`. An installed wheel could not find its reference data at all
-  before it, so tcren was usable only from a git checkout.
+# Publication roadmap
 
-## Landed since that review — v2.13.0 – v3.0.0
+Updated 2026-10-15. The goal is a reproducible, interpretable paper supported by the existing five
+benchmark blocks, not a larger catalogue of scores. Prior plans and measured abandoned approaches
+are preserved in `attic/2026-10-audit/ROADMAP.md`. `AUDIT.md` owns findings; this file owns exit criteria.
 
-Off this roadmap or off the manuscript's needs; [CHANGELOG.md](CHANGELOG.md) is the record and
-[STATUS.md](STATUS.md) carries the condensed history.
+## 1. Correctness and bounded scope
 
-- **v2.13.0** — `tcren.potts`, the contact map as a random variable rather than a property of one
-  structure. `Π`, the interface energy referenced against the partition function, comes from here,
-  and it is the third block of the composite below.
-- **v2.15.0 – v2.16.0** — **a composite defined for one structure**: `S_free` =
-  `Q/sd_Q + T/sd_T + (Π − μ)/sd_Π`, three fit-free directional blocks over the 374 Native2026
-  crystals; `reliability.t_score`, the shape block, which loses 0.06 ROC-AUC on the balanced VDJdb
-  panel when the epitope has no solved complex to template on, against `Q`'s 0.24; plus
-  `inversion_flag` and `screening_yield`.
-- **v2.22.0 – v2.24.0** — the presentation interface gets its own Hamiltonian, a second
-  presentation potential, and `centred_potential`, the gauge that lets a pinned model reproduce a
-  referenced score.
-- **v2.26.0** — **`P_native` discarded**, with the whole v1 score block and every frozen-coefficient
-  composite; `F_*` → `Phi_*`; `tcren.provenance` stamps every feature table with a catalogue digest
-  and a table written under a different one is refused rather than silently scored.
-- **v2.27.0** — the composite is `S` (`reliability.s_free` → `reliability.s_score`, column `S_free`
-  → `S`), with no alias.
-- **v2.28.0** — every out-of-fold-fitted read-out removed: `p_binder`, `available_links`,
-  `correct_confidence`, `available_corrections` and `tcren diagnose`.
-- **v2.29.0 – v2.30.0** — the catalogue 123 → 141 → **164** descriptors, and the flat middle of the
-  package split into `docking`, `topology`, `energetics` and `mechanics`. This is where roadmap item
-  7's **Lawrence–Colman shape complementarity** landed: `sc_shape` is their Sc computed on a raster
-  rather than a dot surface, catalogued in the `topology` family. Its R² when regressed on all 141
-  incumbent descriptors is 0.445 — the more familiar and the *less* novel of what 2.30.0 adopted,
-  against the gap descriptors' 0.131 and 0.255 — and it was adopted anyway.
-- **v3.0.0** — **`tcren.score`**: one frozen object and five read-outs, each defined for a single
-  structure, with `tcren assess` and `tcren fit-holdout`. This is what replaced `P_native`, and the
-  difference is the manifest — the 8,292 hold-out structures the fit used ship in the wheel and
-  `fit-holdout` regenerates the shipped arrays from them bit for bit.
+Fix demonstrated scoring, native-boundary and pipeline defects with focused synthetic checks.
+Archive only complete obsolete dependency groups, retaining source, resources and result records.
+Keep the accepted potential and fitted arrays unchanged until a deliberate model revision is approved.
+Exit: focused tests, full applicable unit suite, lint and docs pass; every remaining defect is named.
+Current: Potts identity/sampling, Gaussian/mechanics domains and source-boundary repairs are
+implemented and checked. The catalogue/frozen metadata migration preserves every coefficient
+array; corrected-feature equivalence still requires gate 4. Passing software tests do not close
+the scientific or publication gates.
 
-## Open
+## 2. Settle definitions before changing numbers
 
-Ranked by what each unblocks. Every row names what is missing, not what would be nice.
+The author approved correcting the ergodicity and naive-Bayes interpretations and retiring tree
+figures/claims. Tier-1 documentation now identifies shared preprocessing fitted on both classes;
+the benchmark GLM is explicitly separate from the shipped conditional residual. The two-step
+ranking link now reports empirical sigmoid widths, pooled parameters and held-out performance
+without claiming a physical free-energy calibration. Its recorded values are preserved.
+Correctly distinguish low-order Betti difference from full Euler characteristic and approximate
+contact stability from an exact physical probability. Preserve every measured result and recorded
+comparison. Do not add new metrics or fitted alternatives to address a wording problem.
+Exit: one definition per readout, matched equations/code/prose, approved claim scope.
+Current: source definitions reconciled without refitting or replacing empirical values. Final
+rendered-PDF review remains in gate 5.
 
-## 1. Make peptide stability a score, not a diagnostic
+## 3. Close the publication dependency graph
 
-`tcren.dynamics` separates best from worst binders in 4/4 clones where the additive contact energy
-fails, and the intra-peptide term behaves as Sewell's hypothesis predicts. It is still a research
-readout: no `rmsf` column is in `recognition.DESCRIPTORS`, so `tcren features` does not emit it and
-neither `recognize` nor `assess` can reach it. Four questions gate shipping it.
+For every main/SI number and figure, record raw inputs → library version/model → benchmark producer
+→ reshaper → rendered artifact. Resolve the benchmark's old wheel pin and unwired confidence
+producers. Fail on absent required input, stale model catalogue, failed stage or reduced corpus.
+Evaluation never installs fitted models into the library. Separate restricted inputs from public
+availability claims without exposing private provenance.
+Exit: complete producer/input manifest and one tested, immutable software/environment identity.
+Current: all 34 live reshapers have scheduled owning producers/inputs; tree routes are archived.
+Preflight checks the actual wheel payload and 12 required raw sets. Historical frozen-model fit
+traces are explicitly historical parameter evidence. See
+`audit/2026-10-14/publication-resolution.md`; only execution can certify the complete graph.
 
-- Does it survive on **crystal** structures? Every number so far is from modelled CPL complexes, so
-  the effect could be reading model quality rather than peptide physics. The Canonical2026 set is the
-  control that exists already.
-- Does it hold at more steps and more seeds? `rmsf` is the least noisy readout (CV 0.115 over six
-  seeds) but 4000 steps and one seed is what the CPL numbers used.
-- Is **contact + stability** worth shipping as a combined score? Within-clone z-sum lifts mean AUC
-  0.721 → 0.826 and improves 5/7, but n = 7 clones cannot carry that (Wilcoxon p = 0.22). More clones,
-  or a per-structure test.
-- Does the **per-position** stability profile localise to the P3/P6 pair Dolton et al. Fig. S4 names?
-  That would turn a global `rmsf` into a mechanism, and the 4C6 pair split (P = 0.0012) says the
-  signal is there to find.
+## 4. Reproduce only after authorization
 
-## 2. Repack inside the MC loop
+Run one complete fresh pass from raw sources after gates 1–3 and explicit authorization. Compare
+matched units against the accepted recorded results, including row counts and missingness. Stop and
+report material weakening; never silently replace a baseline, refloor a test or average away a loss.
+No sweeps, additional controls or model-selection exercise is implied by this roadmap.
+Exit: all five blocks and every publication artifact trace to that run; no resumed intermediates.
+Current: full fresh reproduction authorized. Earlier CLI/schema, physical-key, metadata and raw-path
+export defects are repaired and checked. Attempt 8 passed all fresh binder joins and geometry
+cohorts, then stopped at an obsolete VDJdb reference alias after 3,980 s. The exact documented
+local release is now guarded by SHA-256 before structural work; no substitution was needed.
+Remaining scheduled raw-input availability was checked. The withdrawn HPV posterior panel is
+archived; its two fit-free arms preserve raw sources and seeded order. Another complete restart
+follows the focused checks; no failed-run derived output is reused.
+Both full-manifest frozen-parameter comparison and matched accepted-result gates precede
+publication. Earlier interrupted diagnostic evidence is retained but does not complete this gate.
 
-`relax_interface` samples the backbone with χ held fixed, so a move that would be favourable *after*
-the side chains relax is rejected. `repack` is now 6 ms, which is what makes a repack-per-cycle
-affordable — and it is the difference between a stability probe and a real FlexPepDock analogue.
+## 5. Submission and release
 
-## 3. Side-chain construction
+Run manuscript structural/xref/figure gates, render and inspect both PDFs, and verify equations,
+units, denominators, citations and availability statements. Build/install the wheel independently,
+check packaged resources and CLI behavior, then use the existing CI/release approval process.
+Exit: clean build/tests, reviewed PDFs, verified deposits and approved release. No date promise or
+claim of publication readiness until all gates pass.
 
-`repack` rotates the side chains a model **has**. `substitute_peptide` strips past Cβ by design, so
-that path still returns 44 of 77 heavy atoms and cannot be scored at atom level at all. Needs ideal
-internal geometry per residue type. AlphaFold/TCRmodel output is full-atom, so `repack` already
-covers the common case — this is what the *substitution* path is waiting on.
+## Frozen/deferred
 
-## 4. De novo peptide placement — PART 2 of the review
-
-A fast in-house kernel for placing a peptide into an empty groove, benchmarked against FlexPepDock:
-anchor-constrained CCD closure + DOPE MC + rotamer repack. `_refine` (rigid-body MC) and `_fold`
-(CCD) already cover the *template-based* case; the packer and the backbone sampler are two of the
-three pieces. Side-chain construction (3) is the third. See `refine/CPP_REWRITE.md`.
-
-## 5. Surface topology, from descriptor to feature
-
-Narrowed by v2.30.0, not closed. Nineteen `sc_*` descriptors built on the same
-`topology.surface` height fields are catalogued now and reach the `tcren features` table, so the
-module as a whole is no longer a dead end. What is still unreachable is the **epitope-shape**
-read-out: the scalars exist and separate literature-named featureless from bulged epitopes
-completely, but none of `relief` / `peak_to_valley` / `frac_above_ridge` / `phobic_centre` is in
-`recognition.DESCRIPTORS`, so no `tcren features` table carries them and neither `Q`, `T`, `S` nor
-any channel of the score set can see them. They are fit-free and z-scoreable against
-`native_reference()`, which is exactly `cohort`'s premise.
-
-Two open questions behind it: whether the **charge and hydropathy** channels carry immunogenicity
-signal (Chowell et al. 2015 says TCR-contact hydrophobicity should), and whether the map distance
-predicts **cross-reactivity** between epitopes rather than merely clustering copies of the same one.
-
-## 6. Full-scale fold benchmark on aldan3
-
-`scripts/fold_benchmark.sbatch`, n ≈ 374 with every oracle. FlexPepDock is minutes per structure — it
-burned 21 min of CPU on six structures locally without finishing, which is why this is a cluster job
-and not a local one.
-
-## 7. Smaller, well-scoped
-
-- **`2wbj`** is the single class-II Canonical2026 structure whose β-sheet core still fails to map
-  (93/94).
-- **`surface_distance` is an O(n²) Python loop** — fine at 374 maps, not at thousands.
-- **Mouse class-II reference is sparse**; extend if a mouse class-II cohort ever needs it.
-- **2D map polish**: an optional "contacting residues only" mode for less cluttered overlays.
+No sequence-only geometry ladder revival, new Potts ranking composite, speculative descriptor
+family, unmeasured compute-budget recommendation or broad framework rewrite. Existing MD contact
+and self-consistent potential paths stay only for their identified current consumers. Historical
+oracle paths remain available for the published work they reproduce.

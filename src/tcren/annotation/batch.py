@@ -40,13 +40,20 @@ def iter_annotated_set(struct_dir: str | Path, on_error: str = "skip"):
     """
     from ..annotation import classify_chains
     from ..annotation.arda_adapter import _import_arda
-    from ..structure import parse_structure, structure_id_from_path, structure_paths
+    from ..structure import parse_structure, structure_paths
+    from ..structure.io import resolve_structure_ids
 
+    paths = structure_paths(Path(struct_dir))
+    # Ids are resolved for the SET, not per file: the prefix rule that turns "1ao7.pdb.gz" and
+    # "4x5w_renumbered.cif" into PDB ids collapses "302TIL_A0206_9_TCR-pMHC" and its six siblings
+    # onto one id, and every row of seven structures then lands under it. `iter_structures` has
+    # always decided per set; this path did not, so `tcren scoring` and `tcren score` disagreed
+    # about what a structure is called.
+    ids = resolve_structure_ids(paths)
     structures: list[Structure] = []
-    for path in structure_paths(Path(struct_dir)):
-        # id resolved from the filename (handles "<id>.pdb(.gz)" and "<id>_renumbered.cif").
+    for path in paths:
         try:
-            structures.append(parse_structure(path, pdb_id=structure_id_from_path(path)))
+            structures.append(parse_structure(path, pdb_id=ids[str(path)]))
         except Exception:
             if on_error == "raise":
                 raise
@@ -133,18 +140,20 @@ def mhc_annotation(
     from ..mhc import reference
     from ..mhc.mapper import MhcCall, _best_hits, _candidate_chains, _reconcile_class
     from ..structure import parse_structure, structure_id_from_path, structure_paths
+    from ..structure.io import resolve_structure_ids
 
     struct_dir = Path(struct_dir)
     paths = structure_paths(struct_dir)
+    resolved = resolve_structure_ids(paths)      # per SET, see iter_annotated_set
     if ids is not None:
         keep = set(ids)
-        paths = [p for p in paths if structure_id_from_path(p) in keep]
+        paths = [p for p in paths if resolved[str(p)] in keep
+                 or structure_id_from_path(p) in keep]
 
     structures: list[Structure] = []
     for path in paths:
-        pdb_id = structure_id_from_path(path)
         try:
-            structures.append(parse_structure(path, pdb_id=pdb_id))
+            structures.append(parse_structure(path, pdb_id=resolved[str(path)]))
         except Exception:
             if on_error == "raise":
                 raise
@@ -253,20 +262,20 @@ def annotate_batch(
             out[idx][org][cid] = rec
     return out
 def _annotate(arda, pairs, organism: str, threads: int):
-    """``arda.annotate_sequences`` with a thread cap, falling back when arda cannot take one.
+    """``arda.annotate_sequences`` with an explicit thread cap when requested.
 
     The public adapter drops ``threads`` on the floor, so reach one level down to
     ``arda.annotate.mapper.annotate_records`` when a cap is asked for. Guarded: an arda without that
-    module still works, just uncapped.
+    module cannot satisfy a requested cap and fails explicitly.
     """
     if threads > 0:
         try:
             from arda.annotate.mapper import annotate_records
-            return annotate_records(pairs, organism=organism, seqtype="aa", threads=threads)
-        except Exception:  # noqa: BLE001 - any arda without the private path keeps the default
-            pass
+        except ImportError as exc:
+            raise ImportError("arda backend cannot enforce the requested thread cap") from exc
+        return annotate_records(pairs, organism=organism, seqtype="aa", threads=threads)
     return arda.annotate_sequences(pairs, seqtype="aa", organism=organism)
-def iter_typed(structures: Path, organism: str = "human"):
+def iter_typed(structures: Path, organism: str = "human", *, full_ids: bool = False):
     """Yield chain-typed structures, annotating a whole set in one batch.
 
     ``classify_chains`` per structure spawns one ``mmseqs easy-search`` per structure, each
@@ -274,9 +283,22 @@ def iter_typed(structures: Path, organism: str = "human"):
     and the cost is roughly an order of magnitude. :func:`iter_annotated_set` sends
     every chain of every structure in a single call per organism, which is why anything resolving
     to more than one structure -- a directory, a glob, a manifest -- goes through it. A single
-    file has nothing to batch and takes the direct path.
+    file has nothing to batch and takes the direct path. ``full_ids=True`` preserves complete
+    filename stems through the batched parser. Archives retain their parsed
+    structures in memory for one annotation batch, just like directory sets.
     """
     from ..structure import iter_structures, parse_structure, structure_paths
+    from ..structure.io import _TAR_SUFFIXES
+
+    if full_ids or str(structures).lower().endswith(_TAR_SUFFIXES):
+        # One search batch requires retaining the parsed archive, as for a directory set.
+        parsed = [s for _pid, s in iter_structures(structures, importer=parse_structure, full_ids=full_ids)]
+        records = annotate_batch(parsed)
+        from ..annotation import classify_chains
+        for s, precomputed in zip(parsed, records):
+            classify_chains(s, organism=organism, precomputed_records=precomputed)
+            yield s
+        return
     try:
         many = len(structure_paths(structures)) > 1
     except Exception:  # .tar.gz and anything structure_paths cannot enumerate

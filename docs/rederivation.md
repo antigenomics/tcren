@@ -1,5 +1,26 @@
 # TCRen re-derivation sweep
 
+:::{admonition} A record of a sweep that ran in August 2026, not a description of the shipped potential
+:class: warning
+
+This page is kept for what it settled, and two of its statements are no longer true of the
+package:
+
+* **The candidate matrix it names is gone.** `src/tcren/data/TCRen_potential_rederived.csv` was
+  removed on 2026-08-22: no code path loaded it, no recipe reproduced it, and this page had
+  already concluded it was not promotable. `data/potentials.json` now has an empty
+  `known_unresolved` list, so a matrix with no derivation recipe fails the test suite.
+* **The default TCR:peptide potential is no longer `classic`.** Since 2.11.0 it is `tcren2`,
+  redundancy-balanced on both the epitope and the receptor axis over the `Native2026` crystals —
+  359 of 374 as of 3.3.0. See {doc}`potentials` for the shipped matrices and their recipes.
+
+What stands is the tradeoff this sweep measured, on the two bars it was run against: the expanded
+2026 native set raises cognate-epitope rank AUC from 0.6894 to 0.8025 (leave-one-out over the
+derivation set, anchor-preserving decoys) while lowering the n=187 physical-consistency refit R²
+from 0.5782 to 0.4442, and redundancy filtering moves both monotonically in opposite directions.
+The paths under `scratch/` named below are working files of that sweep and are not shipped.
+:::
+
 Re-derivation of the TCRen statistical potential from native TCR–pMHC structures,
 benchmarked against the manuscript oracle. Goal: determine whether a potential
 re-derived on the expanded 2026 native set (or any clustering / variant change) beats

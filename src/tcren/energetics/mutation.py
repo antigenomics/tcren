@@ -626,7 +626,10 @@ def smoothed_reference(
     e = np.where(ok, phi, 0.0)
 
     shift = np.min(np.where(ok, phi, np.inf), axis=1, keepdims=True)   # log-sum-exp, per position
-    u = w * np.exp(-beta * (e - shift))
+    shift = np.where(ok.any(axis=1, keepdims=True), shift, 0.0)
+    # Undefined terms have zero weight; never exponentiate their placeholder energies.
+    shifted = np.subtract(e, shift, out=np.zeros_like(e), where=ok)
+    u = w * np.exp(-beta * shifted)
     z = u.sum(axis=1)
     live = z > 0
     if not live.any():

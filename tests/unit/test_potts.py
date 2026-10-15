@@ -90,6 +90,53 @@ def test_gibbs_marginals_match_exact_marginals_with_couplings():
     assert np.max(np.abs(occ - exact)) < 0.025
 
 
+def test_far_class_is_off_in_every_shipped_model():
+    """The exclusion class is opt-in, so a model written before it round-trips unchanged."""
+    for name in ("potts_tcr_peptide", "potts_tcr_peptide_sc", "potts_tcr_mhc", "potts_pep_mhc"):
+        m = PottsModel.bundled(name)
+        assert m.far is False
+        assert len(m.kernel) == len(kernel_names(m.joint, m.far)) == 18
+
+
+def test_far_edges_are_exactly_the_pairs_beyond_two_partner_positions():
+    """One receptor residue against eight peptide positions: every |dj| > 2 pair, once each."""
+    n = 8
+    q = pl.DataFrame({"sid": list(range(n)), "pdb.id": ["x"] * n, "loop": ["TRB:CDR3"] * n,
+                      "pchain": ["P"] * n, "pos.rec": [0] * n, "pos.par": list(range(n)),
+                      "chain.rec": ["TRB"] * n, "cls": ["peptide"] * n})
+    far = edges(q, far=True)[-1]
+    assert {(int(a), int(b)) for a, b in far} == {
+        (i, j) for i in range(n) for j in range(i + 1, n) if j - i > 2}
+    # It is the complement of K's reach on this residue, not an overlap: K(+0,+1) and K(+0,+2)
+    # already couple the |dj| <= 2 pairs, and nothing couples anything past them.
+    near = {tuple(sorted(map(int, ab))) for e in edges(q, far=False) for ab in e}
+    assert near and all(b - a <= 2 for a, b in near)
+    assert near.isdisjoint({tuple(sorted(map(int, ab))) for ab in far})
+
+
+def test_ais_and_gibbs_stay_exact_with_the_far_class():
+    """The new family goes through the same colouring, sampler and annealing as any other."""
+    n = 12
+    rng = np.random.default_rng(4)
+    q = pl.DataFrame({"sid": list(range(n)), "pdb.id": ["x"] * n, "loop": ["TRB:CDR3"] * n,
+                      "pchain": ["P"] * n, "pos.rec": [0] * n, "pos.par": list(range(n)),
+                      "chain.rec": ["TRB"] * n, "cls": ["peptide"] * n})
+    far = edges(q, far=True)[-1]
+    eta = rng.normal(0.0, 1.0, n)
+    A = coupling_matrix(n, far[:, 0], far[:, 1], np.zeros(len(far), int), np.array([-0.9]))
+    cols = colour(n, far[:, 0], far[:, 1])
+    for cidx in cols:
+        assert not A[np.ix_(cidx, cidx)].any()
+    exact = exact_log_z(eta, A)
+    assert ais_log_z(eta, A, cols, rng, particles=256, steps=512)[0] == pytest.approx(exact,
+                                                                                      abs=0.12)
+    s = ((np.arange(1 << n)[:, None] >> np.arange(n)) & 1).astype(float)
+    lw = s @ eta + 0.5 * ((s @ A) * s).sum(1)
+    w = np.exp(lw - lw.max())
+    occ, _ = gibbs(eta, A, cols, rng, chains=1500, burn=150, draws=250, thin=2)
+    assert np.max(np.abs(occ - (w / w.sum()) @ s)) < 0.025
+
+
 def test_energy_sign_convention():
     """Lower energy is more favourable, and a positive coupling lowers it for a co-occurring pair."""
     eta = np.array([0.0, 0.0])
@@ -653,7 +700,7 @@ def test_a_certain_pair_forces_its_whole_group_to_one_without_nan():
     from tcren.potts import score as score_mod
 
     frame = pl.DataFrame({"pdb.id": ["x", "x", "y", "y"],
-                          "region.rec": ["CDR3"] * 4,
+                          "region.rec": ["CDR3"] * 4, "cls": ["peptide"] * 4,
                           "pos.par": [1, 1, 2, 2], "aa.par": ["A", "A", "G", "G"],
                           "p_model": [1.0, 0.5, 0.25, 0.5], "sigma": [1.0, 0.0, 0.0, 0.0]})
     # Drive the real aggregation, with the sampler stubbed out: reaching p = 1 through Gibbs takes
@@ -777,3 +824,40 @@ def test_peptide_free_energy_rejects_a_position_carrying_two_residues():
     pairs, model = _map_inputs(n_struct=1)          # aa.par drawn per row, so positions clash
     with pytest.raises(ValueError, match="more than one residue"):
         peptide_free_energy(pairs, model)
+
+
+def test_raw_named_pin_preserves_fitted_matrix_and_roundtrip(tmp_path):
+    model = fit_potts(_synthetic_sites(n_struct=2), coupling_matrix="tcren2",
+                      pin_centred=False, couplings=False)
+    expected = model.beta_matrix * centred_potential("tcren2", centre=False)
+    np.testing.assert_allclose(model.coupling_array(), expected)
+    path = tmp_path / "raw-pin.json"
+    model.to_json(path)
+    np.testing.assert_allclose(PottsModel.from_json(path).coupling_array(), expected)
+
+
+def test_delta_f_empty_resolves_small_positive_partition():
+    from tcren.potts.sample import delta_f_empty
+    assert delta_f_empty(1e-20) == pytest.approx(np.log(np.expm1(1e-20)))
+    assert delta_f_empty(1000.0) == pytest.approx(1000.0)
+
+
+def test_coupled_threading_aligns_identified_marginals_by_site():
+    pairs, model = _sequence_sites()
+    probabilities = np.linspace(0.01, 0.99, pairs.height)
+    marg = pairs.with_columns(pl.Series("p_model", probabilities))
+    reference = peptide_free_energy(pairs, model, coupled=True, marginals=marg)
+    got = peptide_free_energy(pairs.reverse(), model, coupled=True, marginals=marg)
+    np.testing.assert_allclose(got["dF"].to_numpy(), reference["dF"].to_numpy())
+    got_reversed = peptide_free_energy(pairs, model, coupled=True, marginals=marg.reverse())
+    np.testing.assert_allclose(got_reversed["dF"].to_numpy(), reference["dF"].to_numpy())
+
+
+def test_coupled_threading_aligns_internally_computed_marginals(monkeypatch):
+    from tcren.potts import score as score_module
+    pairs, model = _sequence_sites()
+    marg = pairs.with_columns(pl.Series("p_model", np.linspace(0.01, 0.99, pairs.height)))
+    reference = peptide_free_energy(pairs, model, coupled=True, marginals=marg)
+    monkeypatch.setattr(score_module, "contact_probabilities", lambda *a, **kw: marg.reverse())
+    got = peptide_free_energy(pairs, model, coupled=True)
+    np.testing.assert_allclose(got["dF"].to_numpy(), reference["dF"].to_numpy())

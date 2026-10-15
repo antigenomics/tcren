@@ -235,8 +235,13 @@ def classify_contacts(interface_df: pl.DataFrame, scheme: str = "v2",
     per_row = []
     for n, row in enumerate(zip(*cols)):
         hit = _types_v2(*row)
-        if keys is not None and keys[n] in stacking:
-            hit.add("stacking")
+        if keys is not None:
+            key = keys[n]
+            a, b = key[:2], key[2:]
+            if (a + b if a <= b else b + a) in stacking:
+                hit.add("stacking")
+        if not hit:
+            hit.add("other")
         per_row.append(hit)
 
     label = [next((t for t in TYPES_V2 if t in hit), "other") for hit in per_row]
