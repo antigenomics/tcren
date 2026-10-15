@@ -84,3 +84,10 @@ delta. This is complete reproduction of the five permitted fit-free benchmark bl
 not the retired fitted paper or the separate unfinished long MD campaign. Original
 baseline snapshots, exclusions, commands, hashes, all per-task metrics and failed
 attempt records are retained in the benchmark's local run deliverable.
+
+Final producing source: `cf103f9`. The final metadata-corrected wheel
+(SHA256 `c2f58510cabdbd3687b136c82e653426e973655a6f74e56f7c662c6371b76550`)
+completed another full raw-input run. All five fresh dataset tables and all 3,672
+metric rows exactly match the preceding successful reproduction; the 1,552 paired
+comparisons above therefore describe this final package as well. Python 3.10/3.12,
+lint and warning-as-error documentation CI passed on this source revision.

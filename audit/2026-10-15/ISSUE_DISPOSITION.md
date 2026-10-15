@@ -60,6 +60,8 @@ parsers and close-pair diagnostics, and preserves the selected conformer label i
 writers without changing their selection policy. The synthetic regression verifies
 exact coordinate/order/contact-table equality with the prior label-free representation;
 parser, proximity and MD follow-up checks passed: **57 tests**. Atom inclusion and
-contact arithmetic are unchanged. A rebuilt final wheel and a fresh authorized
-reproduction are planned for the final producing revision; older package digests
-must not be presented as identifying that new artifact.
+contact arithmetic are unchanged. The final wheel from `cf103f9` completed a new raw-input reproduction with no
+population or availability changes. All 3,672 metric rows and all five fresh dataset
+tables exactly equal the earlier successful run. Wheel SHA256:
+`c2f58510cabdbd3687b136c82e653426e973655a6f74e56f7c662c6371b76550`.
+Python 3.10/3.12, lint and warning-as-error docs CI passed on `cf103f9`.
