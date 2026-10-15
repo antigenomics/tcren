@@ -12,7 +12,6 @@ import numpy as np
 import polars as pl
 import typer
 from scipy.stats import rankdata
-from sklearn.metrics import average_precision_score, precision_recall_curve, roc_auc_score
 
 STRATA = ["dataset", "task", "mhc_class", "template_coverage"]
 GROUPS = STRATA + ["cohort"]
@@ -36,6 +35,8 @@ def _correlation(x, y):
 
 
 def _metrics(y, x):
+    from sklearn.metrics import average_precision_score, precision_recall_curve, roc_auc_score
+
     names = ("roc_auc", "average_precision", "precision_at_recall_0.1", "precision_at_recall_0.5")
     if len(np.unique(y)) != 2:
         return dict.fromkeys(names)

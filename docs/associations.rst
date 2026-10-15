@@ -1,5 +1,5 @@
 pMHC feature–performance associations
-====================================
+=====================================
 
 Evaluate recorded descriptors/scores against ipTM, then relate their performance
 to pMHC surface properties. This is descriptive evaluation, not a fitted score.
