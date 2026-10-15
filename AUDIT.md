@@ -95,6 +95,15 @@ driver and matched-result gates finish.
   preflight passes. The temporary two-panel HPV plot renders correctly, and manuscript read-only gates
   pass. These are source/layout checks; another whole raw-input run remains necessary.
 
+- Attempt 8 completed the fresh binder pose join with all 1,089 rows (566 negatives/523 positives)
+  and both contact-geometry cohorts (1,089/618), then stopped after 3,980 s at an obsolete VDJdb
+  reference alias. The documented local release is byte-identical to the pinned archive member;
+  its existing path and exact SHA-256 guard now replace the absent alias, with unchanged counting.
+  No download or release substitution was needed. All 810 calculation/figure source files stayed
+  unchanged during the run. Sampled summed process RSS peaked at 18,648,170,496 bytes (shared
+  pages may be counted more than once). A read-only audit of the remaining scheduled raw inputs
+  found no further missing mandatory references. Another complete fresh restart is required.
+
 The [publication reconciliation](audit/2026-10-14/publication-resolution.md) inventories all 34
 live reshapers, recovered producers, exact archived tree routes, fresh-input/cache repairs and
 matched-result gates. The full driver's finite-score report now counts both null and NaN values;

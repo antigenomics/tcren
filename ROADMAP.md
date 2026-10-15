@@ -49,12 +49,13 @@ matched units against the accepted recorded results, including row counts and mi
 report material weakening; never silently replace a baseline, refloor a test or average away a loss.
 No sweeps, additional controls or model-selection exercise is implied by this roadmap.
 Exit: all five blocks and every publication artifact trace to that run; no resumed intermediates.
-Current: full fresh reproduction authorized. Earlier attempts exposed producer CLI/schema and raw-path
-export defects, now repaired and checked. Attempt 7 passed native, TCRvdb, CPL and fresh binder
-scoring, then stopped at inconsistent negative metadata keys in the pose join. Exact identity and
-raw-only metadata projection are repaired and checked. The withdrawn HPV posterior panel is archived,
-its two fit-free arms retain original sources and seeded order, and the missing native-reference edge
-is wired. Another complete raw-input restart follows the combined checks.
+Current: full fresh reproduction authorized. Earlier CLI/schema, physical-key, metadata and raw-path
+export defects are repaired and checked. Attempt 8 passed all fresh binder joins and geometry
+cohorts, then stopped at an obsolete VDJdb reference alias after 3,980 s. The exact documented
+local release is now guarded by SHA-256 before structural work; no substitution was needed.
+Remaining scheduled raw-input availability was checked. The withdrawn HPV posterior panel is
+archived; its two fit-free arms preserve raw sources and seeded order. Another complete restart
+follows the focused checks; no failed-run derived output is reused.
 Both full-manifest frozen-parameter comparison and matched accepted-result gates precede
 publication. Earlier interrupted diagnostic evidence is retained but does not complete this gate.
 
