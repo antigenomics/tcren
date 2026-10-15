@@ -43,6 +43,10 @@ against a curated reference; structures are oriented into one canonical frame; a
 contact maps, potential, and scores are reproduced numerically (validated against committed oracles
 to floating-point precision).
 
+Cropped MHC grooves often match several alleles. Scoring reports `allele_candidates`
+alongside a deterministic `allele` representative; neither establishes experimental
+restriction. Check coordinate peptide and receptor identity before joining assay labels.
+
 Where the original tcren scored TCR:peptide contacts alone, this version also scores the TCR:MHC
 and peptide:MHC interfaces, which a full picture of TCR:pMHC binding mechanics and any ΔΔG
 estimate both need.
