@@ -82,8 +82,11 @@ score is silently relabelled ipTM. See `docs/prediction.rst` and `docs/fit-free.
 
 `score_table` has per-readout availability flags and JSON `missing_descriptors`.
 `recognition_table(..., annotate=False)` reuses supplied annotated Structures.
-Parallel descriptor calls require an importable guarded script; stdin/notebooks must
-use `threads=1` or the CLI, with an explicit error rather than a silent fallback.
+Parallel descriptor calls from stdin/notebooks use an importable subprocess entrypoint
+for the existing bounded spawn pool; no notebook replay, fork or serial fallback.
+Whole-set annotation remains in the caller, before workers start. Ordinary scripts
+still need a `if __name__ == "__main__":` guard. Import tcren before initializing
+Polars, including in notebooks. Temporary transport is private and deleted after each call.
 
 `tcren` reproduces and extends the TCRen contact-energy potential (Nat Comput Sci 2022)
 on a pure-Python pipeline (structure parsing → contacts → TCR/MHC annotation → potential
@@ -172,18 +175,20 @@ parallel layer; Python orchestration is a single call.
   a batch of 300 sequences costs the same ~930ms total.
 - A `ProcessPoolExecutor(fork)` over structures **deadlocks** (fork after mmseqs2/BLAS
   spawn threads). A `ThreadPoolExecutor` runs but still pays the fixed cost N times.
-- `paper/helpers.py::_batch_annotate` does TCR annotation for a whole dataset in 2 arda
-  calls (human + mouse). MHC annotation uses the same pattern: `mhc.annotate_mhc_batch(structures)`
+- `annotation.batch.annotate_batch` (also exposed by paper helpers) does TCR
+  annotation for a whole dataset in 2 arda calls (human + mouse). MHC annotation uses the same pattern: `mhc.annotate_mhc_batch(structures)`
   — ONE mmseqs search over every candidate MHC chain, sliced back per structure.
 
 Reference: `arda.annotate_sequences([(id, seq), ...])` — one call, threads internally.
 
-## Threading model — annotation batched, threads only for structural ops
+## Parallel phases — batch searches, then structural work
 
 - **Annotation (TCR + MHC) is never Python-threaded and never per-structure.** It is one
-  batched mmseqs2 call; mmseqs2 is the parallel layer (do NOT pass it a thread count). No
-  `ProcessPoolExecutor`/`workers`.
-- **Use threads ONLY for the embarrassingly-parallel, mmseqs-free stages:** structural
+  batched call per reference with the selected CPU budget passed explicitly to MMseqs.
+  No Python pool wraps the search. The descriptor phase then reuses the annotated
+  structures in bounded spawn workers, with one numerical compute thread each.
+  Notebook/stdin calls use the importable entrypoint described above.
+- **Outer parallel work is restricted to mmseqs-free stages:** structural
   alignment (Kabsch/SVD superposition), peptide mutation, relaxation, and rendering — i.e.
   pymol / Rosetta / FlexPepDock and figure generation. `orient.run_folder(threads=…)` threads
   the parse and the align+write stages (default `os.cpu_count()`); annotation between them is

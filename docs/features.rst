@@ -717,5 +717,6 @@ Import ``tcren`` before initializing Polars in library code. Polars cannot resiz
 already-created pool: bounded batch APIs reject a preinitialized multithreaded pool
 with an actionable fresh-process instruction. BLAS/OpenMP kernels in initialized
 interpreters are limited at runtime and restored afterward. Spawn workers receive
-serial native limits before imports; interactive parallel calls still require the
-existing guarded-script/CLI workflow.
+serial native limits before imports. Notebook/stdin calls use an importable subprocess
+entrypoint for that same bounded pool; annotation stays in the parent and completes
+before workers start. Ordinary scripts still require a main guard.

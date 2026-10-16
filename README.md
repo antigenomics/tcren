@@ -731,6 +731,9 @@ Library callers should import `tcren` before initializing Polars. An already-cre
 multithreaded Polars pool cannot be resized; bounded batch APIs reject it with an
 actionable error instead of silently exceeding the budget. Existing BLAS/OpenMP
 pools are limited during calls and caller settings are restored afterward.
+Notebook/stdin descriptor calls support multiple workers through a private importable
+entrypoint running the same bounded spawn pool, after batched annotation. No fork
+or serial fallback is used. Ordinary scripts still require a main guard.
 
 `surface` retains parse, annotation and mapping failures in its CSV, succeeds only
 if at least one map is produced, and rejects nonpositive grid dimensions before

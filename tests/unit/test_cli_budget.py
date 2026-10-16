@@ -188,7 +188,7 @@ def test_wide_modes_fail_before_the_live_thread_ceiling(monkeypatch):
     with pytest.raises(ValueError, match='live-thread ceiling'):
         runtime.resolve_threads(0)
     with pytest.raises(ValueError, match='live-thread ceiling'):
-        runtime.check_parallel_entrypoint(128, 128)
+        runtime.check_parallel_entrypoint(122, 122)
 
 
 def test_search_allowance_does_not_force_requested_parallelism_serial(monkeypatch):
@@ -203,3 +203,69 @@ def test_search_allowance_does_not_force_requested_parallelism_serial(monkeypatc
             assert os.environ['POLARS_MAX_THREADS'] == '1'
         assert os.environ['OMP_THREAD_LIMIT'] == '1'
     assert dict(os.environ) == previous
+
+
+def test_stdin_parallel_map_preserves_results_and_errors():
+    import subprocess
+    import sys
+    import pytest
+    from tcren.runtime import available_cpus
+    if available_cpus() < 2:
+        pytest.skip('two allocated CPUs required')
+    script = """
+import os
+import tcren
+from tcren.runtime import parallel_map
+previous = dict(os.environ)
+assert parallel_map(abs, [-2, -1, 0, 1], 2) == [2, 1, 0, 1]
+assert dict(os.environ) == previous
+try:
+    parallel_map(int, ['1', 'invalid'], 2)
+except RuntimeError as exc:
+    assert 'invalid literal' in str(exc)
+else:
+    raise AssertionError('worker failure was hidden')
+assert dict(os.environ) == previous
+print('interactive batch OK')
+"""
+    result = subprocess.run([sys.executable, '-'], input=script, text=True,
+                            capture_output=True, timeout=30)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == 'interactive batch OK'
+
+
+def test_stdin_parallel_cancel_cleans_transport():
+    import os
+    import subprocess
+    import sys
+    import pytest
+    from tcren.runtime import available_cpus
+    if os.name != 'posix' or available_cpus() < 2:
+        pytest.skip('POSIX and two allocated CPUs required')
+    script = """
+import signal
+import tempfile
+from pathlib import Path
+import time
+import tcren
+from tcren.runtime import parallel_map
+previous = set(Path(tempfile.gettempdir()).glob('tcren-workers-*'))
+def interrupt(signum, frame):
+    raise KeyboardInterrupt
+signal.signal(signal.SIGALRM, interrupt)
+signal.setitimer(signal.ITIMER_REAL, 1.5)
+try:
+    parallel_map(time.sleep, [30, 30], 2)
+except KeyboardInterrupt:
+    pass
+else:
+    raise AssertionError('cancellation was hidden')
+finally:
+    signal.setitimer(signal.ITIMER_REAL, 0)
+assert set(Path(tempfile.gettempdir()).glob('tcren-workers-*')) == previous
+print('cancelled cleanly')
+"""
+    result = subprocess.run([sys.executable, '-'], input=script, text=True,
+                            capture_output=True, timeout=15)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == 'cancelled cleanly'

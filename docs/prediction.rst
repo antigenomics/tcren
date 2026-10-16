@@ -105,10 +105,14 @@ selection helper does not run a campaign comparison. In a partial-reference fit,
 ``all`` must mean all matched components; unmatched receptor coordinates must not
 be scored against a pMHC-only reference (issue #22).
 
-For multiple descriptor workers, call the API from an importable script inside an
-``if __name__ == "__main__":`` guard, or use the CLI above. The current spawn backend
-cannot import stdin/notebook entrypoints; use one worker there. Issue #21 tracks an
-interactive-safe parallel backend without forking after annotation/BLAS threads.
+Multiple descriptor workers are supported from notebooks, stdin, the CLI and guarded
+scripts. Interactive calls send already annotated structures through private temporary
+transport to an importable entrypoint, which runs the same bounded spawn pool.
+Annotation remains one complete query batch per reference in the caller; workers do
+not search. No fork, notebook replay or serial fallback is used. Temporary transport
+is deleted on success or failure, and worker errors propagate to the caller.
+Ordinary scripts still need an ``if __name__ == "__main__":`` guard. Import ``tcren``
+before initializing Polars; an existing multithreaded Polars pool remains unsupported.
 
 Building this documentation locally
 -----------------------------------

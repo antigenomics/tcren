@@ -1,6 +1,6 @@
 # Publication and software roadmap
 
-Reconciled 16 October 2026 against master `c04cb94`, live GitHub issues and
+Reconciled 16 October 2026 against master base `8f860a2`, the issue-21 fix, live GitHub issues and
 recorded benchmark/manuscript commits `8657b89` / `26b912c`.
 [AUDIT.md](AUDIT.md) owns scientific findings; this file owns remaining work.
 [The example audit](audit/2026-10-16/EXAMPLE_AUDIT.md) records current execution,
@@ -28,8 +28,8 @@ ranking performance.
 - Correctness/domain fixes, exact CLI exports and searched-index provenance were
   integrated. Subsequent PRs #40–42 add structural alanine references, shared
   reference contact construction and co-best MHC alleles. Master tests and docs
-  workflows passed at `c04cb94`. Current examples use its byte-matched installed
-  4.0.1 wheel; this does not establish a public 4.0.1 release.
+  workflows passed at `c04cb94`. Subsequent issue-43 and issue-21 example receipts
+  pin their distinct byte-matched installed 4.0.1 wheels; none establishes a public release.
 - The five-block fit-free reproduction completed. The obsolete “attempt 8 stopped”
   status is superseded by `RELEASE_FIXES.md`. Later source/annotation corrections
   remain separately recorded rather than being called the same reproduction.
@@ -66,14 +66,15 @@ in the software distribution. Completed analyses are not rerun to update this li
 | P2 / benchmark + manuscript; issue [34](https://github.com/antigenomics/tcren/issues/34) | Exact position/residue/contact/placement CLI exports exist and pass API equality checks. Complete the per-panel audit showing every retained molecular rendering consumes authoritative exports, including physical residue IDs, scene/potential/geometry hashes and visual review. A successful PDF build does not close this lineage requirement. |
 | P2 / manuscript; issues [33](https://github.com/antigenomics/tcren/issues/33), [35](https://github.com/antigenomics/tcren/issues/35) | Fit-free disposition, archives, reproduced comparisons and active-paper cleanup are recorded. Reconcile these issue acceptance criteria with the final producer/include graph; audit any retained historical methodological equation separately. Do not implement replacement fitted models merely to close retired CLI gaps. |
 | P2 / library + benchmark | Four literature-topology columns have recorded differences up to 1.11e-16 from unordered reductions, which can alter tied ranks. Keep all deltas visible. A deterministic-reduction fix needs focused checks and explicit authorization for its affected scientific rerun; do not round scores to suppress differences. |
-| P3 / library; issue [21](https://github.com/antigenomics/tcren/issues/21) | Notebook/stdin parallel calls now fail early with actionable guidance; serial calls and guarded CLI/scripts are supported. An interactive-safe multicore backend remains unimplemented. Retain this limitation rather than claiming that documentation implemented the backend. |
+| Completed / library; issue [21](https://github.com/antigenomics/tcren/issues/21) | Notebook/stdin calls now use an importable subprocess entrypoint for the existing bounded spawn pool, after whole-set annotation. Real Jupyter, stdin, serial/all/explicit budgets, worker failure/cancellation, physical-key comparisons and manual class-I/II table inspection are recorded in [INTERACTIVE_BATCH_FIX.md](audit/2026-10-16/INTERACTIVE_BATCH_FIX.md). Final affected suite: 58 passed; the full local reference-backed suite hit its 360-second cap and remains incomplete. Preinitialized multithreaded Polars remains unsupported. |
 | Historical/deferred; issue [32](https://github.com/antigenomics/tcren/issues/32) | Custom Potts geometry forwarding and approximation labels were repaired. Complete CLI equivalence for historical decompositions is absent; no final-paper dependency authorizes a new fitted scorer. Preserve the original quantities and identify the outstanding gap. |
 | Separate campaign; issue [26](https://github.com/antigenomics/tcren/issues/26) | Component RMSD, frame selection and close-pair tools exist. The long MD reconstruction and missing original campaign inputs remain unresolved. Verify resources/input provenance before scheduling; reconstructed trajectories cannot become exact historical reproduction by relabelling. |
 
 Six existing issues (#21, #26, #32–35) were open and no PR was open at the
 initial checkpoint. This audit added issue [43](https://github.com/antigenomics/tcren/issues/43)
 for the demonstrated CLI gaps. The subsequent [fix](audit/2026-10-16/CLI_BUDGET_FIX.md)
-resolves #43; six earlier issues remain, with their independent scope above. Open/closed GitHub state is distinct from the implementation and
+resolves #43; the [interactive fix](audit/2026-10-16/INTERACTIVE_BATCH_FIX.md) resolves #21.
+Five other issues (#26, #32–35) retain their independent scope above. Open/closed GitHub state is distinct from the implementation and
 publication evidence above. The current example audit does not certify every CLI,
 reproduce the long MD campaign or authorize paid review, fitting or publication.
 
