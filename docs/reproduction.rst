@@ -10,8 +10,37 @@ Reproducing the TCRen2 manuscript
    are historical readouts, excluded from the final specification. Nothing fitted
    at scoring time does not mean fit-free. See :doc:`fit-free`.
 
-Every number the TCRen2 paper prints comes out of three repositories, and the boundary between
-them is deliberate:
+Final workflow and publication boundary
+---------------------------------------
+
+The final raw-input route is the existing five-block driver. It uses fixed
+empirical potential tables and individual structural descriptors; the empirical
+tables retain their estimated derivation dependencies.
+
+.. code-block:: console
+
+   ./reproduce.sh --help
+   ./reproduce.sh --output /absolute/new/run --baseline-spec /absolute/baseline.json
+
+The benchmark checkout and immutable installed wheel are selected with
+``TCREN2_BENCH``, ``TCREN_REPRO_PYTHON``, ``TCREN_REPRO_WHEEL`` and
+``TCREN_REPRO_WHEEL_SHA256``. A new output directory is mandatory. The driver
+checks matched populations and preserves every recorded metric regression; it
+does not fit or install a new model. Completed results are not rerun to typeset.
+The manuscript Makefile consumes recorded CLI exports, R summaries, numeric
+macros and formatted tables. Its active include/producer graph and historical
+parameter dispositions are audited in the owning manuscript repository.
+
+Only historical reproduction uses ``recompute.sh --historical``. The local
+benchmark grouped-binomial contact model and local Gaussian diagnostic are
+separate from the library Potts and historical ``assess`` models; no CLI
+identity is inferred from similar names. The historical commands below are
+retained for inspectability, not as final manuscript instructions.
+
+Historical frozen-model workflow
+--------------------------------
+
+The historical draft drew its quantities from three repositories:
 
 .. list-table::
    :header-rows: 1
@@ -279,15 +308,15 @@ variable:
 
 .. code-block:: console
 
-   $ ./reproduce.sh                       # the library half, then the benchmark, then the LaTeX
-   $ TCREN2_BENCH=~/src/bench ./reproduce.sh
-   $ ./reproduce.sh --library-only        # stop after this repository's own checks
+   $ ./reproduce.sh --historical          # historical library/benchmark workflow
+   $ TCREN2_BENCH=~/src/bench ./reproduce.sh --historical
+   $ ./reproduce.sh --historical --library-only        # stop after this repository's own checks
 
 What it runs there:
 
 .. code-block:: console
 
-   $ cd "$TCREN2_BENCH" && ./recompute.sh    # every fixture, table and .dat the manuscript reads
+   $ cd "$TCREN2_BENCH" && ./recompute.sh --historical    # historical fitted fixture/table producers
    $ cd "$TCREN2_MS"    && make              # figures, then main.pdf + supplementary.pdf
 
 ``recompute.sh --list`` prints its stages, and a single stage can be re-run by name. It reads the

@@ -40,7 +40,7 @@ stages:
               rebuilds the full hold-out from raw inputs and checks exact frozen identity
   scores      featurise all 374 Native2026 crystals and run the whole score set on       80 s
               them, live, through the two released commands
-  bench       $TCREN2_BENCH/recompute.sh — every fixture, table and .dat the paper reads
+  bench       historical fitted fixtures via $TCREN2_BENCH/recompute.sh --historical
   paper       $TCREN2_MS/make — the figures, then main.pdf and supplementary.pdf
 EOF
 }
@@ -204,7 +204,7 @@ stage_bench() {
   [[ -x "$TCREN2_BENCH/recompute.sh" ]] \
     || { echo "no recompute.sh at $TCREN2_BENCH — set \$TCREN2_BENCH to the benchmark repository" >&2
          return 1; }
-  ( cd "$TCREN2_BENCH" && ./recompute.sh )
+  ( cd "$TCREN2_BENCH" && ./recompute.sh --historical )
 }
 
 # --- paper --------------------------------------------------------------------------------------
