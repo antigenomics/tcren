@@ -141,3 +141,17 @@ are integrated into main/SI, retaining the task distinction and valid findings.
 GitHub checked17October2026: only issue26 remains open; latest published release
 is v4.0.0. Source/CLI implementation, scientific validation and public release
 remain distinct gates.
+
+## Current author presentation goal — 17 October 2026
+
+The author requests concise, intuitive main/SI following the actual August draft,
+with the roadmap and goals updated accordingly. The manuscript's
+`READING_COPY_ROADMAP.md` now owns that presentation goal. The August comparator
+is commit92942d8, compiled and visually inspected; its task-first organization is
+reused without restoring fitted claims. Seven main figures, twelve SI figures
+and three task tables replace the accumulated reading atlas. Full values,
+regressions, old figures and lineage are preserved in the electronic index and
+checksummed expanded draft. Existing library APIs suffice; no library calculation
+or scientific rerun is needed for this edit. The independent truth/source-lineage,
+class-II, locked reproduction and release gates above remain open. Stratos MD
+remains untouched.
