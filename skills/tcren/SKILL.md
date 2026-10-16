@@ -1770,3 +1770,19 @@ and clone separation. A singleton reference check supplies no detector accuracy.
 External DockQ 2.1.3 requires an isolated NumPy<2 environment; do not alter the
 locked TCRen wheel to accommodate it. Benchmark owns this validation, with the
 library export unchanged. See audit/2026-10-16/CPL_POSE_TRUTH.md.
+
+### Cognate saved-pose validation
+
+Reuse `features -i placement,interface,topology --no-metadata -s MANIFEST -t N`
+for receptor-relative diagnostics and `export --quantity pmhc-cells` for pMHC
+context; each pass annotates its entire set in one batch. All currently needed
+quantities are already exposed. Keep original per-rank overall ipTM and
+TCR-pMHC-specific ipTM separate: TCRmodel2 documents a two-partner calculation,
+so a generic internal-interface bias cannot be assumed for its specific field.
+`clash_score` includes peptide overlaps with both receptor and MHC, in summed Å;
+it is not receptor-only. Better reference agreement can coexist with worse
+side-chain packing. Compare raw signed descriptor associations on the same finite
+feature/truth/both-confidence rows; do not choose signs or fit a replacement.
+Saved ranks of one complex are correlated models, not independent target samples.
+Exact-reference template inclusion and broad template-coverage strata are distinct
+metadata. See `audit/2026-10-16/COGNATE_POSE_VALIDATION.md`.
