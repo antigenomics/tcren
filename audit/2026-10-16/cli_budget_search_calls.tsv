@@ -1,0 +1,4 @@
+reference	api	n_queries	cpu_budget	omp_limit	same_caller_thread
+human_tcr	search	10	2	2	True
+mouse_tcr	search	10	2	2	True
+mhc	easy_search	4	2	2	True

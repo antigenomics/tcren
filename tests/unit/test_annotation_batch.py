@@ -59,3 +59,26 @@ def test_scoring_full_ids_preserves_raw_stems_in_files_and_archives(tmp_path, mo
     assert result.exit_code == 0, result.output
     assert pl.read_csv(out)["pdb.id"].to_list() == ["first", "second"]
     assert calls == [2, 2, 2]
+
+
+def test_all_structure_queries_share_one_multicore_call_per_reference(monkeypatch):
+    """Never put per-structure MMseqs searches into a Python thread/process pool."""
+    import os
+    import threading
+    from tcren import runtime
+    from tcren.annotation import batch
+    from tcren.structure import parse_structure
+
+    fixture = Path(__file__).resolve().parents[1] / 'assets/pdb/1ao7.pdb'
+    structures = [parse_structure(fixture, pdb_id=name) for name in ('one', 'two')]
+    calls=[]
+    def search(backend, pairs, organism, threads):
+        calls.append((organism, list(pairs), threads, os.environ['OMP_THREAD_LIMIT'], threading.get_ident()))
+        return [{} for _ in pairs]
+    monkeypatch.setattr(runtime, 'available_cpus', lambda: 2)
+    monkeypatch.setattr(batch, '_annotate', search)
+    result = batch.annotate_batch(structures, arda=object(), threads=2)
+    assert len(result) == 2
+    assert [c[0] for c in calls] == ['human', 'mouse']
+    expected=[(f'{i}|{c.chain_id}', c.sequence()) for i,s in enumerate(structures) for c in s.chains if c.sequence()]
+    assert all(c[1] == expected and c[2:] == (2, '2', threading.get_ident()) for c in calls)
