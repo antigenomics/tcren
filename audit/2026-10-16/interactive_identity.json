@@ -1,0 +1,18 @@
+{
+  "wheel_sha256": "d24f599861773b9d3ff69c174c6059e14aa245b46e64878e57954611197dceba",
+  "payload_files": 182,
+  "versions": {
+    "tcren": "4.0.1",
+    "arda-mapper": "2.36.2",
+    "numpy": "2.5.4",
+    "scipy": "1.18.1",
+    "polars": "2.0.0",
+    "threadpoolctl": "3.7.0",
+    "ipykernel": "7.3.0",
+    "jupyter_client": "8.9.1"
+  },
+  "inputs": {
+    "1ao7": "813c8de5fa4c6bf2e6c52f1b397d1fc8b76817c0b78784d7def72cdef3962d7d",
+    "1fyt": "9208ddbcc6c5f043c1079ee22ba80fa52c3daa63adf2d351729fcd7a690c6897"
+  }
+}
