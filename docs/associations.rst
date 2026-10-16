@@ -169,3 +169,42 @@ API
 
 .. automodule:: tcren.associations
    :members: associate, read_table, add_feature_products
+
+Spatial co-localization from exact cells
+----------------------------------------
+
+``tcren export -s structures.txt --quantity pmhc-cells -t 4 -o cells.tsv``
+exports occupied cells and ``cells.tsv.summary.tsv`` from one batched annotation
+phase. No potential is needed. Raw-coordinate, residue, searched-index and grid
+provenance sidecars apply. The default 64-by-32 grid, fixed extent, 1.4 Å probe,
+KD field and padded eight-neighbour smoothing reuse ``surface_map``. The receptor
+is removed before the frame is fitted. Removing it does not reverse induced fit.
+The original topmost-atom source identifies cell ownership; smoothing can mix
+neighbouring peptide/MHC fields, so these are map-level measurements.
+
+``topology.pmhc.pmhc_cells`` owns the coordinate export;
+``topology.pmhc.spatial_features`` owns the vectorized table reduction. For finite
+peptide-owned cells, let h be height in Å, k the Kyte–Doolittle field and r the
+existing 90th percentile of MHC-helix heights. Let e = max(h-r, 0). The summary
+retains population covariances Cov(e,k) (``ridge_excess_hydropathy_cov``) and
+Cov(h,k) (``height_hydropathy_cov``), in Å times KD index. A positive covariance
+means relatively more hydrophobic map values occur at higher cells. Neither
+covariance is a calibrated binding or pose-quality score. Their marginal means
+and E(e*k) are retained: E(e*k) = E(e)*E(k) + Cov(e,k). This decomposition separates
+spatial co-location from a product of marginal summaries, without fitted weights.
+
+Counts distinguish finite peptide heights from common finite h/k cells. The
+conditional above-ridge mean is missing when no such cells exist; covariance is
+zero when excess height is identically zero. A missing helix ridge leaves
+ridge-dependent quantities undefined, including the above-ridge count. Classes
+I and II and derived allele calls are explicit; derived calls are not experimental
+allele assignments. No class-II core/register is inferred. Duplicate cells, null
+keys and inconsistent per-model metadata fail. All source cells stay inspectable.
+
+The reduction takes O(C) expected time and O(C+S) memory for C occupied cells in
+S structures, using grouped Polars expressions. Coordinates and annotation retain
+the existing batch API's resource contract. Use the summary's unique ``pdb.id``
+renamed to ``id`` as the input to ``associate``; retain classes/template strata and
+original pair-specific score/ipTM rows. No new fitted score, cutoff or direction
+selection is introduced. A single bound-conformation map cannot establish loop
+formation, strain relative to an apo ensemble, or ground-truth forced docking.

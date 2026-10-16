@@ -92,3 +92,12 @@ checks and published negative changes. See
 [JOINT_FEATURE_PRODUCTS.md](audit/2026-10-16/JOINT_FEATURE_PRODUCTS.md).
 Spatial hydropathy co-localization, independent interaction and a validated ranking
 boost remain distinct scientific gates. Issue 26's Stratos campaign is untouched.
+
+Spatial pMHC co-localization is now CLI-owned and validated: exact cell TSVs,
+receptor-independent frames, population height/ridge-excess hydropathy covariances,
+component identities and missingness. The native/model atlas and matched score
+associations preserve class/template strata and all weaker results; see
+[SPATIAL_PMHC.md](audit/2026-10-16/SPATIAL_PMHC.md).
+Independent causal interaction, a validated ranking boost and forced-pose
+sensitivity/specificity remain evidence gates. Assay negatives are not pose truth.
+Issue 26 and Stratos MD are untouched.

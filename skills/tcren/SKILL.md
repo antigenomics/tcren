@@ -1744,3 +1744,17 @@ keeps each groove chain's sequence axis. Input edge order must not alter the fou
 `co_pep/co_mhc/partcoef_tcr/partcoef_pmhc` values in one numerical environment.
 No rounding/tie-merging; recalculated ranks can differ from historical unordered
 means. Retain all matched metric losses alongside gains. See `docs/features.rst`.
+
+Spatial co-localization: `export --quantity pmhc-cells -s MANIFEST -t N -o cells.tsv`
+uses the existing batched annotation/region APIs and receptor-independent groove
+frame, then writes exact occupied grid cells and `cells.tsv.summary.tsv`.
+`topology.pmhc.spatial_features(cells)` reduces those exports with vectorized
+Polars: population height/KD and positive ridge-excess/KD covariances, marginal
+means, E(excess*KD), common counts and conditional above-ridge chemistry. Existing
+90th-percentile ridge and smoothed KD map defaults are retained; no fitted weight
+or new threshold. Covariance units are Å times KD index; missing ridge remains
+undefined and no-above conditional hydropathy is missing. Positive covariance
+means relatively more hydrophobic values occur at higher cells, not affinity.
+Use the summary with `associate` on original matched score/ipTM rows and separate
+class/template strata. Scalar or spatial association cannot alone identify a
+forced pose, apo strain, or loop-formation kinetics. See docs/associations.rst.

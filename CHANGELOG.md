@@ -2524,3 +2524,7 @@ Configurable potentials, TCR framework regions, percentile rank, fast ΔΔG, ora
 
 ## [0.1.0] — 2026-06-17
 Initial PyPI release setup (publish workflow, `arda-mapper` dependency, lean sdist).
+
+- Export receptor-independent `pmhc-cells` and an exact spatial-summary sidecar:
+  vectorized height/ridge-excess hydropathy covariances, component means and
+  common-cell accounting, retaining existing grid/chemistry/ridge definitions.
