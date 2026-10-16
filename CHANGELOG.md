@@ -7,6 +7,13 @@ All notable changes to `tcren` are recorded here. Format follows
 
 ### Added
 
+- Installed `md inspect`, `md quality` and `md compare-forces` routes reuse existing
+  trajectory, atom-proximity and same-coordinate energy/force APIs, with exact
+  quantities, class-separated provenance and allocation-aware CPU limits (#26).
+  Backbone correspondence now checks author residue/insertion and alternate-location
+  identities and rejects ambiguous component mappings. Long Stratos MD acceptance
+  remains separate; no simulation is restarted or replaced.
+
 - Explicit structural alanine-reference mode in scoring and receptor exports,
   using existing coordinate truncation and rebuilt contacts. Historical virtual
   mode remains reproducible; row/provenance metadata distinguishes the modes.

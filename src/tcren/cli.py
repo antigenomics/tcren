@@ -2742,6 +2742,9 @@ app.command("inspect-models", rich_help_panel=_P_ANNOT)(inspect_models_command)
 from .associations import association_command
 app.command("associate", rich_help_panel=_P_SCORE)(association_command)
 
+from .validation.md_exports import app as md_app
+app.add_typer(md_app, name="md", rich_help_panel=_P_ANNOT)
+
 
 # The __main__ guard belongs at the VERY END of the module, below the last @app.command.
 # It has been moved twice for the same reason. It first sat just after `main()`, two thirds up,

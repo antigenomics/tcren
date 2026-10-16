@@ -5,6 +5,39 @@ description: tcren — TCR-pMHC contact potential (TCRen) pipeline; conventions 
 
 # tcren Skills Guide
 
+## MD diagnostics (issue 26)
+
+`tcren md inspect --trajectory protein-continuous.pdb --reference first.pdb
+--potential potential.xvg --components components.json --mhc-class I
+--pbc-whole --docking -t 1 -o NEW_DIR` exports the exact existing
+`validation.md.inspect_md_trajectory` readouts: partner-relative backbone RMSD
+(Å/ps), contact counts/occupancy, optional docking, first/final/minimum-potential
+saved frames (whole-system kJ/mol) and source/output provenance. Component JSON
+maps disjoint names to chain-ID lists; `all` is reserved. Class II uses a separate
+export with both groove chains in MHC; class is an explicit caller declaration.
+Exact correspondence includes author residue/insertion and altloc identities.
+PBC preparation must be done beforehand; the flag acknowledges it, not proof.
+`scripts/inspect_gromacs_trajectory.py` retains the GROMACS whole/compact-anchor/
+continuous-nojump export workflow. No active Stratos job is restarted by inspection.
+
+`tcren md quality -s model.pdb --mhc-class II --cutoff 2 -o NEW_DIR` exports
+`coordinate_diagnostics` and `close_atom_pairs` with physical atom/altloc identities,
+possible-disulfide flags and hashes. Covalent classification remains unknown;
+adjacency exclusions are heuristic, not a MolProbity clashscore.
+
+`tcren md compare-forces --reference-energy REF.xvg --reference-forces REF_F.xvg
+--energy E.xvg --forces F.xvg --atoms N --topology COMMON.tpr
+--coordinates SAME.gro --same-system --mhc-class I -o NEW_DIR` exposes
+`compare_same_frame_energy_forces` (kJ/mol and kJ/mol/nm). One identical timestamp,
+System-group order and shared input provenance are required; the acknowledgement
+does not independently prove XVG origin. Preserve the rerun commands/MDPs.
+
+The trajectory API/export enforces `threads=1|0|N` within allocation, serial native
+kernels and a separate batched reference-annotation phase. Quality/force diagnostics
+are serial. No fitting, inherited predictor confidence or binding-energy estimate.
+Long campaign endpoints and missing original MD inputs remain separate gates.
+See `docs/md-validation.rst` for tables and limitations.
+
 ## Structural alanine reference (manuscript convention)
 
 Use `scoring --delta --reference-mode structural` for peptide references and

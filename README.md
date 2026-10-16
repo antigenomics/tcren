@@ -78,6 +78,7 @@ way it does.
 | **A balanced epitope panel, template-stratified** | the same, where no related complex has been solved | as above, with template availability reported rather than inferred |
 | **Molecular dynamics with measured kinetics** | how do structural measurements relate to trajectories and kinetics? | individual interface energies and `tcren mechanics`; fitted Potts readouts remain historical |
 | **Model-confidence diagnostics** | which confidently modelled complexes are not real? | `tcren inspect-models`, individual descriptors and matched native ipTM; `tcren associate` for feature associations |
+| **Recorded MD diagnostics** | component-relative motion, saved-frame energy minimum and offending atom identities | `tcren md inspect`, `md quality`, `md compare-forces`; explicit PBC/input provenance and separate MHC classes |
 
 Peptide ranking and receptor ranking are distinct tasks. Compare each score with native ipTM
 on identical rows, keeping epitopes, template coverage and MHC classes separate. No universal

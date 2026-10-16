@@ -5,6 +5,8 @@ import re
 
 import numpy as np
 
+from ..runtime import resolve_threads, single_threaded
+
 
 def read_xvg(path, *, columns=None):
     """Read one numeric XVG dataset, requiring finite values and strictly increasing time.
@@ -175,6 +177,7 @@ def _iter_pdb_frames(path):
         raise ValueError("Trajectory ends without ENDMDL")
 
 
+@single_threaded
 def inspect_md_trajectory(
     trajectory_pdb,
     reference_pdb,
@@ -201,11 +204,10 @@ def inspect_md_trajectory(
     from .structures import parse_pdb_text
     from ..structure import parse_structure
 
+    threads = resolve_threads(threads)
+    if contact_cutoff is not None and (not np.isfinite(contact_cutoff) or contact_cutoff <= 0):
+        raise ValueError("Finite positive contact cutoff required")
     reference = parse_structure(reference_pdb, keep_hydrogens=False)
-    if threads < 1 or (
-        contact_cutoff is not None and (not np.isfinite(contact_cutoff) or contact_cutoff <= 0)
-    ):
-        raise ValueError("Positive threads and finite positive contact cutoff required")
     if docking:
         from ..annotation import classify_chains
         from ..annotation.batch import annotate_batch
@@ -224,13 +226,17 @@ def inspect_md_trajectory(
                 raise ValueError(
                     f"Broken backbone/PBC in chain {chain.chain_id}: consecutive CA gap >8 A"
                 )
-        return {
-            (chain.chain_id, residue.seq_index, atom.name): atom.coord
+        entries = [
+            ((chain.chain_id, residue.seq_index, residue.pdb_index, residue.insertion_code,
+              atom.name, atom.altloc), atom.coord)
             for chain in structure.chains
             for residue in chain.residues
             for atom in residue.atoms
             if atom.name in {"N", "CA", "C", "O"}
-        }
+        ]
+        if len({key for key, _ in entries}) != len(entries):
+            raise ValueError("Repeated backbone atom identities")
+        return dict(entries)
 
     expected_sequences = {c.chain_id: c.sequence() for c in reference.chains}
     heavy_keys = {
@@ -245,10 +251,18 @@ def inspect_md_trajectory(
     if not keys:
         raise ValueError("Reference has no backbone atoms")
     selections = {}
+    if not isinstance(components, dict) or not components or "all" in components:
+        raise ValueError("Components must be a nonempty mapping; 'all' is reserved")
+    assigned = set()
     for name, chains in components.items():
-        if not chains or not set(chains) <= expected_sequences.keys():
-            raise ValueError(f"Unknown/empty component chains: {name}")
+        if (not isinstance(name, str) or not name or not isinstance(chains, (list, tuple))
+                or not chains or any(not isinstance(c, str) for c in chains)
+                or len(set(chains)) != len(chains) or assigned.intersection(chains)
+                or not set(chains) <= expected_sequences.keys()):
+            raise ValueError(f"Component chains must be known, unique and disjoint: {name}")
+        assigned.update(chains)
         selections[name] = [i for i, key in enumerate(keys) if key[0] in chains]
+    chain_components = {chain: name for name, chains in components.items() for chain in chains}
     times, rows, counts, docking_rows = [], [], [], []
     first_text, last_text = None, None
     occupancy = {}
@@ -356,6 +370,14 @@ def inspect_md_trajectory(
     ]
     return {
         "initial_image_status": initial_image_status,
+        "annotation_provenance": reference.annotation_provenance,
+        "backbone_atoms": [
+            {"atom_index": i, "chain.id": key[0], "residue.index": key[1],
+             "author_residue": key[2], "insertion_code": key[3], "atom": key[4],
+             "altloc": key[5],
+             "component": chain_components.get(key[0])}
+            for i, key in enumerate(keys)
+        ],
         "rmsd": rows,
         "minimum_potential": minimum,
         "selected_frame_pdb": selected_text,
