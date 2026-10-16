@@ -92,7 +92,7 @@ and one ``mmseqs`` search — per unit:
 
 .. code-block:: console
 
-   $ tcren score -s templates/ -c pools.tsv --delta -p tcren2_em -o ranked.csv
+   $ tcren score -s templates/ -c pools.tsv --delta -p tcren2 -o ranked.csv
 
 Scoring structures
 ------------------
@@ -121,17 +121,22 @@ Two options change what is reported:
 
 ``--delta``
    adds the poly-alanine reference :math:`\Delta\Phi_I=\Phi_I(\text{peptide})-\Phi_I(\text{poly-Ala})`
-   per interface, plus ``dPhi_total``. :math:`\Delta\Phi_{\mathrm{TCR:MHC}}` is identically zero — the
+   per interface, plus the unweighted ``dPhi_peptide_sum``. Use
+   ``--reference-mode structural`` for the manuscript; the default ``virtual``
+   preserves historical fixed-map references. ``dPhi_total`` retains estimated
+   native-scale weights and is historical. :math:`\Delta\Phi_{\mathrm{TCR:MHC}}` is identically zero — the
    peptide is not in that interface. On a *fixed* contact map :math:`\Delta\Phi` is :math:`\Phi`
-   minus a constant and reorders nothing; use it when each candidate carries its **own** generated
-   pose, where raw :math:`\Phi` partly reads the pose the predictor chose.
+   minus a constant and reorders nothing. With candidate-specific generated poses,
+   compare raw :math:`\Phi` and structural reference differences on matched rows,
+   preserving gains and regressions separately for each task.
 
 ``--geometry``
    adds the interface descriptors (``burial``, ``n_pep_contacted``, ``chain_balance``, ``n_hbond``,
    ``pitch``, ``crossing``) and ``Q``, the directional decorrelated interface-quality score
    (:func:`tcren.q_score`), standardised against the native-crystal reference so it is defined for a
-   single structure. For the complete descriptor catalogue use ``tcren features``, and for the
-   score set read off the frozen model use ``tcren assess``.
+   single structure. Q and the pitch diagnostic are excluded from the final structural
+   score set. Use ``tcren features`` for individual descriptors. ``tcren assess``
+   retains historical fitted readouts only.
 
 Columns are named as in ``tcren recognize`` (``Phi_tcr_pep``, ``dPhi_pep_mhc``, …), but the key is
 not: ``tcren scoring`` emits ``pdb.id`` and ``tcren recognize`` emits ``complex.id``, so rename
