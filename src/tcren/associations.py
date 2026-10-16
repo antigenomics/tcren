@@ -17,6 +17,28 @@ STRATA = ["dataset", "task", "mhc_class", "template_coverage"]
 GROUPS = STRATA + ["cohort"]
 
 
+def add_feature_products(features: pl.DataFrame, pairs: list[tuple[str, str]]) -> tuple[pl.DataFrame, list[str]]:
+    """Append raw signed per-row products, without labels, centering or fitting.
+
+    Names are ``left__x__right``. Sources must be distinct existing numeric
+    columns; nonfinite sources or overflowing products produce missing values.
+    These are joint scalar descriptors, not independent interaction estimates
+    or spatial co-localization measurements. Units multiply with the sources.
+    """
+    names, expressions = [], []
+    for left, right in pairs:
+        name = f"{left}__x__{right}"
+        if left == right or name in names or name in features.columns:
+            raise ValueError("feature products require distinct sources and unique new names")
+        if any(c not in features.columns or not features.schema[c].is_numeric() for c in (left, right)):
+            raise ValueError("feature product sources must be existing numeric columns")
+        product = pl.col(left).cast(pl.Float64) * pl.col(right).cast(pl.Float64)
+        valid = pl.col(left).is_finite() & pl.col(right).is_finite() & product.is_finite()
+        expressions.append(pl.when(valid).then(product).otherwise(None).alias(name))
+        names.append(name)
+    return features.with_columns(expressions), names
+
+
 def _unique(table, columns, name):
     if any(c not in table.columns for c in columns):
         raise ValueError(f"{name}: required columns {columns}")
@@ -146,6 +168,7 @@ def association_command(
     out: Path = typer.Option(..., "-o", "--out", help="New output directory; never overwrite results"),
     feature_columns: str = typer.Option(..., "--feature-columns", help="Comma-separated pMHC feature columns"),
     endpoint: str = typer.Option("y", "--endpoint", help="Existing binary endpoint; labels are never redefined"),
+    feature_product: list[str] = typer.Option(None, "--feature-product", help="Repeat LEFT:RIGHT for raw signed per-model feature products; no centering or fitting"),
 ) -> None:
     """Associate pMHC features with recorded score performance versus ipTM.
 
@@ -164,15 +187,26 @@ def association_command(
         directions = json.loads(scores.read_text())
         if not isinstance(directions, dict):
             raise ValueError("scores JSON must be an object mapping columns to directions")
-        tables = associate(read_table(results), read_table(features), directions,
-                           [c.strip() for c in feature_columns.split(",") if c.strip()], endpoint=endpoint)
+        pairs = []
+        for pair in feature_product or []:
+            parts = [c.strip() for c in pair.split(":")]
+            if len(parts) != 2 or not all(parts):
+                raise ValueError("feature products must be LEFT:RIGHT")
+            pairs.append(tuple(parts))
+        joint, product_columns = add_feature_products(read_table(features), pairs)
+        columns = [c.strip() for c in feature_columns.split(",") if c.strip()]
+        tables = associate(read_table(results), joint, directions,
+                           columns + product_columns, endpoint=endpoint)
     except (ValueError, OSError, pl.exceptions.PolarsError) as exc:
         raise typer.BadParameter(str(exc)) from exc
     out.mkdir(parents=True)
     for name, table in tables.items():
         table.write_csv(out / f"{name}.tsv", separator="\t")
+    if pairs:
+        joint.write_csv(out / "joint_features.tsv", separator="\t")
     identity = {"inputs": {str(p.resolve()): _sha256(p) for p in (results, features, scores)},
-                "feature_columns": feature_columns, "endpoint": endpoint,
+                "feature_columns": ",".join(columns + product_columns), "endpoint": endpoint,
+                "feature_products": pairs,
                 "directions": directions, "software": {"tcren": __version__, "registry_digest": registry_digest()},
                 "feature_summary": "label-blind cohort median; bound-conformation models",
                 "association": "descriptive Spearman; one cohort per observation within strata; no tests"}

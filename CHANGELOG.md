@@ -7,6 +7,10 @@ All notable changes to `tcren` are recorded here. Format follows
 
 ### Added
 
+- Repeatable `associate --feature-product LEFT:RIGHT` exports raw signed joint
+  scalar descriptors and their associations, with missingness/provenance and
+  unchanged matched score rows; no fitted score or cohort normalization.
+
 - Installed `md inspect`, `md quality` and `md compare-forces` routes reuse existing
   trajectory, atom-proximity and same-coordinate energy/force APIs, with exact
   quantities, class-separated provenance and allocation-aware CPU limits (#26).
