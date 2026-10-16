@@ -97,3 +97,16 @@ explicitly requested.
 
 Documentation builds require the ``docs`` extra and the external Pandoc executable
 for nbsphinx. IPython supplies the notebook syntax lexer.
+
+Molecular publication consumers
+-------------------------------
+
+Scene producers read exact ``position``, ``residue``, ``contacts``, ``placement``
+and ``pmhc`` exports. They do not substitute leave-one-out ``explain`` for a
+position decomposition or calculate new contact scores during drawing. Physical
+chain, author residue number and insertion code identify selections; region
+membership comes from annotation. Preserve raw-coordinate, searched-reference,
+potential, camera and scene-geometry identities and check the displayed atom
+colours against their authoritative rows. Inspect the final PNGs and composed
+PDF pages. Keep class II, epitopes and template strata separate. Historical
+images and manifests remain archived when labels or pixels change.
