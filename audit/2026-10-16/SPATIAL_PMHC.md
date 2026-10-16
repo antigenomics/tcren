@@ -44,3 +44,14 @@ is claimed. Native asymmetric-unit inputs require explicit single-complex select
 the CLI deliberately rejects ambiguous multiple-peptide assemblies.
 
 Stratos MD was not accessed or modified. Publication/release approval is separate.
+
+Broader local verification remains explicitly partial. A sandbox-only fast-suite
+attempt hit ARDA reference lock permissions (1,028 passed before reporting those
+errors). The authorized reference-backed retry reached its 360-second cap during
+historical Potts self-consistency tests, after 755 progress entries and one
+observed failure. The isolated failure was a missing canonical database at the
+installed wheel's default data root; rerunning that exact canonical-frame test
+with `TCREN_HOME` set to the project root passed in 38.13 seconds. No broader-suite
+pass is claimed, no historical test was removed, and no fitted scientific stage
+was run as an analysis. Exact-head lean CI (without ARDA references), both Python
+versions, lint/docs, the 13 focused tests and full spatial-export oracle passed.
