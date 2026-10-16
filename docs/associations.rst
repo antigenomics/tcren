@@ -208,3 +208,18 @@ renamed to ``id`` as the input to ``associate``; retain classes/template strata 
 original pair-specific score/ipTM rows. No new fitted score, cutoff or direction
 selection is introduced. A single bound-conformation map cannot establish loop
 formation, strain relative to an apo ensemble, or ground-truth forced docking.
+
+Pose-reference validation must verify physical chain roles, peptide identity,
+observed receptor/MHC sequence spans, construct substitutions and reference
+coordinate identities before treating a docking metric as structural truth.
+A total over six interfaces can include TCR-internal and peptide:MHC interfaces;
+report the four recognition interfaces separately. Comparisons to noncognate or
+substituted references remain reference-deviation diagnostics. Preserve all
+exclusions, exact per-descriptor/ipTM rows and class/template strata.
+
+The receptor-independent pMHC map is invariant to a rigid TCR displacement with
+fixed peptide/MHC coordinates. Its spatial covariances therefore supply context
+for receptor-relative coverage, gap, clash and placement measurements rather than
+identifying that displacement alone. A singleton verified comparison does not
+establish a detector's sensitivity or specificity. The CPL evidence audit is
+recorded in ``audit/2026-10-16/CPL_POSE_TRUTH.md``.

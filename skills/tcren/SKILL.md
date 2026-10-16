@@ -1758,3 +1758,15 @@ means relatively more hydrophobic values occur at higher cells, not affinity.
 Use the summary with `associate` on original matched score/ipTM rows and separate
 class/template strata. Scalar or spatial association cannot alone identify a
 forced pose, apo strain, or loop-formation kinetics. See docs/associations.rst.
+
+External pose truth must verify physical chain roles, exact peptide and shared
+observed receptor/MHC sequence spans, construct substitutions, reference-coordinate
+hashes and per-interface definitions. Do not treat a six-interface DockQ average
+(including TCR internal and peptide:MHC) as a pure receptor-placement metric.
+Keep recognition interfaces separate; a noncognate or substituted reference is a
+reference-deviation diagnostic, not structural truth for the candidate's own
+complex. Retain all exclusions and matched per-feature/ipTM rows, class/template
+and clone separation. A singleton reference check supplies no detector accuracy.
+External DockQ 2.1.3 requires an isolated NumPy<2 environment; do not alter the
+locked TCRen wheel to accommodate it. Benchmark owns this validation, with the
+library export unchanged. See audit/2026-10-16/CPL_POSE_TRUTH.md.

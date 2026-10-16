@@ -101,3 +101,13 @@ associations preserve class/template strata and all weaker results; see
 Independent causal interaction, a validated ranking boost and forced-pose
 sensitivity/specificity remain evidence gates. Assay negatives are not pose truth.
 Issue 26 and Stratos MD are untouched.
+
+CPL DockQ provenance/identity follow-up: historical six-interface totals are
+resolved on 1,108 recovered models; ten fresh comparisons retain all construct
+exclusions, with three verified candidates (one per clone). Recognition interfaces
+are separate from TCR internal and peptide:MHC. All 500 paired diagnostic records
+retain exact per-feature/ipTM rows, class/template separation and weaker values.
+See [CPL_POSE_TRUTH.md](audit/2026-10-16/CPL_POSE_TRUTH.md). Missing original
+reference bytes/version and unrecovered interfaces remain source gates; multiple
+verified coordinate outcomes per intended stratum are still needed for detector
+accuracy. No fitted score or old ranking/label change. Stratos MD remains untouched.
