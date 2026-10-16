@@ -1,7 +1,7 @@
 # Publication and software roadmap
 
-Reconciled 16 October 2026 against master base `8f860a2`, the issue-21 fix, live GitHub issues and
-recorded benchmark/manuscript commits `8657b89` / `26b912c`.
+Reconciled 16 October 2026 against master base `457f93f`, the issue-34 molecular-panel closure, live GitHub issues and
+recorded benchmark/manuscript sources and the linked issue-34 audit.
 [AUDIT.md](AUDIT.md) owns scientific findings; this file owns remaining work.
 [The example audit](audit/2026-10-16/EXAMPLE_AUDIT.md) records current execution,
 manual inspection and limitations. Earlier roadmap text remains in Git history;
@@ -63,7 +63,7 @@ in the software distribution. Completed analyses are not rerun to update this li
 |---|---|
 | Completed / library; issue [43](https://github.com/antigenomics/tcren/issues/43) | Fixed empty/all-failed surface exits, query batching and shared CPU-budget propagation. Actual MMseqs traces verify one complete multicore query batch per reference and no outer search pool; 23 fresh probes and per-process resource/equality checks are recorded in [CLI_BUDGET_FIX.md](audit/2026-10-16/CLI_BUDGET_FIX.md). Release publication remains separate. |
 | P1 / library release | Prepare a release containing post-4.0.0 changes and ARDA dependency requirements. Build/install immutable artifacts, run supported-Python CI/docs and verify packaged resources and ordinary CLI behavior. The latest observed GitHub release is 4.0.0; local 4.0.1 metadata is not publication. Preserve the human PyPI approval gate. |
-| P2 / benchmark + manuscript; issue [34](https://github.com/antigenomics/tcren/issues/34) | Exact position/residue/contact/placement CLI exports exist and pass API equality checks. Complete the per-panel audit showing every retained molecular rendering consumes authoritative exports, including physical residue IDs, scene/potential/geometry hashes and visual review. A successful PDF build does not close this lineage requirement. |
+| Completed / benchmark + manuscript; issue [34](https://github.com/antigenomics/tcren/issues/34) | All 15 active molecular panels of 13 structures consume exact CLI tables. Physical residue/region identities, potentials, actual colours, cameras and geometry hashes are verified; all panels and composed affected pages were manually inspected. Class II stays separate. [MOLECULAR_CLI_LINEAGE.md](audit/2026-10-16/MOLECULAR_CLI_LINEAGE.md) records acceptance, archives and resource evidence. |
 | P2 / manuscript; issues [33](https://github.com/antigenomics/tcren/issues/33), [35](https://github.com/antigenomics/tcren/issues/35) | Fit-free disposition, archives, reproduced comparisons and active-paper cleanup are recorded. Reconcile these issue acceptance criteria with the final producer/include graph; audit any retained historical methodological equation separately. Do not implement replacement fitted models merely to close retired CLI gaps. |
 | P2 / library + benchmark | Four literature-topology columns have recorded differences up to 1.11e-16 from unordered reductions, which can alter tied ranks. Keep all deltas visible. A deterministic-reduction fix needs focused checks and explicit authorization for its affected scientific rerun; do not round scores to suppress differences. |
 | Completed / library; issue [21](https://github.com/antigenomics/tcren/issues/21) | Notebook/stdin calls now use an importable subprocess entrypoint for the existing bounded spawn pool, after whole-set annotation. Real Jupyter, stdin, serial/all/explicit budgets, worker failure/cancellation, physical-key comparisons and manual class-I/II table inspection are recorded in [INTERACTIVE_BATCH_FIX.md](audit/2026-10-16/INTERACTIVE_BATCH_FIX.md). Final affected suite: 58 passed; the full local reference-backed suite hit its 360-second cap and remains incomplete. Preinitialized multithreaded Polars remains unsupported. |
@@ -74,7 +74,7 @@ Six existing issues (#21, #26, #32–35) were open and no PR was open at the
 initial checkpoint. This audit added issue [43](https://github.com/antigenomics/tcren/issues/43)
 for the demonstrated CLI gaps. The subsequent [fix](audit/2026-10-16/CLI_BUDGET_FIX.md)
 resolves #43; the [interactive fix](audit/2026-10-16/INTERACTIVE_BATCH_FIX.md) resolves #21.
-Five other issues (#26, #32–35) retain their independent scope above. Open/closed GitHub state is distinct from the implementation and
+The molecular-panel closure resolves #34. Four other issues (#26, #32, #33, #35) retain their independent scope above. Open/closed GitHub state is distinct from the implementation and
 publication evidence above. The current example audit does not certify every CLI,
 reproduce the long MD campaign or authorize paid review, fitting or publication.
 

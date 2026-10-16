@@ -66,6 +66,13 @@ Inputs include files, directories, manifests/globs and supported archives. Full 
 and physical residue identities are retained; duplicates fail. Accounting, residue,
 annotation and potential/provenance sidecars retain failures and estimated dependencies.
 All-failed/empty commands exit nonzero. Benchmark consumers must check every input key.
+Molecular panels must read these exported rows, never recompute the quantity in PyMOL
+or substitute `explain`. Join physical chain/author residue/insertion identities,
+preserve exact region membership, and retain potential, raw-coordinate, scene, camera
+and transformed-geometry hashes. Verify actual atom colours against the export.
+Keep class II, epitopes and template strata separate; inspect every final PNG and
+its composed page. The issue-34 acceptance record is
+`audit/2026-10-16/MOLECULAR_CLI_LINEAGE.md`.
 
 Annotation requires ARDA >=2.36.2. `Structure.annotation_provenance` captures the
 resolved searched database prefix and sequence/header/index SHA256 values around
