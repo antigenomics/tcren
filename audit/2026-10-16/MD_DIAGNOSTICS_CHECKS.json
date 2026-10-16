@@ -1,0 +1,501 @@
+{
+  "base": "4f6d1f1252288de1a9c09da7f56ecb2f2dd3b9cc",
+  "implementation_commit": "b04ab33",
+  "wheel_sha256": "0bcc283bd81e98ea8cdd1587a11b4adfa62b890618295fad84fe09a2ebedebb7",
+  "wheel_payload_files_matched": 183,
+  "checks": [
+    {
+      "id": "1oga",
+      "mhc_class": "I",
+      "budget": 1,
+      "rmsd_rows": 24,
+      "contact_count_rows": 20,
+      "occupancy_rows": 259,
+      "docking_rows": 2,
+      "maximum_rmsd_A": 6.66383240142252e-07,
+      "float32_coordinate_bound_A": 3.0333695295152866e-05,
+      "source_sha256": "def5b4beb44b750202175f23cbf3e1b5c409bfbb158a36d8d7395e559d15f8b1",
+      "components": {
+        "TCR": [
+          "A",
+          "B"
+        ],
+        "peptide": [
+          "C"
+        ],
+        "MHC": [
+          "D"
+        ]
+      },
+      "exact_api_equality": true
+    },
+    {
+      "id": "1oga",
+      "mhc_class": "I",
+      "budget": 2,
+      "rmsd_rows": 24,
+      "contact_count_rows": 20,
+      "occupancy_rows": 259,
+      "docking_rows": 2,
+      "maximum_rmsd_A": 6.66383240142252e-07,
+      "float32_coordinate_bound_A": 3.0333695295152866e-05,
+      "source_sha256": "def5b4beb44b750202175f23cbf3e1b5c409bfbb158a36d8d7395e559d15f8b1",
+      "components": {
+        "TCR": [
+          "A",
+          "B"
+        ],
+        "peptide": [
+          "C"
+        ],
+        "MHC": [
+          "D"
+        ]
+      },
+      "exact_api_equality": true
+    },
+    {
+      "id": "1oga",
+      "mhc_class": "I",
+      "budget": 0,
+      "rmsd_rows": 24,
+      "contact_count_rows": 20,
+      "occupancy_rows": 259,
+      "docking_rows": 2,
+      "maximum_rmsd_A": 6.66383240142252e-07,
+      "float32_coordinate_bound_A": 3.0333695295152866e-05,
+      "source_sha256": "def5b4beb44b750202175f23cbf3e1b5c409bfbb158a36d8d7395e559d15f8b1",
+      "components": {
+        "TCR": [
+          "A",
+          "B"
+        ],
+        "peptide": [
+          "C"
+        ],
+        "MHC": [
+          "D"
+        ]
+      },
+      "exact_api_equality": true
+    },
+    {
+      "id": "1fyt",
+      "mhc_class": "II",
+      "budget": 1,
+      "rmsd_rows": 24,
+      "contact_count_rows": 20,
+      "occupancy_rows": 391,
+      "docking_rows": 2,
+      "maximum_rmsd_A": 5.670439807652206e-07,
+      "float32_coordinate_bound_A": 2.8251635529029767e-05,
+      "source_sha256": "5af0e0b084a5ed1b93d8fff2236542c2feb9d32d09a2c494966a90c4fe997f91",
+      "components": {
+        "TCR": [
+          "A",
+          "B"
+        ],
+        "peptide": [
+          "C"
+        ],
+        "MHC": [
+          "D",
+          "E"
+        ]
+      },
+      "exact_api_equality": true
+    }
+  ],
+  "native_pools": [],
+  "polars_threads": 1,
+  "cli_resources": [
+    {
+      "command": [
+        "/Users/mikesh/vcs/code/tcren/.venv/bin/python",
+        "-m",
+        "tcren.cli",
+        "md",
+        "inspect",
+        "--trajectory",
+        "/private/tmp/tcren26-md-examples-final/1oga/trajectory.pdb",
+        "--reference",
+        "/private/tmp/tcren26-md-examples-final/1oga/reference.pdb",
+        "--potential",
+        "/private/tmp/tcren26-md-examples-final/1oga/potential.xvg",
+        "--components",
+        "/private/tmp/tcren26-md-examples-final/1oga/components.json",
+        "--mhc-class",
+        "I",
+        "--pbc-whole",
+        "--docking",
+        "-t",
+        "1",
+        "-o",
+        "/private/tmp/tcren26-md-examples-final/1oga/inspect-1"
+      ],
+      "wall_seconds": 4.646034125005826,
+      "peak_tree_rss_bytes": 1175601152,
+      "peak_live_threads": 10,
+      "processes": {
+        "91124": {
+          "role": "python",
+          "max_threads": 7,
+          "cpu_seconds": 1.69806808,
+          "search_budget": []
+        },
+        "91127": {
+          "role": "mmseqs",
+          "max_threads": 1,
+          "cpu_seconds": 0.009642708,
+          "search_budget": []
+        },
+        "91132": {
+          "role": "mmseqs",
+          "max_threads": 1,
+          "cpu_seconds": 2.309144292,
+          "search_budget": [
+            "1"
+          ]
+        },
+        "91145": {
+          "role": "mmseqs",
+          "max_threads": 1,
+          "cpu_seconds": 0.011792916,
+          "search_budget": []
+        },
+        "91148": {
+          "role": "mmseqs",
+          "max_threads": 1,
+          "cpu_seconds": 0.015915749,
+          "search_budget": []
+        },
+        "91149": {
+          "role": "mmseqs",
+          "max_threads": 1,
+          "cpu_seconds": 0.06141833199999999,
+          "search_budget": [
+            "1"
+          ]
+        }
+      },
+      "unreadable_process_samples": 1,
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "/Users/mikesh/vcs/code/tcren/.venv/bin/python",
+        "-m",
+        "tcren.cli",
+        "md",
+        "inspect",
+        "--trajectory",
+        "/private/tmp/tcren26-md-examples-final/1oga/trajectory.pdb",
+        "--reference",
+        "/private/tmp/tcren26-md-examples-final/1oga/reference.pdb",
+        "--potential",
+        "/private/tmp/tcren26-md-examples-final/1oga/potential.xvg",
+        "--components",
+        "/private/tmp/tcren26-md-examples-final/1oga/components.json",
+        "--mhc-class",
+        "I",
+        "--pbc-whole",
+        "--docking",
+        "-t",
+        "2",
+        "-o",
+        "/private/tmp/tcren26-md-examples-final/1oga/inspect-2"
+      ],
+      "wall_seconds": 3.545576333999634,
+      "peak_tree_rss_bytes": 1093926912,
+      "peak_live_threads": 10,
+      "processes": {
+        "91191": {
+          "role": "python",
+          "max_threads": 7,
+          "cpu_seconds": 1.689687008,
+          "search_budget": []
+        },
+        "91197": {
+          "role": "mmseqs",
+          "max_threads": 1,
+          "cpu_seconds": 0.014841999000000002,
+          "search_budget": []
+        },
+        "91198": {
+          "role": "mmseqs",
+          "max_threads": 1,
+          "cpu_seconds": 0.009187,
+          "search_budget": []
+        },
+        "91199": {
+          "role": "mmseqs",
+          "max_threads": 2,
+          "cpu_seconds": 2.294457552,
+          "search_budget": [
+            "2"
+          ]
+        },
+        "91205": {
+          "role": "mmseqs",
+          "max_threads": 1,
+          "cpu_seconds": 0.009313666,
+          "search_budget": []
+        },
+        "91207": {
+          "role": "mmseqs",
+          "max_threads": 1,
+          "cpu_seconds": 0.013929166,
+          "search_budget": []
+        },
+        "91208": {
+          "role": "mmseqs",
+          "max_threads": 1,
+          "cpu_seconds": 0.010385582,
+          "search_budget": [
+            "2"
+          ]
+        }
+      },
+      "unreadable_process_samples": 2,
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "/Users/mikesh/vcs/code/tcren/.venv/bin/python",
+        "-m",
+        "tcren.cli",
+        "md",
+        "inspect",
+        "--trajectory",
+        "/private/tmp/tcren26-md-examples-final/1oga/trajectory.pdb",
+        "--reference",
+        "/private/tmp/tcren26-md-examples-final/1oga/reference.pdb",
+        "--potential",
+        "/private/tmp/tcren26-md-examples-final/1oga/potential.xvg",
+        "--components",
+        "/private/tmp/tcren26-md-examples-final/1oga/components.json",
+        "--mhc-class",
+        "I",
+        "--pbc-whole",
+        "--docking",
+        "-t",
+        "0",
+        "-o",
+        "/private/tmp/tcren26-md-examples-final/1oga/inspect-0"
+      ],
+      "wall_seconds": 3.501595375011675,
+      "peak_tree_rss_bytes": 1094549504,
+      "peak_live_threads": 10,
+      "processes": {
+        "91246": {
+          "role": "python",
+          "max_threads": 7,
+          "cpu_seconds": 1.7149017119999999,
+          "search_budget": []
+        },
+        "91253": {
+          "role": "mmseqs",
+          "max_threads": 1,
+          "cpu_seconds": 0.009751124,
+          "search_budget": []
+        },
+        "91254": {
+          "role": "mmseqs",
+          "max_threads": 2,
+          "cpu_seconds": 2.324283768,
+          "search_budget": [
+            "2"
+          ]
+        },
+        "91255": {
+          "role": "mmseqs",
+          "max_threads": 2,
+          "cpu_seconds": 0.021705916,
+          "search_budget": [
+            "2"
+          ]
+        },
+        "91260": {
+          "role": "mmseqs",
+          "max_threads": 1,
+          "cpu_seconds": 0.009624958,
+          "search_budget": []
+        },
+        "91262": {
+          "role": "mmseqs",
+          "max_threads": 1,
+          "cpu_seconds": 0.013904999000000001,
+          "search_budget": []
+        },
+        "91263": {
+          "role": "mmseqs",
+          "max_threads": 1,
+          "cpu_seconds": 0.021081082,
+          "search_budget": [
+            "2"
+          ]
+        }
+      },
+      "unreadable_process_samples": 0,
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "/Users/mikesh/vcs/code/tcren/.venv/bin/python",
+        "-m",
+        "tcren.cli",
+        "md",
+        "quality",
+        "-s",
+        "/private/tmp/tcren26-md-examples-final/1oga/reference.pdb",
+        "--mhc-class",
+        "I",
+        "-o",
+        "/private/tmp/tcren26-md-examples-final/1oga/quality"
+      ],
+      "wall_seconds": 0.7408542909834068,
+      "peak_tree_rss_bytes": 150192128,
+      "peak_live_threads": 5,
+      "processes": {
+        "91315": {
+          "role": "python",
+          "max_threads": 5,
+          "cpu_seconds": 0.6669773999999999,
+          "search_budget": []
+        }
+      },
+      "unreadable_process_samples": 1,
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "/Users/mikesh/vcs/code/tcren/.venv/bin/python",
+        "-m",
+        "tcren.cli",
+        "md",
+        "inspect",
+        "--trajectory",
+        "/private/tmp/tcren26-md-examples-final/1fyt/trajectory.pdb",
+        "--reference",
+        "/private/tmp/tcren26-md-examples-final/1fyt/reference.pdb",
+        "--potential",
+        "/private/tmp/tcren26-md-examples-final/1fyt/potential.xvg",
+        "--components",
+        "/private/tmp/tcren26-md-examples-final/1fyt/components.json",
+        "--mhc-class",
+        "II",
+        "--pbc-whole",
+        "--docking",
+        "-t",
+        "1",
+        "-o",
+        "/private/tmp/tcren26-md-examples-final/1fyt/inspect-1"
+      ],
+      "wall_seconds": 4.564767917006975,
+      "peak_tree_rss_bytes": 1154695168,
+      "peak_live_threads": 10,
+      "processes": {
+        "91316": {
+          "role": "python",
+          "max_threads": 7,
+          "cpu_seconds": 1.6694129439999998,
+          "search_budget": []
+        },
+        "91321": {
+          "role": "mmseqs",
+          "max_threads": 1,
+          "cpu_seconds": 0.009579457999999999,
+          "search_budget": []
+        },
+        "91322": {
+          "role": "mmseqs",
+          "max_threads": 1,
+          "cpu_seconds": 2.277867584,
+          "search_budget": [
+            "1"
+          ]
+        },
+        "91323": {
+          "role": "mmseqs",
+          "max_threads": 1,
+          "cpu_seconds": 0.028355541,
+          "search_budget": [
+            "1"
+          ]
+        },
+        "91326": {
+          "role": "mmseqs",
+          "max_threads": 1,
+          "cpu_seconds": 0.013167958,
+          "search_budget": []
+        },
+        "91328": {
+          "role": "mmseqs",
+          "max_threads": 1,
+          "cpu_seconds": 0.018408125,
+          "search_budget": []
+        },
+        "91329": {
+          "role": "mmseqs",
+          "max_threads": 1,
+          "cpu_seconds": 0.046177292,
+          "search_budget": [
+            "1"
+          ]
+        }
+      },
+      "unreadable_process_samples": 1,
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "/Users/mikesh/vcs/code/tcren/.venv/bin/python",
+        "-m",
+        "tcren.cli",
+        "md",
+        "quality",
+        "-s",
+        "/private/tmp/tcren26-md-examples-final/1fyt/reference.pdb",
+        "--mhc-class",
+        "II",
+        "-o",
+        "/private/tmp/tcren26-md-examples-final/1fyt/quality"
+      ],
+      "wall_seconds": 0.7489720419980586,
+      "peak_tree_rss_bytes": 150159360,
+      "peak_live_threads": 5,
+      "processes": {
+        "91366": {
+          "role": "python",
+          "max_threads": 5,
+          "cpu_seconds": 0.66773448,
+          "search_budget": []
+        }
+      },
+      "unreadable_process_samples": 1,
+      "exit_code": 0
+    }
+  ],
+  "cli_wall_seconds_sum": 17.747800084005576,
+  "peak_cli_tree_rss_bytes": 1175601152,
+  "peak_cli_live_threads": 10,
+  "monitor_sample_interval_seconds": 0.02,
+  "per_command_timeout_seconds": 90,
+  "per_command_rss_limit_bytes": 4294967296,
+  "resource_scope": "six CLI calls only; parent API comparisons are excluded",
+  "stratos_read_only_snapshot": {
+    "pme4_completed_steps": 50000000,
+    "pme4_duration_ps": 100000,
+    "pme8_last_recorded_steps": 10418000,
+    "pme8_last_recorded_time_ps": 20836,
+    "pme8_target_time_ps": 100000,
+    "configured_omp_threads": 8,
+    "physical_cpus": 16,
+    "live_threads_snapshot": 14,
+    "cpu_percent_snapshot": 670.9,
+    "controller_state": "model_comparisons_complete_waiting_for_MD",
+    "modified_or_restarted": false
+  },
+  "preserved_dirty_files": 2,
+  "focused_tests_passed": 64
+}
