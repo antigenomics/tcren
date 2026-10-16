@@ -49,8 +49,9 @@ def recognition_table(items, *, organism: str = "human", full: bool = False,
     parsing failures remain explicit rows.
 
     ``annotate=False`` reuses chain and MHC annotations already attached to input structures.
-    Parallel calls require an importable script with an ``if __name__ == "__main__"`` guard;
-    use the CLI for batches or ``threads=1`` in notebooks and stdin sessions.
+    Notebooks/stdin use a private importable subprocess entrypoint for the same bounded
+    spawn pool; annotation stays in the caller. Ordinary scripts still require an
+    ``if __name__ == "__main__"`` guard. No fork or serial fallback is used.
 
     ``chunk`` is retained for signature compatibility and is no longer used.
 

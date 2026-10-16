@@ -17,6 +17,10 @@ All notable changes to `tcren` are recorded here. Format follows
 
 ### Fixed
 
+- Support bounded multicore descriptor calls from stdin/notebooks using an importable
+  subprocess entrypoint for the existing spawn pool, after whole-set annotation.
+  Worker failures propagate and private transport is cleaned up (issue #21).
+
 - `surface` now batches TCR/MHC annotation, keeps failed-input rows and exits nonzero
   for empty/all-failed output; nonpositive grid dimensions fail before annotation.
 - CPU budgets propagate through shared annotation, scoring, export and descriptor

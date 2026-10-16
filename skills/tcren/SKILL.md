@@ -82,8 +82,11 @@ score is silently relabelled ipTM. See `docs/prediction.rst` and `docs/fit-free.
 
 `score_table` has per-readout availability flags and JSON `missing_descriptors`.
 `recognition_table(..., annotate=False)` reuses supplied annotated Structures.
-Parallel descriptor calls require an importable guarded script; stdin/notebooks must
-use `threads=1` or the CLI, with an explicit error rather than a silent fallback.
+Parallel descriptor calls from stdin/notebooks use an importable subprocess entrypoint
+for the existing bounded spawn pool; no notebook replay, fork or serial fallback.
+Whole-set annotation remains in the caller, before workers start. Ordinary scripts
+still need a `if __name__ == "__main__":` guard. Import tcren before initializing
+Polars, including in notebooks. Temporary transport is private and deleted after each call.
 
 `tcren` reproduces and extends the TCRen contact-energy potential (Nat Comput Sci 2022)
 on a pure-Python pipeline (structure parsing → contacts → TCR/MHC annotation → potential

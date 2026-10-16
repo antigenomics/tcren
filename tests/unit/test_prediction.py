@@ -371,19 +371,21 @@ def test_generated_tcrmodel2_retention_and_unique_rank_selection(tmp_path):
         ranked_detail_file(out.parent, {"ranked_0": {"ranking_confidence": 0.8}}, "ranked_0")
 
 
-def test_interactive_parallel_error_precedes_annotation(monkeypatch):
+@pytest.mark.parametrize("entrypoint", ["stdin", "ipykernel"])
+def test_interactive_parallel_reuses_annotated_structures(monkeypatch, entrypoint):
     import sys
-    import tcren.annotation.batch as batch
     from tcren.descriptors.table import recognition_table
+    from tcren.runtime import available_cpus
 
-    monkeypatch.setattr(sys.modules["__main__"], "__file__", "<stdin>", raising=False)
-
-    def fail(*args, **kwargs):
-        raise AssertionError("annotation should not start before entrypoint validation")
-
-    monkeypatch.setattr(batch, "_batch_annotate", fail)
-    with pytest.raises(ValueError, match="importable script"):
-        recognition_table([("one", _structure()), ("two", _structure())], threads=2)
+    if available_cpus() < 2:
+        pytest.skip("two allocated CPUs required")
+    if entrypoint == "stdin":
+        monkeypatch.setattr(sys.modules["__main__"], "__file__", "<stdin>", raising=False)
+    else:
+        monkeypatch.setitem(sys.modules, "ipykernel", object())
+    rows = recognition_table([("one", _structure()), ("two", _structure())],
+                             threads=2, annotate=False, include=[])
+    assert rows == [{"complex.id": "one"}, {"complex.id": "two"}]
 
 
 @pytest.mark.parametrize("historical", [False, True])

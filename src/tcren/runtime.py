@@ -166,25 +166,65 @@ def single_threaded(function):
 
 
 def check_parallel_entrypoint(count, n_items):
-    # Include bounded native/I/O pools plus parent, tracker and queue overhead.
-    if 8 * min(count, n_items) + 16 >= 1000:
-        raise ValueError("worker request exceeds the live-thread ceiling; use at most 122 workers")
-    if count > 1 and n_items > 1:
-        entrypoint = getattr(sys.modules.get('__main__'), '__file__', None)
-        if not entrypoint or not Path(entrypoint).is_file():
-            raise ValueError("parallel descriptors require an importable script with an "
-                             "if __name__ == '__main__' guard; use the CLI for batches "
-                             "or threads=1 in notebooks/stdin")
+    # Include bounded native/I/O pools plus parent, interactive broker and tracker/queue overhead.
+    if 8 * min(count, n_items) + 24 >= 1000:
+        raise ValueError("worker request exceeds the live-thread ceiling; use at most 121 workers")
 
 
 def parallel_map(function, work, threads):
     """Ordered map over at most B coarse contiguous chunks; never parallel searches."""
     from multiprocessing import get_context
 
+    threads = resolve_threads(threads)
     count = min(threads, len(work))
     check_parallel_entrypoint(count, len(work))
     if count <= 1:
         return [function(item) for item in work]
     with native_threads():
+        entrypoint = getattr(sys.modules.get('__main__'), '__file__', None)
+        if 'ipykernel' in sys.modules or not entrypoint or not Path(entrypoint).is_file():
+            return _interactive_map(function, work, count)
         with get_context('spawn').Pool(count) as pool:
             return pool.map(function, work, chunksize=(len(work) + count - 1) // count)
+
+
+def _interactive_map(function, work, count):
+    """Run the existing spawn pool from an importable module, without replaying a notebook."""
+    import pickle
+    import signal
+    from tempfile import TemporaryDirectory
+
+    # Private, single-use transport, removed on success/failure; never a result cache.
+    with TemporaryDirectory(prefix='tcren-workers-') as folder:
+        root = Path(folder)
+        with root.joinpath('input').open('wb') as stream:
+            pickle.dump((function, work, count), stream, protocol=pickle.HIGHEST_PROTOCOL)
+        with root.joinpath('stderr').open('w+b') as log:
+            process = subprocess.Popen([sys.executable, '-m', 'tcren._parallel', folder],
+                                       stderr=log, start_new_session=os.name == 'posix')
+            try:
+                code = process.wait()
+            except BaseException:
+                try:
+                    if os.name == 'posix':
+                        os.killpg(process.pid, signal.SIGTERM)
+                    else:
+                        process.terminate()
+                except ProcessLookupError:
+                    pass  # The broker may have completed as cancellation arrived.
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    if os.name == 'posix':
+                        os.killpg(process.pid, signal.SIGKILL)
+                    else:
+                        process.kill()
+                    process.wait()
+                raise
+            if code:
+                log.seek(0, os.SEEK_END)
+                log.seek(max(0, log.tell() - 8192))
+                raise RuntimeError('interactive descriptor workers failed (no serial fallback):\n'
+                                   + log.read().decode(errors='replace'))
+        with root.joinpath('output').open('rb') as stream:
+            return pickle.load(stream)
