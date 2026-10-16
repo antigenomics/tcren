@@ -2700,7 +2700,7 @@ def export_exact(
     structures: list[str] = typer.Option(..., "-s", "--structures"),
     output: Path = typer.Option(..., "-o", "--output"),
     quantity: str = typer.Option("receptor-reference", "--quantity",
-                                help="receptor-reference, position, residue, contacts, placement or pmhc"),
+                                help="receptor-reference, position, residue, contacts, placement, pmhc or pmhc-cells"),
     potential: str = typer.Option(None, "--potential", help="Explicit TCR:peptide potential name or CSV; not needed for pmhc"),
     mhc_potential: str = typer.Option("mj", "--mhc-potential"),
     reference_mode: str = typer.Option("virtual", "--reference-mode", help="receptor-reference only: structural alanine truncation or historical virtual identities"),
@@ -2719,15 +2719,15 @@ def export_exact(
 
     from .exports import export_batch
 
-    if quantity != "pmhc" and potential is None:
-        raise typer.BadParameter("--potential is required except for --quantity pmhc")
+    if quantity not in {"pmhc", "pmhc-cells"} and potential is None:
+        raise typer.BadParameter("--potential is required except for --quantity pmhc or pmhc-cells")
     if reference_mode not in ("virtual", "structural"):
         raise typer.BadParameter("--reference-mode must be virtual or structural")
     if reference_mode == "structural" and quantity != "receptor-reference":
         raise typer.BadParameter("structural reference requires --quantity receptor-reference")
     ledger = export_batch(structures, output, quantity=quantity,
-                          peptide_potential=None if quantity == "pmhc" else _load_potential(potential),
-                          mhc_potential=None if quantity == "pmhc" else _load_potential(mhc_potential), interface=interface,
+                          peptide_potential=None if quantity in {"pmhc", "pmhc-cells"} else _load_potential(potential),
+                          mhc_potential=None if quantity in {"pmhc", "pmhc-cells"} else _load_potential(mhc_potential), interface=interface,
                           cutoff=cutoff, organisms=tuple(organism), threads=threads,
                           command=shlex.join(sys.argv), reference_mode=reference_mode)
     succeeded = ledger.filter(pl.col("status") == "ok").height

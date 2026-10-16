@@ -805,3 +805,5 @@ RUN_BENCHMARK=1 pytest -k benchmark -s
 ```
 Karnaukhov VK, Shcherbinin DS, Chugunov AO, Chudakov DM, Efremov RG, Zvyagin IV, Shugay M. Structure-based prediction of T cell receptor recognition of unseen epitopes using TCRen. Nat Comput Sci. 2024 Jul;4(7):510-521. doi: 10.1038/s43588-024-00653-0. Epub 2024 Jul 10. PMID: 38987378.
 ```
+
+Spatial pMHC context is exported with `tcren export -s structures.txt --quantity pmhc-cells -t 4 -o cells.tsv`. Exact grid rows and `cells.tsv.summary.tsv` retain height/hydropathy co-localization, counts and provenance without a fitted score; see the association documentation for units and interpretation.

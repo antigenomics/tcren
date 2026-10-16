@@ -24,7 +24,7 @@ from .potential import Potential
 
 RECEPTOR_REGIONS = {"all": None, "cdr": ("CDR1", "CDR2", "CDR3"),
                     "cdr12": ("CDR1", "CDR2"), "cdr3": ("CDR3",)}
-QUANTITIES = ("receptor-reference", "position", "residue", "contacts", "placement", "pmhc")
+QUANTITIES = ("receptor-reference", "position", "residue", "contacts", "placement", "pmhc", "pmhc-cells")
 
 
 def receptor_reference(contact_map: ContactMap, peptide_potential: Potential,
@@ -129,6 +129,9 @@ def export_structure(structure, quantity: str, peptide_potential: Potential,
         raise ValueError(f"quantity must be one of {QUANTITIES}")
     if not math.isfinite(cutoff) or cutoff <= 0:
         raise ValueError("cutoff must be finite and positive")
+    if quantity == "pmhc-cells":
+        from .topology.pmhc import pmhc_cells
+        return pmhc_cells(structure)
     if quantity == "pmhc":
         from .topology.pmhc import pmhc_features
         return pl.DataFrame([{"pdb.id": structure.pdb_id, **pmhc_features(structure)}])
@@ -310,6 +313,9 @@ def export_batch(sources, output, *, quantity, peptide_potential, mhc_potential,
                     row["error"] = f"annotation: {type(exc).__name__}: {exc}"
     table = pl.concat(tables, how="diagonal_relaxed") if tables else pl.DataFrame(schema={"pdb.id": pl.String})
     table.write_csv(output, separator="\t")
+    if quantity == "pmhc-cells" and table.height:
+        from .topology.pmhc import spatial_features
+        spatial_features(table).write_csv(str(output) + ".summary.tsv", separator="\t")
     ledger = pl.DataFrame(accounting, infer_schema_length=None) if accounting else pl.DataFrame(
         schema={"pdb.id": pl.String, "status": pl.String, "error": pl.String, "n_rows": pl.Int64})
     ledger.write_csv(str(output) + ".accounting.tsv", separator="\t")
@@ -317,7 +323,7 @@ def export_batch(sources, output, *, quantity, peptide_potential, mhc_potential,
         schema={"pdb.id": pl.String})
     residue_table.write_csv(str(output) + ".residues.tsv", separator="\t")
     potentials = {}
-    for label, potential in (() if quantity == "pmhc" else (("peptide", peptide_potential), ("mhc", mhc_potential))):
+    for label, potential in (() if quantity in {"pmhc", "pmhc-cells"} else (("peptide", peptide_potential), ("mhc", mhc_potential))):
         path = Path(str(output) + f".{label}.potential.tsv")
         potential.matrix.write_csv(path, separator="\t")
         potentials[label] = {"name": potential.name, "sha256": _sha256(path),
@@ -335,8 +341,10 @@ def export_batch(sources, output, *, quantity, peptide_potential, mhc_potential,
         "custom_potential_derivation": "not inferred; supplied matrix is exported and hashed",
         "n_input": len(accounting), "n_ok": succeeded,
         "n_error": len(accounting) - succeeded, "sources": [str(p) for p in paths],
-        "reference_semantics": ("pMHC only; supplied conformation; no potential or receptor coordinates" if quantity == "pmhc"
+        "reference_semantics": ("pMHC only; supplied conformation; no potential or receptor coordinates" if quantity in {"pmhc", "pmhc-cells"}
                                 else "structural alanine truncation; contacts rebuilt" if reference_mode == "structural"
                                 else "virtual receptor identities on unchanged contact map"),
+        "surface_summary_sha256": (_sha256(Path(str(output) + ".summary.tsv")) if quantity == "pmhc-cells" and table.height else None),
+        "surface_parameters": ({"grid_yx": [64,32], "extent_A": [-20,20,-25,25], "probe_A": 1.4, "smooth": "8-neighbour, padded", "scale": "Kyte-Doolittle", "ridge_percentile": 90, "frame": "pMHC only; receptor removed"} if quantity == "pmhc-cells" else None),
         "residue_phi_accounting": "each contact contributes to both endpoints; sum is 2*Phi"})
     return ledger
