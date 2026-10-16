@@ -24,9 +24,11 @@ interface mechanics.
 What tcren does
 ---------------
 
-* **Assess a modelled complex** -- ``assess``: is the pose real, is it a binder, and which part of
-  the structure says so? Five read-outs of one frozen object, **every one defined for a single
-  structure** (:mod:`tcren.score`, see :doc:`assess`).
+* **Inspect a modelled complex** -- ``inspect-models`` retains native confidence and individual
+  structural descriptors. ``associate`` compares scores against ipTM on matched rows, separately
+  by MHC class and template coverage (see :doc:`prediction` and :doc:`associations`).
+* **Historical fitted assessment** -- ``assess`` preserves the five frozen-model readouts for
+  reproduction; these are excluded from final scoring (:doc:`assess`).
 * **Score & rank epitopes** -- ``score`` / ``rank`` / ``scoring``: TCRen energy per candidate, a
   percentile rank against a random background, and the three-interface breakdown plus total.
 * **Mutation ΔΔG** -- ``ddg``: alanine scans and neoantigen substitutions on the native contact map
@@ -42,7 +44,7 @@ What tcren does
 * **Peptide substitution & refinement** -- ``refine``: backbone-preserving substitution plus a
   DOPE-scored Monte-Carlo pose refinement (with CCD/OpenMM/ProMod3/FlexPepDock engines), and
   ``--repack`` to place every side chain in the χ rotamer DOPE prefers.
-* **Surface topology** -- ``surface``: the pMHC face a TCR meets *before* it binds, as a height field
+* **Surface topology** -- ``surface``: the receptor-stripped pMHC face in the supplied coordinates, as a height field
   over the groove with hydropathy and charge painted on, plus the scalars that make "featureless" a
   number (``relief``, ``peak_to_valley``, ``frac_above_ridge``) and a map distance that clusters
   epitopes; ``--side tcr`` rasters the receptor underside in the same frame, and
@@ -54,7 +56,7 @@ What tcren does
   scoring a single handed-in pose cannot see (:mod:`tcren.mechanics.dynamics`).
 * **Potential derivation** -- ``derive-potential``: re-derive the TCRen potential (classic/AM/LOO,
   with non-redundancy filtering) from a structure set.
-* **Contact-map Potts model** -- ``potts fit`` / ``score`` / ``contacts``: a Boltzmann distribution
+* **Historical fitted contact-map Potts model** -- ``potts fit`` / ``score`` / ``contacts``: a Boltzmann distribution
   over the contact map itself, whose sites are the residue pairs that *could* have contacted. Gives
   a structure's map an energy (``neg_energy``, the term ``S`` reads), a partition function and
   a likelihood, and every residue pair a contact probability (:mod:`tcren.potts`, see :doc:`potts`).

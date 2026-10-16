@@ -1,91 +1,85 @@
-# Current stopping point — fit-free audit disposition, 15 October 2026
+# Publication and software roadmap
 
-Subsequent author authorization opened implementation and fresh reproduction on
-`codex/fit-free-release-fixes`, followed by PR to master and release preparation.
-Fixed empirical potentials are permitted; fitted/reference-estimated final readouts
-remain excluded. Follow `audit/2026-10-15/RELEASE_FIXES.md` for current progress;
-the audit-only stopping point in the historical paragraphs below is superseded.
+Reconciled 16 October 2026 against master `c04cb94`, live GitHub issues and
+recorded benchmark/manuscript commits `8657b89` / `26b912c`.
+[AUDIT.md](AUDIT.md) owns scientific findings; this file owns remaining work.
+[The example audit](audit/2026-10-16/EXAMPLE_AUDIT.md) records current execution,
+manual inspection and limitations. Earlier roadmap text remains in Git history;
+[the release record](audit/2026-10-15/RELEASE_FIXES.md) preserves the attempts,
+metric regressions and annotation-environment corrections.
 
-The author selected fit-free final models and archival of fitted readouts. Mark metric gains and
-regressions; use current packages, audit every non-CLI numerical route, and report code problems
-as repository issues. The current task stops at the reconciled audit record, before new tcren fixes
-or replacement-paper work. The historical frozen-model publication roadmap below is superseded.
+## Scientific boundary
 
-See `audit/2026-10-15/FINAL_AUDIT.md`, GitHub issues 30–36, and the manuscript's
-`FIT_FREE_DISPOSITION.md`. No successful complete CLI reproduction or final paper is claimed.
+Final scoring uses fixed empirical potential tables with explicit derivation and
+identity, structural alanine references and individual structural descriptors.
+Gaussian/GLM, fitted Potts/transition and reference-estimated Q/T/S final readouts
+are retired; their APIs, parameters and results remain historical evidence.
+A contact log-odds sum is not calibrated affinity. No replacement fitted scorer,
+new control, threshold scan or cohort normalization is on this roadmap.
 
-# Publication roadmap
+CPL peptide ranking and receptor ranking remain separate. Compare arms on identical
+rows. Keep TCRvdb epitopes, VDJdb epitope/template strata and MHC classes separate.
+Record gains and regressions; do not change labels, populations or precision to
+conceal a loss. Class-II crystal coverage does not establish modelled class-II
+ranking performance.
 
-Updated 2026-10-15. The goal is a reproducible, interpretable paper supported by the existing five
-benchmark blocks, not a larger catalogue of scores. Prior plans and measured abandoned approaches
-are preserved in `attic/2026-10-audit/ROADMAP.md`. `AUDIT.md` owns findings; this file owns exit criteria.
+## Completed, with recorded evidence
 
-## 1. Correctness and bounded scope
+- Correctness/domain fixes, exact CLI exports and searched-index provenance were
+  integrated. Subsequent PRs #40–42 add structural alanine references, shared
+  reference contact construction and co-best MHC alleles. Master tests and docs
+  workflows passed at `c04cb94`. Current examples use its byte-matched installed
+  4.0.1 wheel; this does not establish a public 4.0.1 release.
+- The five-block fit-free reproduction completed. The obsolete “attempt 8 stopped”
+  status is superseded by `RELEASE_FIXES.md`. Later source/annotation corrections
+  remain separately recorded rather than being called the same reproduction.
+- Coordinate/assay pairing audit retains all 618 raw TCRvdb models and explicitly
+  excludes one incompatible pMHC pairing from the eligible 617-model comparison.
+  The existing matching GLC model is retained. Raw sources were not overwritten.
+- The original published fixed-template procedure was reproduced with unchanged
+  scientific Java/R calculations and modern CLI on 2,102 later CPL candidates.
+  These are later data, not an original published CPL benchmark. Original versus
+  modern published-potential scores agree within 4e-14. Six clones improve ROC/AP
+  with the current potential and MEL5 ties; its graded-response regression remains.
+- Historical energy-migration rows were recovered. All 272 energy/cohort comparisons
+  remain; 42 violate at least one old universal bound. The claim and exceptions
+  coexist in the historical record. Class II and template strata remain separate.
+- The active main paper/SI restores valid fit-free findings and archives fitted-only
+  claims. The recorded clean Git-worktree build has 19 main + 69 SI pages; all 39
+  active PDF assets pass font/bounds gates. Manual inspection and exact hashes are
+  in the manuscript's `MANUAL_FIGURE_QA.tsv`; the complete historical claim ledger
+  remains in `QUANTITATIVE_CLAIM_AUDIT.tsv`.
 
-Fix demonstrated scoring, native-boundary and pipeline defects with focused synthetic checks.
-Archive only complete obsolete dependency groups, retaining source, resources and result records.
-Keep the accepted potential and fitted arrays unchanged until a deliberate model revision is approved.
-Exit: focused tests, full applicable unit suite, lint and docs pass; every remaining defect is named.
-Current: Potts identity/sampling, Gaussian/mechanics domains and source-boundary repairs are
-implemented and checked. The catalogue/frozen metadata migration preserves every coefficient
-array; corrected-feature equivalence still requires gate 4. Passing software tests do not close
-the scientific or publication gates.
+Benchmark evidence: `STRUCTURE_IDENTITY_AUDIT.md`,
+`results/published-cpl-final-20261016/`,
+`results/historical-energy-migration-stratified-20261016/`.
+Manuscript evidence: `PUBLISHED_CPL_REPRODUCTION.md`, `FIT_FREE_DISPOSITION.md`,
+`FIGURES.md`, `HISTORICAL_AUDIT.md`. These live in their owning repositories, not
+in the software distribution. Completed analyses are not rerun to update this list.
 
-## 2. Settle definitions before changing numbers
+## Remaining work, in order
 
-The author approved correcting the ergodicity and naive-Bayes interpretations and retiring tree
-figures/claims. Tier-1 documentation now identifies shared preprocessing fitted on both classes;
-the benchmark GLM is explicitly separate from the shipped conditional residual. The two-step
-ranking link now reports empirical sigmoid widths, pooled parameters and held-out performance
-without claiming a physical free-energy calibration. Its recorded values are preserved.
-Correctly distinguish low-order Betti difference from full Euler characteristic and approximate
-contact stability from an exact physical probability. Preserve every measured result and recorded
-comparison. Do not add new metrics or fitted alternatives to address a wording problem.
-Exit: one definition per readout, matched equations/code/prose, approved claim scope.
-Current: source definitions reconciled without refitting or replacing empirical values. Final
-rendered-PDF review remains in gate 5.
+| Priority / owner | Work and acceptance evidence |
+|---|---|
+| P1 / library; issue [43](https://github.com/antigenomics/tcren/issues/43) | Repair the demonstrated `surface` failure/accounting and batching gaps and audit shared CLI thread-budget propagation. Reuse `annotation.batch`/`export`, retain failed inputs, exit nonzero when none succeed, and verify one query batch per species plus the selected process-tree CPU budget. The example audit identifies exact callers. No broad numerical rewrite. |
+| P1 / library release | Prepare a release containing post-4.0.0 changes and ARDA dependency requirements. Build/install immutable artifacts, run supported-Python CI/docs and verify packaged resources and ordinary CLI behavior. The latest observed GitHub release is 4.0.0; local 4.0.1 metadata is not publication. Preserve the human PyPI approval gate. |
+| P2 / benchmark + manuscript; issue [34](https://github.com/antigenomics/tcren/issues/34) | Exact position/residue/contact/placement CLI exports exist and pass API equality checks. Complete the per-panel audit showing every retained molecular rendering consumes authoritative exports, including physical residue IDs, scene/potential/geometry hashes and visual review. A successful PDF build does not close this lineage requirement. |
+| P2 / manuscript; issues [33](https://github.com/antigenomics/tcren/issues/33), [35](https://github.com/antigenomics/tcren/issues/35) | Fit-free disposition, archives, reproduced comparisons and active-paper cleanup are recorded. Reconcile these issue acceptance criteria with the final producer/include graph; audit any retained historical methodological equation separately. Do not implement replacement fitted models merely to close retired CLI gaps. |
+| P2 / library + benchmark | Four literature-topology columns have recorded differences up to 1.11e-16 from unordered reductions, which can alter tied ranks. Keep all deltas visible. A deterministic-reduction fix needs focused checks and explicit authorization for its affected scientific rerun; do not round scores to suppress differences. |
+| P3 / library; issue [21](https://github.com/antigenomics/tcren/issues/21) | Notebook/stdin parallel calls now fail early with actionable guidance; serial calls and guarded CLI/scripts are supported. An interactive-safe multicore backend remains unimplemented. Retain this limitation rather than claiming that documentation implemented the backend. |
+| Historical/deferred; issue [32](https://github.com/antigenomics/tcren/issues/32) | Custom Potts geometry forwarding and approximation labels were repaired. Complete CLI equivalence for historical decompositions is absent; no final-paper dependency authorizes a new fitted scorer. Preserve the original quantities and identify the outstanding gap. |
+| Separate campaign; issue [26](https://github.com/antigenomics/tcren/issues/26) | Component RMSD, frame selection and close-pair tools exist. The long MD reconstruction and missing original campaign inputs remain unresolved. Verify resources/input provenance before scheduling; reconstructed trajectories cannot become exact historical reproduction by relabelling. |
 
-## 3. Close the publication dependency graph
+Six existing issues (#21, #26, #32–35) were open and no PR was open at the
+initial checkpoint. This audit added issue [43](https://github.com/antigenomics/tcren/issues/43)
+for the demonstrated CLI gaps (seven open issues in total). Open/closed GitHub state is distinct from the implementation and
+publication evidence above. The current example audit does not certify every CLI,
+reproduce the long MD campaign or authorize paid review, fitting or publication.
 
-For every main/SI number and figure, record raw inputs → library version/model → benchmark producer
-→ reshaper → rendered artifact. Resolve the benchmark's old wheel pin and unwired confidence
-producers. Fail on absent required input, stale model catalogue, failed stage or reduced corpus.
-Evaluation never installs fitted models into the library. Separate restricted inputs from public
-availability claims without exposing private provenance.
-Exit: complete producer/input manifest and one tested, immutable software/environment identity.
-Current: all 34 live reshapers have scheduled owning producers/inputs; tree routes are archived.
-Preflight checks the actual wheel payload and 12 required raw sets. Historical frozen-model fit
-traces are explicitly historical parameter evidence. See
-`audit/2026-10-14/publication-resolution.md`; only execution can certify the complete graph.
+## Submission exit
 
-## 4. Reproduce only after authorization
-
-Run one complete fresh pass from raw sources after gates 1–3 and explicit authorization. Compare
-matched units against the accepted recorded results, including row counts and missingness. Stop and
-report material weakening; never silently replace a baseline, refloor a test or average away a loss.
-No sweeps, additional controls or model-selection exercise is implied by this roadmap.
-Exit: all five blocks and every publication artifact trace to that run; no resumed intermediates.
-Current: full fresh reproduction authorized. Earlier CLI/schema, physical-key, metadata and raw-path
-export defects are repaired and checked. Attempt 8 passed all fresh binder joins and geometry
-cohorts, then stopped at an obsolete VDJdb reference alias after 3,980 s. The exact documented
-local release is now guarded by SHA-256 before structural work; no substitution was needed.
-Remaining scheduled raw-input availability was checked. The withdrawn HPV posterior panel is
-archived; its two fit-free arms preserve raw sources and seeded order. Another complete restart
-follows the focused checks; no failed-run derived output is reused.
-Both full-manifest frozen-parameter comparison and matched accepted-result gates precede
-publication. Earlier interrupted diagnostic evidence is retained but does not complete this gate.
-
-## 5. Submission and release
-
-Run manuscript structural/xref/figure gates, render and inspect both PDFs, and verify equations,
-units, denominators, citations and availability statements. Build/install the wheel independently,
-check packaged resources and CLI behavior, then use the existing CI/release approval process.
-Exit: clean build/tests, reviewed PDFs, verified deposits and approved release. No date promise or
-claim of publication readiness until all gates pass.
-
-## Frozen/deferred
-
-No sequence-only geometry ladder revival, new Potts ranking composite, speculative descriptor
-family, unmeasured compute-budget recommendation or broad framework rewrite. Existing MD contact
-and self-consistent potential paths stay only for their identified current consumers. Historical
-oracle paths remain available for the published work they reproduce.
+Freeze one reviewed source/wheel/environment identity; ensure each active figure
+and number has its raw-input → CLI → summary → render lineage. Run structural,
+xref, font and bounds gates; inspect the actual final PDFs. Verify data/code
+availability and deposits within their access boundaries. Finish release approvals
+and verify the public install before claiming a release. There is no date promise.

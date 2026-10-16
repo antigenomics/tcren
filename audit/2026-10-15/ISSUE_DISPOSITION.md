@@ -1,5 +1,14 @@
 # Issues 14–36: release implementation disposition
 
+**16 October reconciliation:** the table below is the original implementation
+checkpoint. Current source, publication evidence and live issue state are reconciled
+in [ROADMAP.md](../../ROADMAP.md) and the
+[example audit](../2026-10-16/EXAMPLE_AUDIT.md). Six earlier issues remain open
+(#21, #26, #32–35); newly reproduced CLI failure/batching/budget gaps are tracked
+in [#43](https://github.com/antigenomics/tcren/issues/43). Earlier pending fresh-run
+and publication-restoration statements are superseded where the new records
+provide completion evidence; historical CLI-equivalence/MD limitations remain.
+
 Reviewed against the live GitHub issue bodies on 15 October 2026 and the visible
 implementation. All 23 issues were still open in GitHub at review time. The status
 below describes the work, not a remote closure, publication, or completed campaign.

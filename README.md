@@ -54,7 +54,8 @@ estimate both need.
 **Final-model scope (15 October 2026):** fixed empirical potentials are permitted
 with explicit provenance. Gaussian/GLM, fitted Potts/transition and reference-estimated
 Q/T/S readouts remain historical APIs, excluded from final models. See
-[the fit-free contract](docs/fit-free.rst). A complete fresh reproduction is still required.
+[the fit-free contract](docs/fit-free.rst). Recorded fresh reproductions, historical
+protocol checks and remaining release gates are reconciled in [ROADMAP.md](ROADMAP.md).
 
 ## What it is evaluated on
 
@@ -64,18 +65,21 @@ way it does.
 
 | block | the question | entry points |
 |---|---|---|
-| **Combinatorial peptide libraries** | which peptides does this receptor read? | `tcren features`, `tcren assess` (`peptide_score`), `tcren.ddg.neoantigen_ddg` |
-| **A functionally validated repertoire screen** | which receptors read this epitope? | `tcren features`, `tcren recognize` |
+| **Combinatorial peptide libraries** | which peptides does this receptor read? | `tcren score` on a fixed template; `tcren scoring --delta --reference-mode structural` for candidate poses; `tcren cpl` for response matrices |
+| **A functionally validated repertoire screen** | which receptors read this epitope? | `tcren features`, `tcren export --quantity receptor-reference --reference-mode structural` |
 | **A balanced epitope panel, template-stratified** | the same, where no related complex has been solved | as above, with template availability reported rather than inferred |
-| **Molecular dynamics with measured kinetics** | may a single static structure be scored at all, and what does its energy reach? | the three interface energies, `tcren.potts` contact marginals |
-| **Model-confidence diagnostics** | which confidently modelled complexes are not real? | `tcren assess`, `tcren.score.confidence_residual`, `tcren.reliability.af_band` |
+| **Molecular dynamics with measured kinetics** | how do structural measurements relate to trajectories and kinetics? | individual interface energies and `tcren mechanics`; fitted Potts readouts remain historical |
+| **Model-confidence diagnostics** | which confidently modelled complexes are not real? | `tcren inspect-models`, individual descriptors and matched native ipTM; `tcren associate` for feature associations |
 
-The last is the one most users reach for first: you already have an AlphaFold model and want to know
-whether to trust it. Everything in the score set is frozen on a hold-out that ships inside the wheel
-and refits from a manifest that ships with it, so nothing is estimated from the rows you score and no
-number depends on what was scored beside it.
+Peptide ranking and receptor ranking are distinct tasks. Compare each score with native ipTM
+on identical rows, keeping epitopes, template coverage and MHC classes separate. No universal
+score or fitted confidence correction is selected. Historical frozen-model APIs remain available
+for reproduction, with their parameter dependencies documented.
 
 ## What it does
+
+Rows labelled historical retain reproducible APIs; they are excluded from the final paper’s
+scoring specification. `features` exports individual descriptors; fitted assessment is a separate step.
 
 > **Scope.** `tcren` is for **αβ TCR : peptide–MHC** complexes and nothing else: a TRA and a
 > TRB chain, a peptide of standard amino acids, and a class I or class II groove. γδ
@@ -88,19 +92,19 @@ From one TCR–peptide–MHC structure (crystal or model), each task is one comm
 | task | command | library |
 |---|---|---|
 | Score candidate epitopes for a TCR | `tcren score` | `score_peptides` |
-| **Rank peptides for a fixed receptor** — the poly-alanine-referenced energy | `tcren assess --peptide` | `score.peptide_score` |
+| **Rank peptides for a fixed receptor** — fixed-template contact energy | `tcren score` | `score_peptides` |
 | Percentile-rank a peptide vs background | `tcren rank` | `percentile_rank` |
 | ΔΔG of mutations (alanine scan / neoantigen) | `tcren ddg` | `alanine_scan`, `neoantigen_ddg` |
 | **Predict a CPL response matrix from a template** | `tcren cpl` | `response_matrix`, `mutation_effect`, `position_scan`, `equimolar_effect` |
-| **Binder vs non-binder for a TCR model** | `tcren features` + `tcren assess` | `score.binder_score`, `score.score_table` |
-| **Which part of the structure says so** — the five channels | `tcren assess` | `score.channel_scores` |
-| **Is the reported confidence warranted?** | `tcren assess` | `score.confidence_residual` |
+| Historical fitted binder readout | `tcren features` + `tcren assess` | `score.binder_score`, `score.score_table` |
+| Historical fitted five-channel decomposition | `tcren assess` | `score.channel_scores` |
+| Historical fitted confidence residual | `tcren assess` | `score.confidence_residual` |
 | **Every interface descriptor, 164 in six families (four by default)** | `tcren features` | `recognition_table(include=...)`, `descriptors` |
 | **All interface descriptors, one row per structure** | `tcren recognize` | `recognition_features` |
-| **`S`** — geometry, footprint shape and energy in native-sd units | `tcren recognize --features` | `reliability.s_score` |
-| **Is *this* model worth believing?** — the score set, `S` and the generator diagnostic | `tcren assess` | `score.score_table`, `reliability.s_score`, `af_band` |
-| Refit the frozen model from its shipped manifest | `tcren fit-holdout` | `score.holdout_model`, `score.holdout_manifest` |
-| **The contact map as a probability model** — energy, partition function, per-pair contact probability | `tcren potts fit` / `score` / `contacts` | `potts.fit_potts`, `score_sites`, `contact_probabilities` |
+| Historical reference-estimated `S` | `tcren recognize --features` | `reliability.s_score` |
+| Historical assessment and reference-estimated scores | `tcren assess` | `score.score_table`, `reliability.s_score`, `af_band` |
+| Reproduce the historical frozen-model fit | `tcren fit-holdout` | `score.holdout_model`, `score.holdout_manifest` |
+| Historical fitted contact model — energy, partition function, contact probability | `tcren potts fit` / `score` / `contacts` | `potts.fit_potts`, `score_sites`, `contact_probabilities` |
 | Three-interface energy Φ, poly-Ala ΔΦ, interface geometry | `tcren scoring` | `run_pipeline` |
 | Annotate chains + region markup | `tcren annotate` | `classify_chains`, `annotate_mhc` |
 | Interface contact table (5/8/12 Å) | `tcren contacts` | `ContactMap`, `multi_contacts` |
@@ -177,12 +181,12 @@ tcren scoring -s models.txt -o scores.csv
 # --delta adds the poly-alanine reference ΔΦ per interface (ΔΦ_TCR:MHC is identically 0).
 # Manuscript reference: add --reference-mode structural to truncate alanine and rebuild contacts.
 # Default virtual mode retains historical fixed-map identity substitution.
-# Use ΔΦ, not Φ, when each candidate carries its OWN generated pose: raw Φ then partly reads
-# the pose the predictor chose rather than the peptide.
+# Candidate-specific poses change contact maps: compare raw Φ and structural ΔΦ
+# on matched rows, retaining gains and regressions for each task.
 tcren scoring -s 'models/*.pdb.gz' --delta --reference-mode structural -o scores.csv
 
-# --geometry adds the interface descriptors and Q, the directional decorrelated
-# interface-quality score (native-crystal calibrated, so it is defined for a single structure).
+# Historical diagnostic: --geometry also adds Q, which uses estimated native-reference
+# statistics and is excluded from final scoring. Use features for individual descriptors.
 tcren scoring -s complex.pdb.gz --delta --geometry -o scores.csv
 
 # Configurable per-interface potential: swap a bundled name (tcren2|karnaukhov2022|mj|keskin),
