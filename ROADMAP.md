@@ -1,6 +1,6 @@
 # Publication and software roadmap
 
-Reconciled 16 October 2026 against master base `69759c8`, the issue-32 historical Potts disposition, live GitHub issues and
+Reconciled 16 October 2026 against master base `4f6d1f1`, the issue-26 MD diagnostics fix, live GitHub issues and
 recorded benchmark/manuscript sources and the linked issue-34 audit.
 [AUDIT.md](AUDIT.md) owns scientific findings; this file owns remaining work.
 [The example audit](audit/2026-10-16/EXAMPLE_AUDIT.md) records current execution,
@@ -68,13 +68,13 @@ in the software distribution. Completed analyses are not rerun to update this li
 | P2 / library + benchmark | Four literature-topology columns have recorded differences up to 1.11e-16 from unordered reductions, which can alter tied ranks. Keep all deltas visible. A deterministic-reduction fix needs focused checks and explicit authorization for its affected scientific rerun; do not round scores to suppress differences. |
 | Completed / library; issue [21](https://github.com/antigenomics/tcren/issues/21) | Notebook/stdin calls now use an importable subprocess entrypoint for the existing bounded spawn pool, after whole-set annotation. Real Jupyter, stdin, serial/all/explicit budgets, worker failure/cancellation, physical-key comparisons and manual class-I/II table inspection are recorded in [INTERACTIVE_BATCH_FIX.md](audit/2026-10-16/INTERACTIVE_BATCH_FIX.md). Final affected suite: 58 passed; the full local reference-backed suite hit its 360-second cap and remains incomplete. Preinitialized multithreaded Polars remains unsupported. |
 | Closed by historical disposition; issue [32](https://github.com/antigenomics/tcren/issues/32) | Exact scan overlap is verified for centred full-field and fixed-marginal arms; all other decomposition/normalized-weight routes remain explicitly unsupported, not relabelled as scan. Original quantities and regressions are preserved. Custom geometry, physical residue joins, units/signs and the frozen-marginal surrogate are audited in [HISTORICAL_POTTS_DISPOSITION.md](audit/2026-10-16/HISTORICAL_POTTS_DISPOSITION.md). The feature gap is retired with the fitted final model, not claimed implemented. |
-| Separate campaign; issue [26](https://github.com/antigenomics/tcren/issues/26) | Component RMSD, frame selection and close-pair tools exist. The long MD reconstruction and missing original campaign inputs remain unresolved. Verify resources/input provenance before scheduling; reconstructed trajectories cannot become exact historical reproduction by relabelling. |
+| CLI fixed; campaign pending; issue [26](https://github.com/antigenomics/tcren/issues/26) | Installed `md inspect`, `md quality` and `md compare-forces` expose existing exact readouts, atom/component provenance, class-separated exports and CPU limits. 64 focused tests, installed-wheel class-I/II examples and manual table inspection pass; [MD_DIAGNOSTICS.md](audit/2026-10-16/MD_DIAGNOSTICS.md) records acceptance. Stratos has an active original eight-thread MD job: one 100 ns arm is complete, the other remains running; final paired acceptance and missing historical campaign inputs stay unresolved. Do not restart the simulation or relabel reconstruction as exact reproduction. |
 
 Six existing issues (#21, #26, #32–35) were open and no PR was open at the
 initial checkpoint. This audit added issue [43](https://github.com/antigenomics/tcren/issues/43)
 for the demonstrated CLI gaps. The subsequent [fix](audit/2026-10-16/CLI_BUDGET_FIX.md)
 resolves #43; the [interactive fix](audit/2026-10-16/INTERACTIVE_BATCH_FIX.md) resolves #21.
-The molecular-panel closure resolves #34. The final producer/disposition audit resolves #33 and #35. The historical Potts disposition retires #32 without claiming complete CLI parity. Only issue #26 retains its independent scope above. Open/closed GitHub state is distinct from the implementation and
+The molecular-panel closure resolves #34. The final producer/disposition audit resolves #33 and #35. The historical Potts disposition retires #32 without claiming complete CLI parity. Only issue #26 remains open: its CLI gap is fixed, while the active Stratos campaign's final acceptance remains pending. Open/closed GitHub state is distinct from the implementation and
 publication evidence above. The current example audit does not certify every CLI,
 reproduce the long MD campaign or authorize paid review, fitting or publication.
 
