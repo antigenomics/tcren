@@ -111,3 +111,13 @@ See [CPL_POSE_TRUTH.md](audit/2026-10-16/CPL_POSE_TRUTH.md). Missing original
 reference bytes/version and unrecovered interfaces remain source gates; multiple
 verified coordinate outcomes per intended stratum are still needed for detector
 accuracy. No fitted score or old ranking/label change. Stratos MD remains untouched.
+
+Saved cognate pose follow-up: existing batch CLIs cover all required diagnostics.
+Fifteen identity-verified saved predictions (three targets, five ranks each)
+provide matched reference checks with both original confidence fields. Receptor
+placement can reveal confidence selection failures, with confidence successes,
+steric disagreements and undefined descriptors retained. This is within-target
+validation, not a fitted detector or independent fifteen-target benchmark.
+See [COGNATE_POSE_VALIDATION.md](audit/2026-10-16/COGNATE_POSE_VALIDATION.md).
+Historical reference-byte/lineage recovery and independent class/template truth
+remain open; Stratos MD is untouched.

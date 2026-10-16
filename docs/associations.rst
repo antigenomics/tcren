@@ -223,3 +223,26 @@ for receptor-relative coverage, gap, clash and placement measurements rather tha
 identifying that displacement alone. A singleton verified comparison does not
 establish a detector's sensitivity or specificity. The CPL evidence audit is
 recorded in ``audit/2026-10-16/CPL_POSE_TRUTH.md``.
+
+Saved predictions and receptor-relative pose checks
+---------------------------------------------------
+
+The existing ``features -i placement,interface,topology --no-metadata`` CLI emits
+placement, contact coverage, graph topology, gap and steric diagnostics without a
+fitted score. Use one manifest and a fixed CPU budget, then compare each descriptor
+with the same reference metric and both recorded confidence definitions on
+identical finite rows. Preserve undefined descriptors and the full row ledger.
+
+TCRmodel2 describes an interface-specific ipTM calculation that represents TCR and
+pMHC as two partners. A run may record both overall and TCR-pMHC-specific ipTM;
+retain both rather than inferring their equivalence. By contrast, a multimer DockQ
+mean may include internal receptor and peptide:MHC interfaces. Keep the four
+recognition interfaces and their contact/RMSD measurements explicit.
+
+``clash_score`` is the sum of peptide-partner heavy-atom overlaps beyond the
+existing tolerance, in Angstrom, including TCR and MHC partners. It is neither a
+receptor-only displacement measure nor a calibrated energy. Structural agreement,
+packing and binding labels answer different questions. Multiple saved predictions
+of one complex permit a within-target comparison, not population detector
+sensitivity or specificity. Keep clone, class and template strata separate and
+record exact-reference template inclusion independently.
