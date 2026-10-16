@@ -57,6 +57,10 @@ Fixed empirical contact potentials are permitted with explicit derivation and ta
 identity. Q/T/S reference moments/correlation weights, Gaussian/GLM, fitted Potts and
 transition readouts are historical APIs, excluded from final models. Older fit-free
 labels below mean no fitting at scoring time and do not establish final eligibility.
+Benchmark-local available-pair contact GLMs and Gaussian diagnostic fits are not
+equivalent to library Potts/assess commands by name. Preserve their historical
+results separately; final producers read fixed-potential and individual-descriptor
+CLI tables. `audit/2026-10-16/FINAL_PRODUCER_DISPOSITION.md` records this disposition.
 
 `tcren export -s INPUT --potential tcren2 --quantity receptor-reference -o OUT.tsv`
 exports exact virtual receptor poly-Ala differences on unchanged contacts for all,

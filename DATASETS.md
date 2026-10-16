@@ -39,14 +39,15 @@ recomputed results in `results_new/`:
 
 ## New benchmarks (benchmark repo)
 
-Everything current lives in `~/vcs/projects/2026-tcren2-code`, not here:
+Benchmark sources and historical evidence live in `~/vcs/projects/2026-tcren2-code`, not here:
 
 | what | where |
 |---|---|
 | dataset catalogue, provenance | `SOURCES.md`, `data/datasets.csv` |
 | every reported number, with its n | `results/ledger.md` |
 | fetch the benchmark cohorts | `bench/scripts/bootstrap_data.py` |
-| receptor ranking — the score set (`tcren assess`), the fit-free `Q` / `T` / `S`, the template split, the composition with AlphaFold confidence | `bench/scripts/tcrvdb_panel.py` and the rest of `recompute.sh`'s `tcrvdb` stage → `bench/eda/out/`. The `P_native` producer `bench/scripts/native_bn.py` and its `native_bn_*.csv` outputs no longer exist there; `P_native` itself was discarded in tcren 2.26.0 |
+| final fixed-potential and individual-descriptor comparisons | `bench/scripts/reproduce_fit_free.py`; recorded CLI exports and matched R summaries. No Gaussian, confidence GLM, covariance-weighted Q/T, cohort-scaled S or fitted Potts final score. |
+| historical fitted receptor readouts and confidence compositions | `recompute.sh --historical`, `bench/scripts/receptor_panels.py`, `bench/pca/` and their recorded outputs; excluded from the final paper graph. Their independent local fits are not equivalent to library CLI models by name. |
 | VDJdb real-versus-mock panel assembly | `bench/scripts/binder_benchmark.py`, `bench/scripts/tcren_binder_score.py` |
 
 Sets `bootstrap_data.py` fetches from HF: `cpl`, `tcrvdb`, `vdjdb_positives`, `vdjdb_negatives`,
