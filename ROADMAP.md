@@ -1,6 +1,6 @@
 # Publication and software roadmap
 
-Reconciled 16 October 2026 against master base `98bb84d`, the final issue-33/35 producer disposition, live GitHub issues and
+Reconciled 16 October 2026 against master base `69759c8`, the issue-32 historical Potts disposition, live GitHub issues and
 recorded benchmark/manuscript sources and the linked issue-34 audit.
 [AUDIT.md](AUDIT.md) owns scientific findings; this file owns remaining work.
 [The example audit](audit/2026-10-16/EXAMPLE_AUDIT.md) records current execution,
@@ -67,14 +67,14 @@ in the software distribution. Completed analyses are not rerun to update this li
 | Completed / manuscript; issues [33](https://github.com/antigenomics/tcren/issues/33), [35](https://github.com/antigenomics/tcren/issues/35) | The final scientific include/producer graph excludes fitted final readouts; all ten method families and estimated parameters have explicit dispositions. All 540 archive files, 242 local model source/output identities and 17 accepted result tables are preserved. Retained descriptive regressions remain. [FINAL_PRODUCER_DISPOSITION.md](audit/2026-10-16/FINAL_PRODUCER_DISPOSITION.md) records the exact reference-identity correction, historical execution guard and future structural CLI semantics; no scientific rerun or replacement fitted score. |
 | P2 / library + benchmark | Four literature-topology columns have recorded differences up to 1.11e-16 from unordered reductions, which can alter tied ranks. Keep all deltas visible. A deterministic-reduction fix needs focused checks and explicit authorization for its affected scientific rerun; do not round scores to suppress differences. |
 | Completed / library; issue [21](https://github.com/antigenomics/tcren/issues/21) | Notebook/stdin calls now use an importable subprocess entrypoint for the existing bounded spawn pool, after whole-set annotation. Real Jupyter, stdin, serial/all/explicit budgets, worker failure/cancellation, physical-key comparisons and manual class-I/II table inspection are recorded in [INTERACTIVE_BATCH_FIX.md](audit/2026-10-16/INTERACTIVE_BATCH_FIX.md). Final affected suite: 58 passed; the full local reference-backed suite hit its 360-second cap and remains incomplete. Preinitialized multithreaded Polars remains unsupported. |
-| Historical/deferred; issue [32](https://github.com/antigenomics/tcren/issues/32) | Custom Potts geometry forwarding and approximation labels were repaired. Complete CLI equivalence for historical decompositions is absent; no final-paper dependency authorizes a new fitted scorer. Preserve the original quantities and identify the outstanding gap. |
+| Closed by historical disposition; issue [32](https://github.com/antigenomics/tcren/issues/32) | Exact scan overlap is verified for centred full-field and fixed-marginal arms; all other decomposition/normalized-weight routes remain explicitly unsupported, not relabelled as scan. Original quantities and regressions are preserved. Custom geometry, physical residue joins, units/signs and the frozen-marginal surrogate are audited in [HISTORICAL_POTTS_DISPOSITION.md](audit/2026-10-16/HISTORICAL_POTTS_DISPOSITION.md). The feature gap is retired with the fitted final model, not claimed implemented. |
 | Separate campaign; issue [26](https://github.com/antigenomics/tcren/issues/26) | Component RMSD, frame selection and close-pair tools exist. The long MD reconstruction and missing original campaign inputs remain unresolved. Verify resources/input provenance before scheduling; reconstructed trajectories cannot become exact historical reproduction by relabelling. |
 
 Six existing issues (#21, #26, #32–35) were open and no PR was open at the
 initial checkpoint. This audit added issue [43](https://github.com/antigenomics/tcren/issues/43)
 for the demonstrated CLI gaps. The subsequent [fix](audit/2026-10-16/CLI_BUDGET_FIX.md)
 resolves #43; the [interactive fix](audit/2026-10-16/INTERACTIVE_BATCH_FIX.md) resolves #21.
-The molecular-panel closure resolves #34. The final producer/disposition audit resolves #33 and #35. Two other issues (#26, #32) retain their independent scope above. Open/closed GitHub state is distinct from the implementation and
+The molecular-panel closure resolves #34. The final producer/disposition audit resolves #33 and #35. The historical Potts disposition retires #32 without claiming complete CLI parity. Only issue #26 retains its independent scope above. Open/closed GitHub state is distinct from the implementation and
 publication evidence above. The current example audit does not certify every CLI,
 reproduce the long MD campaign or authorize paid review, fitting or publication.
 

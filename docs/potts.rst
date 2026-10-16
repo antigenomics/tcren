@@ -566,7 +566,7 @@ carrying that position, and the uncoupled log-partition changes with it:
 
    \Phi^{\mathrm{Potts}}(x) = \log Z_0\big(\eta(x)\big) = \sum_s \log\!\big(1 + e^{\eta_s(x)}\big),
    \qquad
-   \Delta Phi_i(a) = \Phi^{\mathrm{Potts}}(x_{i \to a}) - \tfrac{1}{20}\sum_b \Phi^{\mathrm{Potts}}(x_{i \to b})
+   \Delta\Phi_i(a) = \Phi^{\mathrm{Potts}}(x_{i \to a}) - \tfrac{1}{20}\sum_b \Phi^{\mathrm{Potts}}(x_{i \to b})
 
 Higher is more favourable, and the reference is the **equimolar** one — the mean over the twenty
 residues at that position rather than the residue the structure carries — which is the null a
