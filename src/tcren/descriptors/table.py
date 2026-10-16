@@ -45,7 +45,8 @@ def recognition_table(items, *, organism: str = "human", full: bool = False,
     Default 1 is serial; 0 resolves all allocated cores. Search receives that budget;
     descriptors use at most that many spawn workers over coarse contiguous chunks.
     Each worker uses one native compute thread. No numerical or annotation pool is
-    nested inside the descriptor workers. Output order follows the input order.
+    nested inside the descriptor workers. Workers preserve parsed-input order;
+    parsing failures remain explicit rows.
 
     ``annotate=False`` reuses chain and MHC annotations already attached to input structures.
     Parallel calls require an importable script with an ``if __name__ == "__main__"`` guard;

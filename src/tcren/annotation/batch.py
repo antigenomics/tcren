@@ -20,7 +20,7 @@ from pathlib import Path
 import polars as pl
 
 from ..structure.model import Structure
-from ..runtime import resolve_threads, single_threaded
+from ..runtime import resolve_threads, search_threads, single_threaded
 
 def iter_annotated_set(struct_dir: str | Path, on_error: str = "skip", *, threads: int = 1):
     """Parse and chain-type every structure in a folder, yielding annotated structures.
@@ -186,8 +186,10 @@ def mhc_annotation(
                 for idx, cid, seq in flat:
                     fh.write(f">{idx}|{cid}\n{seq}\n")
             out_tsv = tmp / "hits.tsv"
-            mmseqs.easy_search(query_fa, reference.reference_fasta(), out_tsv,
-                               tmp / "mmseqs_tmp", search_type=1, sensitivity=5.7, max_seqs=50, threads=resolve_threads(threads))
+            with search_threads(threads):
+                mmseqs.easy_search(query_fa, reference.reference_fasta(), out_tsv,
+                                   tmp / "mmseqs_tmp", search_type=1, sensitivity=5.7,
+                                   max_seqs=50, threads=resolve_threads(threads))
             best = _best_hits(out_tsv)
 
     # 3) Build MhcCalls per structure from the sliced hits, reconcile class, summarise.
@@ -252,7 +254,8 @@ def annotate_batch(
     for org in organisms:
         identity_reader = getattr(arda, "reference_index_identity", None)
         identity = identity_reader(org, seqtype="aa") if identity_reader else {"status": "unavailable"}
-        records = list(_annotate(arda, pairs, org, threads))
+        with search_threads(threads):
+            records = list(_annotate(arda, pairs, org, threads))
         if len(records) != len(flat):
             raise RuntimeError("annotation record count differs from query count")
         if identity_reader and identity_reader(org, seqtype="aa") != identity:

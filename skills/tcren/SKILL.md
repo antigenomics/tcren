@@ -19,7 +19,7 @@ Methods to describe an accidental CLI path.
 
 Performance: build the structural peptide reference map once per structure and
 reuse it across interfaces. Profile contact construction separately from table
-scoring and coordinate/SASA descriptors. CPU limits are owned by the package, not user shell exports. Batch commands/APIs
+scoring and coordinate/SASA descriptors. CPU limits are owned by the package, not user shell exports. The repaired surface/scoring/feature/export and annotation paths
 use `threads=1` (serial), `0` (all allocated) or a positive count within allocation.
 Annotation and coarse spawn-worker phases run sequentially, each worker using
 one numerical thread. Import tcren before initializing Polars; an existing
@@ -28,6 +28,8 @@ fresh-process error. Runtime BLAS/OpenMP limits and environment settings are res
 `surface -s MANIFEST -t N` uses one TCR query batch per species and one MHC batch,
 keeps per-input failures, validates positive grid dimensions before annotation,
 and exits nonzero for empty/all-failed output. Mixed runs retain explicit errors.
+Polars async I/O is limited to one thread and blocking I/O to four auxiliary
+workers per process; a blocking pool of one can deadlock and is not used.
 
 ## pMHC feature–performance associations
 

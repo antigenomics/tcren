@@ -718,12 +718,14 @@ Four **marimo** apps ship alongside them (`pip install 'tcren[marimo]'`, then `m
 
 ## CPU budgets and batch failures
 
-For `surface`, `scoring`, `features`, `recognize`, `export`, `inspect-models` and
+For `surface`, `scoring`, `features`, `recognize`, `export` and
 shared annotation/scoring commands, `-t 1` is serial (the default), `-t 0` selects
 all allocated cores, and `-t N` requests a positive count within that allocation.
 Searches receive one complete query batch per species and MHC. Search and coarse
 descriptor/scoring workers run in separate phases; numerical kernels use one
-thread per worker. The software sets native limits without shell exports.
+thread per worker. `inspect-models --threads N` exposes the same modes. The software sets native limits without shell exports.
+Polars additionally gets one async I/O thread and at most four blocking I/O workers
+per process; these are bounded auxiliary threads, separate from the compute budget.
 
 Library callers should import `tcren` before initializing Polars. An already-created
 multithreaded Polars pool cannot be resized; bounded batch APIs reject it with an

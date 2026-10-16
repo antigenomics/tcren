@@ -56,7 +56,7 @@ def test_surface_batch_keeps_parse_failures_and_budget(tmp_path, monkeypatch):
 def test_cpu_modes_and_initialized_native_limits(monkeypatch):
     import os
     import pytest
-    from threadpoolctl import threadpool_info
+    from threadpoolctl import threadpool_info, threadpool_limits
     from tcren import runtime
 
     monkeypatch.setattr(runtime, 'available_cpus', lambda: 2)
@@ -67,10 +67,17 @@ def test_cpu_modes_and_initialized_native_limits(monkeypatch):
     monkeypatch.setenv('OMP_NUM_THREADS', '7')
     before = dict(os.environ)
     with runtime.native_threads():
-        assert all(os.environ[k] == '1' for k in runtime._NATIVE_ENV)
+        assert all(os.environ[k] == ('4' if k == 'POLARS_MAX_BLOCKING_THREAD_COUNT' else '1')
+                   for k in runtime._NATIVE_ENV)
         assert all(p['num_threads'] == 1 for p in threadpool_info())
         assert pl.thread_pool_size() == 1
     assert dict(os.environ) == before
+    if threadpool_info():
+        with threadpool_limits(limits=2):
+            assert all(p['num_threads'] == 2 for p in threadpool_info())
+            with runtime.native_threads():
+                assert all(p['num_threads'] == 1 for p in threadpool_info())
+            assert all(p['num_threads'] == 2 for p in threadpool_info())
     with pytest.raises(RuntimeError, match='probe'):
         with runtime.native_threads():
             raise RuntimeError('probe')
@@ -149,3 +156,50 @@ def test_coarse_workers_are_distinct_and_native_serial():
     rows = parallel_map(_native_worker_probe, list(range(8)), 2)
     assert len({row[0] for row in rows}) == 2
     assert all(row[1] == 1 and all(n == 1 for n in row[2]) for row in rows)
+
+
+def test_nested_cgroup_quota_limits_all_mode(monkeypatch):
+    from tcren import runtime
+    import pytest
+    monkeypatch.setattr(runtime.sys, 'platform', 'linux')
+    monkeypatch.setattr(runtime.os, 'cpu_count', lambda: 16)
+    monkeypatch.setattr(runtime.os, 'sched_getaffinity', lambda pid: set(range(4)), raising=False)
+    files = {'/proc/self/cgroup': '0::/job/child\n', '/sys/fs/cgroup/job/cpu.max': '150000 100000'}
+    monkeypatch.setattr(runtime.Path, 'is_file', lambda p: str(p) in files)
+    def read(path):
+        if str(path) not in files:
+            raise FileNotFoundError(str(path))
+        return files[str(path)]
+    monkeypatch.setattr(runtime.Path, 'read_text', read)
+    assert runtime.resolve_threads(0) == 1
+    with pytest.raises(ValueError, match='allocation'):
+        runtime.resolve_threads(2)
+    files.clear()
+    files.update({'/proc/self/cgroup':'2:cpu,cpuacct:/job/child\n',
+                  '/sys/fs/cgroup/cpu,cpuacct/job/cpu.cfs_quota_us':'200000',
+                  '/sys/fs/cgroup/cpu,cpuacct/job/cpu.cfs_period_us':'100000'})
+    assert runtime.resolve_threads(0) == 2
+
+
+def test_wide_modes_fail_before_the_live_thread_ceiling(monkeypatch):
+    import pytest
+    from tcren import runtime
+    monkeypatch.setattr(runtime, 'available_cpus', lambda: 1000)
+    with pytest.raises(ValueError, match='live-thread ceiling'):
+        runtime.resolve_threads(0)
+    with pytest.raises(ValueError, match='live-thread ceiling'):
+        runtime.check_parallel_entrypoint(128, 128)
+
+
+def test_search_allowance_does_not_force_requested_parallelism_serial(monkeypatch):
+    import os
+    from tcren import runtime
+    monkeypatch.setattr(runtime, 'available_cpus', lambda: 2)
+    previous = dict(os.environ)
+    with runtime.native_threads():
+        with runtime.search_threads(2):
+            assert os.environ['OMP_THREAD_LIMIT'] == '2'
+            assert os.environ['OMP_NUM_THREADS'] == '2'
+            assert os.environ['POLARS_MAX_THREADS'] == '1'
+        assert os.environ['OMP_THREAD_LIMIT'] == '1'
+    assert dict(os.environ) == previous

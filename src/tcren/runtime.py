@@ -10,7 +10,8 @@ import subprocess
 import sys
 from threading import RLock
 
-_NATIVE_ENV = ('POLARS_MAX_THREADS', 'RAYON_NUM_THREADS', 'OPENBLAS_NUM_THREADS',
+_NATIVE_ENV = ('POLARS_MAX_THREADS', 'POLARS_ASYNC_THREAD_COUNT',
+               'POLARS_MAX_BLOCKING_THREAD_COUNT', 'RAYON_NUM_THREADS', 'OPENBLAS_NUM_THREADS',
                'MKL_NUM_THREADS', 'OMP_NUM_THREADS', 'OMP_THREAD_LIMIT',
                'NUMEXPR_NUM_THREADS', 'VECLIB_MAXIMUM_THREADS')
 # ponytail: process-global native limits serialize concurrent API calls; separate processes
@@ -22,7 +23,17 @@ def available_cpus() -> int:
     """Cores available under affinity, scheduler, container and physical-core limits."""
     counts = [os.cpu_count() or 1]
     if hasattr(os, 'sched_getaffinity'):
-        counts.append(len(os.sched_getaffinity(0)))
+        affinity = os.sched_getaffinity(0)
+        counts.append(len(affinity))
+        try:
+            cores = set()
+            for cpu in affinity:
+                topology = Path(f'/sys/devices/system/cpu/cpu{cpu}/topology')
+                cores.add((topology.joinpath('physical_package_id').read_text(),
+                           topology.joinpath('core_id').read_text()))
+            counts.append(len(cores))
+        except OSError:
+            pass  # CPU topology can be hidden by a container; retain affinity limits.
     if sys.platform == 'darwin':
         try:
             result = subprocess.run(['sysctl', '-n', 'hw.physicalcpu'], capture_output=True,
@@ -41,11 +52,15 @@ def available_cpus() -> int:
                 raise ValueError(f'{name} must be a positive integer')
             counts.append(value)
     # cgroup v2 paths may be nested below the mounted root.
-    paths = [Path('/sys/fs/cgroup')]
+    paths = [Path('/sys/fs/cgroup'), Path('/sys/fs/cgroup/cpu'),
+             Path('/sys/fs/cgroup/cpu,cpuacct')]
     try:
         for line in Path('/proc/self/cgroup').read_text().splitlines():
-            if line.startswith('0::'):
-                paths.append(paths[0] / line[3:].lstrip('/'))
+            _, controllers, group = line.split(':', 2)
+            if not controllers:
+                paths.append(paths[0] / group.lstrip('/'))
+            elif 'cpu' in controllers.split(','):
+                paths.extend(root / group.lstrip('/') for root in paths[1:3])
     except FileNotFoundError:
         pass
     for root in paths:
@@ -57,12 +72,12 @@ def available_cpus() -> int:
                 amount, period = quota.read_text().split()
                 if amount != 'max':
                     counts.append(max(1, int(amount) // int(period)))
-    quota = Path('/sys/fs/cgroup/cpu/cpu.cfs_quota_us')
-    if quota.is_file():
-        amount = int(quota.read_text())
-        if amount > 0:
-            period = int(quota.with_name('cpu.cfs_period_us').read_text())
-            counts.append(max(1, amount // period))
+            quota = parent / 'cpu.cfs_quota_us'
+            if quota.is_file():
+                amount = int(quota.read_text())
+                if amount > 0:
+                    period = int(quota.with_name('cpu.cfs_period_us').read_text())
+                    counts.append(max(1, amount // period))
     return max(1, min(counts))
 
 
@@ -81,7 +96,10 @@ def resolve_threads(threads: int = 1) -> int:
     available = available_cpus()
     if count > available:
         raise ValueError(f'requested {count} CPUs exceeds the available allocation ({available})')
-    return count or available
+    selected = count or available
+    if selected + 16 >= 1000:
+        raise ValueError("CPU request exceeds the live-thread ceiling; select fewer than 984 CPUs")
+    return selected
 
 
 @contextmanager
@@ -93,6 +111,8 @@ def native_threads(*, check_polars=True):
         previous = {key: os.environ.get(key) for key in _NATIVE_ENV}
         try:
             os.environ.update(dict.fromkeys(_NATIVE_ENV, '1'))
+            # Tokio needs spare blocking I/O workers to avoid dependency deadlocks.
+            os.environ['POLARS_MAX_BLOCKING_THREAD_COUNT'] = '4'
             with threadpool_limits(limits=1):
                 if check_polars:
                     import polars as pl
@@ -101,6 +121,24 @@ def native_threads(*, check_polars=True):
                                            'use the tcren CLI in a fresh process, or import tcren '
                                            'before initializing Polars')
                 yield
+        finally:
+            for key, value in previous.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+
+
+@contextmanager
+def search_threads(threads):
+    """Give the single external search its CPU budget, then restore serial worker limits."""
+    threads = resolve_threads(threads)
+    with _LOCK:
+        keys = ('OMP_NUM_THREADS', 'OMP_THREAD_LIMIT')
+        previous = {key: os.environ.get(key) for key in keys}
+        try:
+            os.environ.update(dict.fromkeys(keys, str(threads)))
+            yield
         finally:
             for key, value in previous.items():
                 if value is None:
@@ -128,6 +166,9 @@ def single_threaded(function):
 
 
 def check_parallel_entrypoint(count, n_items):
+    # Include bounded native/I/O pools plus parent, tracker and queue overhead.
+    if 8 * min(count, n_items) + 16 >= 1000:
+        raise ValueError("worker request exceeds the live-thread ceiling; use at most 122 workers")
     if count > 1 and n_items > 1:
         entrypoint = getattr(sys.modules.get('__main__'), '__file__', None)
         if not entrypoint or not Path(entrypoint).is_file():

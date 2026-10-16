@@ -11,7 +11,7 @@ from __future__ import annotations
 from functools import lru_cache
 
 from ..structure.model import Chain, RegionMarkup, Structure
-from ..runtime import resolve_threads, single_threaded
+from ..runtime import resolve_threads, search_threads, single_threaded
 from . import domains
 from .mapper import MhcCall, apply_mhc_calls, map_mhc
 
@@ -124,9 +124,10 @@ def annotate_mhc_batch(structures: list[Structure], sensitivity: float = 5.7,
             from ..provenance import searched_index_identity
             target = reference.reference_db()
             identity = searched_index_identity(target)
-            mmseqs.easy_search(query_fa, target, out_tsv,
-                               tmp / "mmseqs_tmp", search_type=1, sensitivity=sensitivity,
-                               max_seqs=50, threads=threads)
+            with search_threads(threads):
+                mmseqs.easy_search(query_fa, target, out_tsv,
+                                   tmp / "mmseqs_tmp", search_type=1, sensitivity=sensitivity,
+                                   max_seqs=50, threads=threads)
             if searched_index_identity(target) != identity:
                 raise RuntimeError("MHC annotation index changed during the search")
             for structure in structures:

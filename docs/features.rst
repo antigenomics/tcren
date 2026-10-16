@@ -707,7 +707,9 @@ CPU ownership
 -------------
 
 Search and descriptor-worker phases share one fixed CPU budget and run sequentially.
-No user thread-limit environment exports are needed. Allocation detection includes
+No user thread-limit environment exports are needed. Polars async I/O uses one
+thread and its blocking I/O pool is capped at four workers per process; these
+auxiliary threads are counted separately from numerical compute threads. Allocation detection includes
 affinity, scheduler counts and Linux cgroup CPU quotas; physical-core topology is
 used when available. Invalid/excessive requests fail before work starts.
 
