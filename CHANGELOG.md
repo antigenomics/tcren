@@ -24,6 +24,11 @@ All notable changes to `tcren` are recorded here. Format follows
 
 ### Fixed
 
+- Canonical physical-key reduction order for literature contact order and
+  participation coefficients; identical contact sets no longer acquire hash-group
+  dependent floating bits. Historical values and tie-sensitive metric regressions
+  remain preserved; no rounding or score-definition change.
+
 - Support bounded multicore descriptor calls from stdin/notebooks using an importable
   subprocess entrypoint for the existing spawn pool, after whole-set annotation.
   Worker failures propagate and private transport is cleaned up (issue #21).

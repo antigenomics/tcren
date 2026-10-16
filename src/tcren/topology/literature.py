@@ -165,19 +165,24 @@ def participation_coefficient(t: pl.DataFrame) -> dict[str, float]:
 
     Returns:
         ``{"partcoef_tcr": float, "partcoef_pmhc": float}``, NaN where no residue is engaged.
+
+    Integer group counts are exact; engaged residues are sorted by physical chain/index
+    before the floating mean. Hash-group traversal must not break otherwise tied scores.
     """
     out: dict[str, float] = {"partcoef_tcr": float("nan"), "partcoef_pmhc": float("nan")}
     # TCR side: does an engaged loop residue reach the peptide, the MHC, or both?
     a = (t.group_by(["cf", "rf", "target"]).len()
          .group_by(["cf", "rf"]).agg(pl.col("len").sum().alias("k"),
-                                     (pl.col("len") ** 2).sum().alias("sq")))
+                                     (pl.col("len") ** 2).sum().alias("sq"))
+         .sort(["cf", "rf"]))
     if a.height:
         out["partcoef_tcr"] = float((1 - a["sq"] / a["k"] ** 2).mean())
     # pMHC side: does an engaged target residue read one CDR loop or several?
     target_keys = ["target", "ct", "rt"] if "ct" in t.columns else ["target", "rt"]
     b = (t.group_by([*target_keys, "loop"]).len()
          .group_by(target_keys).agg(pl.col("len").sum().alias("k"),
-                                         (pl.col("len") ** 2).sum().alias("sq")))
+                                         (pl.col("len") ** 2).sum().alias("sq"))
+         .sort(target_keys))
     if b.height:
         out["partcoef_pmhc"] = float((1 - b["sq"] / b["k"] ** 2).mean())
     return out
@@ -198,20 +203,23 @@ def contact_order(t: pl.DataFrame) -> dict[str, float]:
     Returns:
         ``{"co_pep": float, "co_mhc": float}``, NaN where the target spans under two residues or
         no loop reaches more than one of its residues.
+
+    Chain/loop groups are traversed in sorted key order before the final floating mean.
+    This fixes the reduction order without rounding values or changing the definition.
     """
     out = {"co_pep": float("nan"), "co_mhc": float("nan")}
     if "ct" not in t.columns:
         t = t.with_columns(pl.col("target").alias("ct"))
     for target, key in (("peptide", "co_pep"), ("mhc", "co_mhc")):
-        g = t.filter(pl.col("target") == target)
+        g = t.filter(pl.col("target") == target).sort(["ct", "loop", "rt"])
         if not g.height:
             continue
         seps = []
-        for _, chain in g.group_by("ct"):
+        for _, chain in g.group_by("ct", maintain_order=True):
             span = int(chain["rt"].max()) - int(chain["rt"].min()) + 1
             if span < 2:
                 continue
-            for _, h in chain.group_by("loop"):
+            for _, h in chain.group_by("loop", maintain_order=True):
                 idx = np.unique(h["rt"].to_numpy())
                 if len(idx) > 1:
                     d = np.abs(idx[:, None] - idx[None, :])[np.triu_indices(len(idx), 1)]

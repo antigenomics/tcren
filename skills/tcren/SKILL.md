@@ -1723,3 +1723,13 @@ null expression from a tied hit. Keep the experimental restriction separate. Val
 coordinate peptide, TCR junctions and MHC evidence before attaching experimental
 labels; a matching filename/hash is insufficient. ARDA owns TCR FR/CDR coordinates;
 `annotate_mhc_batch` owns MHC class/role and canonical groove-region projection.
+
+## Deterministic literature-topology reductions
+
+`features -i topology` / `topology.literature` sorts physical residue keys before
+participation means and target-chain/CDR-loop keys before contact-order means.
+The definitions, length normalisation and missingness remain unchanged. Class II
+keeps each groove chain's sequence axis. Input edge order must not alter the four
+`co_pep/co_mhc/partcoef_tcr/partcoef_pmhc` values in one numerical environment.
+No rounding/tie-merging; recalculated ranks can differ from historical unordered
+means. Retain all matched metric losses alongside gains. See `docs/features.rst`.

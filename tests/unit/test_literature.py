@@ -42,6 +42,26 @@ def _frame() -> pl.DataFrame:
     })
 
 
+@pytest.mark.parametrize("class_ii", [False, True])
+def test_graph_reductions_are_exactly_independent_of_contact_row_order(class_ii):
+    """Identical class-I/II edge sets must not acquire different tie-breaking bits."""
+    rng = np.random.default_rng(20261016)
+    rows = []
+    for chain, prefix in [("A", "TRA"), ("B", "TRB")]:
+        for residue in range(60):
+            for target, ct, span in [("peptide", "P", 13), ("mhc", "D", 180), ("mhc", "E", 179)]:
+                for rt in rng.choice(span, size=int(rng.integers(1, 9)), replace=False):
+                    rows.append({"cf": chain, "rf": residue, "loop": f"{prefix}:CDR{residue // 20 + 1}",
+                                 "target": target, "ct": ct, "rt": int(rt)})
+    table = pl.DataFrame(rows)
+    if not class_ii:
+        table = table.filter(pl.col("ct") != "E")
+    expected = {**participation_coefficient(table), **contact_order(table)}
+    for _ in range(12):
+        shuffled = table[rng.permutation(table.height)]
+        assert {**participation_coefficient(shuffled), **contact_order(shuffled)} == expected
+
+
 def test_participation_coefficient_matches_the_hand_computed_value():
     assert participation_coefficient(_frame())["partcoef_tcr"] == pytest.approx(0.25)
 
