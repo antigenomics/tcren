@@ -85,3 +85,10 @@ and number has its raw-input → CLI → summary → render lineage. Run structu
 xref, font and bounds gates; inspect the actual final PDFs. Verify data/code
 availability and deposits within their access boundaries. Finish release approvals
 and verify the public install before claiming a release. There is no date promise.
+
+Joint scalar pMHC context is complete: repeated CLI feature products, exact matched
+score/ipTM preservation, separate template/class strata, component/product support
+checks and published negative changes. See
+[JOINT_FEATURE_PRODUCTS.md](audit/2026-10-16/JOINT_FEATURE_PRODUCTS.md).
+Spatial hydropathy co-localization, independent interaction and a validated ranking
+boost remain distinct scientific gates. Issue 26's Stratos campaign is untouched.
