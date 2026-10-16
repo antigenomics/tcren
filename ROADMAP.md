@@ -68,7 +68,7 @@ in the software distribution. Completed analyses are not rerun to update this li
 | Completed / library + benchmark | Fixed canonical physical-key reduction order for all four literature-topology columns. Two complete fresh raw-coordinate topology passes reproduce exactly across 2,102 CPL, 618 raw TCRvdb and 1,089 VDJdb models; the established 617-row TCRvdb eligibility remains. All original quantities, rank changes and 54 metric decreases versus the publication baseline are preserved alongside gains. Class/template strata remain separate; no rounding, refit or replacement score. [DETERMINISTIC_TOPOLOGY.md](audit/2026-10-16/DETERMINISTIC_TOPOLOGY.md) records wheel, CPU, exact-double TSV and verification evidence. |
 | Completed / library; issue [21](https://github.com/antigenomics/tcren/issues/21) | Notebook/stdin calls now use an importable subprocess entrypoint for the existing bounded spawn pool, after whole-set annotation. Real Jupyter, stdin, serial/all/explicit budgets, worker failure/cancellation, physical-key comparisons and manual class-I/II table inspection are recorded in [INTERACTIVE_BATCH_FIX.md](audit/2026-10-16/INTERACTIVE_BATCH_FIX.md). Final affected suite: 58 passed; the full local reference-backed suite hit its 360-second cap and remains incomplete. Preinitialized multithreaded Polars remains unsupported. |
 | Closed by historical disposition; issue [32](https://github.com/antigenomics/tcren/issues/32) | Exact scan overlap is verified for centred full-field and fixed-marginal arms; all other decomposition/normalized-weight routes remain explicitly unsupported, not relabelled as scan. Original quantities and regressions are preserved. Custom geometry, physical residue joins, units/signs and the frozen-marginal surrogate are audited in [HISTORICAL_POTTS_DISPOSITION.md](audit/2026-10-16/HISTORICAL_POTTS_DISPOSITION.md). The feature gap is retired with the fitted final model, not claimed implemented. |
-| CLI fixed; campaign pending; issue [26](https://github.com/antigenomics/tcren/issues/26) | Installed `md inspect`, `md quality` and `md compare-forces` expose existing exact readouts, atom/component provenance, class-separated exports and CPU limits. 64 focused tests, installed-wheel class-I/II examples and manual table inspection pass; [MD_DIAGNOSTICS.md](audit/2026-10-16/MD_DIAGNOSTICS.md) records acceptance. Stratos has an active original eight-thread MD job: one 100 ns arm is complete, the other remains running; final paired acceptance and missing historical campaign inputs stay unresolved. Do not restart the simulation or relabel reconstruction as exact reproduction. |
+| CLI fixed; campaign pending; issue [26](https://github.com/antigenomics/tcren/issues/26) | Installed `md inspect`, `md quality` and `md compare-forces` expose existing exact readouts, atom/component provenance, class-separated exports and CPU limits. 64 focused tests, installed-wheel class-I/II examples and manual table inspection pass; [MD_DIAGNOSTICS.md](audit/2026-10-16/MD_DIAGNOSTICS.md) records acceptance. The last recorded original eight-thread Stratos campaign had one 100 ns arm complete and the other running; its live state was not rechecked; final paired acceptance and missing historical campaign inputs stay unresolved. Do not restart the simulation or relabel reconstruction as exact reproduction. |
 
 Six existing issues (#21, #26, #32–35) were open and no PR was open at the
 initial checkpoint. This audit added issue [43](https://github.com/antigenomics/tcren/issues/43)
@@ -102,22 +102,42 @@ Independent causal interaction, a validated ranking boost and forced-pose
 sensitivity/specificity remain evidence gates. Assay negatives are not pose truth.
 Issue 26 and Stratos MD are untouched.
 
-CPL DockQ provenance/identity follow-up: historical six-interface totals are
-resolved on 1,108 recovered models; ten fresh comparisons retain all construct
-exclusions, with three verified candidates (one per clone). Recognition interfaces
-are separate from TCR internal and peptide:MHC. All 500 paired diagnostic records
-retain exact per-feature/ipTM rows, class/template separation and weaker values.
-See [CPL_POSE_TRUTH.md](audit/2026-10-16/CPL_POSE_TRUTH.md). Missing original
-reference bytes/version and unrecovered interfaces remain source gates; multiple
-verified coordinate outcomes per intended stratum are still needed for detector
-accuracy. No fitted score or old ranking/label change. Stratos MD remains untouched.
+## Current structural-validation goal — 17 October 2026
 
-Saved cognate pose follow-up: existing batch CLIs cover all required diagnostics.
-Fifteen identity-verified saved predictions (three targets, five ranks each)
-provide matched reference checks with both original confidence fields. Receptor
-placement can reveal confidence selection failures, with confidence successes,
-steric disagreements and undefined descriptors retained. This is within-target
-validation, not a fitted detector or independent fifteen-target benchmark.
-See [COGNATE_POSE_VALIDATION.md](audit/2026-10-16/COGNATE_POSE_VALIDATION.md).
-Historical reference-byte/lineage recovery and independent class/template truth
-remain open; Stratos MD is untouched.
+Existing batched library APIs cover the required measurements; no replacement
+score or fitted model is justified. The complete updated evidence and review
+record is [CPL_LINEAGE_REVIEW.md](audit/2026-10-17/CPL_LINEAGE_REVIEW.md).
+
+Resolved: the original1108-model interface definition;15 saved predictions of
+three sequence-verified targets; MEL8 reference-copy configuration; all-copy
+868/SB27 comparison with504 matched diagnostic records; complete546-model
+reference-deviation reconstruction. Every finite original868 total (215) matches
+5NME copy2, and106 original missing totals reproduce empty peptide alignments.
+ForSB27,133/225 original totals match at least one physical copy;92 remain
+unresolved. The new records preserve all old scores, class/template groups,
+missing values and adverse results. Copies/ranks are not independent targets.
+
+Remaining objective, in order:
+
+1. Recover original868/SB27 interface files, native-coordinate/executable identities
+   and the producing lineage for92 SB27 discrepancies. Newly reconstructed values
+   do not fill missing historical records; original missingness stays explicit.
+2. Validate on independent identical-complex targets within each intended
+   class/template stratum before claiming general forced-pose detector accuracy.
+   Current evidence establishes within-target confidence selection errors and
+   receptor-relative associations; no fitted detector or causal forcing claim.
+3. Retain mechanistic bulge/hydropathy interaction and a validated fit-free ranking
+   boost as separate scientific gates. Existing context associations and every
+   score regression remain; no optimized sign or threshold.
+4. Preserve separate modelled classII and full five-block locked-reproduction
+   gates. Verify code/data availability and public installation through the
+   existing release process, leaving the human PyPI approval untouched.
+5. Keep issue26's MD campaign acceptance separate. Stratos was not accessed or
+   changed; no live campaign-state claim is made by this follow-up.
+
+The simulated structural-immunology review is retained in the benchmark, without
+attributing opinions to named scientists. Its concrete Methods/provenance changes
+are integrated into main/SI, retaining the task distinction and valid findings.
+GitHub checked17October2026: only issue26 remains open; latest published release
+is v4.0.0. Source/CLI implementation, scientific validation and public release
+remain distinct gates.
