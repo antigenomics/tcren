@@ -2637,7 +2637,7 @@ def potts_scan_cmd(
     seed: int = typer.Option(0, "--seed"),
     workers: int | None = typer.Option(None, "-w", "--workers", help="processes; default all cores"),
 ) -> None:
-    """Free-energy effect of every substitution at every partner position.
+    """Historical log-Z0 substitution effects; --coupled uses first-order linear response.
 
     ``map --by position`` reads how engaged a position is expected to be before any residue
     identity is scored; this reads what happens when the identity changes. The partner residue
@@ -2647,7 +2647,10 @@ def potts_scan_cmd(
     ``dF`` is the equimolar-referenced effect -- against the mean over the twenty residues at that
     position, the null a positional-scanning library holds its other positions at -- so it sums to
     zero down a position and is additive across them. Higher is more favourable. Unlike ``map``'s
-    frequencies this is an energy.
+    frequencies these are dimensionless log-partition units (nats), not calibrated binding energy.
+    Positive log Z0 has the opposite sign to the uncoupled statistical free energy.
+    With --coupled, log_z0 stores a frozen-marginal surrogate, not coupled log Z.
+    This historical command does not reproduce all benchmark decomposition or normalized-weight arms.
     """
     from .potts import contact_probabilities, peptide_free_energy
 

@@ -1,5 +1,9 @@
-Contact-map Potts model
-=======================
+Historical contact-map Potts model
+==================================
+
+These fitted models and their empirical outputs are retained for historical and
+methodological reproduction. They are excluded from final fit-free scoring.
+The local benchmark contact GLM is distinct from this coupled model.
 
 Every scoring path elsewhere in ``tcren`` reads a contact map that a structure *has*. This one
 models the map itself: which residue pairs **could** have contacted, which did, and how the
@@ -513,7 +517,7 @@ Command line
    tcren potts map -s complex.pdb --by loop     -o map.tsv    # CDR loop x peptide position
    tcren potts map -s complex.pdb --by position -o import.tsv # peptide residue importance
 
-   # the free-energy effect of every substitution at every peptide position
+   # historical log-Z0 substitution effects (nats; not calibrated binding energy)
    tcren potts scan -s complex.pdb -o scan.tsv
 
 ``score`` emits one row per structure: ``n_sites`` and ``n_contacts`` (the available pairs and
@@ -544,7 +548,7 @@ probability approximation nor the expected count is a binding free energy.
 ``score``, ``contacts`` and ``map`` all take ``--workers`` (default: every core). The per-structure
 numbers are functions of ``(seed, pdb.id)`` alone, so splitting the work changes nothing.
 
-Substituting a residue: the free energy, not the frequency
+Historical substitution log-partition and linear response
 ----------------------------------------------------------
 
 ``map`` reads how engaged a position is expected to be *before any residue identity is scored*.
@@ -556,7 +560,7 @@ residue :math:`a`
 
 with :math:`r_s` — the intercept, the receptor field, the distance profile, region, role and class
 — independent of :math:`a`. Threading :math:`a` through partner position :math:`i` moves every site
-carrying that position, and the interface free energy moves with it:
+carrying that position, and the uncoupled log-partition changes with it:
 
 .. math::
 
@@ -573,10 +577,23 @@ product per cell. Because :math:`\log Z_0` is a sum over independent sites the r
 over positions, so one :math:`L \times 20` table scores a single substitution and any whole partner
 sequence alike. Only ``aa.par`` changes — the backbone, the Cα distances, the receptor residues and
 the partner roles stay the structure's own, the same fixed-backbone approximation every threading
-score in the package makes. A partner position carrying two different residues has no sequence to
+score in the package makes. Custom radii/cutoffs must also agree with the model's fitted categorical blocks; changing the radius alone does not create missing field levels. A partner position carrying two different residues has no sequence to
 substitute into and is rejected rather than averaged.
 
-Unlike ``map``'s frequencies this **is** an energy: :math:`\log Z_0` carries :math:`k_\mathrm{B}T`.
+The positive :math:`\log Z_0` is dimensionless and measured in nats. The uncoupled
+statistical free energy is :math:`-\log Z_0`; neither is a calibrated binding free
+energy. With ``coupled=True``, the preserved ``log_z0`` column contains the frozen-
+marginal linear surrogate, not coupled :math:`\log Z`. Finite substitutions do not
+make the first-order approximation exact. Existing names and values are unchanged.
+
+Only the full-field centred ``F_full`` quantity overlaps the uncoupled scan.
+The centred ``F_full_p`` quantity overlaps its fixed-native-marginal path when
+identical sites, parameters and marginal values are supplied. Benchmark
+composition-removed, pair-only, observed-support, normalized-contact and
+within-clone standardized combinations have no complete equivalent CLI route.
+Do not replace them with ``potts scan``. Their equations, original results and
+losses remain historical evidence; no new fitted replacement is authorized.
+See the issue-32 disposition record in ``audit/2026-10-16/``.
 
 The two terms it separates are different quantities, and which one a task needs is an empirical
 question. :math:`h^{\mathrm{par}}` is **composition** — how much a residue engages an available

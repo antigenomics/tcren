@@ -489,7 +489,14 @@ so adding a matrix to a comparison costs a string rather than a transcription.
   it** (`MIYS850102` carries Bastolla 2001). Check the entry's own author/title/journal before
   citing.
 
-## Contact-map Potts model — `tcren.potts` / `tcren potts`
+## Historical contact-map Potts model — `tcren.potts` / `tcren potts`
+
+Fitted Potts readouts are historical, excluded from final fit-free scoring.
+`potts scan` emits positive uncoupled log Z0 (nats) or fixed-native-marginal
+first-order response. Its coupled `log_z0` column is a linear surrogate, not the
+coupled normalizer. Only full-field centred arms overlap the benchmark; no complete
+CLI equivalence exists for composition/support/normalized-contact combinations.
+Preserve those original quantities and losses; see the issue-32 disposition audit.
 
 Every other scoring path reads the contact map a structure **has**. This one models the map itself:
 the random variable is the whole configuration `sigma`, one binary per *available* residue pair.

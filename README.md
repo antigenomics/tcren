@@ -56,6 +56,9 @@ with explicit provenance. Gaussian/GLM, fitted Potts/transition and reference-es
 Q/T/S readouts remain historical APIs, excluded from final models. See
 [the fit-free contract](docs/fit-free.rst). Recorded fresh reproductions, historical
 protocol checks and remaining release gates are reconciled in [ROADMAP.md](ROADMAP.md).
+Historical `potts scan` retains positive log-partition and first-order response
+quantities; it is not a complete CLI route for every historical decomposition or
+normalized-contact arm. These fitted readouts remain outside final models.
 The final [producer disposition audit](audit/2026-10-16/FINAL_PRODUCER_DISPOSITION.md)
 distinguishes retained descriptive estimates from retired fitted scoring models.
 `reproduce.sh` selects the existing fit-free driver; historical benchmark execution
