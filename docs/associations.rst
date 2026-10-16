@@ -171,7 +171,7 @@ API
    :members: associate, read_table, add_feature_products
 
 Spatial co-localization from exact cells
----------------------------------------
+----------------------------------------
 
 ``tcren export -s structures.txt --quantity pmhc-cells -t 4 -o cells.tsv``
 exports occupied cells and ``cells.tsv.summary.tsv`` from one batched annotation
