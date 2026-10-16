@@ -720,3 +720,21 @@ interpreters are limited at runtime and restored afterward. Spawn workers receiv
 serial native limits before imports. Notebook/stdin calls use an importable subprocess
 entrypoint for that same bounded pool; annotation stays in the parent and completes
 before workers start. Ordinary scripts still require a main guard.
+
+Deterministic literature-topology reductions
+-------------------------------------------
+
+``co_pep``, ``co_mhc``, ``partcoef_tcr`` and ``partcoef_pmhc`` retain their
+original dimensionless definitions and missing-value rules. Integer edge counts
+are grouped as before. Participation coefficients sort engaged residues by physical
+chain/index before their floating mean; pMHC keys also retain target identity.
+Contact order sorts target-chain/CDR-loop groups before averaging their original
+length-normalised separations. Each MHC-II chain keeps its own sequence axis.
+No score rounding or tolerance-based tie merging is applied. This establishes a
+fixed reduction order for identical edges in the same numerical environment;
+it is not a cross-platform floating-point identity guarantee.
+
+Sorting adds at most O(E log E) time and O(E) storage for E edges, using existing
+Polars operations. Existing pairwise sequence-separation work is unchanged.
+Recalculation can alter the last bits of older unordered means and therefore their
+ranks. Compare on identical rows and retain all metric gains and regressions.
