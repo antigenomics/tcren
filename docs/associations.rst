@@ -92,6 +92,39 @@ quartiles and missing counts. ``associations.tsv`` contains descriptive Spearman
 correlations with score performance, matched ipTM performance and their difference.
 ``provenance.json`` retains input hashes, settings and software identity.
 
+Joint scalar features
+---------------------
+
+Use repeatable ``--feature-product LEFT:RIGHT`` options to append raw signed
+per-model products before computing cohort summaries:
+
+.. code-block:: console
+
+   tcren associate --results recorded.tsv --features pmhc_by_id.tsv \
+     --scores directions.json --feature-columns relief,frac_above_ridge,sasa_hydropathy \
+     --feature-product relief:sasa_hydropathy \
+     --feature-product frac_above_ridge:sasa_hydropathy -o joint_associations
+
+The additional columns are ``relief__x__sasa_hydropathy`` (Å times the
+Kyte–Doolittle index) and ``frac_above_ridge__x__sasa_hydropathy`` (dimensionless
+fraction times that index). ``joint_features.tsv`` exports every supplied feature
+row and product; provenance records the source pairs. Do not additionally list
+generated product names in ``--feature-columns``; they are appended automatically.
+Sources must be distinct numeric columns and names must be unique. Missing or
+nonfinite sources, or an overflowing product, give an undefined product, never
+zero imputation. Missing products never remove score/ipTM classification rows.
+
+For model i with shape feature B_i and exposed hydropathy H_i, J_i = B_i H_i.
+The cohort summary is median_i(J_i), not median_i(B_i) median_i(H_i). There is no
+centering, cohort normalization, label-selected weight, threshold or fitting.
+Declare the source features before inspecting joint results. A product association
+describes joint scalar context; it is not evidence of spatial co-localization,
+an interaction independent of the component associations, causation, or improved
+classification by a new scorer. Compare product/component associations on identical
+evaluable cohorts and preserve weaker as well as stronger associations. Product
+construction uses one vectorized Polars expression per pair, O(P N) work for
+P pairs and N models, without additional workers or dependencies.
+
 Algorithm and limits
 --------------------
 
@@ -135,4 +168,4 @@ API
    :members:
 
 .. automodule:: tcren.associations
-   :members: associate, read_table
+   :members: associate, read_table, add_feature_products

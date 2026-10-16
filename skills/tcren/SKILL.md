@@ -84,6 +84,17 @@ score, label-selected direction, p-value or threshold sweep. Missing features do
 not drop score rows. New output directories only; all-unavailable metrics exit
 nonzero. See `docs/associations.rst` for equations, schemas and interpretation.
 
+Joint scalar context: repeat ``--feature-product relief:sasa_hydropathy`` and
+``--feature-product frac_above_ridge:sasa_hydropathy`` to append raw signed
+products (``LEFT__x__RIGHT``), automatically included in associations. The API
+``associations.add_feature_products(features, pairs)`` uses vectorized Polars;
+no labels, centering, fitted weights or thresholds. CLI ``joint_features.tsv``
+and provenance retain exact per-model products/source pairs. Nonfinite/overflow
+products remain missing without changing score/ipTM membership. Summaries use
+the median of products, not the product of medians. These scalar descriptors do
+not establish spatial co-localization, independent interaction or a new score's
+performance gain. Compare against component associations on the same cohorts.
+
 ## Final-model boundary and exact exports (2026-10-15)
 
 Fixed empirical contact potentials are permitted with explicit derivation and table

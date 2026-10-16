@@ -97,3 +97,39 @@ def test_association_cli_writes_provenance_and_refuses_overwrite(tmp_path):
     assert result.exit_code == 0, result.output
     assert (tmp_path / "out/provenance.json").is_file()
     assert CliRunner().invoke(app, args).exit_code != 0
+
+
+def test_raw_joint_products_and_cli_preserve_score_rows(tmp_path):
+    """Signed products are label blind; undefined covariates never remove score rows."""
+    import json
+    from typer.testing import CliRunner
+    from tcren.associations import add_feature_products
+    from tcren.cli import app
+
+    features = pl.DataFrame(dict(id=['a', 'b', 'c', 'd'], relief=[2., 0., None, 1e308],
+                                 sasa_hydropathy=[-3., 4., 5., 1e308]))
+    joint, names = add_feature_products(features, [('relief', 'sasa_hydropathy')])
+    assert names == ['relief__x__sasa_hydropathy']
+    assert joint[names[0]].to_list() == [-6., 0., None, None]
+    assert features.columns == ['id', 'relief', 'sasa_hydropathy']
+    for pairs in [[('relief', 'missing')], [('relief', 'relief')],
+                  [('relief', 'sasa_hydropathy')] * 2, [('id', 'relief')]]:
+        with pytest.raises(ValueError):
+            add_feature_products(features, pairs)
+    rows = pl.DataFrame(dict(id=['a', 'b', 'c', 'd'], dataset=['example']*4,
+        task=['receptor']*4, cohort=['p']*4, mhc_class=['II']*4,
+        template_coverage=['unknown']*4, y=[0, 0, 1, 1], iptm=[.1,.2,.3,.4], score=[4.,3.,2.,1.]))
+    rows.write_csv(tmp_path/'rows.tsv', separator='\t')
+    features.write_csv(tmp_path/'features.tsv', separator='\t')
+    (tmp_path/'scores.json').write_text(json.dumps({'score': -1}))
+    args = ['associate', '--results', str(tmp_path/'rows.tsv'), '--features', str(tmp_path/'features.tsv'),
+            '--scores', str(tmp_path/'scores.json'), '--feature-columns', 'relief,sasa_hydropathy',
+            '--feature-product', 'relief:sasa_hydropathy', '-o', str(tmp_path/'out')]
+    result = CliRunner().invoke(app, args)
+    assert result.exit_code == 0, result.output
+    actual = pl.read_csv(tmp_path/'out/metrics.tsv', separator='\t')
+    baseline = associate(rows, features, {'score': -1}, ['relief', 'sasa_hydropathy'])
+    assert actual.equals(baseline['metrics'])
+    assert pl.read_csv(tmp_path/'out/membership.tsv', separator='\t').equals(baseline['membership'])
+    assert pl.read_csv(tmp_path/'out/joint_features.tsv', separator='\t').equals(joint)
+    assert json.loads((tmp_path/'out/provenance.json').read_text())['feature_products'] == [['relief', 'sasa_hydropathy']]

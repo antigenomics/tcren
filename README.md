@@ -21,7 +21,8 @@ tcren associate --results recorded.csv --features pmhc_by_id.tsv \
 
 The association command keeps MHC class, template coverage, dataset and task
 separate and retains missingness, signed losses and row membership. It fits no
-replacement score. See [input schemas, formulas and limits](docs/associations.rst).
+replacement score. Add `--feature-product relief:sasa_hydropathy` (repeatable)
+to study raw joint scalar context while preserving the same score rows. See [input schemas, formulas and limits](docs/associations.rst).
 
 <p align="center">
   <a href="https://pypi.org/project/tcren/"><img alt="PyPI" src="https://img.shields.io/pypi/v/tcren"></a>
