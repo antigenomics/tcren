@@ -77,4 +77,4 @@ Issues 33 and 35 close by explicit final/historical disposition and graph eviden
 not by implementing a replacement fitted scorer or claiming independent fits
 are CLI reproductions. Issue 32's historical decomposition gap and issue 26's
 long MD campaign remain independent. Release approval and deterministic topology
-reductions remain on the roadmap. No paid review or publication was requested.
+reductions remain on the roadmap. No paid review or release publication was requested.
