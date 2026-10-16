@@ -716,6 +716,27 @@ Four **marimo** apps ship alongside them (`pip install 'tcren[marimo]'`, then `m
 - `confident_negatives.py` — a generator's confidence read together with the coordinates
 - `potts_contact_map.py` — the predicted contact-frequency map beside the contacts a structure made
 
+## CPU budgets and batch failures
+
+For `surface`, `scoring`, `features`, `recognize`, `export` and
+shared annotation/scoring commands, `-t 1` is serial (the default), `-t 0` selects
+all allocated cores, and `-t N` requests a positive count within that allocation.
+Searches receive one complete query batch per species and MHC. Search and coarse
+descriptor/scoring workers run in separate phases; numerical kernels use one
+thread per worker. `inspect-models --threads N` exposes the same modes. The software sets native limits without shell exports.
+Polars additionally gets one async I/O thread and at most four blocking I/O workers
+per process; these are bounded auxiliary threads, separate from the compute budget.
+
+Library callers should import `tcren` before initializing Polars. An already-created
+multithreaded Polars pool cannot be resized; bounded batch APIs reject it with an
+actionable error instead of silently exceeding the budget. Existing BLAS/OpenMP
+pools are limited during calls and caller settings are restored afterward.
+
+`surface` retains parse, annotation and mapping failures in its CSV, succeeds only
+if at least one map is produced, and rejects nonpositive grid dimensions before
+annotation. Inspect error rows even when a mixed batch succeeds. No computed result
+is reused to skip a requested run.
+
 ## Performance
 
 Per-stage wall time (best of *n*) on a TCR-pMHC complex (1ao7), Apple M-series, single thread

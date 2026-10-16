@@ -432,6 +432,10 @@ def confidence_on_contacts(
     return contacts.hstack(pl.DataFrame(extra, schema=schema))
 
 
+from .runtime import resolve_threads, single_threaded
+
+
+@single_threaded
 def inspect_predictions(
     manifest: pl.DataFrame, *, cutoff: float = 5.0, organism: str = "human", threads: int = 1,
     historical_assessment: bool = False,
@@ -455,7 +459,8 @@ def inspect_predictions(
     from .mhc import annotate_mhc_batch
     from .structure import import_structure
 
-    if threads < 1 or not np.isfinite(cutoff) or cutoff <= 0:
+    threads = resolve_threads(threads)
+    if not np.isfinite(cutoff) or cutoff <= 0:
         raise ValueError("threads and cutoff must be positive")
     if not {"complex.id", "structure"} <= set(manifest.columns) or not manifest.height:
         raise ValueError("nonempty manifest with complex.id and structure required")

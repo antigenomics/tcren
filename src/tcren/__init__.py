@@ -6,6 +6,9 @@ contacts, and a configurable per-interface statistical potential, plus percentil
 fast ΔΔG, and a one-call oracle facade composing these for the paper notebooks.
 """
 
+from .runtime import initialize_native_threads
+initialize_native_threads()
+
 from . import potential
 from .binder import is_real_interface
 from .paper.helpers import annotate_batch

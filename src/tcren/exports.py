@@ -205,6 +205,10 @@ def annotation_lineage(organisms) -> dict:
                                   else "batched fixed species")}
 
 
+from .runtime import resolve_threads, single_threaded
+
+
+@single_threaded
 def export_batch(sources, output, *, quantity, peptide_potential, mhc_potential,
                  cutoff=5.0, interface="tcr_peptide", organisms=("human", "mouse"), threads=1,
                  command="tcren export", reference_mode="virtual"):
@@ -224,7 +228,8 @@ def export_batch(sources, output, *, quantity, peptide_potential, mhc_potential,
         raise ValueError("reference_mode must be virtual or structural")
     if reference_mode == "structural" and quantity != "receptor-reference":
         raise ValueError("structural reference requires receptor-reference quantity")
-    if threads < 1 or not organisms or set(organisms) - {"human", "mouse"}:
+    threads = resolve_threads(threads)
+    if not organisms or set(organisms) - {"human", "mouse"}:
         raise ValueError("positive threads and human/mouse organisms are required")
     if quantity not in QUANTITIES or interface not in {"tcr_peptide", "tcr_mhc", "peptide_mhc"}:
         raise ValueError("invalid export quantity or interface")

@@ -11,6 +11,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from .catalogue import DESCRIPTORS, FAMILIES
+from ..runtime import check_parallel_entrypoint, parallel_map, resolve_threads, single_threaded
 from .compute import (
     _footprint_columns,
     _peptide_internal_columns,
@@ -20,6 +21,7 @@ from .compute import (
     recognition_features,
 )
 
+@single_threaded
 def recognition_table(items, *, organism: str = "human", full: bool = False,
                       threads: int = 1, chunk: int = 64,
                       autodetect_species: bool = True, mechanics: bool = False,
@@ -39,18 +41,12 @@ def recognition_table(items, *, organism: str = "human", full: bool = False,
     structure (``complex.id`` + features); a structure that fails yields
     ``{"complex.id": id, "error": ...}`` so the batch stays resilient.
 
-    The two stages run **in sequence** and never compete for the machine.
-
-    *Search* is one arda call per organism plus one mmseqs MHC search, each given every core, over
-    the whole set. *Featurisation* is where the time actually goes — a 100-pose probe spends 96 s
-    there against 2.4 s of arda and 0.9 s of MHC search — and it is pure Python/numpy, so
-    ``threads`` > 1 runs it in that many **worker processes**. The flag keeps its name for
-    compatibility; it has always meant "how much of this machine may I use".
-
-    It used to mean concurrent *threads* over ``chunk``-sized batches, which was the wrong shape
-    twice over: the GIL serialised the 94 % of the work that dominates, and each batch spawned its
-    own mmseqs, so N batches asked for N x cores. Sharding the same work across independent
-    subprocesses was measured 8x faster, which is what this now does directly.
+    Search and featurisation run in sequence with one fixed ``threads`` CPU budget.
+    Default 1 is serial; 0 resolves all allocated cores. Search receives that budget;
+    descriptors use at most that many spawn workers over coarse contiguous chunks.
+    Each worker uses one native compute thread. No numerical or annotation pool is
+    nested inside the descriptor workers. Workers preserve parsed-input order;
+    parsing failures remain explicit rows.
 
     ``annotate=False`` reuses chain and MHC annotations already attached to input structures.
     Parallel calls require an importable script with an ``if __name__ == "__main__"`` guard;
@@ -68,24 +64,18 @@ def recognition_table(items, *, organism: str = "human", full: bool = False,
     costs only their own arithmetic — running ``tcren mechanics`` separately repeats the whole
     parse and both mmseqs searches, and returns a second table keyed differently.
     """
-    import os as _os
-
     from ..annotation import classify_chains
     from ..annotation.arda_adapter import _import_arda
     from ..mhc import annotate_mhc_batch
     from ..annotation.batch import _batch_annotate
     from ..structure import Structure, import_structure
 
+    threads = resolve_threads(threads)
     items = list(items)
-    if threads > 1 and len(items) > 1:
-        import sys
-        from pathlib import Path
-
-        entrypoint = getattr(sys.modules.get("__main__"), "__file__", None)
-        if not entrypoint or not Path(entrypoint).is_file():
-            raise ValueError("parallel descriptors require an importable script with an "
-                             "if __name__ == '__main__' guard; use the CLI for batches "
-                             "or threads=1 in notebooks/stdin")
+    check_parallel_entrypoint(threads, len(items))
+    cores = resolve_threads(_mmseqs_threads) if _mmseqs_threads else threads
+    if cores > threads:
+        raise ValueError("annotation threads cannot exceed the total CPU budget")
     ids, structs, rows = [], [], []
     for id_, src in items:
         try:
@@ -94,8 +84,7 @@ def recognition_table(items, *, organism: str = "human", full: bool = False,
         except Exception as exc:  # noqa: BLE001
             rows.append({"complex.id": id_, "error": f"{type(exc).__name__}: {str(exc)[:80]}"})
 
-    if structs and annotate:          # stage 1: one arda call per organism + one MHC search, all cores
-        cores = _mmseqs_threads or (_os.cpu_count() or 1)
+    if structs and annotate:          # stage 1: one query batch per organism/MHC, within budget
         other = "mouse" if organism == "human" else "human"
         orgs = ((organism, other) if autodetect_species and organism in ("human", "mouse")
                 else (organism,))
@@ -112,12 +101,7 @@ def recognition_table(items, *, organism: str = "human", full: bool = False,
     # 96 s against 2.4 s of arda and 0.9 s of MHC search). It is pure Python/numpy, so processes.
     work = [(id_, s, organism, full, mechanics, include, tuple(radii))
             for id_, s in zip(ids, structs)]
-    if threads > 1 and len(work) > 1:
-        from concurrent.futures import ProcessPoolExecutor
-        with ProcessPoolExecutor(max_workers=min(threads, len(work))) as ex:
-            rows.extend(ex.map(_featurise_one, work, chunksize=max(1, len(work) // (threads * 4))))
-    else:
-        rows.extend(_featurise_one(w) for w in work)
+    rows.extend(parallel_map(_featurise_one, work, threads))
 
     return rows
 

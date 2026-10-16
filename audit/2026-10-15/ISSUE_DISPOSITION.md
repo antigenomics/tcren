@@ -5,7 +5,8 @@ checkpoint. Current source, publication evidence and live issue state are reconc
 in [ROADMAP.md](../../ROADMAP.md) and the
 [example audit](../2026-10-16/EXAMPLE_AUDIT.md). Six earlier issues remain open
 (#21, #26, #32–35); newly reproduced CLI failure/batching/budget gaps are tracked
-in [#43](https://github.com/antigenomics/tcren/issues/43). Earlier pending fresh-run
+in [#43](https://github.com/antigenomics/tcren/issues/43), now resolved by the
+[batched-search and CPU-budget fix](../2026-10-16/CLI_BUDGET_FIX.md). Earlier pending fresh-run
 and publication-restoration statements are superseded where the new records
 provide completion evidence; historical CLI-equivalence/MD limitations remain.
 
