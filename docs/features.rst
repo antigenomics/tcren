@@ -722,7 +722,7 @@ entrypoint for that same bounded pool; annotation stays in the parent and comple
 before workers start. Ordinary scripts still require a main guard.
 
 Deterministic literature-topology reductions
--------------------------------------------
+--------------------------------------------
 
 ``co_pep``, ``co_mhc``, ``partcoef_tcr`` and ``partcoef_pmhc`` retain their
 original dimensionless definitions and missing-value rules. Integer edge counts
