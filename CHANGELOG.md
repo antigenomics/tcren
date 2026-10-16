@@ -17,6 +17,12 @@ All notable changes to `tcren` are recorded here. Format follows
 
 ### Fixed
 
+- `surface` now batches TCR/MHC annotation, keeps failed-input rows and exits nonzero
+  for empty/all-failed output; nonpositive grid dimensions fail before annotation.
+- CPU budgets propagate through shared annotation, scoring, export and descriptor
+  callers. Allocation-aware counts, serial native kernels and coarse spawn workers
+  prevent nested pools; preinitialized unresizable Polars pools fail explicitly.
+
 - Preserve co-best MHC allele candidates and select a deterministic representative,
   avoiding search-order-dependent null-allele labels for cropped grooves.
 

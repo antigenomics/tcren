@@ -20,8 +20,9 @@ from pathlib import Path
 import polars as pl
 
 from ..structure.model import Structure
+from ..runtime import resolve_threads, single_threaded
 
-def iter_annotated_set(struct_dir: str | Path, on_error: str = "skip"):
+def iter_annotated_set(struct_dir: str | Path, on_error: str = "skip", *, threads: int = 1):
     """Parse and chain-type every structure in a folder, yielding annotated structures.
 
     Annotation is **batched**: one arda call per organism covers every chain of every
@@ -58,7 +59,7 @@ def iter_annotated_set(struct_dir: str | Path, on_error: str = "skip"):
             if on_error == "raise":
                 raise
 
-    records_by_struct = _batch_annotate(structures, _import_arda())
+    records_by_struct = _batch_annotate(structures, _import_arda(), threads=threads)
     for idx, s in enumerate(structures):
         try:
             classify_chains(s, organism="human", autodetect_species=True,
@@ -119,7 +120,7 @@ def annotate_structure_set(
     markup_df = pl.DataFrame(markup) if markup else pl.DataFrame()
     return contacts_df, markup_df
 def mhc_annotation(
-    struct_dir, ids=None, organism: str = "human", on_error: str = "skip"
+    struct_dir, ids=None, organism: str = "human", on_error: str = "skip", *, threads: int = 1
 ) -> pl.DataFrame:
     """Per-structure MHC allele + class for a folder (tcren mapper) — fully batched.
 
@@ -159,7 +160,7 @@ def mhc_annotation(
                 raise
 
     # 1) Batched TCR chain-typing so the non-receptor / non-peptide MHC candidates are known.
-    records_by_struct = _batch_annotate(structures, _import_arda())
+    records_by_struct = _batch_annotate(structures, _import_arda(), threads=threads)
     for idx, s in enumerate(structures):
         try:
             classify_chains(s, organism=organism, autodetect_species=True,
@@ -186,7 +187,7 @@ def mhc_annotation(
                     fh.write(f">{idx}|{cid}\n{seq}\n")
             out_tsv = tmp / "hits.tsv"
             mmseqs.easy_search(query_fa, reference.reference_fasta(), out_tsv,
-                               tmp / "mmseqs_tmp", search_type=1, sensitivity=5.7, max_seqs=50)
+                               tmp / "mmseqs_tmp", search_type=1, sensitivity=5.7, max_seqs=50, threads=resolve_threads(threads))
             best = _best_hits(out_tsv)
 
     # 3) Build MhcCalls per structure from the sliced hits, reconcile class, summarise.
@@ -208,22 +209,23 @@ def mhc_annotation(
             "status": "ok",
         })
     return pl.DataFrame(rows)
+@single_threaded
 def annotate_batch(
-    structures, arda=None, organisms=("human", "mouse"), threads: int = 0
+    structures, arda=None, organisms=("human", "mouse"), threads: int = 1
 ) -> list[dict[str, dict[str, dict]]]:
     """Annotate every chain of every structure with one mmseqs call per organism.
+
+    Default is one CPU; ``threads=0`` resolves all allocated cores.
 
     Public since 2.3.0. Batching matters: arda/mmseqs costs seconds per call, so annotating a
     1,000-structure cohort one at a time is minutes of pure index rebuild. Every benchmark that
     scores a cohort needs this, which is why four downstream scripts were reaching into the private
     name.
 
-    ``threads`` caps the mmseqs thread count for THIS call. It matters whenever batches are
-    annotated concurrently: ``arda.annotate_sequences`` does not forward a thread count, so
-    ``annotate_records`` falls back to its ``threads=0`` default, which mmseqs reads as *all cores*.
-    Twelve concurrent batches on a 16-core machine then ask for 192 threads and spend their time
-    context-switching instead of searching. Pass ``max(1, cpu_count // concurrency)``. ``0`` keeps
-    the all-cores default, which is right for a single non-concurrent call.
+    ``threads`` is the fixed search CPU budget: 1 is serial, 0 resolves the current
+    allocation, and a positive count is rejected if it exceeds that allocation.
+    One batched search per organism runs sequentially; searches are never wrapped
+    in an outer worker pool. New and already-initialized native kernels are capped.
 
     Returns ``records[struct_idx][organism][chain_id]`` — the per-structure slices fed to
     :func:`~tcren.annotation.classify_chains` as ``precomputed_records``.
@@ -231,6 +233,7 @@ def annotate_batch(
     ``arda`` defaults to the lazily imported backend; pass an instance to reuse one mmseqs handle
     across a large batch.
     """
+    threads = resolve_threads(threads)
     out: list[dict[str, dict[str, dict]]] = [
         {org: {} for org in organisms} for _ in structures
     ]
@@ -250,6 +253,8 @@ def annotate_batch(
         identity_reader = getattr(arda, "reference_index_identity", None)
         identity = identity_reader(org, seqtype="aa") if identity_reader else {"status": "unavailable"}
         records = list(_annotate(arda, pairs, org, threads))
+        if len(records) != len(flat):
+            raise RuntimeError("annotation record count differs from query count")
         if identity_reader and identity_reader(org, seqtype="aa") != identity:
             raise RuntimeError("annotation index changed during the search")
         for structure in structures:
@@ -271,7 +276,8 @@ def _annotate(arda, pairs, organism: str, threads: int):
             raise ImportError("arda backend cannot enforce the requested thread cap") from exc
         return annotate_records(pairs, organism=organism, seqtype="aa", threads=threads)
     return arda.annotate_sequences(pairs, seqtype="aa", organism=organism)
-def iter_typed(structures: Path, organism: str = "human", *, full_ids: bool = False):
+def iter_typed(structures, organism: str = "human", *, full_ids: bool = False,
+               threads: int = 1, on_error: str = "raise", importer=None):
     """Yield chain-typed structures, annotating a whole set in one batch.
 
     ``classify_chains`` per structure spawns one ``mmseqs easy-search`` per structure, each
@@ -283,29 +289,17 @@ def iter_typed(structures: Path, organism: str = "human", *, full_ids: bool = Fa
     filename stems through the batched parser. Archives retain their parsed
     structures in memory for one annotation batch, just like directory sets.
     """
-    from ..structure import iter_structures, parse_structure, structure_paths
-    from ..structure.io import _TAR_SUFFIXES
-
-    if full_ids or str(structures).lower().endswith(_TAR_SUFFIXES):
-        # One search batch requires retaining the parsed archive, as for a directory set.
-        parsed = [s for _pid, s in iter_structures(structures, importer=parse_structure, full_ids=full_ids)]
-        records = annotate_batch(parsed)
-        from ..annotation import classify_chains
-        for s, precomputed in zip(parsed, records):
-            classify_chains(s, organism=organism, precomputed_records=precomputed)
-            yield s
-        return
-    try:
-        many = len(structure_paths(structures)) > 1
-    except Exception:  # .tar.gz and anything structure_paths cannot enumerate
-        many = False
+    from ..structure import iter_structures, parse_structure
+    from ..structure.io import resolve_sources
     from ..annotation import classify_chains
 
-    if many:
-        yield from iter_annotated_set(structures)
-        return
-    parsed = [s for _pid, s in iter_structures(structures, importer=parse_structure)]
-    records = annotate_batch(parsed)
+    threads = resolve_threads(threads)
+    parsed = [s for source in resolve_sources(structures)
+              for _pid, s in iter_structures(source, importer=importer or parse_structure,
+                                             full_ids=full_ids, on_error=on_error)]
+    if len({s.pdb_id for s in parsed}) != len(parsed):
+        raise ValueError("duplicate structure IDs across input sources; use --full-ids")
+    records = annotate_batch(parsed, threads=threads)
     for s, precomputed in zip(parsed, records):
         classify_chains(s, organism=organism, precomputed_records=precomputed)
         yield s

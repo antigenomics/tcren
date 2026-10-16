@@ -390,6 +390,8 @@ def surface_map(
         ValueError: if the scale or side is unknown, or the groove plane or pMHC atoms
             cannot be located.
     """
+    if len(grid) != 2 or any(not isinstance(n, (int, np.integer)) or isinstance(n, bool) or n < 1 for n in grid):
+        raise ValueError("grid dimensions must be positive integers")
     if scale not in ("kd", "mj"):
         raise ValueError(f"scale must be 'kd' or 'mj', got {scale!r}")
     if side not in ("pmhc", "tcr"):

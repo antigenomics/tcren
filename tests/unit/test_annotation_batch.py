@@ -10,7 +10,8 @@ def test_archive_is_annotated_in_one_batch(monkeypatch):
     structs = [Structure("one", []), Structure("two", [])]
     seen = []
     monkeypatch.setattr(structure, "iter_structures", lambda *a, **k: iter(zip(("one", "two"), structs)))
-    def annotate(items):
+    def annotate(items, **kwargs):
+        assert kwargs["threads"] == 1
         seen.append(list(items))
         return [{"human": {}, "mouse": {}} for _ in items]
     monkeypatch.setattr(batch, "annotate_batch", annotate)
@@ -42,7 +43,7 @@ def test_scoring_full_ids_preserves_raw_stems_in_files_and_archives(tmp_path, mo
         for path in sorted(source_dir.iterdir()):
             stream.add(path, arcname=path.name)
     calls = []
-    monkeypatch.setattr(batch, "annotate_batch", lambda items: calls.append(len(items)) or [{} for _ in items])
+    monkeypatch.setattr(batch, "annotate_batch", lambda items, **kw: calls.append(len(items)) or [{} for _ in items])
     monkeypatch.setattr(annotation, "classify_chains", lambda *a, **kw: None)
     monkeypatch.setattr(mhc, "annotate_mhc_batch", lambda *a, **kw: None)
     monkeypatch.setattr(pipeline, "run", lambda structure, **kw: structure)

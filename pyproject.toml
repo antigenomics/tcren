@@ -23,6 +23,7 @@ dependencies = [
     "biopython>=1.84",
     "scipy>=1.11",
     "numpy>=1.26",
+    "threadpoolctl>=3.1",  # Runtime caps for already-initialized BLAS/OpenMP pools.
     "polars>=1.0",
     "typer>=0.12",
     "requests>=2.31",

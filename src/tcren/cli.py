@@ -41,7 +41,6 @@ Info
 
 from __future__ import annotations
 
-import os
 
 from pathlib import Path
 
@@ -49,6 +48,7 @@ import polars as pl
 import typer
 
 from . import __version__
+from .runtime import native_threads, parallel_map, resolve_threads
 from .annotation import classify_chains
 from .contactmap import TCR_REGIONS, ContactMap
 from .potential import Potential, derive_tcren, derive_tcren_loo, tcren, tcren2
@@ -72,8 +72,26 @@ paper_app = typer.Typer(add_completion=False, help="Nat Comput Sci 2022 reproduc
 app.add_typer(paper_app, name="paper")
 
 
+@app.callback()
+def _runtime(ctx: typer.Context):
+    """Use serial numerical kernels; command budgets control searches/coarse workers."""
+    limits = native_threads()
+    limits.__enter__()
+    ctx.call_on_close(lambda: limits.__exit__(None, None, None))
 
-def _typed_batch(structures, organism: str, mhc: bool = True) -> list:
+
+def _score_pipeline_one(args):
+    from .pipeline import run, score_row
+    structure, kwargs = args
+    try:
+        return score_row(run(structure, typed=True, **kwargs))
+    except Exception as exc:
+        return {"pdb.id": structure.pdb_id, "Phi_total": None,
+                "error": f"{type(exc).__name__}: {str(exc)[:80]}"}
+
+
+
+def _typed_batch(structures, organism: str, mhc: bool = True, *, threads: int = 1) -> list:
     """Every structure of ``structures``, chain-typed and (optionally) MHC-annotated, BATCHED.
 
     Two mmseqs searches for the whole set, never two per structure. Calling ``classify_chains`` or
@@ -85,14 +103,11 @@ def _typed_batch(structures, organism: str, mhc: bool = True) -> list:
     # `structures` is a CLI -s spec: one path, a repeated flag, a comma-separated list, a glob or
     # a manifest. Resolving it here is what makes a repeated -s mean what it says -- `tcren score`
     # declared it as a single Path and silently kept only the last one.
-    from .structure.io import resolve_sources
-
-    structs = [st for src in resolve_sources(structures) for st in _iter_typed(src, organism)]
+    threads = resolve_threads(threads)
+    structs = list(_iter_typed(structures, organism, threads=threads))
     if structs and mhc:
-        import os as _os
-
         from .mhc import annotate_mhc_batch
-        annotate_mhc_batch(structs, threads=max(1, _os.cpu_count() or 1))
+        annotate_mhc_batch(structs, threads=threads)
     return structs
 
 
@@ -182,6 +197,7 @@ def annotate(
     regions: str = typer.Option("all", "--regions", help="which chains to annotate: all|tcr|mhc|peptide"),
     pseudo: bool = typer.Option(False, "--pseudo", help="also mark MHC pseudosequence (MPS) residues"),
     organism: str = typer.Option("human", "--organism"),
+    threads: int = typer.Option(1, "-t", "--threads", help="CPU budget: 1 serial, 0 all allocated, or a positive count"),
 ) -> None:
     """Annotate chains and emit a per-residue region-markup table.
 
@@ -198,7 +214,7 @@ def annotate(
     keep = None if regions == "all" else _REGION_CHAINS[regions]
 
     frames = []
-    for s in _typed_batch(structures, organism, mhc=want_mhc):
+    for s in _typed_batch(structures, organism, mhc=want_mhc, threads=threads):
         pid = s.pdb_id
         if pseudo:
             from .mhc import annotate_pseudo
@@ -219,6 +235,7 @@ def contacts(
     interface: str = typer.Option("tcr_peptide", "--interface", help="tcr_peptide|tcr_mhc|peptide_mhc|all"),
     regions: str = typer.Option("all", "--regions", help="TCR regions on the TCR side: all|cdr|cdr+fr (default: all)"),
     organism: str = typer.Option("human", "--organism"),
+    threads: int = typer.Option(1, "-t", "--threads", help="CPU budget: 1 serial, 0 all allocated, or a positive count"),
 ) -> None:
     """Compute and emit an annotated contact table."""
     if regions not in TCR_REGIONS:
@@ -228,7 +245,7 @@ def contacts(
     # the unrefined table is missing every MHC-side row without saying so.
     need_mhc = interface in ("tcr_mhc", "peptide_mhc", "all")
     frames = []
-    for s in _typed_batch(structures, organism, mhc=need_mhc):
+    for s in _typed_batch(structures, organism, mhc=need_mhc, threads=threads):
         cm = ContactMap.from_structure(s, cutoff=cutoff)
         frames.append(
             (cm.contacts if interface == "all" else cm.interface(interface, tcr_regions=regions))
@@ -676,6 +693,7 @@ def score(
     delta: bool = typer.Option(False, "--delta", help="also report ΔΦ, the poly-alanine-referenced energy"),
     reference: str = typer.Option("structural", "--reference", help="how the poly-alanine baseline is built for --delta: structural (rebuild its own contacts) or virtual (re-index on the template map)"),
     reference_aa: str = typer.Option("A", "--reference-aa", help="reference residue for --delta (default: alanine)"),
+    threads: int = typer.Option(1, "-t", "--threads", help="CPU budget: 1 serial, 0 all allocated, or a positive count"),
 ) -> None:
     """Score candidate epitopes against input structures (end-to-end pipeline).
 
@@ -717,7 +735,7 @@ def score(
     cands = _read_candidates(candidates)
     pools = cands if isinstance(cands, dict) else None
     frames = []
-    for s in _typed_batch(structures, organism, mhc=soft):
+    for s in _typed_batch(structures, organism, mhc=soft, threads=threads):
         # A manifest names the template each pool belongs to; without one every structure scores
         # every candidate, which is the behaviour every existing caller has.
         mine = pools.get(str(s.pdb_id).lower()) if pools is not None else cands
@@ -757,6 +775,7 @@ def ddg_cmd(
     regions: str = typer.Option("all", "--regions", help="TCR regions on the TCR side: all|cdr|cdr+fr (default: all)"),
     organism: str = typer.Option("human", "--organism"),
     cutoff: float = typer.Option(5.0, "--cutoff"),
+    threads: int = typer.Option(1, "-t", "--threads", help="CPU budget: 1 serial, 0 all allocated, or a positive count"),
 ) -> None:
     """ΔΔG of point mutations; ``ddG = E(native) - E(mutant)``, positive => STABILISING.
 
@@ -791,7 +810,7 @@ def ddg_cmd(
     # peptide:MHC interface comes out EMPTY, so `--interface peptide_mhc` returned 0.0 for every
     # mutant and `complex` would silently be the receptor term alone -- the same silent-zero the
     # `cpl` command annotates against.
-    for s in _typed_batch(structures, organism):
+    for s in _typed_batch(structures, organism, threads=threads):
         _pid = s.pdb_id
         cm = ContactMap.from_structure(s, cutoff=cutoff)
         if alanine_scan:
@@ -834,6 +853,7 @@ def cpl_cmd(
     regions: str = typer.Option("all", "--regions", help="TCR regions on the TCR side: all|cdr|cdr+fr (default: all)"),
     organism: str = typer.Option("human", "--organism"),
     cutoff: float = typer.Option(5.0, "--cutoff"),
+    threads: int = typer.Option(1, "-t", "--threads", help="CPU budget: 1 serial, 0 all allocated, or a positive count"),
 ) -> None:
     """Predict a combinatorial-peptide-library response matrix from a template TCR:pMHC structure.
 
@@ -870,7 +890,7 @@ def cpl_cmd(
     frames = []
     # Batched; the MHC pass is not optional here -- the peptide:MHC interface comes out EMPTY
     # without it, which would silently reduce every anchor cell to zero rather than failing.
-    for s in _typed_batch(structures, organism):
+    for s in _typed_batch(structures, organism, threads=threads):
         _pid = s.pdb_id
         cm = ContactMap.from_structure(s, cutoff=cutoff)
         rm = response_matrix(cm, peptide, tcr_potential=pot, mhc_potential=mhc_pot,
@@ -905,6 +925,7 @@ def rank(
     seed: int = typer.Option(0, "--seed"),
     organism: str = typer.Option("human", "--organism"),
     cutoff: float = typer.Option(5.0, "--cutoff"),
+    threads: int = typer.Option(1, "-t", "--threads", help="CPU budget: 1 serial, 0 all allocated, or a positive count"),
 ) -> None:
     """Percentile-rank peptides' TCRen energy against a random pMHC background.
 
@@ -924,7 +945,7 @@ def rank(
     pools = cands if isinstance(cands, dict) else None   # a per-template manifest, see _read_candidates
     src = str(background_source) if background_source is not None else None
     rows = []
-    for s in _typed_batch(structures, organism, mhc=False):   # batched typing, not one per PDB
+    for s in _typed_batch(structures, organism, mhc=False, threads=threads):   # batched typing, not one per PDB
         _pid = s.pdb_id
         cm = ContactMap.from_structure(s, cutoff=cutoff)
         if pools is not None:
@@ -950,7 +971,7 @@ def rank(
 
 @app.command(rich_help_panel=_P_SCORE)
 def surface(
-    structures: Path = typer.Option(..., "-s", "--structures", help="pMHC / TCR-pMHC file, directory, or .tar.gz"),
+    structures: str = typer.Option(..., "-s", "--structures", help="pMHC / TCR-pMHC file, directory, or .tar.gz"),
     out: Path = typer.Option("surface.csv", "-o", "--out", help="per-structure surface-topology descriptors"),
     organism: str = typer.Option("human", "--organism"),
     grid: str = typer.Option("64x32", "--grid", help="map cells as <n_y>x<n_x> (along groove x across)"),
@@ -961,6 +982,7 @@ def surface(
     region: str = typer.Option(None, "--region", help="restrict --compare to one source, e.g. peptide"),
     compare: Path = typer.Option(None, "--compare", help="also write the pairwise map-distance matrix here"),
     cells: Path = typer.Option(None, "--cells", help="also write the long per-cell table here"),
+    threads: int = typer.Option(1, "-t", "--threads", help="CPU budget: 1 serial, 0 all allocated, or a positive count"),
     svg: Path = typer.Option(None, "--svg", help="directory to write one SVG map per structure"),
 ) -> None:
     """Map the pMHC surface a TCR sees — height + hydropathy + charge over the groove.
@@ -985,36 +1007,73 @@ def surface(
     except ValueError as exc:
         raise typer.BadParameter(f"--grid must look like 64x32, got {grid!r}") from exc
 
+    if n_x < 1 or n_y < 1:
+        raise typer.BadParameter("--grid dimensions must be positive integers")
+    threads = resolve_threads(threads)
+
     # MHC annotation is batched. Called per structure it spawns one mmseqs process each -- ~7 s
     # against 0.025 s when 40 structures share a single search -- which made a dataset-scale
     # `tcren surface` run look stalled while it was in fact 40x slower than it had to be.
     from .mhc import annotate_mhc_batch
+    from .annotation import classify_chains
+    from .annotation.batch import annotate_batch
+    from .structure.io import resolve_sources
 
-    maps, rows, comp = [], [], []
-    batch = []
-    for _pid, s in iter_structures(structures, importer=parse_structure):
-        if all(c.chain_type is None for c in s.chains):
-            try:
-                classify_chains(s, organism=organism, autodetect_species=True)
-            except Exception as exc:  # noqa: BLE001
-                rows.append({"structure.id": s.pdb_id, "error": f"{type(exc).__name__}: {exc}"})
-                continue
-        batch.append(s)
-    annotate_mhc_batch(batch, threads=max(1, (os.cpu_count() or 4)))
+    maps, rows, comp, batch = [], [], [], []
+    def parse_one(path, pdb_id):
+        try:
+            structure = parse_structure(path, pdb_id=pdb_id)
+            if not structure.chains or not any(c.residues for c in structure.chains):
+                raise ValueError("structure contains no residues")
+            return structure
+        except Exception as exc:
+            rows.append({"structure.id": pdb_id, "error": f"parse: {type(exc).__name__}: {exc}"})
+            return None
+
+    for source in resolve_sources(structures):
+        try:
+            batch.extend(s for _, s in iter_structures(source, importer=parse_one) if s is not None)
+        except Exception as exc:
+            rows.append({"structure.id": str(source), "error": f"input: {type(exc).__name__}: {exc}"})
+    if len({s.pdb_id for s in batch}) != len(batch):
+        raise typer.BadParameter("duplicate structure IDs in surface inputs")
+    if batch:
+        try:
+            orgs = (organism, "mouse" if organism == "human" else "human")
+            records = annotate_batch(batch, organisms=orgs, threads=threads)
+            if len(records) != len(batch):
+                raise RuntimeError("annotation record count differs from input count")
+            typed = []
+            for structure, record in zip(batch, records):
+                try:
+                    classify_chains(structure, organism=organism, autodetect_species=True,
+                                    precomputed_records=record)
+                    typed.append(structure)
+                except Exception as exc:
+                    rows.append({"structure.id": structure.pdb_id,
+                                 "error": f"typing: {type(exc).__name__}: {exc}"})
+            batch = typed
+            if batch:
+                annotate_mhc_batch(batch, threads=threads)
+        except Exception as exc:
+            rows.extend({"structure.id": s.pdb_id, "error": f"annotation: {type(exc).__name__}: {exc}"}
+                        for s in batch)
+            batch = []
     for s in batch:
         try:
             m = surface_map(s, grid=(n_y, n_x), scale=scale, side=side)
-            maps.append(m)
             if complementarity is not None:
                 other = surface_map(s, grid=(n_y, n_x), scale=scale,
                                     side="tcr" if side == "pmhc" else "pmhc")
                 a, b = (m, other) if side == "pmhc" else (other, m)
                 comp.append({"structure.id": s.pdb_id, "peptide": a.peptide,
                              **surface_complementarity(a, b)})
+            maps.append(m)
         except Exception as exc:  # noqa: BLE001 - keep the batch resilient, report per structure
             rows.append({"structure.id": s.pdb_id, "error": f"{type(exc).__name__}: {exc}"})
 
-    table = surface_table(maps)
+    table = (surface_table(maps) if maps else
+             pl.DataFrame(schema={"structure.id": pl.String, "error": pl.String}))
     if rows:
         table = pl.concat([table, pl.DataFrame(rows)], how="diagonal")
     table.write_csv(str(out))
@@ -1038,6 +1097,9 @@ def surface(
             (svg / f"{m.structure_id}_{channel}.svg").write_text(render_surface_map(m, channel))
         typer.echo(f"wrote {len(maps)} SVG maps to {svg}")
 
+    if not maps:
+        raise typer.Exit(1)
+
 
 @app.command(rich_help_panel=_P_SCORE)
 def recognize(
@@ -1047,7 +1109,7 @@ def recognize(
     organism: str = typer.Option("human", "--organism"),
     full: bool = typer.Option(False, "--full", help="add the 18 CDR3-local frame descriptors (the FramePose strain layer) and the intra-peptide term Phi_pep_int/n_pep_int"),
     mechanics: bool = typer.Option(False, "--mechanics", help="also append the koff proxies from `tcren mechanics` (stiffness tensor, steered rupture, coupling residues) — same table, no second annotation pass"),
-    threads: int = typer.Option(1, "-t", "--threads", help="concurrent annotation batches for a multi-structure run (0 = all cores)"),
+    threads: int = typer.Option(1, "-t", "--threads", help="CPU budget: 1 serial, 0 all allocated; one annotation batch per species"),
     autodetect_species: bool = typer.Option(True, "--autodetect-species/--no-autodetect-species", help="also search mouse to catch a mis-declared organism; --no- halves the annotation cost"),
 ) -> None:
     """Full interface descriptor table for each TCR-pMHC complex (one TSV row per PDB).
@@ -1094,11 +1156,11 @@ def recognize(
         return
 
     items = list(iter_structures(structures, importer=import_structure))
-    import os as _os
+    threads = resolve_threads(threads)
     rows = recognition_table(items, organism=organism, full=full,
                              autodetect_species=autodetect_species,
                              mechanics=mechanics,
-                             threads=threads if threads > 0 else (_os.cpu_count() or 1))
+                             threads=threads)
     table = pl.DataFrame(rows)
     table.write_csv(str(out), separator="\t")
     # stamped like `tcren features`: without this the same binary's `--features` reader refuses
@@ -1175,7 +1237,7 @@ def scoring(
     reference_mode: str = typer.Option("virtual", "--reference-mode", help="structural: truncate to alanine and rebuild contacts; virtual: historical fixed-map substitution"),
     geometry: bool = typer.Option(False, "--geometry", help="also report the interface-geometry descriptors and the decorrelated quality score Q"),
     skip_errors: bool = typer.Option(False, "--skip-errors", help="drop structures that fail instead of writing an error row"),
-    threads: int = typer.Option(1, "-t", "--threads", help="worker processes for a multi-structure run (0 = all cores); each also gets mmseqs threads"),
+    threads: int = typer.Option(1, "-t", "--threads", help="CPU budget: 1 serial, 0 all allocated; searches and workers run in separate phases"),
 ) -> None:
     """Score structures: per-interface contact energies Φ (and ΔΦ, and interface geometry).
 
@@ -1223,8 +1285,7 @@ def scoring(
     ``-t`` sets the mmseqs thread count for those two searches and the worker count for what is
     left, which is contact-map construction and the energy sums in numpy (``-t 0`` uses every core).
     """
-    from .pipeline import run as run_pipeline, score_row
-    from .structure.io import resolve_sources
+    threads = resolve_threads(threads)
 
     if reference_mode not in ("virtual", "structural"):
         raise typer.BadParameter("--reference-mode must be virtual or structural")
@@ -1243,41 +1304,22 @@ def scoring(
               potentials=potentials, tcr_regions=regions, contact_weight=contact_weight,
               reference_aa=reference_aa if delta else None, intra_weight=intra_weight,
               reference_mode=reference_mode)
-    def score_struct(s, typed=False):
-        return score_row(run_pipeline(s, typed=typed, **kw))
 
     # Chain typing is one mmseqs search per structure and dominated a cohort run. It is done
     # here for the whole cohort in a handful of searches (one per organism) and the scorer is
     # told not to repeat it -- threads only ever hid that cost behind more concurrent mmseqs
     # processes, each of which defaults to every core.
-    structs = [s for src in resolve_sources(structures) for s in _iter_typed(src, organism, full_ids=full_ids)]
+    structs = list(_iter_typed(structures, organism, full_ids=full_ids, threads=threads))
     # ... and MHC annotation the same way: ONE mmseqs search over every candidate MHC chain of
     # every structure, mmseqs threading internally. Without this `pipeline.run` called
     # `annotate_mhc` per structure and `superimpose` re-ran BOTH annotations again, so a
     # four-structure run made 48 mmseqs calls and spent 91% of its time in subprocess.poll.
     if structs:
-        import os as _os
         from .mhc import annotate_mhc_batch
-        annotate_mhc_batch(structs, threads=(threads if threads > 0 else (_os.cpu_count() or 1)))
+        annotate_mhc_batch(structs, threads=threads)
 
     rows, failed, first_error = [], 0, None
-    def one(s):
-        try:
-            return score_struct(s, typed=True)
-        except Exception as exc:  # noqa: BLE001 - keep the batch resilient
-            return {"pdb.id": s.pdb_id, "Phi_total": None,
-                    "error": f"{type(exc).__name__}: {str(exc)[:80]}"}
-
-    if threads == 1:
-        results = map(one, structs)
-    else:
-        import os as _os
-        from concurrent.futures import ThreadPoolExecutor
-        n = threads if threads > 0 else (_os.cpu_count() or 1)
-        # What is left after annotation is contact-map construction and the energy sums, which
-        # spend their time in numpy and release the GIL.
-        ex = ThreadPoolExecutor(max_workers=n)
-        results = ex.map(one, structs)
+    results = parallel_map(_score_pipeline_one, [(s, kw) for s in structs], threads)
     for r in results:
         if r.get("Phi_total") is None and "error" in r:
             failed += 1
@@ -1296,14 +1338,11 @@ def scoring(
         # `tcren recognize` stays the one definition of every descriptor.
         from .cohort import Q_FEATURES_GEOM, q_score
         from .recognition import recognition_table
-        from .structure.io import import_structure
 
-        items = [it for src in resolve_sources(structures)
-                 for it in iter_structures(src, importer=import_structure, on_error="skip", full_ids=full_ids)]
-        import os as _os2
+        items = [(s.pdb_id, s) for s in structs]
         geo = pl.DataFrame(recognition_table(
             items, organism=organism,
-            threads=threads if threads > 0 else (_os2.cpu_count() or 1)))
+            threads=threads, annotate=False))
         indexes = annotation_indexes((s for _, s in items), indexes)
         geo = geo.with_columns(pl.Series("Q", q_score(geo, features=Q_FEATURES_GEOM)))
         keep = ["complex.id", *Q_FEATURES_GEOM, "pitch", "crossing", "Q"]
@@ -1343,6 +1382,7 @@ def energy(
     shell: float = typer.Option(12.0, "--shell", help="partner atoms within this many Å of the peptide (DOPE range)"),
     organism: str = typer.Option("human", "--organism"),
     seed: int = typer.Option(0, "--seed", help="refinement seed (with --relax)"),
+    threads: int = typer.Option(1, "-t", "--threads", help="CPU budget: 1 serial, 0 all allocated, or a positive count"),
 ) -> None:
     """DOPE atom-level interaction energy across the peptide↔partner interface (the ``_relax`` kernel).
 
@@ -1356,7 +1396,7 @@ def energy(
     rows = []
     # Batched typing: `classify_chains` here spawned one mmseqs per structure. No MHC pass is
     # needed -- the DOPE kernel reads the peptide and its partner atoms, not the groove split.
-    for s in _typed_batch(structures, organism, mhc=False):
+    for s in _typed_batch(structures, organism, mhc=False, threads=threads):
         pid = s.pdb_id
         try:
             row = {"pdb.id": pid, "e_native": interface_energy(s, shell=shell)}
@@ -1380,7 +1420,7 @@ def mechanics(
     direction: str = typer.Option("tensile", "--direction", help="rupture pull: tensile|shear|auto"),
     break_strain: float = typer.Option(0.5, "--break-strain", help="fractional extension at which a spring breaks"),
     organism: str = typer.Option("human", "--organism"),
-    threads: int = typer.Option(1, "-t", "--threads", help="worker processes for the scoring stage (0 = all cores); the mmseqs searches always use all cores"),
+    threads: int = typer.Option(1, "-t", "--threads", help="CPU budget: 1 serial, 0 all allocated; searches and workers run in separate phases"),
     autodetect_species: bool = typer.Option(True, "--autodetect-species/--no-autodetect-species", help="also search mouse to catch a mis-declared organism; --no- halves the annotation cost"),
 ) -> None:
     """Interface mechanics — the koff proxies: stiffness tensor + steered rupture + coupling residues.
@@ -1400,20 +1440,14 @@ def mechanics(
     # Stage 1: annotate the whole set in one mmseqs search per organism. One call per structure
     # rebuilds the arda index every time -- that is the difference between ~2/s and ~8/s on a
     # cohort, and it is why this command used to be the slow one.
+    threads = resolve_threads(threads)
     items = list(iter_structures(structures, importer=parse_structure))
     _annotate_set([s for _, s in items], organism=organism,
-                  autodetect_species=autodetect_species)
+                  autodetect_species=autodetect_species, threads=threads)
     # Stage 2: the spring network, which is where the time goes and is pure Python/numpy.
     # `threads` > 1 runs it in that many worker processes; the stages never overlap.
     work = [(pid, s, cutoff, weight, direction, break_strain) for pid, s in items]
-    if threads != 1 and len(work) > 1:
-        import os as _os
-        from concurrent.futures import ProcessPoolExecutor
-        n = min(threads if threads > 0 else (_os.cpu_count() or 1), len(work))
-        with ProcessPoolExecutor(max_workers=n) as ex:
-            rows = list(ex.map(_mechanics_one, work, chunksize=max(1, len(work) // (n * 4))))
-    else:
-        rows = [_mechanics_one(w) for w in work]
+    rows = parallel_map(_mechanics_one, work, threads)
     pl.DataFrame(rows).write_csv(str(out))
     typer.echo(f"wrote {out}")
 
@@ -1430,10 +1464,10 @@ def _mechanics_one(args) -> dict:
         return {"pdb.id": pid, "K_tens": None, "error": f"{type(exc).__name__}: {str(exc)[:80]}"}
 
 
-def _annotate_set(structs, *, organism: str, autodetect_species: bool) -> None:
-    """Chain-type and MHC-annotate a whole set in place: one mmseqs search per organism, all cores.
+def _annotate_set(structs, *, organism: str, autodetect_species: bool, threads: int = 1) -> None:
+    """Chain-type and MHC-annotate a whole set in place: one mmseqs search per organism, within budget.
 
-    mmseqs parallelises internally, so it is handed the whole set once rather than N concurrent
+    mmseqs parallelises internally within the selected budget; it gets the whole set, not N concurrent
     batches. The previous shape ran a thread pool over 64-structure batches, and since arda leaves
     mmseqs at its all-cores default, N batches asked for N x cpu_count and the run thrashed. The
     MHC search was worse off still: it was called with no thread count at all, so it ran
@@ -1441,8 +1475,6 @@ def _annotate_set(structs, *, organism: str, autodetect_species: bool) -> None:
 
     The MHC pass must stay AFTER chain typing, or the MHC interfaces come out silently empty.
     """
-    import os as _os
-
     from .annotation import classify_chains
     from .annotation.arda_adapter import _import_arda
     from .mhc import annotate_mhc_batch
@@ -1451,8 +1483,9 @@ def _annotate_set(structs, *, organism: str, autodetect_species: bool) -> None:
     structs = [s for s in structs if s is not None]
     if not structs:
         return
-    cores = _os.cpu_count() or 1
-    orgs = (organism, "mouse") if autodetect_species else (organism,)
+    cores = resolve_threads(threads)
+    other = "mouse" if organism == "human" else "human"
+    orgs = (organism, other) if autodetect_species else (organism,)
     recs = annotate_batch(structs, _import_arda(), organisms=orgs, threads=cores)
     for i, s in enumerate(structs):
         try:
@@ -1476,6 +1509,7 @@ def refine(
     max_chi: int = typer.Option(2, "--max-chi", help="chi angles sampled per residue when repacking"),
     mmcif: bool = typer.Option(False, "--mmCIF", help="write mmCIF (.cif) instead of PDB"),
     compress: bool = typer.Option(False, "--compress", help="gzip the output (.gz)"),
+    threads: int = typer.Option(1, "-t", "--threads", help="CPU budget: 1 serial, 0 all allocated, or a positive count"),
 ) -> None:
     """Potential-guided rigid-body refinement of the peptide pose (knowledge-based, not physics).
 
@@ -1498,7 +1532,7 @@ def refine(
 
     out.mkdir(parents=True, exist_ok=True)
     rows = []
-    for s in _typed_batch(structures, organism, mhc=False):   # batched typing, not one per PDB
+    for s in _typed_batch(structures, organism, mhc=False, threads=threads):   # batched typing, not one per PDB
         pid = s.pdb_id
         try:
             if substitute:
@@ -1786,7 +1820,7 @@ def features(
     all_families: bool = typer.Option(False, "--all", help="every family, kinetics included"),
     organism: str = typer.Option("human", "--organism"),
     radii: str = typer.Option("7,8", "--radii", help="Calpha thresholds for the footprint flag complex (topology family)"),
-    threads: int = typer.Option(1, "-t", "--threads", min=0, help="worker processes for featurisation (0 = all cores); annotation is always one batched call"),
+    threads: int = typer.Option(1, "-t", "--threads", min=0, help="CPU budget: 1 serial, 0 all allocated; one annotation batch then coarse descriptor workers"),
     autodetect_species: bool = typer.Option(True, "--autodetect-species/--no-autodetect-species", help="also search mouse to catch a mis-declared organism; --no- halves the annotation cost"),
     metadata: bool = typer.Option(True, "--metadata/--no-metadata", help="join the set's metadata.tsv (label, epitope, allele, ipTM/pLDDT) when one ships beside the structures"),
     chunk: int = typer.Option(
@@ -1836,7 +1870,6 @@ def features(
         tcren features -s models/ --all -t 0 -o feats.tsv            # everything, all cores
         tcren recognize --features feats.tsv -o scores.tsv           # score without re-reading structures
     """
-    import os as _os
 
     from .recognition import FAMILIES, recognition_table
     from .structure.io import import_structure
@@ -1850,7 +1883,7 @@ def features(
     except ValueError as exc:
         raise typer.BadParameter(f"--radii must be comma-separated numbers, got {radii!r}") from exc
 
-    n_threads = threads if threads > 0 else (_os.cpu_count() or 1)
+    n_threads = resolve_threads(threads)
 
     from .provenance import annotation_indexes
     indexes = {}
@@ -1988,7 +2021,7 @@ def main() -> None:
     """
     try:
         app()
-    except OSError as exc:
+    except (OSError, ValueError, RuntimeError) as exc:
         typer.secho(f"Error: {exc}", fg=typer.colors.RED, err=True)
         raise SystemExit(1) from None
 
@@ -2673,7 +2706,7 @@ def export_exact(
     organism: list[str] = typer.Option(["human", "mouse"], "--organism"),
     threads: int = typer.Option(1, "-t", "--threads"),
 ) -> None:
-    """Exact virtual receptor reference or publication decomposition, with lineage and errors.
+    """Exact structural/virtual receptor reference or publication decomposition, with lineage and errors.
 
     Accepts files, directories, tar archives, globs and manifests. Writes accounting, physical
     residue identities, exact potential tables and provenance beside the output.

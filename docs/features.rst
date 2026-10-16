@@ -97,7 +97,7 @@ Options
      - organism passed to the TCR annotator
    * - ``-t``, ``--threads``
      - ``1``
-     - worker processes for featurisation (``0`` = all cores); annotation stays one batched call
+     - CPU budget: 1 serial (default), 0 all allocated, positive count within allocation; one annotation batch then coarse single-threaded numerical workers
    * - ``--autodetect-species`` / ``--no-autodetect-species``
      - on
      - also search mouse, to catch a mis-declared organism; ``--no-`` halves the annotation cost
@@ -702,3 +702,18 @@ of them is fit-free and defined for a single structure.
    downstream: pass the whole cohort you are ranking. Evaluation is the other side of that line —
    ROC/PR, bootstrap intervals, and anything that consumes a binding label stay outside the
    library, because this package is built to score without one.
+
+CPU ownership
+-------------
+
+Search and descriptor-worker phases share one fixed CPU budget and run sequentially.
+No user thread-limit environment exports are needed. Allocation detection includes
+affinity, scheduler counts and Linux cgroup CPU quotas; physical-core topology is
+used when available. Invalid/excessive requests fail before work starts.
+
+Import ``tcren`` before initializing Polars in library code. Polars cannot resize an
+already-created pool: bounded batch APIs reject a preinitialized multithreaded pool
+with an actionable fresh-process instruction. BLAS/OpenMP kernels in initialized
+interpreters are limited at runtime and restored afterward. Spawn workers receive
+serial native limits before imports; interactive parallel calls still require the
+existing guarded-script/CLI workflow.

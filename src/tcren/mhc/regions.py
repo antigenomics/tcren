@@ -11,6 +11,7 @@ from __future__ import annotations
 from functools import lru_cache
 
 from ..structure.model import Chain, RegionMarkup, Structure
+from ..runtime import resolve_threads, single_threaded
 from . import domains
 from .mapper import MhcCall, apply_mhc_calls, map_mhc
 
@@ -91,6 +92,7 @@ def annotate_mhc(structure: Structure) -> list[MhcCall]:
     return calls
 
 
+@single_threaded
 def annotate_mhc_batch(structures: list[Structure], sensitivity: float = 5.7,
                        threads: int = 1) -> None:
     """MHC-annotate many (chain-typed) structures with a SINGLE mmseqs search.
@@ -108,6 +110,7 @@ def annotate_mhc_batch(structures: list[Structure], sensitivity: float = 5.7,
     from . import reference
     from .mapper import _best_hits, _candidate_chains, calls_from_hits
 
+    threads = resolve_threads(threads)
     flat = [(i, c) for i, s in enumerate(structures) for c in _candidate_chains(s) if c.sequence()]
     best: dict[str, dict] = {}
     if flat:
