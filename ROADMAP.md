@@ -1,3 +1,22 @@
+## 17 October: scientific and dependency reconciliation
+
+The existing CLI exports already cover separated contact graphs, intrinsic peptide/CDR
+geometry and receptor-relative placement. No replacement scorer or new annotation
+framework was needed. Cognate bound references can be used with recorded framework
+variants; framework identity is not an automatic pose-validation exclusion. Peptide,
+MHC and relevant loop correspondence stay explicit. This supersedes treating exact
+full-framework identity as a prerequisite for the cognate 868 comparison.
+
+Historical DockQ artifact authentication remains an archival task, not a blocker to
+fresh cognate structural validation. Class-II and scarce-template extensions remain
+separate evidence scopes rather than prerequisites for the existing class-I result.
+No fitted final score or Stratos MD operation.
+
+Dependency requirements are implemented: Arda's batch region markup and content-bound
+index provenance, and seqtree's bounded batch/alignment/grouped APIs. Release follow-up
+is explicit in [seqtree #18](https://github.com/antigenomics/seqtree/issues/18) and
+[Arda #149](https://github.com/antigenomics/arda/issues/149). The author owns publication.
+
 ## 17 October: interface shape definitions and exports
 
 Implemented and checked separate CDR:peptide / CDR:MHC / peptide:MHC contact graphs
