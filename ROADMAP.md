@@ -1,3 +1,14 @@
+## 17 October: full model-only assay extension
+
+The complete 2719-model CPL and separate YLQ/GLC backbone export and fixed-direction
+CLI evaluation are verified. Existing APIs suffice: 34 model-only diagnostics,
+1476 accuracy values, 111479 memberships and 1008 label-conditioned spatial
+associations. CPL chemistry gains and the MEL8 pose-to-assay transfer failure
+are retained together; 126 prior baseline comparisons are unchanged. See benchmark
+`ASSAY_DEFORMATION_VALIDATION.md`. All class/template populations remain separate.
+No fitted score, native-reference classifier or Stratos MD operation. Additional
+independent nonbinder structural truth remains the next evidence scope.
+
 ## 17 October: local conformation and spatial-chemistry validation
 
 The next matched post-analysis is complete: 384 associations on 20 cognate saved
