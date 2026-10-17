@@ -184,3 +184,41 @@ def test_structural_reference_cli_requires_alanine_delta(tmp_path):
     assert result.exit_code == 2
     assert 'requires' in result.output
     assert not (tmp_path / 'scores.csv').exists()
+
+
+def test_separate_contact_topology():
+    # K2,2 has one component and one graph cycle; disjoint edges have two components.
+    structure = typed_structure()
+    cm = ContactMap.from_structure(structure)
+    from types import SimpleNamespace
+    schema = {"chain.id.from": pl.String, "residue.index.from": pl.Int64,
+              "chain.id.to": pl.String, "residue.index.to": pl.Int64,
+              "region.type.from": pl.String}
+    cycle = pl.DataFrame([("D", i, "C", j, "CDR3") for i in range(2) for j in range(2)],
+                         schema=schema, orient="row")
+    separate = pl.DataFrame([("C", i, "A", i, "PEPTIDE") for i in range(2)],
+                            schema=schema, orient="row")
+    frames = {"tcr_peptide": cycle, "tcr_mhc": cycle.clear(), "peptide_mhc": separate}
+    rows = exports.contact_topology(SimpleNamespace(interface=frames.__getitem__)).to_dicts()
+    assert [(r["vertices"], r["edges"], r["beta0"], r["beta1"], r["available"])
+            for r in rows] == [(4,4,1,1,True), (0,0,0,0,False), (4,2,2,0,True)]
+    actual = exports.export_structure(structure, "contact-topology", None, None)
+    assert actual["interface"].to_list() == list(frames)
+    assert_frame_equal(exports.contact_topology(cm), actual)
+
+
+def test_backbone_export_reuses_geometry_and_is_rigid_invariant():
+    import numpy as np
+    from tcren.geometry import cdr3_internal_coords
+    s = typed_structure()
+    row = exports.export_structure(s, "backbone", None, None)
+    coords = cdr3_internal_coords(s, 'cdr3a')
+    bonds = row.filter((pl.col('chain.type') == 'TRA') & (pl.col('metric') == 'ca_bond'))
+    np.testing.assert_allclose(bonds['value'], coords.bonds)
+    for c in s.chains:
+        for r in c.residues:
+            for a in r.atoms:
+                a.coord[:] = a.coord @ np.array([[0., -1., 0.], [1., 0., 0.], [0., 0., 1.]]) + np.array([4., -3., 2.])
+    moved = exports.backbone_table(s)
+    np.testing.assert_allclose(row['value'], moved['value'], atol=1e-10)
+    assert 'residue.index.pdb.1' in row.columns

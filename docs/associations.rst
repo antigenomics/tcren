@@ -258,3 +258,36 @@ Existing sequence/construct and class/template gates still apply.
 Permissive historical mappings can also combine crystallographic copies and
 change the number of nonempty interfaces in the total. Retain that count; do not
 assume every historical multimer total averages the same six physical interfaces.
+
+Separate geometry, graph topology and spectral diversity
+--------------------------------------------------------
+
+``export --quantity contact-topology`` needs no potential. It exports CDR:peptide,
+CDR:MHC and peptide:MHC separately, using one batched annotation pass. The columns
+``vertices`` and ``edges`` count contacted physical residues and unique contact
+pairs. ``beta0`` counts connected components; ``beta1 = edges - vertices + beta0``
+counts independent graph cycles. Empty interfaces have zero counts and
+``available=false``. Both class-II groove chains remain present. These graph
+Betti numbers differ from the spatial flag-complex Betti numbers of ``footprint``.
+
+Normalized effective rank instead describes the singular-value diversity of a
+Gaussian C-alpha proximity matrix, with fixed scale 5 Angstrom. For singular
+values s and smaller resolved residue count q, it is (sum(s))^2/(q sum(s^2)).
+The ideal range is 1/q to 1, with larger values indicating more spatial patterns.
+``m_erank_tp`` uses CDR:peptide and ``m_erank_tm`` CDR:MHC helix residues. Missing
+or underspecified matrices return NaN. Docking angles, loop apex position and
+peptide bulge are separate geometric measurements, not graph cycles or evidence
+of forced deformation by themselves.
+
+Intrinsic backbone geometry
+---------------------------
+
+``export --quantity backbone`` exports C-alpha virtual bond lengths (Angstrom),
+pseudo bond angles and signed torsions (radians), separately for peptide and each
+annotated TRA/TRB CDR1/2/3. Each window retains its observed indices, author residue
+numbers, insertion codes and amino acids. Existing geometry primitives own the
+calculations. Missing C-alpha or discontinuous observed indices split windows;
+SEQRES completeness still requires a separate sequence audit. These quantities
+are invariant to rigid placement. Compare only verified corresponding windows,
+using circular differences for torsions. No strain threshold or nonbinding
+classification is implied; genuine induced fit can also change loop geometry.

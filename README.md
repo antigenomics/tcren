@@ -14,6 +14,10 @@ compare recorded scores with ipTM on exactly matched rows:
 
 ```sh
 tcren export -s structures.txt --quantity pmhc -o pmhc.tsv
+# Separate CDR:peptide, CDR:MHC and peptide:MHC residue-contact graphs
+tcren export -s structures.txt --quantity contact-topology -o graphs.tsv -t 1
+# Intrinsic peptide/CDR backbone geometry with physical residue windows
+tcren export -s structures.txt --quantity backbone -o backbone.tsv -t 1
 tcren associate --results recorded.csv --features pmhc_by_id.tsv \
   --scores directions.json --feature-columns relief,frac_above_ridge,sasa_hydropathy \
   -o associations

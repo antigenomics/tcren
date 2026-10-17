@@ -1819,3 +1819,35 @@ assume every historical multimer total averages the same six physical interfaces
 ## Pose accuracy versus forced deformation (17 October 2026)
 
 A forced-pose hypothesis concerns implausible peptide/CDR deformation accommodating a non-binding pair. Receptor-relative placement, DockQ disagreement and score/confidence inversion are distinct measurements and cannot label that hypothesis as truth. Existing `md quality`, coordinate diagnostics and local frame descriptors are structural diagnostics; no detector accuracy follows without independently verified outcomes and appropriate construct correspondence. Natural induced fit can rearrange loops in genuine binders. Compare physical biological roles and observed receptor/peptide/MHC constructs before accepting pose truth; keep saved ranks within one target rather than counting them as independent targets. Fit lines used to display cohort associations do not become fitted scoring models.
+
+## Separate contact topology and effective rank
+
+`tcren export -s structures.txt --quantity contact-topology -o graphs.tsv -t 1`
+uses the existing batched annotation and ContactMap. It returns three rows per
+complex: CDR:peptide, CDR:MHC and peptide:MHC (both groove chains for class II).
+Vertices are contacted physical residues; edges are unique residue pairs at the
+specified heavy-atom cutoff. `beta0` counts graph components and
+`beta1 = edges - vertices + beta0` counts independent graph cycles. Empty graphs
+have zero counts and `available=false`; they are not zero-valued binder scores.
+These are not the spatial flag-complex Betti numbers in `footprint`.
+
+`m_erank_tp` and `m_erank_tm` are different quantities: singular-value diversity
+of CDR C-alpha proximity to peptide and MHC helices, respectively. With
+`K_uv=exp(-d_uv²/(2 sigma²))`, sigma=5 Å, singular values s and
+q=min(number of resolved residues on each side), the normalized order-2 Hill
+rank is `(sum(s))² / (q sum(s²))`. Its ideal range is 1/q to 1; underspecified
+matrices return NaN. It is not a fitted score, contact count or graph Betti number.
+Docking angles, CDR3 apex/reach and peptide protrusion remain distinct descriptors;
+none alone validates unnatural deformation or nonbinding.
+
+`tcren export -s structures.txt --quantity backbone -o backbone.tsv -t 1`
+exports intrinsic C-alpha bond lengths (Å), pseudo bond angles and signed
+pseudo torsions (radians) separately for peptide and each annotated CDR1/2/3
+on TRA/TRB. It reuses the geometry primitives underlying `cdr3_internal_coords`.
+Every window retains observed indices, author residue numbers, insertion codes
+and amino acids, plus the export's complete residue/annotation sidecars.
+Missing C-alpha/observed-index gaps are not bridged; these are observed-coordinate
+windows, not proof that the chain's missing SEQRES residues were resolved.
+Correspondence must be audited before comparing windows; torsion differences
+must be circular. These raw measurements have no strain threshold, fitted
+reference density or nonbinding label. Natural induced fit remains possible.

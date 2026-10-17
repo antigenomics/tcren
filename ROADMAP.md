@@ -1,3 +1,13 @@
+## 17 October: interface shape definitions and exports
+
+Implemented and checked separate CDR:peptide / CDR:MHC / peptide:MHC contact graphs
+and peptide/CDR intrinsic C-alpha geometry through the batched CLI; existing scores
+unchanged. See [SHAPE_EXPORTS](audit/2026-10-15/SHAPE_EXPORTS.md). Publication follow-up:
+restore fixed-template residue reconstruction, define normalized effective rank before
+its first result, retain all historical differences, compare sequence-identical loop
+windows without treating grafted 868 as an identical full construct. Independent
+forced-deformation validation remains open. Stratos MD untouched.
+
 # Publication and software roadmap
 
 Reconciled 16 October 2026 against master base `68a1521`, the deterministic topology fix, live GitHub issues and

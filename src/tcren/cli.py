@@ -2700,7 +2700,7 @@ def export_exact(
     structures: list[str] = typer.Option(..., "-s", "--structures"),
     output: Path = typer.Option(..., "-o", "--output"),
     quantity: str = typer.Option("receptor-reference", "--quantity",
-                                help="receptor-reference, position, residue, contacts, placement, pmhc or pmhc-cells"),
+                                help="receptor-reference, position, residue, contacts, placement, contact-topology, backbone, pmhc or pmhc-cells"),
     potential: str = typer.Option(None, "--potential", help="Explicit TCR:peptide potential name or CSV; not needed for pmhc"),
     mhc_potential: str = typer.Option("mj", "--mhc-potential"),
     reference_mode: str = typer.Option("virtual", "--reference-mode", help="receptor-reference only: structural alanine truncation or historical virtual identities"),
@@ -2722,15 +2722,15 @@ def export_exact(
 
     from .exports import export_batch
 
-    if quantity not in {"pmhc", "pmhc-cells"} and potential is None:
-        raise typer.BadParameter("--potential is required except for --quantity pmhc or pmhc-cells")
+    if quantity not in {"pmhc", "pmhc-cells", "contact-topology", "backbone"} and potential is None:
+        raise typer.BadParameter("--potential is required except for --quantity pmhc, pmhc-cells, contact-topology or backbone")
     if reference_mode not in ("virtual", "structural"):
         raise typer.BadParameter("--reference-mode must be virtual or structural")
     if reference_mode == "structural" and quantity != "receptor-reference":
         raise typer.BadParameter("structural reference requires --quantity receptor-reference")
     ledger = export_batch(structures, output, quantity=quantity,
-                          peptide_potential=None if quantity in {"pmhc", "pmhc-cells"} else _load_potential(potential),
-                          mhc_potential=None if quantity in {"pmhc", "pmhc-cells"} else _load_potential(mhc_potential), interface=interface,
+                          peptide_potential=None if quantity in {"pmhc", "pmhc-cells", "contact-topology", "backbone"} else _load_potential(potential),
+                          mhc_potential=None if quantity in {"pmhc", "pmhc-cells", "contact-topology", "backbone"} else _load_potential(mhc_potential), interface=interface,
                           cutoff=cutoff, organisms=tuple(organism), threads=threads,
                           command=shlex.join(sys.argv), reference_mode=reference_mode,
                           register_reference_id=register_reference_id, register_p1=register_p1,

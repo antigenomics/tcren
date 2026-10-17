@@ -24,7 +24,7 @@ from .potential import Potential
 
 RECEPTOR_REGIONS = {"all": None, "cdr": ("CDR1", "CDR2", "CDR3"),
                     "cdr12": ("CDR1", "CDR2"), "cdr3": ("CDR3",)}
-QUANTITIES = ("receptor-reference", "position", "residue", "contacts", "placement", "pmhc", "pmhc-cells")
+QUANTITIES = ("receptor-reference", "position", "residue", "contacts", "placement", "contact-topology", "backbone", "pmhc", "pmhc-cells")
 
 
 def receptor_reference(contact_map: ContactMap, peptide_potential: Potential,
@@ -114,6 +114,82 @@ def placement_table(structure) -> pl.DataFrame:
     return pl.DataFrame([row])
 
 
+def backbone_table(structure) -> pl.DataFrame:
+    """Intrinsic peptide/CDR C-alpha geometry, without fitting or a strain threshold.
+
+    Windows retain physical residue identities. Missing C-alpha or discontinuous
+    observed indices split windows instead of bridging missing coordinates.
+    """
+    import numpy as np
+    from .geometry import _bond_angle
+    from .docking.tcrdock_geometry import _dihedral
+
+    rows = []
+    for chain in structure.chains:
+        regions = ([('PEPTIDE', chain.residues)] if chain.chain_type == 'PEPTIDE' else
+                   [(r.region_type, r.residues) for r in chain.regions
+                    if chain.chain_type in ('TRA', 'TRB') and r.region_type in ('CDR1', 'CDR2', 'CDR3')])
+        for region, residues in regions:
+            for size, metric, unit in ((2, 'ca_bond', 'angstrom'), (3, 'ca_angle', 'radian'),
+                                       (4, 'ca_torsion', 'radian')):
+                for start in range(len(residues)-size+1):
+                    window = residues[start:start+size]
+                    if any(r.ca is None for r in window) or any(
+                            b.seq_index != a.seq_index+1 for a, b in zip(window, window[1:])):
+                        continue
+                    xyz = np.asarray([r.ca for r in window], dtype=float)
+                    if np.any(np.linalg.norm(np.diff(xyz, axis=0), axis=1) <= 1e-8):
+                        raise ValueError('Coincident C-alpha atoms in backbone window')
+                    value = (float(np.linalg.norm(xyz[1]-xyz[0])) if size == 2 else
+                             _bond_angle(*xyz) if size == 3 else _dihedral(*xyz))
+                    row = {'chain.id': chain.chain_id, 'chain.type': chain.chain_type,
+                           'region.type': region, 'metric': metric, 'units': unit, 'value': value}
+                    for i, residue in enumerate(window, 1):
+                        row.update({f'residue.index.{i}': residue.seq_index,
+                                    f'residue.index.pdb.{i}': residue.pdb_index,
+                                    f'insertion_code.{i}': residue.insertion_code,
+                                    f'residue.aa.{i}': residue.aa})
+                    rows.append(row)
+    return (pl.DataFrame(rows, infer_schema_length=None) if rows else pl.DataFrame(
+        schema={'chain.id': pl.String, 'chain.type': pl.String, 'region.type': pl.String,
+                'metric': pl.String, 'units': pl.String, 'value': pl.Float64}))
+
+
+def contact_topology(contact_map: ContactMap) -> pl.DataFrame:
+    """Separate residue-contact graphs: CDR:peptide, CDR:MHC and peptide:MHC.
+
+    Vertices are contacted residues (physical chain + observed index); edges are
+    unique heavy-atom contacts. Betti numbers are graph components and cycles,
+    not the Betti numbers of a spatial flag complex. Empty graphs have V=E=β0=β1=0.
+    """
+    import numpy as np
+    from scipy.sparse import coo_matrix
+    from scipy.sparse.csgraph import connected_components
+
+    rows = []
+    for interface in ("tcr_peptide", "tcr_mhc", "peptide_mhc"):
+        d = contact_map.interface(interface)
+        if interface.startswith("tcr_"):
+            d = d.filter(pl.col("region.type.from").is_in(["CDR1", "CDR2", "CDR3"]))
+        keys = [f"{key}.{side}" for side in ("from", "to")
+                for key in ("chain.id", "residue.index")]
+        edges = d.select(keys).unique().sort(keys)
+        vertices = sorted({(c, int(r)) for c, r, _, _ in edges.iter_rows()} |
+                          {(c, int(r)) for _, _, c, r in edges.iter_rows()})
+        index = {key: i for i, key in enumerate(vertices)}
+        n, e = len(vertices), edges.height
+        if e:
+            pairs = np.array([(index[(a, int(i))], index[(b, int(j))])
+                              for a, i, b, j in edges.iter_rows()], dtype=int)
+            graph = coo_matrix((np.ones(e), (pairs[:, 0], pairs[:, 1])), shape=(n, n))
+            b0 = int(connected_components(graph, directed=False, return_labels=False))
+        else:
+            b0 = 0
+        rows.append(dict(interface=interface, vertices=n, edges=e,
+                         beta0=b0, beta1=e-n+b0, available=bool(e)))
+    return pl.DataFrame(rows)
+
+
 def export_structure(structure, quantity: str, peptide_potential: Potential,
                      mhc_potential: Potential, *, cutoff: float = 5.0,
                      interface: str = "tcr_peptide", reference_mode: str = "virtual") -> pl.DataFrame:
@@ -138,6 +214,10 @@ def export_structure(structure, quantity: str, peptide_potential: Potential,
     types = {c.chain_type for c in structure.chains}
     if types & {"TRG", "TRD", "IGH", "IGK", "IGL"}:
         raise ValueError("export is restricted to alpha-beta TCR complexes")
+    if quantity == "backbone":
+        if not ({"TRA", "TRB"} <= types or "PEPTIDE" in types):
+            raise ValueError("backbone export requires annotated alpha-beta TCR or peptide")
+        return backbone_table(structure)
     if not {"TRA", "TRB", "PEPTIDE", "MHCa"} <= types:
         raise ValueError("export requires annotated TRA/TRB, peptide and MHCa chains")
     peptide = structure.by_type("PEPTIDE")
@@ -146,6 +226,8 @@ def export_structure(structure, quantity: str, peptide_potential: Potential,
     if quantity == "placement":
         return placement_table(structure)
     cm = ContactMap.from_structure(structure, cutoff=cutoff)
+    if quantity == "contact-topology":
+        return contact_topology(cm)
     potential = peptide_potential if interface == "tcr_peptide" else mhc_potential
     if quantity == "receptor-reference":
         return pl.DataFrame([receptor_reference(cm, peptide_potential, mhc_potential,
@@ -352,7 +434,7 @@ def export_batch(sources, output, *, quantity, peptide_potential, mhc_potential,
         (pl.concat(registers) if registers else pl.DataFrame(schema={"pdb.id": pl.String})).write_csv(
             str(output) + ".registers.tsv", separator="\t")
     potentials = {}
-    for label, potential in (() if quantity in {"pmhc", "pmhc-cells"} else (("peptide", peptide_potential), ("mhc", mhc_potential))):
+    for label, potential in (() if quantity in {"pmhc", "pmhc-cells", "contact-topology", "backbone"} else (("peptide", peptide_potential), ("mhc", mhc_potential))):
         path = Path(str(output) + f".{label}.potential.tsv")
         potential.matrix.write_csv(path, separator="\t")
         potentials[label] = {"name": potential.name, "sha256": _sha256(path),
@@ -370,7 +452,9 @@ def export_batch(sources, output, *, quantity, peptide_potential, mhc_potential,
         "custom_potential_derivation": "not inferred; supplied matrix is exported and hashed",
         "n_input": len(accounting), "n_ok": succeeded,
         "n_error": len(accounting) - succeeded, "sources": [str(p) for p in paths],
-        "reference_semantics": ("pMHC only; supplied conformation; no potential or receptor coordinates" if quantity in {"pmhc", "pmhc-cells"}
+        "reference_semantics": ("intrinsic C-alpha geometry; not a strain score" if quantity == "backbone"
+                                else "separate residue-contact graphs; CDR-only receptor; no fitted score" if quantity == "contact-topology"
+                                else "pMHC only; supplied conformation; no potential or receptor coordinates" if quantity in {"pmhc", "pmhc-cells"}
                                 else "structural alanine truncation; contacts rebuilt" if reference_mode == "structural"
                                 else "virtual receptor identities on unchanged contact map"),
         "surface_summary_sha256": (_sha256(Path(str(output) + ".summary.tsv")) if quantity == "pmhc-cells" and table.height else None),

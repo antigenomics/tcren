@@ -7,6 +7,13 @@ All notable changes to `tcren` are recorded here. Format follows
 
 ### Added
 
+- Exact peptide/CDR C-alpha bond, angle and torsion windows via `export --quantity
+  backbone`, with author residue correspondence; no fitted strain score.
+
+- Separate CDR:peptide, CDR:MHC and peptide:MHC graph components/cycles via
+  `export --quantity contact-topology`, with explicit empty-interface availability.
+  Clarify normalized effective rank versus graph/flag-complex Betti numbers.
+
 - Export class-II structural core correspondence after MHC-only superposition,
   with all competing registers, physical anchors and residuals; source-verified
   peptide intervals support fused antigens alongside auxiliary peptides.
