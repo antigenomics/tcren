@@ -246,3 +246,15 @@ packing and binding labels answer different questions. Multiple saved prediction
 of one complex permit a within-target comparison, not population detector
 sensitivity or specificity. Keep clone, class and template strata separate and
 record exact-reference template inclusion independently.
+
+Before interpreting external DockQ, constrain physical receptor, peptide and MHC
+roles. Permissive automatic sequence mapping can exchange peptide and MHC chains;
+reproducing a historical total does not validate that assignment. Keep the raw
+mapping, biological role agreement, copy membership and each interface value.
+An unbound receptor supplies no receptor:pMHC reference placement: 5NMD contains
+unbound 868, whereas 4MNQ contains an affinity-enhanced ILA1 receptor, not SB27.
+Existing sequence/construct and class/template gates still apply.
+
+Permissive historical mappings can also combine crystallographic copies and
+change the number of nonempty interfaces in the total. Retain that count; do not
+assume every historical multimer total averages the same six physical interfaces.
