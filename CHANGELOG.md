@@ -7,6 +7,10 @@ All notable changes to `tcren` are recorded here. Format follows
 
 ### Added
 
+- Export class-II structural core correspondence after MHC-only superposition,
+  with all competing registers, physical anchors and residuals; source-verified
+  peptide intervals support fused antigens alongside auxiliary peptides.
+
 - Repeatable `associate --feature-product LEFT:RIGHT` exports raw signed joint
   scalar descriptors and their associations, with missingness/provenance and
   unchanged matched score rows; no fitted score or cohort normalization.

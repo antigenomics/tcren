@@ -155,3 +155,21 @@ checksummed expanded draft. Existing library APIs suffice; no library calculatio
 or scientific rerun is needed for this edit. The independent truth/source-lineage,
 class-II, locked reproduction and release gates above remain open. Stratos MD
 remains untouched.
+
+
+## Structural class-II registers — 17 October 2026
+
+`export --register-reference-id/--register-p1` now emits all forward/reverse
+core correspondences after the existing MHC-groove alignment. Exact physical
+anchor identities, residuals, competing fits and the rigid transform are retained.
+One annotation batch serves the full input set and reference. Source-verified
+`--peptide-selection` supports MHC- and TCR-fused antigens without removing annotated
+receptor regions. Optional modified-residue parsing retains chemical geometry as X;
+no standard potential is assigned to citrulline. Historical sequence prediction
+and ordinary parsing defaults remain available for reproduction.
+
+The benchmark owns source-copy reconciliation, all 94 native class-II register
+checks (including 42 sequence ties and the 6BGA auxiliary-peptide error), the
+standard-AA calibration and matched regression tables. Manuscript/SI use the
+recomputed calibration only; previous values remain electronic evidence.
+Stratos MD is not part of this change.

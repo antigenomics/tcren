@@ -1786,3 +1786,16 @@ feature/truth/both-confidence rows; do not choose signs or fit a replacement.
 Saved ranks of one complex are correlated models, not independent target samples.
 Exact-reference template inclusion and broad template-coverage strata are distinct
 metadata. See `audit/2026-10-16/COGNATE_POSE_VALIDATION.md`.
+
+### Structural class-II core export
+
+Use `export --register-reference-id 1fyt --register-p1 3` with the verified reference
+included in the same input batch. `.registers.tsv` ranks every complete forward/reverse
+9-residue core by Cα RMSD after **MHC-only** groove alignment; exports physical
+P1/P4/P6/P9 identities, runner-up margin and groove/core residuals in Å (plus the exact rigid transform). No motif,
+fit, threshold, or extra annotation search. Inspect source evidence before promoting
+register minima. `anchor_indices` is still the historical sequence prediction.
+`--peptide-selection TSV` supplies source-verified `pdb.id, chain.id, first_pdb,
+last_pdb` (tab-separated, inclusive author numbers) for engineered fused antigens;
+auxiliary peptide chains become unassigned. Coordinates/indices stay unchanged.
+Selection and core exports are hashed. API: `refine.structural_register` module.
