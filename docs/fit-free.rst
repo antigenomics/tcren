@@ -141,3 +141,28 @@ boundaries and overlap with annotated receptor regions are rejected. The selecti
 exports are hashed in provenance. Ordinary exports keep their previous behavior.
 The Python APIs are ``tcren.refine.structural_register.structural_register`` and
 ``select_peptide``; they require already annotated structures and perform no search.
+
+Local topology and topography of contacts
+-----------------------------------------
+
+``export --quantity contact-context --potential tcren2`` retains every original
+TCR:peptide residue-pair contact, author identities and region markup. It adds
+endpoint degrees and the number of bipartite four-cycles through each edge,
+computed as ``(B B^T B)[u,v] - degree(u) - degree(v) + 1`` for an existing edge.
+Here B is the binary incidence matrix of all TCR:peptide contacts, u is a TCR
+residue and v a peptide residue. Framework contacts remain identifiable; these
+are graph cycles, not geometric loops or spatial Betti numbers.
+
+The closest peptide atom is projected onto the existing receptor-free pMHC
+surface grid. Rows retain its height, the projected cell's peptide/MHC ownership,
+surface height and KD hydropathy, and height minus the existing 90th-percentile
+helix rim (angstroms). Cell ownership identifies peptide versus MHC, not a
+particular peptide residue. Missing rims/out-of-window cells remain undefined.
+``pair_energy`` is the supplied potential's exact per-pair contribution; missing
+matrix entries remain NaN and are omitted only when reproducing the established
+sum. Neither a zero retained sum nor a missing value is a binding probability.
+
+This export supports inspection of graph-supported or protrusion-associated
+contacts without learning thresholds from labels. It does not apply a filter,
+replace the original score or establish that contacts outside a mask are false.
+Keep assay targets, classes and template strata separate during evaluation.

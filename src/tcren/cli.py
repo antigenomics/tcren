@@ -2700,7 +2700,7 @@ def export_exact(
     structures: list[str] = typer.Option(..., "-s", "--structures"),
     output: Path = typer.Option(..., "-o", "--output"),
     quantity: str = typer.Option("receptor-reference", "--quantity",
-                                help="receptor-reference, position, residue, contacts, placement, contact-topology, backbone, pmhc or pmhc-cells"),
+                                help="receptor-reference, position, residue, contacts, contact-context, placement, contact-topology, backbone, pmhc or pmhc-cells"),
     potential: str = typer.Option(None, "--potential", help="Explicit TCR:peptide potential name or CSV; not needed for pmhc"),
     mhc_potential: str = typer.Option("mj", "--mhc-potential"),
     reference_mode: str = typer.Option("virtual", "--reference-mode", help="receptor-reference only: structural alanine truncation or historical virtual identities"),

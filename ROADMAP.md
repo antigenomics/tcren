@@ -1,3 +1,15 @@
+## 17 October: contact-local topology/topography goal
+
+The author clarified that contact filtering concerns local graph and surface
+properties, explicitly not chemical `--drop-untyped` typing. The new
+`export --quantity contact-context` reuses the contact map, pMHC surface and
+potential; it retains every original contact and adds endpoint degrees,
+four-cycle support, local height/hydropathy and exact pair contributions.
+Benchmark `CONTACT_CONTEXT_GOAL.md` owns the current manual discordance audit
+and matched mask evaluations. Keep original scores, zero-contact models, all
+losses and class/template strata. No fitted classifier or threshold-selected
+ipTM switching rule is promoted. Stratos MD remains untouched.
+
 ## 17 October: full model-only assay extension
 
 The complete 2719-model CPL and separate YLQ/GLC backbone export and fixed-direction

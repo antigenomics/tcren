@@ -18,6 +18,8 @@ tcren export -s structures.txt --quantity pmhc -o pmhc.tsv
 tcren export -s structures.txt --quantity contact-topology -o graphs.tsv -t 1
 # Intrinsic peptide/CDR backbone geometry with physical residue windows
 tcren export -s structures.txt --quantity backbone -o backbone.tsv -t 1
+# Local graph support, surface height/hydropathy and exact per-contact energy
+tcren export -s structures.txt --quantity contact-context --potential tcren2 -o contact-context.tsv -t 1
 tcren associate --results recorded.csv --features pmhc_by_id.tsv \
   --scores directions.json --feature-columns relief,frac_above_ridge,sasa_hydropathy \
   -o associations

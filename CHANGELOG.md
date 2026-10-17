@@ -7,6 +7,9 @@ All notable changes to `tcren` are recorded here. Format follows
 
 ### Added
 
+- Per-contact graph four-cycle support and receptor-free pMHC surface context
+  through `export --quantity contact-context`; original contacts/scores retained.
+
 - Exact peptide/CDR C-alpha bond, angle and torsion windows via `export --quantity
   backbone`, with author residue correspondence; no fitted strain score.
 

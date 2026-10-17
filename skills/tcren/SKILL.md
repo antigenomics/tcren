@@ -1851,3 +1851,17 @@ windows, not proof that the chain's missing SEQRES residues were resolved.
 Correspondence must be audited before comparing windows; torsion differences
 must be circular. These raw measurements have no strain threshold, fitted
 reference density or nonbinding label. Natural induced fit remains possible.
+
+## Local topology/topography of individual contacts
+
+`export --quantity contact-context --potential tcren2` retains the complete
+TCR:peptide contact table and adds all-TCR bipartite endpoint degrees, four-cycle
+participation, closest peptide atom height, projected receptor-free pMHC surface
+ownership/height/KD hydropathy, excess above the existing helix rim and exact
+`pair_energy`. Physical identities/region markup and existing batch/provenance
+sidecars apply. Graph support and surface protrusion are distinct quantities;
+this is explicitly not chemical `--drop-untyped` filtering. No mask is silently
+applied. Missing ridge/out-of-grid heights remain undefined. Zero retained
+contacts is distinct from missing topography. Use fixed, declared masks and
+matched score/ipTM rows; do not tune cutoffs or score directions on assay labels.
+See `docs/fit-free.rst` for definitions and the projection limitation.

@@ -24,7 +24,7 @@ from .potential import Potential
 
 RECEPTOR_REGIONS = {"all": None, "cdr": ("CDR1", "CDR2", "CDR3"),
                     "cdr12": ("CDR1", "CDR2"), "cdr3": ("CDR3",)}
-QUANTITIES = ("receptor-reference", "position", "residue", "contacts", "placement", "contact-topology", "backbone", "pmhc", "pmhc-cells")
+QUANTITIES = ("receptor-reference", "position", "residue", "contacts", "contact-context", "placement", "contact-topology", "backbone", "pmhc", "pmhc-cells")
 
 
 def receptor_reference(contact_map: ContactMap, peptide_potential: Potential,
@@ -247,7 +247,12 @@ def export_structure(structure, quantity: str, peptide_potential: Potential,
                          "residue.index.pdb", "insertion_code", "chain.type"),
                          on=["chain.id", "residue.index"], how="left", validate="1:1").with_columns(
                              pl.lit(structure.pdb_id).alias("pdb.id"))
+    if quantity == "contact-context" and interface != "tcr_peptide":
+        raise ValueError("contact-context requires tcr_peptide")
     table = cm.interface(interface)
+    if quantity == "contact-context":
+        from .topology.contact_context import contact_context
+        table = contact_context(structure, table, potential)
     identity = residue_identity(structure)
     for side in ("from", "to"):
         keys = ["chain.id", "residue.index", "residue.index.pdb", "insertion_code"]

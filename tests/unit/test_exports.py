@@ -222,3 +222,29 @@ def test_backbone_export_reuses_geometry_and_is_rigid_invariant():
     moved = exports.backbone_table(s)
     np.testing.assert_allclose(row['value'], moved['value'], atol=1e-10)
     assert 'residue.index.pdb.1' in row.columns
+
+
+def test_contact_context_graph_oracle_and_exact_energy():
+    import numpy as np
+    from tcren.pipeline import _interface_energy
+    structure = typed_structure()
+    potential = classic()
+    table = exports.export_structure(structure, 'contact-context', potential, mj())
+    keys = [(r['chain.id.from'], r['residue.index.from'], r['chain.id.to'], r['residue.index.to'])
+            for r in table.to_dicts()]
+    edges = set(keys)
+    for key, count in zip(keys, table['four_cycles']):
+        a, i, b, j = key
+        expected = sum(x != (a,i) and y != (b,j) and (*x,*y) in edges
+                       for x in {(k[0],k[1]) for k in keys if k[2:]==(b,j)}
+                       for y in {(k[2],k[3]) for k in keys if k[:2]==(a,i)})
+        assert count == expected
+    assert table['pair_energy'].sum() == pytest.approx(
+        _interface_energy(ContactMap.from_structure(structure).interface('tcr_peptide'), potential))
+    before = table.select('surface_h_A','surface_hydropathy','ridge_height_A')
+    for c in structure.by_type('TRA','TRB'):
+        for r in c.residues:
+            for atom in r.atoms:
+                atom.coord[:] += np.array([0.,0.,.01])
+    after = exports.export_structure(structure, 'contact-context', potential, mj())
+    np.testing.assert_allclose(before.row(0), after.select(before.columns).row(0), equal_nan=True)
