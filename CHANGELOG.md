@@ -7,6 +7,9 @@ All notable changes to `tcren` are recorded here. Format follows
 
 ### Added
 
+- Table-only `contact-summary` reduces canonical residue-pair counts, preserving
+  composition ties and zero-contact models under declared structural selections.
+
 - Per-contact graph four-cycle support and receptor-free pMHC surface context
   through `export --quantity contact-context`; original contacts/scores retained.
 

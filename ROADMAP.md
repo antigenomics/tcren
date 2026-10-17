@@ -8,7 +8,10 @@ four-cycle support, local height/hydropathy and exact pair contributions.
 Benchmark `CONTACT_CONTEXT_GOAL.md` owns the current manual discordance audit
 and matched mask evaluations. Keep original scores, zero-contact models, all
 losses and class/template strata. No fitted classifier or threshold-selected
-ipTM switching rule is promoted. Stratos MD remains untouched.
+ipTM switching rule is promoted. The matched 2719-model audit checks all 67416
+contacts and 504 accuracy values, with 44 views of 20 models inspected.
+`contact-summary` owns canonical table-only reductions; all original baselines
+and the differences from the first sums remain recorded. Stratos MD remains untouched.
 
 ## 17 October: full model-only assay extension
 

@@ -2695,6 +2695,29 @@ def explain(
     typer.echo(f"wrote {out}  ({d.height} residues, score={score}, "
                f"full={d['score.full'][0]:.4f})")
 
+@app.command("contact-summary", rich_help_panel=_P_ANNOT)
+def contact_summary(
+    contacts: Path = typer.Option(..., "-i", "--contacts", exists=True, dir_okay=False),
+    output: Path = typer.Option(..., "-o", "--output"),
+    accounting: Path | None = typer.Option(None, "--accounting"),
+) -> None:
+    """Reduce a complete contact-context CLI table; no structure searches or fitting."""
+    import hashlib
+    from .provenance import check, stamp
+    from .topology.contact_context import summarize_contacts
+    check(contacts)
+    ledger = accounting or Path(str(contacts)+".accounting.tsv")
+    table = summarize_contacts(pl.read_csv(contacts, separator="\t", infer_schema_length=None),
+                               pl.read_csv(ledger, separator="\t", infer_schema_length=None))
+    table.write_csv(output, separator="\t")
+    stamp(output, command="contact-summary", columns=table.columns, extra={
+        "input_sha256": hashlib.sha256(contacts.read_bytes()).hexdigest(),
+        "accounting_sha256": hashlib.sha256(ledger.read_bytes()).hexdigest(),
+        "reduction": "canonical residue-pair counts; fixed all/cycle/bulge/joint masks",
+        "fitted": False})
+    typer.echo(f"Wrote {table.height} complete model summaries to {output}")
+
+
 @app.command("export", rich_help_panel=_P_ANNOT)
 def export_exact(
     structures: list[str] = typer.Option(..., "-s", "--structures"),

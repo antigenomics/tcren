@@ -6,6 +6,62 @@ from ..structure.model import Structure
 from .surface import KYTE_DOOLITTLE, RIDGE_PERCENTILE, SOURCE_NAMES, _groove_frame, surface_map
 
 
+def summarize_contacts(contacts: pl.DataFrame, accounting: pl.DataFrame) -> pl.DataFrame:
+    """Canonical pair-count reduction; identical compositions remain tied.
+
+    Fixed masks: all contacts, edges in four-cycles, peptide surface above the
+    existing ridge, and their intersection. No fitting or label inputs. Complete
+    accounting retains zero-contact models. Missing topography stays undefined.
+    """
+    keys = ["pdb.id", "chain.id.from", "residue.index.from", "chain.id.to", "residue.index.to"]
+    required = set(keys + ["four_cycles", "surface_source", "surface_excess_A",
+                           "pair_energy", "residue.aa.from", "residue.aa.to"])
+    if required - set(contacts.columns) or accounting["pdb.id"].is_duplicated().any():
+        raise ValueError("complete contact columns and unique accounting IDs required")
+    if not accounting.height or set(accounting["status"]) != {"ok"}:
+        raise ValueError("complete successful accounting required")
+    if contacts.select(keys).is_duplicated().any() or contacts.filter(pl.col("four_cycles") < 0).height:
+        raise ValueError("unique residue-pair edges with nonnegative cycle counts required")
+    ids = sorted(accounting["pdb.id"].to_list())
+    index = {s: i for i, s in enumerate(ids)}
+    if set(contacts["pdb.id"]) - set(ids):
+        raise ValueError("unaccounted contact IDs")
+    counts = contacts.group_by("pdb.id").len()
+    ledger = accounting.select("pdb.id", pl.col("n_rows").cast(pl.UInt32).alias("expected"))
+    if ledger.join(counts, on="pdb.id", how="left").filter(
+            pl.col("expected") != pl.col("len").fill_null(0)).height:
+        raise ValueError("contact rows disagree with accounting")
+    pairs = contacts.select("residue.aa.from", "residue.aa.to", "pair_energy").unique().sort(
+        "residue.aa.from", "residue.aa.to")
+    if pairs.select("residue.aa.from", "residue.aa.to").is_duplicated().any():
+        raise ValueError("inconsistent potential values for a residue pair")
+    codes = {(a, b): i for i, (a, b) in enumerate(pairs.select(
+        "residue.aa.from", "residue.aa.to").iter_rows())}
+    u = np.array([index[s] for s in contacts["pdb.id"]], dtype=int)
+    v = np.array([codes[k] for k in contacts.select("residue.aa.from", "residue.aa.to").iter_rows()], dtype=int)
+    if np.isinf(pairs["pair_energy"].to_numpy()).any():
+        raise ValueError("infinite potential entries")
+    energy = np.nan_to_num(pairs["pair_energy"].to_numpy(), nan=0)
+    known = np.isfinite(contacts["surface_excess_A"].to_numpy())
+    cycle = contacts["four_cycles"].to_numpy() > 0
+    bulge = (contacts["surface_source"].to_numpy() == "peptide") & (
+        contacts["surface_excess_A"].to_numpy() > 0)
+    result = {"pdb.id": ids}
+    missing = np.bincount(u[~known], minlength=len(ids))
+    for name, mask in (("all", np.ones(len(u), dtype=bool)), ("cycle", cycle),
+                       ("bulge", bulge), ("joint", cycle & bulge)):
+        matrix = np.bincount(u[mask]*len(pairs)+v[mask], minlength=len(ids)*len(pairs)).reshape(len(ids), len(pairs))
+        values = matrix @ energy
+        number = matrix.sum(1).astype(float)
+        if name in {"bulge", "joint"}:
+            values[missing > 0] = np.nan; number[missing > 0] = np.nan
+        result["n_"+name] = number
+        result["context_energy" if name == "all" else name+"_energy"] = values
+    result["n_missing_topography"] = missing
+    result["n_missing_energy"] = np.bincount(u[~np.isfinite(contacts["pair_energy"].to_numpy())], minlength=len(ids))
+    return pl.DataFrame(result)
+
+
 def contact_context(structure, contacts, potential):
     """Annotate TCR:peptide residue-pair contacts in their receptor-free pMHC frame.
 

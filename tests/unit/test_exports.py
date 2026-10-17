@@ -248,3 +248,21 @@ def test_contact_context_graph_oracle_and_exact_energy():
                 atom.coord[:] += np.array([0.,0.,.01])
     after = exports.export_structure(structure, 'contact-context', potential, mj())
     np.testing.assert_allclose(before.row(0), after.select(before.columns).row(0), equal_nan=True)
+
+
+def test_contact_summary_keeps_zero_models_and_composition_ties():
+    from tcren.topology.contact_context import summarize_contacts
+    table = exports.export_structure(typed_structure(), 'contact-context', classic(), mj())
+    # Same composition in opposite contact order; retain a separate zero-contact model.
+    table = pl.concat([table.with_columns(pl.lit('a').alias('pdb.id')),
+                       table.reverse().with_columns(pl.lit('b').alias('pdb.id'))])
+    n = table.height//2
+    ledger = pl.DataFrame({'pdb.id':['a','b','zero'],'status':['ok']*3,'n_rows':[n,n,0]})
+    result = summarize_contacts(table, ledger).sort('pdb.id')
+    assert result['context_energy'][0] == result['context_energy'][1]
+    assert result['cycle_energy'][0] == result['cycle_energy'][1]
+    assert result['n_all'][2] == result['context_energy'][2] == 0
+    assert result['n_missing_topography'][0] > 0  # Fixture has no MHC helix markup.
+    assert result['bulge_energy'].is_nan()[0]
+    with pytest.raises(ValueError, match='accounting'):
+        summarize_contacts(table, ledger.with_columns(pl.lit(1).alias('n_rows')))

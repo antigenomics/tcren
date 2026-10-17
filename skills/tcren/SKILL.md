@@ -1865,3 +1865,10 @@ applied. Missing ridge/out-of-grid heights remain undefined. Zero retained
 contacts is distinct from missing topography. Use fixed, declared masks and
 matched score/ipTM rows; do not tune cutoffs or score directions on assay labels.
 See `docs/fit-free.rst` for definitions and the projection limitation.
+
+`contact-summary -i contacts.tsv -o contacts.summary.tsv` owns table-only canonical
+pair-count reductions for all/cycle/above-ridge/joint contact selections. It checks
+the stamped source and complete accounting, keeps zero-contact models, exposes
+missing entries and undefined surface selections, and records input hashes. No
+structures, MMseqs searches, label inputs, tolerance rounding or fitting. Use these
+CLI sums downstream; R owns tidy summaries/macros rather than replacement scoring.

@@ -166,3 +166,15 @@ This export supports inspection of graph-supported or protrusion-associated
 contacts without learning thresholds from labels. It does not apply a filter,
 replace the original score or establish that contacts outside a mask are false.
 Keep assay targets, classes and template strata separate during evaluation.
+
+``contact-summary -i contacts.tsv -o contacts.summary.tsv`` reduces that exact
+stamped export and its accounting sidecar, with no parsing, annotation or search.
+Canonical amino-acid-pair count matrices multiply the fixed potential vector:
+identical contact compositions remain tied regardless of input row order. It
+exports counts and sums for all contacts, edges participating in four-cycles,
+peptide-owned projected cells above the established ridge, and their intersection.
+These are declared structural selections, not calibrated nonbinding filters.
+Accounting retains empty models; undefined topography remains NaN for affected
+surface selections. Missing potential entries are counted and omitted as in the
+original sum. ``--accounting`` supplies a relocated ledger explicitly. Compare
+new sums with exact recorded baselines rather than perturbing old score ties.
