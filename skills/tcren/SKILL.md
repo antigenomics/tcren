@@ -1814,3 +1814,8 @@ remain sufficient; do not add a fitted correction for a reference-mapping error.
 Permissive historical mappings can also combine crystallographic copies and
 change the number of nonempty interfaces in the total. Retain that count; do not
 assume every historical multimer total averages the same six physical interfaces.
+
+
+## Pose accuracy versus forced deformation (17 October 2026)
+
+A forced-pose hypothesis concerns implausible peptide/CDR deformation accommodating a non-binding pair. Receptor-relative placement, DockQ disagreement and score/confidence inversion are distinct measurements and cannot label that hypothesis as truth. Existing `md quality`, coordinate diagnostics and local frame descriptors are structural diagnostics; no detector accuracy follows without independently verified outcomes and appropriate construct correspondence. Natural induced fit can rearrange loops in genuine binders. Compare physical biological roles and observed receptor/peptide/MHC constructs before accepting pose truth; keep saved ranks within one target rather than counting them as independent targets. Fit lines used to display cohort associations do not become fitted scoring models.

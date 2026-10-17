@@ -181,3 +181,8 @@ Stratos MD is not part of this change.
 Full546-model replay and supplied-reference checks: CPL_AUTOMATIC_MAPPING_AUDIT.md. SB27 automatic assignment reproduces 225/225 finite recorded totals; 92/225 assignments have incorrect biological roles. Every old value, unmatched case and descriptor regression remains. 5NMD is unbound868;4MNQ is engineeredILA1, not SB27. Strict pose truth still requires matching constructs and physical roles. Original artifact authentication and independent class/template validation remain open. No fitted score or Stratos operation.
 
 Details: audit/2026-10-17/CPL_AUTOMATIC_MAPPING.md. This updates the numerical-discrepancy gate above; original artifact authentication remains open.
+
+
+### 17 October: figure interpretation and matching 868 follow-up
+
+The current primary-record search returns unbound 5NMD and bound 5NME/5NMF/5NMG; none matches the complete saved CPL 868 construct. All five saved predictions share the same receptor sequence; the observed receptor substitutions persist across physical native copies. The benchmark records the exact query and 28 physical-role/copy comparisons. Pose accuracy and forced peptide/CDR deformation are now explicitly separate. Independent construct-matched deformation validation remains open; existing diagnostic APIs suffice pending appropriate structural truth. No replacement score or Stratos MD operation.
