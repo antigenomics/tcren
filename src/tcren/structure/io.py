@@ -231,11 +231,13 @@ def parse_structure(
     pdb_id: str | None = None,
     model: int = 0,
     keep_hydrogens: bool = True,
+    keep_modified: bool = False,
 ) -> Structure:
     """Parse a structure file into a :class:`Structure`.
 
-    Residues are taken in author order; only amino-acid residues (standard or modified,
-    via the extended three→one table) are kept — waters, ions and ligands are dropped.
+    Default parsing retains ATOM residues in source order; HETATM records are skipped.
+    With keep_modified=True, known HETATM amino acids retain their chemical names
+    and geometry as X rather than being mapped to standard amino-acid identities.
     Each kept residue receives a 0-based sequential ``seq_index`` per chain, matching the
     legacy ``mir`` ``residue.index``.
 
@@ -243,6 +245,9 @@ def parse_structure(
         path: Path to a ``.pdb``/``.ent`` or ``.cif``/``.mmcif`` file.
         pdb_id: Structure identifier; defaults to the file stem.
         model: Model index to read (default 0 — the first model).
+        keep_modified: Retain known HETATM amino acids as 'X', preserving chemical
+            names and geometry without treating modifications as standard amino acids.
+            Default False preserves historical ATOM-only parsing.
         keep_hydrogens: Keep hydrogen atoms (default ``True`` — the legacy mir contact
             definition counts hydrogens when a structure provides them).
 
@@ -253,7 +258,7 @@ def parse_structure(
     inner, gzipped = _strip_gz(path.name)
     pdb_id = pdb_id or inner.rsplit(".", 1)[0]
     is_cif = _structure_format(path.name) == "cif"
-    if not is_cif and model == 0:
+    if not is_cif and model == 0 and not keep_modified:
         fast = _parse_pdb_fast(_pdb_bytes(path, gzipped), pdb_id, keep_hydrogens)
         if fast is not None:
             return fast
@@ -279,9 +284,9 @@ def parse_structure(
             # HETATM — ligands, ions, and even modified residues such as CIR
             # (citrulline) or MSE that sit inside a polymer chain. Unknown ATOM
             # residues (e.g. the AMN chain cap) are kept and labelled 'X'.
-            if hetflag.strip():
+            if hetflag.strip() and not (keep_modified and resname in _THREE_TO_ONE):
                 continue
-            aa = _one_letter(resname)
+            aa = "X" if hetflag.strip() else _one_letter(resname)
             if aa is None:
                 aa = "X"
             atoms = _select_atoms(bio_res, keep_hydrogens)

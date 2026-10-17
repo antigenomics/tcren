@@ -110,3 +110,34 @@ potential, camera and scene-geometry identities and check the displayed atom
 colours against their authoritative rows. Inspect the final PNGs and composed
 PDF pages. Keep class II, epitopes and template strata separate. Historical
 images and manifests remain archived when labels or pixels change.
+
+Structural class-II registers
+-----------------------------
+
+Sequence-only ``anchor_indices`` remains a prediction for historical callers.
+For an experimentally verified core reference, export structural correspondence
+in the same annotation batch::
+
+   tcren export -s native.txt --quantity contacts --potential tcren2 --cutoff 8 -t 2 \
+       --register-reference-id 1fyt --register-p1 3 -o contacts.tsv
+
+The reference must be included in ``native.txt``. ``contacts.tsv.registers.tsv``
+contains every forward/reverse nine-residue core, its C-alpha RMSD after aligning
+both MHC groove chains, physical P1/P4/P6/P9 identities, groove RMSD, the exact rigid transform and the gap
+between the two lowest core RMSDs (all distances in angstroms). No peptide atoms
+enter the rigid fit and no sequence motif, trained coefficient or acceptance
+threshold enters core ranking. A minimum is a correspondence candidate, not a
+certificate of structural correctness; inspect residuals and the source structure.
+Incomplete cores fail explicitly, with errors retained in input accounting.
+Register exports retain known HETATM amino acids as ``X`` with their chemical
+names and geometry; unsupported modified peptides are not energy-scored.
+Historical parsing defaults are unchanged.
+
+``--peptide-selection verified.tsv`` supplies source-verified antigen intervals:
+``pdb.id``, ``chain.id``, ``first_pdb``, ``last_pdb`` (inclusive author numbering).
+This handles engineered fused antigens in the presence of auxiliary peptides.
+Original residue indices and coordinates remain unchanged; insertion-code
+boundaries and overlap with annotated receptor regions are rejected. The selection and register
+exports are hashed in provenance. Ordinary exports keep their previous behavior.
+The Python APIs are ``tcren.refine.structural_register.structural_register`` and
+``select_peptide``; they require already annotated structures and perform no search.

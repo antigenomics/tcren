@@ -2708,6 +2708,9 @@ def export_exact(
     cutoff: float = typer.Option(5.0, "--cutoff"),
     organism: list[str] = typer.Option(["human", "mouse"], "--organism"),
     threads: int = typer.Option(1, "-t", "--threads"),
+    register_reference_id: str = typer.Option(None, "--register-reference-id", help="Class-II reference ID included in this batch; exports all core correspondences"),
+    register_p1: int = typer.Option(None, "--register-p1", help="Verified one-based P1 position in the reference peptide"),
+    peptide_selection: Path = typer.Option(None, "--peptide-selection", help="Source-verified TSV: pdb.id, chain.id, first_pdb, last_pdb (inclusive author numbering)"),
 ) -> None:
     """Exact structural/virtual receptor reference or publication decomposition, with lineage and errors.
 
@@ -2729,7 +2732,9 @@ def export_exact(
                           peptide_potential=None if quantity in {"pmhc", "pmhc-cells"} else _load_potential(potential),
                           mhc_potential=None if quantity in {"pmhc", "pmhc-cells"} else _load_potential(mhc_potential), interface=interface,
                           cutoff=cutoff, organisms=tuple(organism), threads=threads,
-                          command=shlex.join(sys.argv), reference_mode=reference_mode)
+                          command=shlex.join(sys.argv), reference_mode=reference_mode,
+                          register_reference_id=register_reference_id, register_p1=register_p1,
+                          peptide_selection=peptide_selection)
     succeeded = ledger.filter(pl.col("status") == "ok").height
     typer.echo(f"{succeeded}/{ledger.height} structures exported; accounting: {output}.accounting.tsv")
     if succeeded == 0:

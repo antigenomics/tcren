@@ -214,7 +214,8 @@ from .runtime import resolve_threads, single_threaded
 @single_threaded
 def export_batch(sources, output, *, quantity, peptide_potential, mhc_potential,
                  cutoff=5.0, interface="tcr_peptide", organisms=("human", "mouse"), threads=1,
-                 command="tcren export", reference_mode="virtual"):
+                 command="tcren export", reference_mode="virtual", register_reference_id=None,
+                 register_p1=None, peptide_selection=None):
     """Write exact tables plus complete per-input accounting and residue assignments.
 
     Inputs are files, directories, tar archives, globs or text manifests. Errors remain in the
@@ -231,6 +232,16 @@ def export_batch(sources, output, *, quantity, peptide_potential, mhc_potential,
         raise ValueError("reference_mode must be virtual or structural")
     if reference_mode == "structural" and quantity != "receptor-reference":
         raise ValueError("structural reference requires receptor-reference quantity")
+    if (register_reference_id is None) != (register_p1 is None):
+        raise ValueError("register reference ID and one-based reference P1 are required together")
+    selections = {}
+    if peptide_selection is not None:
+        selection = pl.read_csv(peptide_selection, separator="\t",
+                                schema_overrides={"first_pdb": pl.Int64, "last_pdb": pl.Int64})
+        required = ["pdb.id", "chain.id", "first_pdb", "last_pdb"]
+        if not set(required) <= set(selection.columns) or selection["pdb.id"].n_unique() != selection.height:
+            raise ValueError("peptide selection requires unique pdb.id, chain.id, first_pdb, last_pdb")
+        selections = {r["pdb.id"]: r for r in selection.iter_rows(named=True)}
     threads = resolve_threads(threads)
     if not organisms or set(organisms) - {"human", "mouse"}:
         raise ValueError("positive threads and human/mouse organisms are required")
@@ -252,7 +263,8 @@ def export_batch(sources, output, *, quantity, peptide_potential, mhc_potential,
         accounting.append(row)
         try:
             row["sha256"] = _sha256(path)
-            structure = parse_structure(path, pdb_id=pdb_id)
+            structure = (parse_structure(path, pdb_id=pdb_id, keep_modified=True)
+                         if register_reference_id is not None else parse_structure(path, pdb_id=pdb_id))
             parsed.append((structure, row))
             return structure
         except Exception as exc:
@@ -275,7 +287,11 @@ def export_batch(sources, output, *, quantity, peptide_potential, mhc_potential,
             parse_one(path, ids[str(path)], str(path))
     if len({row["pdb.id"] for row in accounting}) != len(accounting):
         raise ValueError("duplicate structure IDs in export inputs or archive members")
-    lineage = {}
+    lineage, registers = {}, []
+    if register_reference_id is not None and register_reference_id not in {s.pdb_id for s, _ in parsed}:
+        raise ValueError("register reference must be included in the same input batch")
+    if selections.keys() - {s.pdb_id for s, _ in parsed}:
+        raise ValueError("peptide selection contains IDs absent from input batch")
     if parsed:
         try:
             records = annotate_batch([s for s, _ in parsed], organisms=organisms, threads=threads)
@@ -293,9 +309,19 @@ def export_batch(sources, output, *, quantity, peptide_potential, mhc_potential,
                 except Exception as exc:
                     row["error"] = f"typing: {type(exc).__name__}: {exc}"
             annotate_mhc_batch([s for s, _ in typed], threads=threads)
+            from .refine.structural_register import select_peptide, structural_register
+            for structure, row in typed:
+                if structure.pdb_id in selections:
+                    r = selections[structure.pdb_id]
+                    select_peptide(structure, r["chain.id"], int(r["first_pdb"]), int(r["last_pdb"]))
+            reference = next((s for s, _ in typed if s.pdb_id == register_reference_id), None)
+            if register_reference_id is not None and reference is None:
+                raise ValueError("register reference annotation failed")
             lineage = annotation_lineage(organisms)
             for structure, row in typed:
                 try:
+                    if reference is not None and any(c.chain_supertype == "MHCII" for c in structure.chains):
+                        registers.append(structural_register(structure, reference, register_p1))
                     identity = residue_identity(structure)
                     identities.append(identity)
                     table = export_structure(structure, quantity, peptide_potential, mhc_potential,
@@ -322,6 +348,9 @@ def export_batch(sources, output, *, quantity, peptide_potential, mhc_potential,
     residue_table = pl.concat(identities, how="diagonal_relaxed") if identities else pl.DataFrame(
         schema={"pdb.id": pl.String})
     residue_table.write_csv(str(output) + ".residues.tsv", separator="\t")
+    if register_reference_id is not None:
+        (pl.concat(registers) if registers else pl.DataFrame(schema={"pdb.id": pl.String})).write_csv(
+            str(output) + ".registers.tsv", separator="\t")
     potentials = {}
     for label, potential in (() if quantity in {"pmhc", "pmhc-cells"} else (("peptide", peptide_potential), ("mhc", mhc_potential))):
         path = Path(str(output) + f".{label}.potential.tsv")
@@ -346,5 +375,10 @@ def export_batch(sources, output, *, quantity, peptide_potential, mhc_potential,
                                 else "virtual receptor identities on unchanged contact map"),
         "surface_summary_sha256": (_sha256(Path(str(output) + ".summary.tsv")) if quantity == "pmhc-cells" and table.height else None),
         "surface_parameters": ({"grid_yx": [64,32], "extent_A": [-20,20,-25,25], "probe_A": 1.4, "smooth": "8-neighbour, padded", "scale": "Kyte-Doolittle", "ridge_percentile": 90, "frame": "pMHC only; receptor removed"} if quantity == "pmhc-cells" else None),
+        "structural_register": ({"reference_id": register_reference_id, "reference_p1": register_p1,
+            "method": "MHC-groove-only superposition; forward/reverse nine-residue C-alpha RMSD",
+            "sha256": _sha256(Path(str(output) + ".registers.tsv"))} if register_reference_id else None),
+        "peptide_selection": ({"sha256": _sha256(Path(peptide_selection)), "rows": selections}
+                              if peptide_selection is not None else None),
         "residue_phi_accounting": "each contact contributes to both endpoints; sum is 2*Phi"})
     return ledger

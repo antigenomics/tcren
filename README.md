@@ -807,3 +807,9 @@ Karnaukhov VK, Shcherbinin DS, Chugunov AO, Chudakov DM, Efremov RG, Zvyagin IV,
 ```
 
 Spatial pMHC context is exported with `tcren export -s structures.txt --quantity pmhc-cells -t 4 -o cells.tsv`. Exact grid rows and `cells.tsv.summary.tsv` retain height/hydropathy co-localization, counts and provenance without a fitted score; see the association documentation for units and interpretation.
+
+Class-II core assignments can be exported from structural correspondence with
+`export --register-reference-id 1fyt --register-p1 3` (include the verified reference
+in the same batch). The `.registers.tsv` sidecar retains competing backbone fits
+and physical anchors after MHC-only alignment. Source-verified fused antigen
+intervals use `--peptide-selection`; see [the calculation guide](docs/fit-free.rst).

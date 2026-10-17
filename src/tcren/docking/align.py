@@ -69,7 +69,7 @@ def _matched_anchors(mobile: Structure, reference: Structure):
     mob = _groove_ca_by_seq(mobile)
     ref = _groove_ca_by_seq(reference)
     mob_pts, ref_pts = [], []
-    for role in mob.keys() & ref.keys():
+    for role in sorted(mob.keys() & ref.keys()):
         mob_seq, mob_anchors = mob[role]
         ref_seq, ref_anchors = ref[role]
         mob_ca = dict(mob_anchors)
