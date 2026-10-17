@@ -1,3 +1,14 @@
+## 17 October: local conformation and spatial-chemistry validation
+
+The next matched post-analysis is complete: 384 associations on 20 cognate saved
+models, four targets kept separate, all class I/covered. MEL8 maximum CDR3alpha
+virtual angle tracks recognition DockQ without a native reference; covariance
+associations retain target-specific signs and MEL8's constant-zero ridge readout.
+Existing CLI surface and backbone exports suffice; no new scorer, library module
+or Stratos operation. The benchmark `POSE_CONTEXT_VALIDATION.md` owns exact
+quantities, matched memberships, physical windows and all regressions. Class-II,
+scarce-template and independent nonbinder structural truth remain separate scopes.
+
 ## 17 October: scientific and dependency reconciliation
 
 The existing CLI exports already cover separated contact graphs, intrinsic peptide/CDR
