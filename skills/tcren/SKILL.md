@@ -1799,3 +1799,18 @@ register minima. `anchor_indices` is still the historical sequence prediction.
 last_pdb` (tab-separated, inclusive author numbers) for engineered fused antigens;
 auxiliary peptide chains become unassigned. Coordinates/indices stay unchanged.
 Selection and core exports are hashed. API: `refine.structural_register` module.
+
+### Physical roles before DockQ correspondence
+
+Unrestricted external DockQ with permissive sequence mismatches can assign a short
+peptide to an MHC chain and exchange their biological roles. A reproduced scalar
+then authenticates numerical correspondence only. For pose validation, constrain
+TRA/TRB/peptide/MHC roles explicitly and retain observed-span/construct checks,
+physical copies, per-interface values, original totals and missingness separately.
+5NMD is unbound 868 (no pMHC); 4MNQ is affinity-enhanced ILA1, not SB27.
+Neither supplies identical-complex SB27 truth. Existing batched CLI descriptors
+remain sufficient; do not add a fitted correction for a reference-mapping error.
+
+Permissive historical mappings can also combine crystallographic copies and
+change the number of nonempty interfaces in the total. Retain that count; do not
+assume every historical multimer total averages the same six physical interfaces.

@@ -113,14 +113,16 @@ three sequence-verified targets; MEL8 reference-copy configuration; all-copy
 868/SB27 comparison with504 matched diagnostic records; complete546-model
 reference-deviation reconstruction. Every finite original868 total (215) matches
 5NME copy2, and106 original missing totals reproduce empty peptide alignments.
-ForSB27,133/225 original totals match at least one physical copy;92 remain
-unresolved. The new records preserve all old scores, class/template groups,
+ForSB27,133/225 original totals match at least one physical copy; the later
+automatic-mapping replay resolves the other92 through biologically invalid assignments
+(see the follow-up below). The new records preserve all old scores, class/template groups,
 missing values and adverse results. Copies/ranks are not independent targets.
 
 Remaining objective, in order:
 
 1. Recover original868/SB27 interface files, native-coordinate/executable identities
-   and the producing lineage for92 SB27 discrepancies. Newly reconstructed values
+   and authentication of their producing lineage. The92 SB27 numerical discrepancies
+are explained by incorrect automatic chain roles, including cross-copy assignments. Newly reconstructed values
    do not fill missing historical records; original missingness stays explicit.
 2. Validate on independent identical-complex targets within each intended
    class/template stratum before claiming general forced-pose detector accuracy.
@@ -173,3 +175,9 @@ checks (including 42 sequence ties and the 6BGA auxiliary-peptide error), the
 standard-AA calibration and matched regression tables. Manuscript/SI use the
 recomputed calibration only; previous values remain electronic evidence.
 Stratos MD is not part of this change.
+
+## Automatic DockQ mapping follow-up —17October2026
+
+Full546-model replay and supplied-reference checks: CPL_AUTOMATIC_MAPPING_AUDIT.md. SB27 automatic assignment reproduces 225/225 finite recorded totals; 92/225 assignments have incorrect biological roles. Every old value, unmatched case and descriptor regression remains. 5NMD is unbound868;4MNQ is engineeredILA1, not SB27. Strict pose truth still requires matching constructs and physical roles. Original artifact authentication and independent class/template validation remain open. No fitted score or Stratos operation.
+
+Details: audit/2026-10-17/CPL_AUTOMATIC_MAPPING.md. This updates the numerical-discrepancy gate above; original artifact authentication remains open.
