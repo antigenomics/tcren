@@ -94,9 +94,9 @@ aliphatic carbon, sulfur chemistry and histidine protonation remain mapping
 questions. A subsequently specified 19-type topology partition separates carbonyl
 sites and sulfur classes and declares histidine state unknown. Its support audit
 finds 187 of 190 unordered cells observed: native 180 (six single-PDB cells),
-antibody 187 (two single-PDB cells). No numerical potential is fitted. The next
-gate is to freeze its estimator, compositional versus exposed opportunity,
-unseen policy and aggregation before any new assay evaluation.
+antibody 187 (two single-PDB cells). The estimator, endpoint-composition reference,
+unseen policy and aggregation were frozen before evaluation; endpoint composition
+is explicitly not exposed opportunity.
 
 The next numerical definition is frozen in [CHEMICAL_CORE_SPEC.md](CHEMICAL_CORE_SPEC.md).
 It uses unordered actual-count enrichment, directed residue-conditioned endpoint
@@ -106,6 +106,48 @@ unmapped or zero-conditional-support queries abstain with zero. The optional
 original residue potentials. Focused hand-counted, source-validation, CLI CPU
 mode and actual serial/spawn checks precede any numerical resource estimation.
 No assay result has been used to choose this estimator or its missingness rules.
+
+## Completed symmetric-core evaluation
+
+The frozen 19-type core now has 187 observed of 190 unordered cells from the
+same 48827 native and 211517 antibody observations. Its 3808-model ranking run
+preserves all 7616 original and directed atom-count scores exactly. Independent
+completed-output checks cover all 248 metric entries, raw hashes, cohort
+membership and physical edge sums. Original missing edge values are preserved:
+42 of 176146 exported edge rows, representing eight models under each potential.
+No score or model is promoted.
+
+For TCRen2 AUROC, the new core gives SB27 0.806968 (original 0.861510,
+previous surface 0.927116, boundary surface 0.918672, directed atom 0.646254);
+ILA1 0.717088 (0.591236, 0.741744, 0.680124, 0.964096);
+YLQ 0.460255 (0.477427, 0.364654, 0.347459, 0.608226);
+and GLC receptor ranking 0.370433 (0.379849, 0.431576, 0.436849, 0.422913).
+The respective positive/negative model counts are 161/64, 161/164, 174/249 and
+135/59. SB27 improves against the sparse directed atom layer but loses against
+all three older references. ILA1 retains an original-score gain while giving up
+most of the directed layer's gain. Both receptor-ranking epitopes lose against
+the directed layer; the GLC loss also includes both surfaces and original.
+
+Across seven CPL AUROCs, core versus original has four gains/three losses for
+TCRen2 and five/two for published TCRen. For six template-covered VDJdb cases,
+both potentials have three gains/three losses versus original. For sixteen
+scarce-template cases, both have eight/eight. Against the directed layer,
+covered cases have two gains/four losses for TCRen2 and one/five for TCRen;
+scarce cases have six/ten and five/ten/one tie respectively. These strata remain
+separate. Full per-case AP and precision-at-recall gains and losses are retained
+in private evaluation records alongside every AUROC.
+
+The ranking run finished in 182.727 seconds on a 16-CPU allocation with sampled
+peak process-tree RSS 6.736 GB and 81 live OS threads. Kernel runnable-thread
+count reached 34; this does not verify a 16-thread numerical concurrency bound.
+Native follow-through preserves 179 successes, ten failures and all original/atom
+scores. Its 16 correlations use exact accepted populations: all six ATLAS Pearson
+entries rise against original, but four of six Spearman entries fall (23 koff,
+55 Kd/dG observations). All four MD correlations lose against original and both
+surfaces (178 structures); TCRen2 Pearson changes 0.453750 to 0.378634,
+Spearman 0.455755 to 0.372674. Core beats the directed atom layer in 12/16
+native entries, losing all four koff entries. No direction is selected. Virtual legacy residue substitutions
+still lack candidate atom coordinates; no atom corrections are imputed for them.
 
 ## Work order and verification
 
