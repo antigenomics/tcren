@@ -51,13 +51,31 @@ all 260 donor CDR3 sequences match fresh annotation. Pooled summed AUROC changes
 0.730430 to 0.724502; within-template AUROC has 16 gains, 14 losses and 100 ties.
 The TRA and TRB pooled AUROCs improve separately; no adverse sum is concealed.
 
-Exact original-paper coordinate/protocol mapping remains separate. The original
-source summary has 140 nonredundant IDs; later snapshots change that population.
-Literal ERGO inputs recover 137 unambiguous standard-peptide candidate pools,
-but no inspected source establishes equality to the historical TCRen random
-stream, whose seed is unrecorded. Keep this as an input inventory, not an exact
-paper reproduction. Original Birnbaum duplicate-native aggregation also differs
-from both current notebook protocols. Do not silently substitute those tasks.
+The original-paper gate is now source-linked and scored separately. Older Git
+source constructs the literal ERGO export from the same candidate object as the
+structural score; no execution record certifies it as the final published random
+stream. On 137 recovered original-panel pools, median AUROC changes from 0.960
+to 0.937 (38 gains, 84 losses, 15 ties). The 47 original model/crystal comparisons
+now use identical recovered pools: models 0.783 to 0.769 (20/25/2), crystals 0.945
+to 0.931 (13/30/4). Historical scope defects remain visible as diagnostics.
+
+The original junction shuffle retains all 302 source pairs in its ledger; 282
+are scoreable (132 native, 150 shuffled). Pooled summed AUROC changes 0.698965
+to 0.680025; TRA improves 0.628662 to 0.637929, TRB falls 0.655884 to 0.643965.
+Within-template AUROC has 4 gains, 9 losses and 62 ties over 75 evaluable pools;
+57 positive-only pools remain explicit nulls. Actual adjacent Cys and F/W anchors
+are recovered from annotation, never fabricated. Twenty unavailable pairs retain
+source/topology/peptide reasons and are excluded identically from both matrices.
+
+Of 136 original IEDB-eligible units, 28 complete standard-amino-acid pools can be
+recovered without an unrecorded random sample: median AUROC 0.948745 to 0.922592
+(6 gains, 17 losses, 5 ties; 18090 candidates per potential). Another 107 historical
+samples have no recoverable sampling state; one complete pool contains 86
+nonstandard controls and remains wholly unavailable. This subset is not the
+full paper. Original Birnbaum SUM aggregation is now retained exactly, including
+its duplicated native peptide: all three AUROCs improve, while precision and
+median positive rank worsen in two units. No random seed is fitted to published
+outputs.
 
 Both contact export and candidate CLI scoring now use bounded coarse workers
 with all allocated CPUs. On 128 raw models, serial/parallel scores and contact
@@ -65,6 +83,20 @@ exports agree exactly; cold runtime changes from 28.331 to 8.428 seconds
 (3.361-fold). This does not establish full-cohort scaling. Virtual residue
 substitutions have no mutant atom coordinates, so atom/surface corrections for
 those candidates remain undefined rather than silently set to zero.
+
+A completed support-only audit maps 184 observed residue/atom labels to 16
+existing chemical signatures. Unordered pooling reduces 256 possible directed
+cells to 136 unordered cells (135 observed). Native support covers 133 cells,
+five seen in only one PDB; antibody support covers 135 cells, none seen in only
+one PDB. This supports antibody augmentation and count-level symmetry, but does
+not validate the existing heuristic atom flags as a force field. Carbonyl versus
+aliphatic carbon, sulfur chemistry and histidine protonation remain mapping
+questions. A subsequently specified 19-type topology partition separates carbonyl
+sites and sulfur classes and declares histidine state unknown. Its support audit
+finds 187 of 190 unordered cells observed: native 180 (six single-PDB cells),
+antibody 187 (two single-PDB cells). No numerical potential is fitted. The next
+gate is to freeze its estimator, compositional versus exposed opportunity,
+unseen policy and aggregation before any new assay evaluation.
 
 ## Work order and verification
 
@@ -159,8 +191,10 @@ With a shared W(c,d)=exp(-u(c,d)), define
 
 The atom log-ratio correction is u(c,d)+log Z(a,b,h), with dimensionless u and
 normalized reference opportunity. Symmetry of u need not symmetrize qB/qT. A
-four-type symmetric core has10cells, versus16 if directed;18symmetric types have
-171. This is an architecture proposal, not a fitted/frozen candidate or an exact
+four-type symmetric core has 10 cells, versus 16 if directed; 16 types have
+136 symmetric cells, and 18 types have 171. One global additive gauge cancels
+after conditional normalization when the opportunity distributions are fixed.
+This is an architecture proposal, not a fitted/frozen candidate or an exact
 reformulation of the current table. Actual noncontact opportunities are needed;
 the antibody contact table alone cannot supply them. Conditional normalization
 and edge averaging still do not establish a physical or independent likelihood.
@@ -176,6 +210,11 @@ and edge averaging still do not establish a physical or independent likelihood.
   a directly relevant sparse-data example uses four pooled atom groups and preserves
   role asymmetry. It argues against symmetrizing all interface statistics merely
   because microscopic pair interactions can be symmetric.
+- [Orientation-dependent hydrogen bonding](https://www.physics.rutgers.edu/~morozov/pdfs/Kortemme_Morozov_HB_JMB2003.pdf):
+  donor–hydrogen–acceptor and acceptor-base geometry supply chemistry beyond a
+  radial cutoff. Existing N/CA/CB orientation descriptors are different quantities;
+  current contact-only tables may lack bonded-neighbor coordinates. No Rosetta
+  weights, hydrogen reconstruction assumptions or physical energy units are imported.
 - [Reference-ratio formalism (arXiv:1008.4006)](https://arxiv.org/abs/1008.4006):
   the denominator defines the statistical model's interpretation; contact endpoint
   frequencies do not measure exposed-atom opportunity.
