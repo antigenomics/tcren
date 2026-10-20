@@ -45,8 +45,19 @@ counterparts (47; 16 gains, 26 losses, 5 ties). All three original-protocol
 Birnbaum AUROCs improve. Notebook model/crystal arms draw distinct historical
 pools; each compared matrix uses identical candidates within its arm. Their
 original 2022 population and LOO/LCO outputs remain separate evidence.
-Shuffled-receptor scoring now has a paired-CDR3 CLI route; fresh evaluation and
-exact original-paper coordinate/protocol mapping remain open.
+Shuffled-receptor scoring now has a paired-CDR3 CLI route. Its fresh 470-pair
+comparison retains 130 native and 340 shuffled candidates over 130 templates;
+all 260 donor CDR3 sequences match fresh annotation. Pooled summed AUROC changes
+0.730430 to 0.724502; within-template AUROC has 16 gains, 14 losses and 100 ties.
+The TRA and TRB pooled AUROCs improve separately; no adverse sum is concealed.
+
+Exact original-paper coordinate/protocol mapping remains separate. The original
+source summary has 140 nonredundant IDs; later snapshots change that population.
+Literal ERGO inputs recover 137 unambiguous standard-peptide candidate pools,
+but no inspected source establishes equality to the historical TCRen random
+stream, whose seed is unrecorded. Keep this as an input inventory, not an exact
+paper reproduction. Original Birnbaum duplicate-native aggregation also differs
+from both current notebook protocols. Do not silently substitute those tasks.
 
 Both contact export and candidate CLI scoring now use bounded coarse workers
 with all allocated CPUs. On 128 raw models, serial/parallel scores and contact
