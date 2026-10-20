@@ -22,7 +22,7 @@ for name in ("POLARS_MAX_THREADS", "POLARS_ASYNC_THREAD_COUNT", "OPENBLAS_NUM_TH
              "OMP_NUM_THREADS", "OMP_THREAD_LIMIT", "MKL_NUM_THREADS", "NUMEXPR_NUM_THREADS",
              "VECLIB_MAXIMUM_THREADS", "RAYON_NUM_THREADS"):
     env[name] = "1"
-env["POLARS_MAX_BLOCKING_THREADS"] = "4"
+env["POLARS_MAX_BLOCKING_THREAD_COUNT"] = "4"
 start, peak, reason = time.monotonic(), 0, None
 child = subprocess.Popen(command, env=env, start_new_session=True)
 
@@ -74,8 +74,8 @@ finally:
     result = dict(command=command, exit_code=child.returncode, guard_stop=reason,
                   peak_sampled_tree_rss_bytes=peak, rss_cap_bytes=cap,
                   timeout_s=seconds, elapsed_s=time.monotonic()-start, poll_s=.1,
-                  compute_threads=1, environment_limits={k: env[k] for k in env if k in
-                      ("POLARS_MAX_THREADS", "POLARS_MAX_BLOCKING_THREADS", "OMP_NUM_THREADS")})
+                  configured_native_thread_limit=1, environment_limits={k: env[k] for k in env if k in
+                      ("POLARS_MAX_THREADS", "POLARS_MAX_BLOCKING_THREAD_COUNT", "OMP_NUM_THREADS")})
     report.write_text(json.dumps(result, indent=2) + "\n")
     print(json.dumps(result), flush=True)
 raise SystemExit(124 if reason else child.returncode)
