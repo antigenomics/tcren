@@ -335,6 +335,8 @@ def comparison_command(
         arms.append("normalized")
     if "atom_count" in scored.columns:
         arms.append("atom_count")
+    if "chemical_core" in scored.columns:
+        arms.append("chemical_core")
     if "surface_context_sum" in scored.columns:
         arms.extend(["surface_raw_sum", "surface_context_sum"])
     for (potential,), current in scored.group_by("potential"):

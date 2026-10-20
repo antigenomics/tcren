@@ -370,3 +370,117 @@ joint likelihood, a binding free energy, or a calibrated validity probability.
 The neutral unseen-cell policy does not complete a globally normalized density.
 References are estimated dependencies; raw contacts are correlated within
 structures. No score-time fitting or default change is introduced.
+
+Symmetric chemical core with directed composition
+-------------------------------------------------
+
+``contact-chemical-core-fit --native observations.parquet --external curated.parquet
+-o chemical-core.json -t 0`` freezes the experimental ``chemical-core-count-1``
+resource from existing native class-I CDR:peptide and curated antibody
+peptide-target atom contacts at 5 Å. Each physical atom pair supplies one integer
+count. Native and external contacts are pooled with their actual counts; no assay
+labels, source weights or fitted score coefficients enter the estimator.
+``-t 0`` uses one allocation-sized Polars pool in a fresh table-only subprocess.
+BLAS/OpenMP kernels stay serial, with no outer process pool. This lets the
+command own its immutable Polars pool without changing other commands' runtime.
+
+The potential-specific mapping retains the existing chemical signature, splitting
+carbonyl carbon sites (backbone C and D:CG, E:CD, N:CG, Q:CD) from other carbons,
+separating methionine thioether sulfur from unknown-state cysteine sulfur, and
+assigning histidine ring nitrogen an unknown protonation/tautomer state. The
+accepted reference has 19 types, hence 190 possible unordered cells. The saved
+AA:atom-to-type map applies identically to references and queries. The general
+contact classifier is unchanged. Remaining coarse chemical merges and terminal
+state assumptions persist; these labels do not assign charge, hydrogen-bond
+satisfaction or a force field.
+
+Estimator and normalization
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Let ``n_cd`` count directed binder-type ``c`` to target-type ``d`` contacts,
+``N = sum_cd n_cd > 0``, and ``b_c = sum_d n_cd/N`` and
+``t_d = sum_c n_cd/N`` be the two normalized endpoint compositions. For unordered
+pairs, define::
+
+    m_cd = n_cd + n_dc,  Q_cd = b_c*t_d + b_d*t_c  for c < d,
+    m_cc = n_cc,         Q_cc = b_c*t_c.
+
+The sums over unordered cells are ``sum m = N`` and ``sum Q = 1``. Diagonal
+contacts are counted once. On observed cells define the symmetric core
+``W_cd = m_cd/(N*Q_cd)`` and ``u_cd = -ln W_cd``. Do not average directed log
+energies. A positive observed count with zero reference mass is inconsistent
+input. On zero-count cells use ``W_cd = 1`` and ``u_cd = 0`` explicitly, including
+zero-reference-mass cells, without evaluating ``0/0``. This is a declared neutral
+core completion, with no pseudocount or inferred compatibility.
+
+For binder residue identity ``a`` and target residue identity ``b``, freeze the
+separately normalized conditional endpoint frequencies ``qB(c|a)`` and
+``qT(d|b)`` from the same directed contact population. Then::
+
+    Z_ab = sum_c,d qB(c|a) * qT(d|b) * W_cd
+    p(c,d|a,b) = qB(c|a) * qT(d|b) * W_cd / Z_ab
+    Delta(c,d|a,b) = -ln W_cd + ln Z_ab.
+
+The sum defining Z is over ordered type pairs. A complete positive finite W and
+normalized conditional endpoints imply ``0 < Z_ab < infinity`` and
+``sum_c,d p(c,d|a,b) = 1``. On positive conditional reference support, Delta is
+exactly ``-ln[p/(qB*qT)]`` for this constructed composition model. Symmetric W
+is an exchange-invariant interaction assumption; it does not fit the observed
+directed frequencies exactly or exchange biological roles. Directed conditional
+compositions can give ``Z_ab != Z_ba``.
+
+If U is the set of zero-count unordered cells, neutral completion gives
+``sum QW = 1 + sum_U Q``. A separate global normalization is unnecessary: scaling
+every completed W, including unseen cells, by the same positive constant cancels
+in Delta. Scaling only observed cells and resetting unseen W to one changes the
+estimator. The declared enrichment/completion gauge is stored directly.
+
+Application and missing support
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``contact-penalties ... --chemical-core-resource chemical-core.json`` exports a
+separate ``chemical_core`` arm; ``contact-compare`` retains it alongside original
+scores and other requested arms on matched rows. On each physical CDR1/2/3 residue
+edge with finite original potential support, add the arithmetic mean of Delta
+over all observed atom pairs with coefficient one. Atoms sharing a chemical type
+remain separate physical observations. Both original residue potentials receive
+the same increment. Framework and missing-original-entry policies are unchanged;
+an eligible scored CDR edge missing all atom observations is an error.
+
+An unseen chemical pair with positive conditional endpoint support receives
+``Delta = ln Z_ab``, which can be nonzero. An unmapped query label, zero conditional
+endpoint support or unavailable residue normalizer instead abstains with final
+zero, explicit support counts and an unchanged atom-pair denominator. These
+fallbacks make no density-ratio claim outside reference support. Unseen chemistry
+and unsupported queries have distinct counts; no infinite energy is substituted.
+Outputs retain edge increments, physical-pair counts and resource identity.
+
+Provenance, cost and interpretation
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The resource freezes its version, explicit mapping, actual source counts,
+conditional endpoint frequencies and core values with input hashes and source
+membership accounting. Numerical resources and scoring outputs have separate
+identities; deriving a resource does not certify predictive accuracy. Recreate
+reference inputs with the existing contact exporter and curation recipe, then
+run the fit CLI into a new output. Benchmark consumers read CLI-owned energies.
+
+For R reference atom rows and k chemical types (k at most 19), vectorized
+mapping/count reductions use O(R) expected grouping work and O(R + k squared)
+working storage; no coordinate or dense atom-by-atom matrix is built. After
+counts are available, core construction costs O(k squared); partitions for A
+binder and B target residue identities cost O(A*B*k squared) directly, with
+A and B at most 20. Query scoring maps and joins M physical observations to the
+frozen map/core, then groups them by residue edge: O(M) expected hash work and
+O(M) working/output storage. Hash-group bounds are expected rather than worst
+case. Small dense type arrays and existing vectorized operations suffice; no
+new native kernel, dependency, cache or nested worker layer is required.
+
+All increments are dimensionless contact-composition log ratios. Contact endpoint
+frequencies are not exposed-atom opportunity. Edge averaging and unit addition
+are frozen conventions, with no assay calibration or derivation as a joint
+structure likelihood or binding free energy. Original residue scores were
+estimated under a different model; this normalization does not prove their
+chemical signal has been removed. Reference contacts are correlated and actual
+contact pooling can be antibody dominated. There is no radial/angular or site
+fit, physical kcal/mol term, accuracy claim or change to the default scorer.

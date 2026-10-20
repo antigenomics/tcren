@@ -87,7 +87,8 @@ def score_atom_counts(contacts, observations, resource, original, *, mhc_class="
     atoms = atoms.with_columns(*[
         pl.col('chem.'+side).replace(aliases).str.split_exact(':',1).struct.field(field).alias(dest+'_'+side)
         for side in ['from','to'] for field,dest in [('field_0','aa'),('field_1','atom')]])
-    matrix = pl.DataFrame(resource['cells']).select(*TYPES,'value')
+    matrix = (pl.DataFrame(resource['cells']).select(*TYPES,'value') if resource['cells'] else
+              pl.DataFrame(schema={**dict.fromkeys(TYPES,pl.String),'value':pl.Float64}))
     if matrix.select(TYPES).is_duplicated().any() or not matrix['value'].is_finite().all():
         raise ValueError('unique finite atom-count cells required')
     atoms = atoms.join(matrix,on=TYPES,how='left',validate='m:1')

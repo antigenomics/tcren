@@ -268,3 +268,36 @@ c096b37a19f5937ce5d40afa4a0c84d4caf8d438a4dc32203e0774d05ebaf07e.
 Scientific definition, native/external counts, estimated dependencies and limits:
 audit/2026-10-18/CONTACT_WEIGHTED.md. No assay label, potential coefficient or
 predictor confidence is used to estimate these ranks. Prior results are preserved.
+
+## Experimental chemical core — derived resource, 20 October 2026
+
+`chemical-core-count-1` is a separately generated empirical reference dependency,
+not a bundled force field or raw experimental energy measurement. Its inputs are
+existing native class-I CDR:peptide contact observations and the existing curated
+antibody peptide-target contact population, exported as physical heavy-atom pairs
+at 5 Å. Preserve the original input source/curation provenance and membership
+accounting privately where access requires it; public documentation does not
+release those structures, identifiers or contact tables.
+
+Regenerate into a new output with neutral file placeholders:
+`tcren contact-chemical-core-fit --native observations.parquet --external curated.parquet -o chemical-core.json -t 0`.
+Pin exact input hashes, producer version, physical source counts and membership
+counts with the resulting immutable resource; record its hash in each consuming
+scoring run. No numerical resource or hash is asserted by this recipe alone.
+
+The potential-specific 19-type map separates carbonyl sites, methionine/cysteine
+sulfur and unknown-state histidine ring nitrogen without changing the general
+contact classifier. Actual contact counts determine symmetric unordered
+chemical enrichment; role-specific residue-conditional endpoint compositions
+supply the partition. Unseen W=1 is a neutral core completion, while unmapped or
+zero-conditional-support queries explicitly abstain. Mapping, reference measure,
+completion and mean-per-edge unit addition are versioned together. Counts are
+correlated observations and the pooled mixture can be antibody dominated.
+
+All estimation and scoring definitions belong to the library CLI. No assay
+labels, fitted combination/source weights, radial/angular or site fit enters
+this experimental recipe. Values are dimensionless composition log ratios, not
+physical binding free energies or independent likelihoods; neither transfer
+accuracy nor a default-model change follows from the estimator. Full equations,
+normalization and support policies: docs/contact-penalties.rst; frozen design:
+CHEMICAL_CORE_SPEC.md. Original TCRen and existing candidate resources are retained.

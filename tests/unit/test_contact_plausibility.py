@@ -136,6 +136,14 @@ def test_cli_comparison_uses_identical_rows_for_every_arm(tmp_path):
     surface_metrics = pl.read_csv(tmp_path/"surface_compare/metrics.tsv", separator="\t")
     assert surface_metrics["n_used"].unique().to_list() == [3]
     assert {"surface_raw_sum", "surface_context_sum"} <= set(surface_metrics["arm"])
+    chemical_scores = surface_scores.with_columns(
+        pl.Series("chemical_core", [1., -1., None]),
+        pl.Series("atom_count", [1., -1., -2.]))
+    chemical_scores.write_csv(sp, separator="\t")
+    comparison_command(lp, sp, tmp_path/"chemical_compare")
+    chemical_metrics = pl.read_csv(tmp_path/"chemical_compare/metrics.tsv", separator="\t")
+    assert chemical_metrics["n_used"].unique().to_list() == [2]
+    assert {"chemical_core", "atom_count", "original"} <= set(chemical_metrics["arm"])
     import pytest
     scores.with_columns(pl.lit("II").alias("mhc_class")).write_csv(sp, separator="\t")
     with pytest.raises(ValueError, match="MHC class"):
@@ -145,6 +153,7 @@ def test_cli_comparison_uses_identical_rows_for_every_arm(tmp_path):
 def test_bounded_export_writes_complete_readable_artifacts(tmp_path, monkeypatch):
     import gzip
     import json
+    import pytest
     from test_contact_observations import complex_fixture
     import tcren.annotation
     import tcren.annotation.batch
@@ -168,6 +177,41 @@ def test_bounded_export_writes_complete_readable_artifacts(tmp_path, monkeypatch
     penalty_export([str(source)], resource, output, chunk=2)
     assert json.loads((output/"provenance.json").read_text())["no_scoring_time_fitting"]
     assert pl.read_csv(output/"scores.tsv", separator="\t").height == 2
+    from tcren.contacts.chemical_core import derive_chemical_core
+    import tcren.contacts.chemical_core as core
+    counts = pl.DataFrame(dict(aa_from=["Y"], atom_from=["OH"],
+                               aa_to=["P"], atom_to=["O"], count=[1]))
+    frozen_core = derive_chemical_core(counts, counts.head(0))
+    chemical_resource = tmp_path/"chemical.json"
+    chemical_resource.write_text(json.dumps(frozen_core))
+    calls = []
+    def chemical_score(contacts, atoms, frozen, total, *, mhc_class):
+        assert frozen == frozen_core
+        assert mhc_class == "I" and atoms.equals(observations)
+        calls.append(total)
+        return contacts.with_columns(pl.lit(.25).alias("chemical_core_increment")), {
+            "chemical_core": total+.25, "chemical_core_increment": .25}
+    monkeypatch.setattr(core, "score_chemical_core", chemical_score)
+    chemical_output = tmp_path/"chemical_out"
+    penalty_export([str(source)], resource, chemical_output, chunk=2,
+                   threads=1, chemical_core_path=chemical_resource)
+    before = pl.read_csv(output/"scores.tsv", separator="\t")
+    chemical = pl.read_csv(chemical_output/"scores.tsv", separator="\t")
+    assert chemical.select(before.columns).equals(before)
+    assert calls == before["original"].to_list()
+    assert chemical["chemical_core_increment"].to_list() == [.25, .25]
+    from tcren.exports import _sha256
+    assert json.loads((chemical_output/"provenance.json").read_text())["chemical_core_sha256"] == _sha256(chemical_resource)
+    with pytest.raises(ValueError, match="requires score export"):
+        penalty_export([str(source)], resource, tmp_path/"chemical_geometry",
+                       chemical_core_path=chemical_resource, geometry_only=True)
+    for value in ({}, {"version": "malformed"}):
+        chemical_resource.write_text(json.dumps(value))
+        invalid_output = tmp_path/"invalid_chemical"
+        with pytest.raises(ValueError, match="chemical-core"):
+            penalty_export([str(source)], resource, invalid_output,
+                           chemical_core_path=chemical_resource)
+        assert not invalid_output.exists()
     surface_output = tmp_path/"surface"
     penalty_export([str(source)], resource, surface_output, chunk=2, surface_context=True)
     original = pl.read_csv(output/"scores.tsv", separator="\t")

@@ -5,6 +5,23 @@ description: tcren — TCR-pMHC contact potential (TCRen) pipeline; conventions 
 
 # tcren Skills Guide
 
+## Symmetric chemical core, directed composition
+
+`contact-chemical-core-fit --native contacts.parquet --external curated.parquet
+-o chemical-core.json -t 0` freezes `chemical-core-count-1`: a potential-specific
+19-type map, unordered physical counts and symmetric enrichment W against pooled
+role-specific endpoint products. Native class-I CDR:peptide and curated antibody
+peptide contacts use actual integer counts at 5 Å; no assay/source weights.
+Conditional role marginals define `Z_ab=sum qB(c|a)qT(d|b)W_cd` and
+`Delta=-ln W_cd+ln Z_ab`. General contact classification stays unchanged.
+`contact-penalties ... --chemical-core-resource chemical-core.json` adds one
+physical-atom-pair mean per known CDR edge, unit coefficient, as `chemical_core`.
+Unseen W=1 yields ln Z, not final zero. Unknown mappings/zero conditional support
+abstain with final zero, distinct counts and unchanged mean denominator.
+Resource/input hashes and original scores remain explicit; `contact-compare`
+retains the separate arm. No new default, physical free energy or accuracy claim.
+See `docs/contact-penalties.rst` for equations, provenance and support semantics.
+
 ## Directed residue+atom count layer
 
 `contact-atom-count-fit --native contacts.parquet --external curated_atom_contacts.parquet

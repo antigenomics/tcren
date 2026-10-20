@@ -98,6 +98,15 @@ antibody 187 (two single-PDB cells). No numerical potential is fitted. The next
 gate is to freeze its estimator, compositional versus exposed opportunity,
 unseen policy and aggregation before any new assay evaluation.
 
+The next numerical definition is frozen in [CHEMICAL_CORE_SPEC.md](CHEMICAL_CORE_SPEC.md).
+It uses unordered actual-count enrichment, directed residue-conditioned endpoint
+composition and an exact conditional partition. Unseen core W=1 gives logZ;
+unmapped or zero-conditional-support queries abstain with zero. The optional
+`chemical_core` CLI arm preserves the earlier `atom_count` definition and both
+original residue potentials. Focused hand-counted, source-validation, CLI CPU
+mode and actual serial/spawn checks precede any numerical resource estimation.
+No assay result has been used to choose this estimator or its missingness rules.
+
 ## Work order and verification
 
 1. **Publish safely.** Keep raw inputs, private provenance, host paths and private

@@ -19,7 +19,7 @@ def _score_chunk(work):
     from ..contactmap import ContactMap
     from ..exports import residue_identity
 
-    structures, tables, resource, geometry_only, calibration, normalizer, surface_context, surface_ownership, atom_count = work
+    structures, tables, resource, geometry_only, calibration, normalizer, surface_context, surface_ownership, atom_count, chemical_core = work
     results = []
     for structure in structures:
         identity, edge_tables, summaries, surface_atoms, surface_edges, error = None, [], [], [], [], ""
@@ -58,6 +58,11 @@ def _score_chunk(work):
                     current_class = "II" if any(c.chain_supertype == "MHCII" for c in structure.chains) else "I"
                     table, atom_summary = score_atom_counts(table, observations, atom_count, summary["original"], mhc_class=current_class)
                     summary.update(atom_summary)
+                if chemical_core:
+                    from .chemical_core import score_chemical_core
+                    current_class = "II" if any(c.chain_supertype == "MHCII" for c in structure.chains) else "I"
+                    table, chemical_summary = score_chemical_core(table, observations, chemical_core, summary["original"], mhc_class=current_class)
+                    summary.update(chemical_summary)
                 if calibration:
                     table, summary = apply_weighted(table, weights, summary)
                 if normalizer:
@@ -73,7 +78,7 @@ def _score_chunk(work):
 
 
 @single_threaded
-def penalty_export(sources, resource_path, output, *, chunk=512, threads=0, potentials=("tcren2", "karnaukhov2022"), geometry_only=False, calibration_path=None, normalizer_path=None, surface_context=False, surface_ownership="deepest_sphere", atom_count_path=None):
+def penalty_export(sources, resource_path, output, *, chunk=512, threads=0, potentials=("tcren2", "karnaukhov2022"), geometry_only=False, calibration_path=None, normalizer_path=None, surface_context=False, surface_ownership="deepest_sphere", atom_count_path=None, chemical_core_path=None):
     """Annotate one bounded batch, score coarse chunks, then release its atoms."""
     from ..annotation.batch import annotate_batch
     from ..annotation import classify_chains
@@ -94,6 +99,13 @@ def penalty_export(sources, resource_path, output, *, chunk=512, threads=0, pote
     ids = [structure_stem(p) for p in paths]
     if not paths or len(set(ids)) != len(ids):
         raise ValueError("nonempty input set with globally unique complete stems required")
+    chemical_core = None
+    if chemical_core_path is not None:
+        from .chemical_core import validate_resource
+        chemical_core = json.loads(Path(chemical_core_path).read_text())
+        validate_resource(chemical_core)
+        if geometry_only:
+            raise ValueError("chemical-core layer requires score export")
     output = Path(output)
     output.mkdir(parents=True, exist_ok=False)
     resource_path = Path(resource_path)
@@ -148,7 +160,7 @@ def penalty_export(sources, resource_path, output, *, chunk=512, threads=0, pote
             count = min(threads, len(typed))
             work = [([s for s, _ in typed[i*len(typed)//count:(i+1)*len(typed)//count]],
                      tables, resource, geometry_only, calibration, normalizer,
-                     surface_context, surface_ownership, atom_count) for i in range(count)]
+                     surface_context, surface_ownership, atom_count, chemical_core) for i in range(count)]
             results = [result for group in parallel_map(_score_chunk, work, threads) for result in group]
             for (structure, row), result in zip(typed, results, strict=True):
                 identity, edge_tables, scored, atoms, surfaces, error = result
@@ -180,6 +192,7 @@ def penalty_export(sources, resource_path, output, *, chunk=512, threads=0, pote
         pl.DataFrame(summaries, infer_schema_length=None).write_csv(output/("geometry_models.tsv" if geometry_only else "scores.tsv"), separator="\t")
     provenance = dict(resource_sha256=_sha256(resource_path), resource_version=resource["version"],
         atom_count_sha256=_sha256(atom_count_path) if atom_count else None,
+        chemical_core_sha256=_sha256(chemical_core_path) if chemical_core else None,
         calibration_sha256=_sha256(calibration_path) if calibration else None,
         normalizer_sha256=_sha256(normalizer_path) if normalizer else None,
         producer_sha256=_sha256(Path(__file__)), source_count=len(paths), chunk_size=chunk, threads=threads,
@@ -205,9 +218,10 @@ def penalty_command(
     surface_context: bool = typer.Option(False, "--surface-context"),
     surface_ownership: str = typer.Option("deepest_sphere", "--surface-ownership"),
     atom_count_resource: Path | None = typer.Option(None, "--atom-count-resource", exists=True, dir_okay=False),
+    chemical_core_resource: Path | None = typer.Option(None, "--chemical-core-resource", exists=True, dir_okay=False),
 ):
     """Apply the same frozen geometry weight to four declared penalty arms."""
-    penalty_export(structures, resource, out, chunk=chunk, threads=threads, calibration_path=calibration, normalizer_path=normalizer, surface_context=surface_context, surface_ownership=surface_ownership, atom_count_path=atom_count_resource)
+    penalty_export(structures, resource, out, chunk=chunk, threads=threads, calibration_path=calibration, normalizer_path=normalizer, surface_context=surface_context, surface_ownership=surface_ownership, atom_count_path=atom_count_resource, chemical_core_path=chemical_core_resource)
 
 
 def geometry_audit_command(
@@ -226,6 +240,8 @@ def register(app, panel):
     app.command("contact-prior-fit", rich_help_panel=panel)(fit_command)
     from .atom_counts import fit_command as atom_count_fit
     app.command("contact-atom-count-fit", rich_help_panel=panel)(atom_count_fit)
+    from .chemical_core import fit_command as chemical_core_fit
+    app.command("contact-chemical-core-fit", rich_help_panel=panel)(chemical_core_fit)
     app.command("contact-penalties", rich_help_panel=panel)(penalty_command)
     app.command("contact-compare", rich_help_panel=panel)(comparison_command)
     app.command("contact-geometry-audit", rich_help_panel=panel)(geometry_audit_command)

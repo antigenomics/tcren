@@ -7,6 +7,12 @@ All notable changes to `tcren` are recorded here. Format follows
 
 ### Added
 
+- Experimental `contact-chemical-core-fit` and opt-in `chemical_core` contact
+  correction: versioned 19-type symmetric empirical core, directed conditional
+  composition normalization and explicit unseen/unsupported support accounting.
+  Actual native/antibody counts and hashes remain visible; original scores,
+  classifier and defaults are preserved, with no assay-fitted weights.
+
 - `score-receptors` threads paired CDR3 or explicit observed-junction candidate pools
   onto fixed template contacts, retaining candidate IDs and directed TRA/TRB/summed
   energies. Junction mode recovers actual adjacent FR3/FR4 anchors, including W118;

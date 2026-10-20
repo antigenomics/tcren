@@ -13,7 +13,7 @@ from tcren.runtime import available_cpus, native_threads, parallel_map
 from test_contact_observations import complex_fixture
 
 
-@pytest.mark.parametrize("mode", ["scores", "geometry", "deepest_sphere", "accessible_boundary"])
+@pytest.mark.parametrize("mode", ["scores", "geometry", "deepest_sphere", "accessible_boundary", "chemical_core"])
 def test_contact_penalty_coarse_workers_equal_serial(mode):
     if available_cpus() < 2:
         pytest.skip("requires two allocated CPUs")
@@ -24,9 +24,21 @@ def test_contact_penalty_coarse_workers_equal_serial(mode):
     geometry = mode == "geometry"
     tables = {} if geometry else {name: factory() for name, factory in _BUNDLED_POTENTIALS.items()
                                  if name in ("tcren2", "karnaukhov2022")}
+    chemical_core = None
+    if mode == "chemical_core":
+        from tcren.contacts.atom_counts import TYPES
+        from tcren.contacts.chemical_core import derive_chemical_core
+        swap = pl.col("role.from") != "tcr"
+        counts = observations.select(*[
+            pl.when(swap).then(pl.col("chem."+other)).otherwise(pl.col("chem."+side))
+            .str.split_exact(":", 1).struct.field(field).alias(dest+"_"+side)
+            for side, other in [("from", "to"), ("to", "from")]
+            for field, dest in [("field_0", "aa"), ("field_1", "atom")]
+        ]).group_by(TYPES).len(name="count")
+        chemical_core = derive_chemical_core(counts, counts.head(0))
     options = (tables, resource, geometry, None, None,
                mode in ("deepest_sphere", "accessible_boundary"),
-               mode if mode in ("deepest_sphere", "accessible_boundary") else "deepest_sphere", None)
+               mode if mode in ("deepest_sphere", "accessible_boundary") else "deepest_sphere", None, chemical_core)
     # Unequal contiguous chunks include an ordinary per-structure failure.
     work = [(structures[:2], *options), ([None, structures[2]], *options)]
     with native_threads():
@@ -46,6 +58,12 @@ def test_contact_penalty_coarse_workers_equal_serial(mode):
             assert expected[2] == actual[2]
             assert expected[5] == actual[5]
     assert parallel[1][0][-1].startswith("score: AttributeError:")
+    if chemical_core:
+        assert serial[0][0][-1] == ""
+        summaries = serial[0][0][2]
+        assert len(summaries) == 2
+        assert summaries[0]["chemical_core_increment"] == summaries[1]["chemical_core_increment"]
+        assert all(row["chemical_core_pairs"] == observations.height for row in summaries)
 
 
 def test_parallel_export_keeps_artifacts_and_propagates_pool_errors(tmp_path, monkeypatch):
