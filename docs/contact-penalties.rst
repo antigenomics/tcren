@@ -431,6 +431,17 @@ is an exchange-invariant interaction assumption; it does not fit the observed
 directed frequencies exactly or exchange biological roles. Directed conditional
 compositions can give ``Z_ab != Z_ba``.
 
+For fixed residue identities, write ``q = qB*qT``. On their positive support,
+``E_q[Delta] = KL(q || p) >= 0`` and ``E_p[Delta] = -KL(p || q) <= 0``.
+Here ``E_r`` denotes expectation under r and
+``KL(r || s) = sum r * ln(r/s)`` on their shared positive support.
+These are identities for the constructed conditional distributions. The endpoint
+product q is not a distribution of mock structures or unbound atom opportunities,
+so these identities do not establish real/mock classification. The log partition
+is constant within one residue pair; its sum over a structure varies with the
+contacted residue pairs. Removing it changes the model rather than choosing an
+energy zero.
+
 If U is the set of zero-count unordered cells, neutral completion gives
 ``sum QW = 1 + sum_U Q``. A separate global normalization is unnecessary: scaling
 every completed W, including unseen cells, by the same positive constant cancels
@@ -466,6 +477,13 @@ membership accounting. Numerical resources and scoring outputs have separate
 identities; deriving a resource does not certify predictive accuracy. Recreate
 reference inputs with the existing contact exporter and curation recipe, then
 run the fit CLI into a new output. Benchmark consumers read CLI-owned energies.
+
+The symmetric interaction table is only part of the estimated reference. Both
+residue-conditioned endpoint tables also depend on the contact population. Their
+row normalization constrains their entries, and all components share the same
+observations; stored cell counts are not independent fitted-parameter counts.
+The residue-pair partitions are deterministic functions of these quantities and
+must not be counted again as estimated coefficients.
 
 For R reference atom rows and k chemical types (k at most 19), vectorized
 mapping/count reductions use O(R) expected grouping work and O(R + k squared)

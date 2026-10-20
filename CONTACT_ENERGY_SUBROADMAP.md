@@ -118,6 +118,13 @@ membership and physical edge sums. Original missing edge values are preserved:
 42 of 176146 exported edge rows, representing eight models under each potential.
 No score or model is promoted.
 
+The 190-cell core is not the whole estimated reference: its frozen binder and
+target conditional compositions each contain 128 populated cells in 20
+normalized residue rows. All components share observations; these dimensions do
+not establish independent fitted-parameter counts. The 400 residue-pair log
+partitions are derived, not separately fitted. Their contributions vary with
+contacted residue identities, so removing them after a loss changes the model.
+
 For TCRen2 AUROC, the new core gives SB27 0.806968 (original 0.861510,
 previous surface 0.927116, boundary surface 0.918672, directed atom 0.646254);
 ILA1 0.717088 (0.591236, 0.741744, 0.680124, 0.964096);
