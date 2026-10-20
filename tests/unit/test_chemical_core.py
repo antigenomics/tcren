@@ -138,3 +138,15 @@ def test_fit_cli_owns_pool_and_freezes_identical_counts(tmp_path):
         assert result.exit_code!=0 and isinstance(result.exception,FileExistsError)
     for key in ['cells','binder','target','normalizers','mapping','types']:
         assert outputs[0][key]==outputs[1][key]
+
+
+def test_coexisting_directed_atom_arm_is_preserved():
+    from tcren.contacts.atom_counts import derive_atom_counts,score_atom_counts
+    counts=pl.DataFrame([dict(aa_from='A',atom_from=a,aa_to='A',atom_to=b,count=n)
+                        for a,b,n in [('CA','CA',5),('CA','C',3),('C','CA',7),('C','C',5)]])
+    edge,obs=physical([('A:CA','A:C')])
+    with_atom,old=score_atom_counts(edge,obs,derive_atom_counts(counts,counts.head(0)),-.2)
+    together,new=score_chemical_core(with_atom,obs,reference(),-.2)
+    assert together.select(with_atom.columns).equals(with_atom)
+    assert new['chemical_core_increment']==pytest.approx(-math.log(25/26))
+    assert new['chemical_core_increment']!=old['atom_count_increment']

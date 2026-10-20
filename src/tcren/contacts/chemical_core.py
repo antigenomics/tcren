@@ -244,9 +244,11 @@ def score_chemical_core(contacts, observations, resource, original, *, mhc_class
     query = query.filter(known).with_columns((pl.col('value')+pl.col('logZ')).alias('value'),(pl.col('count')==0).alias('unseen'))
     # Execution-owned projection, not another estimated table or persistent cache.
     projection = dict(version=ATOM_VERSION,cutoff_A=5.,mhc_class='I',chemical_equivalence={},cells=query.select(*TYPES,'value').to_dicts())
-    detail,summary = score_atom_counts(contacts,observations,projection,original,mhc_class=mhc_class)
+    base = contacts.select(*EDGE,'region.type.from','original_contribution')
+    detail,summary = score_atom_counts(base,observations,projection,original,mhc_class=mhc_class)
     extra = atoms.join(query.select(*TYPES,'unseen'),on=TYPES,how='left',validate='m:1').group_by(EDGE).agg(pl.col('unseen').fill_null(False).sum().alias('chemical_core_unseen_pairs'))
     detail = detail.rename({c:c.replace('atom_count','chemical_core',1) for c in detail.columns if c.startswith('atom_count')})
+    detail = contacts.join(detail.select(*EDGE,*[c for c in detail.columns if c.startswith('chemical_core')]),on=EDGE,how='left',validate='1:1')
     detail = detail.join(extra,on=EDGE,how='left',validate='1:1').with_columns(pl.col('chemical_core_unseen_pairs').fill_null(0))
     summary = {c.replace('atom_count','chemical_core',1):v for c,v in summary.items()}
     summary['chemical_core_unseen_atoms'] = int(detail['chemical_core_unseen_pairs'].sum())
