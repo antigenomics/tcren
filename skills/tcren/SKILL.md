@@ -2025,3 +2025,16 @@ Preserve the exact candidate pool and duplicate multiplicities when comparing
 potentials. `rank` generates another random background and is not a substitute.
 Sequence threading changes residue identities on template contacts; it does not
 provide physical mutant sidechain atoms for the atom-count/surface correction.
+
+`score-receptors -s templates.txt -c receptors.tsv -p karnaukhov2022 -t 0 -o scores.csv`
+threads paired anchor-excluded CDR3s onto fixed CDR3:peptide contacts using
+`score_peptides(..., substituted_side="from", require_same_length=False)`.
+TSV columns: `complex.id,candidate.id,cdr3a,cdr3b`; IDs unique per template,
+distinct IDs with identical sequences retained. Standard uppercase amino acids,
+exact observed template CDR3 lengths, one physical TRA/TRB CDR3 and exactly one
+observed standard-amino-acid peptide are required. Cutoff must be finite and
+positive; missing templates fail. One fresh ContactMap per template, parent batched annotation,
+coarse bounded workers and serial native kernels; `-t 0` uses allocation.
+Output `score.tra,score.trb,score` retains directed potential sums and original
+missing-cell omission. No framework/CDR1/2 contacts, coordinates, anchor synthesis,
+peptide-only weighting/reference options or fitting.

@@ -295,3 +295,24 @@ Keep candidate identities and multiplicities fixed for potential comparisons.
 ``rank`` generates another background and is not a replacement for scoring a
 frozen legacy pool. Residue-sequence threading does not supply physical mutant
 sidechain coordinates for an atom-specific correction.
+
+Paired CDR3 candidate pools
+---------------------------
+
+``score-receptors -s templates.txt -c receptors.tsv -p karnaukhov2022 -t 0 -o scores.csv``
+threads paired receptor sequences onto each template's fixed CDR3:peptide contacts.
+The tab-separated input requires ``complex.id``, ``candidate.id``, ``cdr3a`` and
+``cdr3b``. IDs are unique within a template; distinct IDs with identical sequences
+remain separate rows. Each sequence must contain standard uppercase amino acids
+and exactly match its template's observed, anchor-excluded CDR3 length. Exactly one
+physical TRA and TRB CDR3 and one observed standard-amino-acid peptide are required.
+The contact cutoff must be finite and positive. Missing templates and invalid rows fail.
+
+The command builds one fresh contact map per template and reuses ``score_peptides``
+with the receptor (``from``) side substituted. ``score.tra`` and ``score.trb`` are
+separate directed sums; ``score`` is their sum, with the selected potential's units
+and missing-cell omission policy. Framework and CDR1/2 contacts are excluded.
+This is fixed-contact sequence threading, with no donor coordinate construction,
+anchor synthesis, fitting, or peptide-only weighting/reference options. Parent-only
+batched annotation precedes coarse bounded workers; default ``-t 0`` uses allocated
+CPUs, with serial native kernels. ``-t 1`` selects serial execution.

@@ -7,6 +7,9 @@ All notable changes to `tcren` are recorded here. Format follows
 
 ### Added
 
+- `score-receptors` threads paired, anchor-excluded CDR3 candidate pools onto fixed
+  template contacts, retaining candidate IDs and directed TRA/TRB/summed energies.
+
 - Contact-penalty and candidate-pool scoring use all allocated CPUs by default through coarse
   bounded workers after batched annotation, preserving ordered serial results.
 

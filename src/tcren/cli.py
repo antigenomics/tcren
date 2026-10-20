@@ -775,6 +775,99 @@ def score(
     typer.echo(f"The ranked list of candidate epitopes can be found in {out}")
 
 
+def _receptor_score_chunk(work):
+    """Thread paired observed CDR3s onto physical TRA/TRB template contacts."""
+    entries, pot, cutoff = work
+    frames = []
+    alphabet = set("ACDEFGHIKLMNPQRSTVWY")
+    for structure, candidates in entries:
+        peptides = structure.by_type("PEPTIDE")
+        if (len(peptides) != 1 or not peptides[0].residues or
+                not set(peptides[0].sequence()) <= alphabet):
+            raise ValueError(f"{structure.pdb_id}: require exactly one observed standard-amino-acid peptide")
+        cm = ContactMap.from_structure(structure, cutoff=cutoff)
+        chain_scores = []
+        for chain_type, column in (("TRA", "cdr3a"), ("TRB", "cdr3b")):
+            chains = structure.by_type(chain_type)
+            regions = [r for c in chains for r in c.regions if r.region_type == "CDR3"]
+            if len(chains) != 1 or len(regions) != 1 or not regions[0].residues:
+                raise ValueError(f"{structure.pdb_id}: require exactly one observed {chain_type} CDR3")
+            region = regions[0]
+            observed = "".join(r.aa for r in region.residues)
+            if (not set(observed) <= alphabet or
+                    [r.seq_index for r in region.residues] !=
+                    list(range(region.start_seq_index, region.start_seq_index + len(observed)))):
+                raise ValueError(f"{structure.pdb_id}: invalid observed {chain_type} CDR3 annotation")
+            sequences = candidates[column].unique(maintain_order=True).to_list()
+            if any(len(seq) != len(observed) for seq in sequences):
+                raise ValueError(f"{structure.pdb_id}: {column} must match observed CDR3 length {len(observed)} (anchors excluded)")
+            contacts = cm.contacts.filter(
+                (pl.col("chain.id.from") == chains[0].chain_id) &
+                (pl.col("region.type.from") == "CDR3"))
+            selected = ContactMap(cm.pdb_id, contacts, cm.peptide_length)
+            scores = score_peptides(selected, sequences, pot, substituted_side="from",
+                                    require_same_length=False)
+            # Score each distinct sequence once, then map back to candidate IDs; identical
+            # sequences belonging to distinct donors retain their original multiplicity.
+            lookup = dict(zip(scores["peptide"], scores["score"]))
+            chain_scores.append(candidates[column].replace_strict(lookup, return_dtype=pl.Float64)
+                                .alias(f"score.{chain_type.lower()}"))
+        frames.append(candidates.with_columns(*chain_scores, pl.lit(structure.pdb_id).alias("complex.id"),
+                        pl.lit(pot.name).alias("potential"))
+                      .with_columns((pl.col("score.tra") + pl.col("score.trb")).alias("score")))
+    return frames
+
+
+@app.command("score-receptors", rich_help_panel=_P_SCORE)
+def score_receptors(
+    structures: list[str] = typer.Option(..., "-s", "--structures"),
+    candidates: Path = typer.Option(..., "-c", "--candidates", help="TSV: complex.id,candidate.id,cdr3a,cdr3b; CDR3 excludes anchors"),
+    potential: str | None = typer.Option(None, "-p", "--potential"),
+    out: Path = typer.Option("candidate_receptors_TCRen.csv", "-o", "--out"),
+    organism: str = typer.Option("human", "--organism"),
+    cutoff: float = typer.Option(5.0, "--cutoff"),
+    threads: int = typer.Option(0, "-t", "--threads", help="CPU budget: 1 serial, 0 all allocated, or a positive count"),
+) -> None:
+    """Thread paired anchor-excluded CDR3s onto fixed CDR3:peptide contacts.
+
+    Output retains every candidate ID and reports directed TRA, TRB and summed
+    contact energies. No coordinates, framework residues or peptide identities change.
+    """
+    from math import isfinite
+
+    if not isfinite(cutoff) or cutoff <= 0:
+        raise typer.BadParameter("--cutoff must be finite and positive")
+    columns = ["complex.id", "candidate.id", "cdr3a", "cdr3b"]
+    frame = pl.read_csv(candidates, separator="\t", infer_schema=False)
+    if not set(columns) <= set(frame.columns):
+        raise typer.BadParameter("candidate TSV requires complex.id,candidate.id,cdr3a,cdr3b")
+    frame = frame.select(columns).with_columns(pl.col("complex.id").str.to_lowercase())
+    if frame.is_empty() or any(frame[c].null_count() or (frame[c] == "").any() for c in columns):
+        raise typer.BadParameter("candidate TSV must contain nonempty IDs and CDR3 sequences")
+    if frame.select("complex.id", "candidate.id").is_duplicated().any():
+        raise typer.BadParameter("candidate.id must be unique within each template")
+    for column in ("cdr3a", "cdr3b"):
+        if not frame[column].str.contains("^[ACDEFGHIKLMNPQRSTVWY]+$").all():
+            raise typer.BadParameter(f"{column} must contain standard uppercase amino acids only")
+    threads = resolve_threads(threads)
+    typed = _typed_batch(structures, organism, mhc=False, threads=threads)
+    ids = [str(s.pdb_id).lower() for s in typed]
+    if len(ids) != len(set(ids)):
+        raise typer.BadParameter("template complex.id must be unique")
+    missing = set(frame["complex.id"]) - set(ids)
+    if missing:
+        raise typer.BadParameter(f"candidate templates not found: {', '.join(sorted(missing))}")
+    entries = [(s, frame.filter(pl.col("complex.id") == str(s.pdb_id).lower())) for s in typed]
+    entries = [(s, rows) for s, rows in entries if not rows.is_empty()]
+    pot = _load_potential(potential)
+    count = min(threads, len(entries))
+    work = [(entries[i*len(entries)//count:(i+1)*len(entries)//count], pot, cutoff)
+            for i in range(count)]
+    frames = [f for group in parallel_map(_receptor_score_chunk, work, threads) for f in group]
+    pl.concat(frames).write_csv(out)
+    typer.echo(f"Candidate receptor scores can be found in {out}")
+
+
 @app.command("ddg", rich_help_panel=_P_SCORE)
 def ddg_cmd(
     structures: Path = typer.Option(..., "-s", "--structures", help="structure file, directory, or .tar.gz (.pdb/.cif/.pdb.gz/.cif.gz)"),
