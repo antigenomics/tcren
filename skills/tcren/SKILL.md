@@ -132,7 +132,9 @@ not PDB serial; peptide.pos is observed one-based ordinal.
 
 `contact-class-audit --manifest labels.tsv -o NEW_DIR -t 0 --chunk 128` performs
 fresh batched annotation/coarse-worker structural export, then opportunity-aware
-statistics. Required manifest: id,label,receptor_cluster,dataset,cohort,epitope,
+statistics in bounded feature blocks, retaining all models/clusters per feature.
+Final Parquet paths can be partitioned datasets read by `polars.read_parquet`.
+Required manifest: id,label,receptor_cluster,dataset,cohort,epitope,
 mhc,mhc_class,template_coverage,source,sha256. All selected TCR regions are separate
 binder contexts; targets are peptide and annotated MHC helices. Physical atom and
 residue contact counts use fixed5A. Sparse opportunities multiply full matching

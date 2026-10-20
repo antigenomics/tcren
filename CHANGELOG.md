@@ -10,7 +10,9 @@ All notable changes to `tcren` are recorded here. Format follows
 - `atom-inventory` export and `contact-class-audit`: complete selected protein
   heavy-atom context, class-exclusive/shared residue and atom contact sets,
   composition-opportunity denominators, equal-complex/case summaries and
-  receptor-clustered uncertainty. Diagnostic only; no score or default changes.
+  receptor-clustered uncertainty. Feature-block reduction bounds memory while
+  retaining the full cohort for every motif. Diagnostic only; no score or default
+  changes.
 
 - Experimental `contact-chemical-core-fit` and opt-in `chemical_core` contact
   correction: versioned 19-type symmetric empirical core, directed conditional

@@ -527,6 +527,9 @@ requires unique ``id``, binary ``label``, ``receptor_cluster``, ``dataset``,
 ``source`` and expected ``sha256``. It creates a new output directory; no resume,
 cache, score calculation, fitted potential or default promotion is performed.
 Any failed input prevents statistical reduction and leaves complete accounting.
+Reduction processes fixed feature blocks while retaining all models and receptor
+clusters for each feature. Final Parquet paths may be partitioned datasets; read
+them directly with ``polars.read_parquet(path)``.
 
 Contacts join all selected TCR regions, kept separately, to peptide or annotated
 MHC helices at the inclusive 5 Angstrom cutoff. Full inventory also preserves

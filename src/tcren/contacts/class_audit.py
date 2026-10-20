@@ -12,6 +12,8 @@ from .class_features import features_for_structure, opportunity_rows
 from .class_statistics import STRATUM, class_statistics
 from ..runtime import parallel_map, resolve_threads, single_threaded
 
+_FEATURE_BLOCK_SIZE = 128
+
 
 def _audit_chunk(structures):
     """Process a contiguous annotated chunk; labels never enter the feature kernel."""
@@ -54,6 +56,39 @@ def _finish_provenance(output, ledger, provenance, start):
     (output / "provenance.json").write_text(json.dumps(provenance, indent=2, default=str) + "\n")
 
 
+def _block_inputs(cases, dictionary):
+    """Select only a bounded feature block's counts and required endpoint keys."""
+    counts, binders, targets = [], [], []
+    features = dictionary.select("feature")
+    binder_keys = dictionary.select("binder_feature").unique()
+    target_keys = dictionary.select("target_feature").unique()
+    for _, _, c, b, t, _ in cases:
+        counts.append(c.join(features, on="feature", how="semi"))
+        binders.append(b.join(binder_keys, on="binder_feature", how="semi"))
+        targets.append(t.join(target_keys, on="target_feature", how="semi"))
+    return pl.concat(counts), pl.concat(binders), pl.concat(targets)
+
+
+def _reduce_block(work):
+    """Reduce one large independent feature range with all models and clusters."""
+    dictionary, counts, binders, targets, metadata = work
+    rows = opportunity_rows(counts, binders, targets, dictionary, metadata["id"]).rename({"pdb.id": "id"})
+    per, overall = class_statistics(rows, metadata)
+    return rows, per, overall
+
+
+def _reduction_windows(cases, dictionary, metadata, threads):
+    """Keep at most the CPU allocation's feature blocks and results in flight."""
+    window_size = _FEATURE_BLOCK_SIZE * threads
+    for offset in range(0, dictionary.height, window_size):
+        blocks = list(dictionary.slice(offset, window_size).iter_slices(_FEATURE_BLOCK_SIZE))
+        work = [(block, *_block_inputs(cases, block), metadata) for block in blocks]
+        results = parallel_map(_reduce_block, work, threads)
+        for number, (block, result) in enumerate(zip(blocks, results, strict=True), offset // _FEATURE_BLOCK_SIZE):
+            yield number, block, result
+        del work, results, blocks
+
+
 @single_threaded
 def class_audit(manifest, output, *, chunk=128, threads=0):
     """Rebuild complete class-audit evidence from pinned raw inputs, without reuse.
@@ -93,7 +128,7 @@ def class_audit(manifest, output, *, chunk=128, threads=0):
                       views=["site", "chemistry"], levels=["atom", "residue"],
                       opportunities="full selected endpoint availability; C0 retained; O0 omitted explicitly",
                       no_potentials=True, no_scores=True, no_fitted_coefficients=True)
-    cases, chemistry_counts, binder_marginals, target_marginals, chemistry_dictionaries = [], [], [], [], []
+    cases, chemistry_dictionaries = [], []
     try:
         with (output / "annotation.jsonl").open("w") as annotation:
             for case_number, case_meta in enumerate(metadata.sort(STRATUM + ["id"]).partition_by(STRATUM, maintain_order=True), 1):
@@ -181,40 +216,68 @@ def class_audit(manifest, output, *, chunk=128, threads=0):
                         del tables
                     if "inventory" in locals():
                         del inventory, pairs
+                    provenance["phase"] = "raw_extraction"
+                    _finish_provenance(output, ledger, provenance, start)
                     print(json.dumps(dict(case_number=case_number, processed=sum(r["status"] == "ok" for r in ledger),
                                           total=metadata.height, elapsed_s=time.monotonic() - start)), flush=True)
                 if motifs:
                     c, b, t = (pl.concat(items) for items in (motifs, bm, tm))
                     dictionary = pl.concat(dictionaries).unique()
                     chemistry = dictionary.filter(pl.col("view") == "chemistry")
-                    chemistry_counts.append(c.join(chemistry.select("feature"), on="feature", how="inner", validate="m:1"))
-                    binder_marginals.append(b); target_marginals.append(t); chemistry_dictionaries.append(chemistry)
+                    chemistry_dictionaries.append(chemistry)
                     cases.append((folder, case_meta, c, b, t, dictionary.filter(pl.col("view") == "site")))
                 del motifs, bm, tm, dictionaries
         if any(row["status"] != "ok" for row in ledger):
             raise ValueError("one or more input models failed; statistics aborted; see accounting.tsv")
         chemistry_dictionary = pl.concat(chemistry_dictionaries).unique().sort("feature")
-        global_rows = opportunity_rows(pl.concat(chemistry_counts), pl.concat(binder_marginals),
-                                       pl.concat(target_marginals), chemistry_dictionary,
-                                       metadata["id"]).rename({"pdb.id": "id"})
-        chemistry_per, overall = class_statistics(global_rows, metadata)
-        overall.join(chemistry_dictionary, on="feature", how="left", validate="m:1").write_parquet(output / "overall.parquet", compression="zstd")
+        if chemistry_dictionary.is_empty():
+            raise ValueError("no observed chemistry features; statistics require at least one feature")
         chemistry_dictionary.write_parquet(output / "chemistry_dictionary.parquet", compression="zstd")
-        global_rows.write_parquet(output / "chemistry_model_features.parquet", compression="zstd")
-        for folder, case_meta, c, b, t, site_dictionary in cases:
-            site_counts = c.join(site_dictionary.select("feature"), on="feature", how="inner", validate="m:1")
-            sites = opportunity_rows(site_counts, b, t, site_dictionary, case_meta["id"]).rename({"pdb.id": "id"})
-            chemistry_rows = global_rows.join(case_meta.select("id"), on="id", how="inner", validate="m:1")
-            rows = pl.concat([sites, chemistry_rows]).sort("id", "feature")
-            dictionary = pl.concat([site_dictionary, chemistry_dictionary]).sort("feature")
-            per = chemistry_per.join(case_meta.select(STRATUM).unique(), on=STRATUM, how="inner", validate="m:1")
-            if sites.height:
-                site_per, _ = class_statistics(sites, case_meta)
-                per = pl.concat([per, site_per])
-            rows.write_parquet(folder / "model_features.parquet", compression="zstd")
-            dictionary.write_parquet(folder / "feature_dictionary.parquet", compression="zstd")
-            per.join(dictionary, on="feature", how="left", validate="m:1").write_parquet(folder / "statistics.parquet", compression="zstd")
-        provenance.update(complete=True, case_count=len(cases), chemistry_feature_count=chemistry_dictionary.height,
+        (output / "overall.parquet").mkdir()
+        (output / "chemistry_model_features.parquet").mkdir()
+        for folder, _, _, _, _, site_dictionary in cases:
+            (folder / "model_features.parquet").mkdir()
+            (folder / "statistics.parquet").mkdir()
+            pl.concat([site_dictionary, chemistry_dictionary]).sort("feature").write_parquet(
+                folder / "feature_dictionary.parquet", compression="zstd")
+        # Each feature retains the whole cohort and globally shared clusters. Only
+        # independent features are blocked; final parts are never read back as input.
+        provenance.update(phase="chemistry_reduction", feature_block_size=_FEATURE_BLOCK_SIZE,
+                          chemistry_feature_count=chemistry_dictionary.height,
+                          reduction_workers=threads, maximum_in_flight_feature_blocks=threads,
+                          maximum_rows_per_feature_block=metadata.height * _FEATURE_BLOCK_SIZE,
+                          parquet_layout="final feature-block partitioned datasets")
+        _finish_provenance(output, ledger, provenance, start)
+        for block_number, block, (global_rows, chemistry_per, overall) in _reduction_windows(
+                cases, chemistry_dictionary, metadata, threads):
+            overall.join(block, on="feature", how="left", validate="m:1").write_parquet(
+                output / "overall.parquet" / f"part{block_number:06d}.parquet", compression="zstd")
+            global_rows.write_parquet(output / "chemistry_model_features.parquet" / f"part{block_number:06d}.parquet", compression="zstd")
+            for folder, case_meta, _, _, _, _ in cases:
+                global_rows.join(case_meta.select("id"), on="id", how="inner", validate="m:1").write_parquet(
+                    folder / "model_features.parquet" / f"chemistry{block_number:06d}.parquet", compression="zstd")
+                chemistry_per.join(case_meta.select(STRATUM).unique(), on=STRATUM, how="inner", validate="m:1").join(
+                    block, on="feature", how="left", validate="m:1").write_parquet(
+                        folder / "statistics.parquet" / f"chemistry{block_number:06d}.parquet", compression="zstd")
+            print(json.dumps(dict(phase="chemistry_reduction", feature_blocks_completed=block_number + 1,
+                                  feature_blocks_total=(_FEATURE_BLOCK_SIZE - 1 + chemistry_dictionary.height) // _FEATURE_BLOCK_SIZE,
+                                  opportunity_rows=global_rows.height, elapsed_s=time.monotonic() - start)), flush=True)
+            del global_rows, chemistry_per, overall
+        provenance["phase"] = "site_reduction"
+        _finish_provenance(output, ledger, provenance, start)
+        for case_number, case in enumerate(cases, 1):
+            folder, case_meta, _, _, _, site_dictionary = case
+            for block_number, block, (sites, site_per, site_overall) in _reduction_windows(
+                    [case], site_dictionary, case_meta, threads):
+                sites.write_parquet(folder / "model_features.parquet" / f"site{block_number:06d}.parquet", compression="zstd")
+                site_per.join(block, on="feature", how="left", validate="m:1").write_parquet(
+                    folder / "statistics.parquet" / f"site{block_number:06d}.parquet", compression="zstd")
+                print(json.dumps(dict(phase="site_reduction", case_number=case_number,
+                                      feature_blocks_completed=block_number + 1,
+                                      feature_blocks_total=(_FEATURE_BLOCK_SIZE - 1 + site_dictionary.height) // _FEATURE_BLOCK_SIZE,
+                                      opportunity_rows=sites.height, elapsed_s=time.monotonic() - start)), flush=True)
+                del sites, site_per, site_overall
+        provenance.update(complete=True, phase="complete", case_count=len(cases), chemistry_feature_count=chemistry_dictionary.height,
                           n_inventory_atoms=sum(r["n_inventory_atoms"] for r in ledger),
                           n_physical_pairs=sum(r["n_physical_pairs"] for r in ledger))
     except Exception as exc:

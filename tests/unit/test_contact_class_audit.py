@@ -128,3 +128,63 @@ def test_global_chemistry_union_retains_other_case_eligible_zeros(monkeypatch, t
     assert framework["sum_C_binder"].sum() == framework["sum_C_nonbinder"].sum() == 0
     assert framework["n_eligible_binder"].min() == framework["n_eligible_nonbinder"].min() == 1
     assert set(framework["set_membership"]) == {"neither"}
+
+
+def test_reduction_feature_blocks_bound_calls_and_preserve_exact_statistics(monkeypatch, tmp_path):
+    from importlib import import_module
+    from test_contact_class_features import fixture
+    from tcren.contacts.class_features import features_for_structure, opportunity_rows
+    from tcren.contacts.class_statistics import STRATUM, class_statistics
+    audit = import_module("tcren.contacts.class_audit")
+    manifest, _ = setup_pipeline(monkeypatch, tmp_path)
+    monkeypatch.setattr(audit, "_FEATURE_BLOCK_SIZE", 2)
+    seen = []
+    def checked_statistics(rows, meta):
+        seen.append(rows["feature"].n_unique())
+        assert seen[-1] <= 2
+        assert meta.height == 2
+        return class_statistics(rows, meta)
+    monkeypatch.setattr(audit, "class_statistics", checked_statistics)
+    output = tmp_path / "blocked"
+    audit.class_audit(manifest, output, threads=1)
+    assert len(seen) > 2
+    outputs = [features_for_structure(fixture(f"m{i}")) for i in range(2)]
+    c, b, t, dictionary = [pl.concat([result[i] for result in outputs]).unique() for i in (2, 3, 4, 5)]
+    chemistry = dictionary.filter(pl.col("view") == "chemistry")
+    counts = c.join(chemistry.select("feature"), on="feature", how="inner")
+    rows = opportunity_rows(counts, b, t, chemistry, ["m0", "m1"]).rename({"pdb.id": "id"})
+    metadata = pl.read_csv(manifest, separator="\t")
+    expected_per, expected_overall = class_statistics(rows, metadata)
+    expected_overall = expected_overall.join(chemistry, on="feature", how="left")
+    actual_overall = pl.read_parquet(output / "overall.parquet")
+    assert_frame_equal(actual_overall.sort("feature"), expected_overall.sort("feature"), check_exact=False)
+    actual_rows = pl.read_parquet(output / "chemistry_model_features.parquet")
+    assert_frame_equal(actual_rows.sort("id", "feature"), rows.sort("id", "feature"))
+    actual_per = pl.read_parquet(output / "case001" / "statistics.parquet").filter(pl.col("view") == "chemistry")
+    expected_per = expected_per.join(chemistry, on="feature", how="left")
+    assert_frame_equal(actual_per.sort(STRATUM + ["feature"]), expected_per.sort(STRATUM + ["feature"]), check_exact=False)
+
+
+def test_feature_reduction_window_real_spawn_matches_serial(monkeypatch, tmp_path):
+    from importlib import import_module
+    from test_contact_class_features import fixture
+    from tcren.contacts.class_features import features_for_structure
+    from tcren.runtime import available_cpus
+    if available_cpus() < 2:
+        pytest.skip("two allocated CPUs required")
+    audit = import_module("tcren.contacts.class_audit")
+    manifest, _ = setup_pipeline(monkeypatch, tmp_path)
+    meta = pl.read_csv(manifest, separator="\t")
+    outputs = [features_for_structure(fixture(f"m{i}")) for i in range(2)]
+    c, b, t, dictionary = [pl.concat([result[i] for result in outputs]).unique() for i in (2, 3, 4, 5)]
+    dictionary = dictionary.filter(pl.col("view") == "chemistry").sort("feature")
+    cases = [(tmp_path, meta, c, b, t, dictionary)]
+    monkeypatch.setattr(audit, "_FEATURE_BLOCK_SIZE", 2)
+    serial = list(audit._reduction_windows(cases, dictionary, meta, 1))
+    spawned = list(audit._reduction_windows(cases, dictionary, meta, 2))
+    assert len(serial) > 2
+    for (i, d1, tables1), (j, d2, tables2) in zip(serial, spawned, strict=True):
+        assert i == j
+        assert_frame_equal(d1, d2)
+        for a, b in zip(tables1, tables2, strict=True):
+            assert_frame_equal(a, b, check_exact=False)
