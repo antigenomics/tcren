@@ -7,7 +7,7 @@ All notable changes to `tcren` are recorded here. Format follows
 
 ### Added
 
-- Contact-penalty scoring uses all allocated CPUs by default through coarse
+- Contact-penalty and candidate-pool scoring use all allocated CPUs by default through coarse
   bounded workers after batched annotation, preserving ordered serial results.
 
 - Directed-only residue derivation and summaries; remove folding APIs, use all

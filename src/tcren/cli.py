@@ -676,6 +676,29 @@ def _reference_energy(structure, cm, potential, interface, regions, mode, refere
     return _score_one(rcm, ref, potential, interface, regions, weights=w)
 
 
+def _candidate_score_chunk(work):
+    """Score a coarse contiguous template chunk without annotation searches."""
+    entries, pot, options = work
+    interface, regions, cutoff, intra_weight, drop_untyped, position_scheme, soft, delta, reference, reference_aa = options
+    frames = []
+    for s, mine in entries:
+        cm = ContactMap.from_structure(s, cutoff=cutoff, peptide_internal=bool(intra_weight))
+        if soft:
+            from .energetics.rotamers import contact_probabilities
+            frames.append(_soft_score(s, mine, pot, interface, cutoff, contact_probabilities))
+            continue
+        w = _score_weights(s, cm, interface, regions, drop_untyped, position_scheme)
+        frame = score_peptides(cm, mine, pot, interface=interface, tcr_regions=regions,
+                               intra_weight=intra_weight, weights=w)
+        if delta:
+            frame = frame.with_columns(
+                (pl.col("score") - _reference_energy(
+                    s, cm, pot, interface, regions, reference, reference_aa, cutoff,
+                    drop_untyped, position_scheme)).alias("dphi"))
+        frames.append(frame)
+    return frames
+
+
 @app.command(rich_help_panel=_P_SCORE)
 def score(
     structures: list[str] = typer.Option(..., "-s", "--structures", help="structure file(s), directory, .tar.gz, glob, or a .txt manifest of paths; repeatable and comma-separable"),
@@ -693,7 +716,7 @@ def score(
     delta: bool = typer.Option(False, "--delta", help="also report ΔΦ, the poly-alanine-referenced energy"),
     reference: str = typer.Option("structural", "--reference", help="how the poly-alanine baseline is built for --delta: structural (rebuild its own contacts) or virtual (re-index on the template map)"),
     reference_aa: str = typer.Option("A", "--reference-aa", help="reference residue for --delta (default: alanine)"),
-    threads: int = typer.Option(1, "-t", "--threads", help="CPU budget: 1 serial, 0 all allocated, or a positive count"),
+    threads: int = typer.Option(0, "-t", "--threads", help="CPU budget: 1 serial, 0 all allocated, or a positive count"),
 ) -> None:
     """Score candidate epitopes against input structures (end-to-end pipeline).
 
@@ -734,27 +757,19 @@ def score(
     pot = _load_potential(potential)
     cands = _read_candidates(candidates)
     pools = cands if isinstance(cands, dict) else None
-    frames = []
+    threads = resolve_threads(threads)
+    entries = []
     for s in _typed_batch(structures, organism, mhc=soft, threads=threads):
-        # A manifest names the template each pool belongs to; without one every structure scores
-        # every candidate, which is the behaviour every existing caller has.
+        # Manifest pools belong to one template; a flat pool applies to every template.
         mine = pools.get(str(s.pdb_id).lower()) if pools is not None else cands
-        if not mine:
-            continue
-        cm = ContactMap.from_structure(s, cutoff=cutoff, peptide_internal=bool(intra_weight))
-        if soft:
-            from .energetics.rotamers import contact_probabilities
-            frames.append(_soft_score(s, mine, pot, interface, cutoff, contact_probabilities))
-            continue
-        w = _score_weights(s, cm, interface, regions, drop_untyped, position_scheme)
-        frame = score_peptides(cm, mine, pot, interface=interface, tcr_regions=regions,
-                               intra_weight=intra_weight, weights=w)
-        if delta:
-            frame = frame.with_columns(
-                (pl.col("score") - _reference_energy(
-                    s, cm, pot, interface, regions, reference, reference_aa, cutoff,
-                    drop_untyped, position_scheme)).alias("dphi"))
-        frames.append(frame)
+        if mine:
+            entries.append((s, mine))
+    options = (interface, regions, cutoff, intra_weight, drop_untyped, position_scheme,
+               soft, delta, reference, reference_aa)
+    count = min(threads, len(entries))
+    work = [(entries[i*len(entries)//count:(i+1)*len(entries)//count], pot, options)
+            for i in range(count)]
+    frames = [frame for group in parallel_map(_candidate_score_chunk, work, threads) for frame in group]
     result = pl.concat(frames) if frames else pl.DataFrame()
     result.write_csv(str(out))
     typer.echo(f"The ranked list of candidate epitopes can be found in {out}")

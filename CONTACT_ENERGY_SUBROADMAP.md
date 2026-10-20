@@ -106,6 +106,22 @@ sparsity. A sum of independent marginal penalties is not automatically a joint
 likelihood or a binding free energy. Explicit many-body site terms need evidence
 and sufficient inputs; they are not justified simply by increasing model complexity.
 
+A compact conditional version can preserve role-specific opportunity without
+training another large residue+atom table. Let qB(c|a,h) and qT(d|b,h) be normalized
+chemical-type opportunities for binder residue a and target residue b in context h.
+With a shared W(c,d)=exp(-u(c,d)), define
+
+    p(c,d|a,b,h) = qB(c|a,h) qT(d|b,h) W(c,d) / Z(a,b,h),
+    Z(a,b,h) = Σ_c,d qB(c|a,h) qT(d|b,h) W(c,d).
+
+The atom log-ratio correction is u(c,d)+log Z(a,b,h), with dimensionless u and
+normalized reference opportunity. Symmetry of u need not symmetrize qB/qT. A
+four-type symmetric core has10cells, versus16 if directed;18symmetric types have
+171. This is an architecture proposal, not a fitted/frozen candidate or an exact
+reformulation of the current table. Actual noncontact opportunities are needed;
+the antibody contact table alone cannot supply them. Conditional normalization
+and edge averaging still do not establish a physical or independent likelihood.
+
 ## Verified primary literature and implications
 
 - [PIPER (arXiv:q-bio/0605018)](https://arxiv.org/abs/q-bio/0605018): chemical atom
@@ -114,7 +130,7 @@ and sufficient inputs; they are not justified simply by increasing model complex
   mapping or an established redistribution license. Its 6.5 Å definition is not
   interchangeable with the present 5 Å counts.
 - [Application of asymmetric statistical potentials to antibody–protein docking](https://doi.org/10.1093/bioinformatics/bts493):
-  a directly relevant sparse-data example uses four chemical groups and preserves
+  a directly relevant sparse-data example uses four pooled atom groups and preserves
   role asymmetry. It argues against symmetrizing all interface statistics merely
   because microscopic pair interactions can be symmetric.
 - [Reference-ratio formalism (arXiv:1008.4006)](https://arxiv.org/abs/1008.4006):

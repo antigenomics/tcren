@@ -467,3 +467,12 @@ immutable-wheel128-model diagnostic measured28.331s serial versus8.428s on16CPUs
 process-tree RSS. All256 score rows and complete contact/residue outputs match
 serial and frozen originals exactly. Seventeen focused checks, lint and
 warning-fatal docs pass. This is a measured subset, not a whole-cohort timing claim.
+
+Candidate-pool CLI scoring now also uses coarse all-allocation workers after one
+annotation batch. Twenty-seven focused exact-output tests cover both reference
+modes, weights, soft scoring and manifests; lint and warning-fatal docs pass.
+A fresh paired frozen-matrix legacy batch covers four named tasks with exact
+published380-cell identity, candidate multiplicity and source-hash verification.
+Random-decoy, model/crystal and receptor-shuffle coverage gates remain explicit.
+No historical fixture, fitted readout, scientific default or manuscript finding
+is changed by this scheduling/export follow-up.

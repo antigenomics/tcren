@@ -2014,3 +2014,14 @@ ownership="accessible_boundary")`. The native sampler's optional `samples=True`
 exports exposed sample coordinates, atom indices, areas and lost/bound flags.
 SciPy batched nearest-neighbour queries use one worker. Record the chosen method,
 keep runs separate, and do not claim an accuracy gain from geometric invariants.
+
+## Frozen candidate-pool scoring
+
+`score -s templates.txt -c candidates.tsv -p karnaukhov2022|tcren2 -t 0 -o scores.csv`
+uses parent-only batch annotation followed by coarse template workers, sharing
+one potential/options tuple per chunk. Default0 uses the allocation;1 is serial.
+Candidate TSV uses `complex.id,peptide`; metadata/labels are benchmark-owned.
+Preserve the exact candidate pool and duplicate multiplicities when comparing
+potentials. `rank` generates another random background and is not a substitute.
+Sequence threading changes residue identities on template contacts; it does not
+provide physical mutant sidechain atoms for the atom-count/surface correction.

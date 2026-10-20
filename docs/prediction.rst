@@ -280,3 +280,18 @@ The scalar schemas were checked against the official
 and `RF3 output writer <https://github.com/RosettaCommons/foundry/blob/production/models/rf3/src/rf3/inference_engines/rf3.py>`_.
 Synthetic tests verify scalar preservation and rejection of unsupported detail inputs;
 they do not establish a completed prediction campaign or validated token mapping.
+
+Frozen candidate pools and CPUs
+-------------------------------
+
+``score -s templates.txt -c candidates.tsv -p karnaukhov2022 -t 0 -o scores.csv``
+accepts a candidate manifest with ``complex.id`` and ``peptide`` columns. Annotation
+runs as a parent batch; coarse contiguous template workers then score the pools
+and return results in the original template order. Default ``-t 0`` uses all
+allocated CPUs, ``-t 1`` selects serial execution, and positive N selects a bounded
+budget. Native kernels stay serial inside workers. A pool failure is propagated.
+
+Keep candidate identities and multiplicities fixed for potential comparisons.
+``rank`` generates another background and is not a replacement for scoring a
+frozen legacy pool. Residue-sequence threading does not supply physical mutant
+sidechain coordinates for an atom-specific correction.
