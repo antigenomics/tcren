@@ -776,8 +776,8 @@ def score(
 
 
 def _receptor_score_chunk(work):
-    """Thread paired observed CDR3s onto physical TRA/TRB template contacts."""
-    entries, pot, cutoff = work
+    """Thread paired observed receptor regions onto physical TRA/TRB contacts."""
+    entries, pot, cutoff, receptor_region = work
     frames = []
     alphabet = set("ACDEFGHIKLMNPQRSTVWY")
     for structure, candidates in entries:
@@ -787,7 +787,8 @@ def _receptor_score_chunk(work):
             raise ValueError(f"{structure.pdb_id}: require exactly one observed standard-amino-acid peptide")
         cm = ContactMap.from_structure(structure, cutoff=cutoff)
         chain_scores = []
-        for chain_type, column in (("TRA", "cdr3a"), ("TRB", "cdr3b")):
+        for chain_type, suffix in (("TRA", "a"), ("TRB", "b")):
+            column = receptor_region + suffix
             chains = structure.by_type(chain_type)
             regions = [r for c in chains for r in c.regions if r.region_type == "CDR3"]
             if len(chains) != 1 or len(regions) != 1 or not regions[0].residues:
@@ -798,12 +799,39 @@ def _receptor_score_chunk(work):
                     [r.seq_index for r in region.residues] !=
                     list(range(region.start_seq_index, region.start_seq_index + len(observed)))):
                 raise ValueError(f"{structure.pdb_id}: invalid observed {chain_type} CDR3 annotation")
+            residues = region.residues
+            if receptor_region == "junction":
+                flanks = [[r for r in chains[0].regions if r.region_type == name]
+                          for name in ("FR3", "FR4")]
+                if any(len(regions) != 1 or not regions[0].residues for regions in flanks):
+                    raise ValueError(f"{structure.pdb_id}: junction requires observed FR3/FR4 anchors")
+                fr3, fr4 = [regions[0] for regions in flanks]
+                left, right = fr3.residues[-1], fr4.residues[0]
+                if (left.aa != "C" or right.aa not in "FW" or
+                        left.seq_index != fr3.end_seq_index or
+                        right.seq_index != fr4.start_seq_index or
+                        left.seq_index + 1 != region.start_seq_index or
+                        region.end_seq_index != residues[-1].seq_index or
+                        residues[-1].seq_index + 1 != right.seq_index):
+                    raise ValueError(f"{structure.pdb_id}: junction requires adjacent observed Cys104 and F/W118 anchors")
+                residues = [left, *residues, right]
+                if any((actual := chains[0].by_seq_index(r.seq_index)) is None or actual.aa != r.aa
+                       for r in residues):
+                    raise ValueError(f"{structure.pdb_id}: junction annotation does not match observed residues")
+                observed = "".join(r.aa for r in residues)
             sequences = candidates[column].unique(maintain_order=True).to_list()
             if any(len(seq) != len(observed) for seq in sequences):
-                raise ValueError(f"{structure.pdb_id}: {column} must match observed CDR3 length {len(observed)} (anchors excluded)")
+                raise ValueError(f"{structure.pdb_id}: {column} must match observed {receptor_region} length {len(observed)}"
+                                 + (" (anchors excluded)" if receptor_region == "cdr3" else " (anchors included)"))
             contacts = cm.contacts.filter(
                 (pl.col("chain.id.from") == chains[0].chain_id) &
                 (pl.col("region.type.from") == "CDR3"))
+            if receptor_region == "junction":
+                contacts = cm.contacts.filter(
+                    (pl.col("chain.id.from") == chains[0].chain_id) &
+                    pl.col("residue.index.from").is_in([r.seq_index for r in residues]))
+                contacts = contacts.with_columns(
+                    pl.lit(residues[0].seq_index).alias("region.start.from"))
             selected = ContactMap(cm.pdb_id, contacts, cm.peptide_length)
             scores = score_peptides(selected, sequences, pot, substituted_side="from",
                                     require_same_length=False)
@@ -820,35 +848,41 @@ def _receptor_score_chunk(work):
 
 @app.command("score-receptors", rich_help_panel=_P_SCORE)
 def score_receptors(
+    receptor_region: str = typer.Option("cdr3", "--receptor-region", help="cdr3 excludes anchors; junction includes observed Cys104 and F/W118"),
     structures: list[str] = typer.Option(..., "-s", "--structures"),
-    candidates: Path = typer.Option(..., "-c", "--candidates", help="TSV: complex.id,candidate.id,cdr3a,cdr3b; CDR3 excludes anchors"),
+    candidates: Path = typer.Option(..., "-c", "--candidates", help="TSV: complex.id,candidate.id and cdr3a/cdr3b or junctiona/junctionb"),
     potential: str | None = typer.Option(None, "-p", "--potential"),
     out: Path = typer.Option("candidate_receptors_TCRen.csv", "-o", "--out"),
     organism: str = typer.Option("human", "--organism"),
     cutoff: float = typer.Option(5.0, "--cutoff"),
     threads: int = typer.Option(0, "-t", "--threads", help="CPU budget: 1 serial, 0 all allocated, or a positive count"),
 ) -> None:
-    """Thread paired anchor-excluded CDR3s onto fixed CDR3:peptide contacts.
+    """Thread paired CDR3s or observed junctions onto fixed receptor:peptide contacts.
 
     Output retains every candidate ID and reports directed TRA, TRB and summed
-    contact energies. No coordinates, framework residues or peptide identities change.
+    contact energies. Junction mode includes the observed FR3/FR4 anchor contacts.
+    No coordinates or peptide identities change.
     """
     from math import isfinite
 
     if not isfinite(cutoff) or cutoff <= 0:
         raise typer.BadParameter("--cutoff must be finite and positive")
-    columns = ["complex.id", "candidate.id", "cdr3a", "cdr3b"]
+    if receptor_region not in ("cdr3", "junction"):
+        raise typer.BadParameter("--receptor-region must be cdr3 or junction")
+    columns = ["complex.id", "candidate.id", receptor_region + "a", receptor_region + "b"]
     frame = pl.read_csv(candidates, separator="\t", infer_schema=False)
     if not set(columns) <= set(frame.columns):
-        raise typer.BadParameter("candidate TSV requires complex.id,candidate.id,cdr3a,cdr3b")
+        raise typer.BadParameter(f"candidate TSV requires {','.join(columns)}")
     frame = frame.select(columns).with_columns(pl.col("complex.id").str.to_lowercase())
     if frame.is_empty() or any(frame[c].null_count() or (frame[c] == "").any() for c in columns):
-        raise typer.BadParameter("candidate TSV must contain nonempty IDs and CDR3 sequences")
+        raise typer.BadParameter("candidate TSV must contain nonempty IDs and receptor sequences")
     if frame.select("complex.id", "candidate.id").is_duplicated().any():
         raise typer.BadParameter("candidate.id must be unique within each template")
-    for column in ("cdr3a", "cdr3b"):
+    for column in columns[2:]:
         if not frame[column].str.contains("^[ACDEFGHIKLMNPQRSTVWY]+$").all():
             raise typer.BadParameter(f"{column} must contain standard uppercase amino acids only")
+        if receptor_region == "junction" and not frame[column].str.contains("^C[ACDEFGHIKLMNPQRSTVWY]+[FW]$").all():
+            raise typer.BadParameter(f"{column} junction must start with C and end with F or W")
     threads = resolve_threads(threads)
     typed = _typed_batch(structures, organism, mhc=False, threads=threads)
     ids = [str(s.pdb_id).lower() for s in typed]
@@ -861,7 +895,7 @@ def score_receptors(
     entries = [(s, rows) for s, rows in entries if not rows.is_empty()]
     pot = _load_potential(potential)
     count = min(threads, len(entries))
-    work = [(entries[i*len(entries)//count:(i+1)*len(entries)//count], pot, cutoff)
+    work = [(entries[i*len(entries)//count:(i+1)*len(entries)//count], pot, cutoff, receptor_region)
             for i in range(count)]
     frames = [f for group in parallel_map(_receptor_score_chunk, work, threads) for f in group]
     pl.concat(frames).write_csv(out)

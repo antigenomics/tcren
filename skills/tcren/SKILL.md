@@ -2036,5 +2036,13 @@ observed standard-amino-acid peptide are required. Cutoff must be finite and
 positive; missing templates fail. One fresh ContactMap per template, parent batched annotation,
 coarse bounded workers and serial native kernels; `-t 0` uses allocation.
 Output `score.tra,score.trb,score` retains directed potential sums and original
-missing-cell omission. No framework/CDR1/2 contacts, coordinates, anchor synthesis,
-peptide-only weighting/reference options or fitting.
+missing-cell omission. Default CDR3 mode excludes framework/CDR1/2 contacts.
+No coordinates, anchor synthesis, peptide-only weighting/reference options or fitting.
+
+`--receptor-region junction` requires `junctiona,junctionb` instead of `cdr3a,cdr3b`.
+Junctions include the actual observed Cys104 and F/W118: recover FR3 last/FR4 first,
+requiring unambiguous annotations and immediate adjacency to contiguous observed
+CDR3. Missing/gapped/invalid anchors fail. Candidate junctions start C, end F/W and
+match the exact observed junction length. Include physical anchor contacts and
+index the filtered view from junction start; never mutate structures/contact maps.
+Default `--receptor-region cdr3` behavior and columns remain unchanged.

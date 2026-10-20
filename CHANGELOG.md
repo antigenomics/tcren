@@ -7,8 +7,10 @@ All notable changes to `tcren` are recorded here. Format follows
 
 ### Added
 
-- `score-receptors` threads paired, anchor-excluded CDR3 candidate pools onto fixed
-  template contacts, retaining candidate IDs and directed TRA/TRB/summed energies.
+- `score-receptors` threads paired CDR3 or explicit observed-junction candidate pools
+  onto fixed template contacts, retaining candidate IDs and directed TRA/TRB/summed
+  energies. Junction mode recovers actual adjacent FR3/FR4 anchors, including W118;
+  default CDR3 mode excludes anchors.
 
 - Contact-penalty and candidate-pool scoring use all allocated CPUs by default through coarse
   bounded workers after batched annotation, preserving ordered serial results.

@@ -300,7 +300,8 @@ Paired CDR3 candidate pools
 ---------------------------
 
 ``score-receptors -s templates.txt -c receptors.tsv -p karnaukhov2022 -t 0 -o scores.csv``
-threads paired receptor sequences onto each template's fixed CDR3:peptide contacts.
+threads paired receptor sequences onto each template's fixed CDR3:peptide contacts
+by default (``--receptor-region cdr3``).
 The tab-separated input requires ``complex.id``, ``candidate.id``, ``cdr3a`` and
 ``cdr3b``. IDs are unique within a template; distinct IDs with identical sequences
 remain separate rows. Each sequence must contain standard uppercase amino acids
@@ -311,8 +312,20 @@ The contact cutoff must be finite and positive. Missing templates and invalid ro
 The command builds one fresh contact map per template and reuses ``score_peptides``
 with the receptor (``from``) side substituted. ``score.tra`` and ``score.trb`` are
 separate directed sums; ``score`` is their sum, with the selected potential's units
-and missing-cell omission policy. Framework and CDR1/2 contacts are excluded.
+and missing-cell omission policy. In default CDR3 mode, framework and CDR1/2 contacts
+are excluded.
 This is fixed-contact sequence threading, with no donor coordinate construction,
 anchor synthesis, fitting, or peptide-only weighting/reference options. Parent-only
 batched annotation precedes coarse bounded workers; default ``-t 0`` uses allocated
 CPUs, with serial native kernels. ``-t 1`` selects serial execution.
+
+``--receptor-region junction`` instead requires ``junctiona`` and ``junctionb``
+input columns. A junction includes the actual observed Cys104 and F/W118 anchors.
+The command recovers them from the last annotated FR3 residue and first annotated
+FR4 residue, requiring one unambiguous annotation of each flank and immediate
+adjacency to the contiguous observed CDR3. Missing, gapped or invalid anchors
+fail; no anchor residues are synthesized. Candidate junctions must start with C,
+end with F or W, and exactly match the observed template junction length. Physical
+anchor contacts contribute to each directed chain sum. The contact view is indexed
+from the observed junction start without modifying the structure or contact map.
+The default CDR3 mode and its output columns remain unchanged.
