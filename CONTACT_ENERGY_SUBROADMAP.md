@@ -202,8 +202,10 @@ The current-task audit additionally closes 112 graded-response correlations for
 all contact arms and 384 previously omitted archival-energy metric cells, using
 saved scores and exact locked populations. Native-reference-weighted totals
 remain excluded from final models even when they gain on CPL. Experimental
-log2FoldChange contrast orientation is unverified in inspected provenance; raw
-signed associations do not become gains by choosing an epitope-specific sign.
+primary-screen code defines a GLC-over-YLQ log2FoldChange contrast. Exact export
+lineage into the restricted benchmark table remains unverified; retain raw signed
+associations and distinguish source-supported interpretation from a proved table
+mapping. Never choose an epitope-specific sign from prediction accuracy.
 
 ## Deferred model-storage harmonization
 
