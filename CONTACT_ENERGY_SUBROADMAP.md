@@ -170,6 +170,20 @@ A separate saved-paper-score comparison confirms identical 602 Bigot candidates
 and the same 5/7/2 AUROC outcome; Bobisse's 79 saved-paper LOO scores retain
 perfect ranking. No current score, matrix, threshold or candidate was changed.
 
+The remaining locked protocols now add 521641 original-reference scores and
+7920 metric entries, with current and May-reference results preserved exactly.
+For 137 recovered original random pools, original-paper versus current median
+AUROC is 0.973 versus 0.937 (34 gains, 90 losses, 13 ties); for 47 modeled
+complexes it is 0.848 versus 0.769 (17/29/1). The separate notebook crystal
+protocol changes 0.970 to 0.930 over 47 units (9/33/5). The 28 recovered original
+IEDB pools change 0.952149 to 0.922592 (6/19/3). Original Birnbaum SUM changes
+0.922882 to 0.936294 in median AUROC, but has one gain and two losses across
+three units. Its duplicated native occurrence remains summed twice. Pooled
+CDR3-shuffle AUROC rises 0.684253 to 0.724502; original junction-shuffle AUROC
+falls 0.718763 to 0.680025. The latter retains 20 unavailable pairs and 57
+positive-only pools with undefined discrimination metrics. These losses prevent
+a blanket legacy nonregression claim; no score direction or default is changed.
+
 The paper also describes a large-scale VDJdb homology-model benchmark of 6150
 paired TCR–epitope cases. It is distinct from the 47 modeled/crystal complexes.
 The saved multi-method Figure 4c ranks lack TRA/HLA/model identity and include
@@ -216,9 +230,11 @@ consumer migration gates remain in the research roadmap.
    No numerical meaning of “not much regression” is invented before author review.
 4. **Resolve source/task discrepancies.** Existing Bobisse records contain one
    receptor and 79 candidate peptides over seven HLA/length templates; the stored
-   shuffle task varies CDR3 donors. The author recalls a Bobisse receptor-ranking
-   panel: retain that as a source-identity question rather than silently substituting
-   a different task. Older TCRpMHCmodels structures are a distinct generator regime.
+   shuffle task varies CDR3 donors. The primary Bobisse study also describes four
+   Modeller receptor complexes on one fixed neoepitope/HLA, using alternative alpha
+   chains. Recover their paired sequence definitions and historical coordinates
+   before calling that separate receptor comparison evaluated. Older
+   TCRpMHCmodels structures are a distinct generator regime.
 5. **Reduce the atom representation before estimating.** Verify a published,
    chemically explicit atom mapping and its reuse terms. Audit support by unique
    complex and reference family, not only atom counts. Keep antibody and native
