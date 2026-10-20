@@ -459,3 +459,11 @@ outcomes and original potential identities. The completed residue+atom candidate
 improves ILA1/YLQ and loses SB27; it does not restore all CPL classifications.
 Chemical pooling, antibody transfer and exchange symmetry must address support
 before introducing more atom/residue/context cells. No assay-fit or default change.
+
+Contact-export scheduling now defaults to all allocated CPUs, parent-only batch
+annotation, coarse contiguous scoring workers and ordered reduction. An installed
+immutable-wheel128-model diagnostic measured28.331s serial versus8.428s on16CPUs
+(3.361× cold speedup),76 peak live OS threads and4319936512bytes sampled peak
+process-tree RSS. All256 score rows and complete contact/residue outputs match
+serial and frozen originals exactly. Seventeen focused checks, lint and
+warning-fatal docs pass. This is a measured subset, not a whole-cohort timing claim.

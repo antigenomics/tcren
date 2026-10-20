@@ -7,6 +7,9 @@ All notable changes to `tcren` are recorded here. Format follows
 
 ### Added
 
+- Contact-penalty scoring uses all allocated CPUs by default through coarse
+  bounded workers after batched annotation, preserving ordered serial results.
+
 - Directed-only residue derivation and summaries; remove folding APIs, use all
   defined directed cells for matrix moments, reject asymmetric intra-peptide
   potentials, and migrate angular priors to contact-marginals-2.

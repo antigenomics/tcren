@@ -68,10 +68,14 @@ calibration or independent posterior-predictive validation.
 Residue contributions and comparison
 ------------------------------------
 
-``contact-penalties -s structures.txt --resource RESOURCE.json --chunk 32 -t 1
+``contact-penalties -s structures.txt --resource RESOURCE.json --chunk 512 -t 0
 -o NEW_DIR`` preserves the original all-TCR peptide contact sum for both TCRen2
 and the original 2022 TCRen table. One bounded structure batch is parsed and
-annotated at a time; searches are batched, and numerical kernels remain serial.
+annotated at a time; searches stay in the parent, followed by coarse contiguous
+spawn-worker scoring and ordered reduction. The default is all allocated CPUs
+(``-t 0``) and a 512-structure batch; ``-t 1`` requests serial execution and
+positive N selects an explicit bounded CPU budget. Numerical kernels remain
+serial inside workers, and pool failures propagate without serial fallback.
 Residue identities, searched-index lineage, potential tables and all failures are
 exported. CDR1/2/3:peptide contacts receive the experimental increment; framework
 contacts retain their original contribution and are explicitly unassessed.

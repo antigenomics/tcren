@@ -11,20 +11,77 @@ import typer
 
 from .observations import contact_observations
 from .plausibility import comparison_command, fit_command, score_contact_penalties
-from ..runtime import resolve_threads, single_threaded
+from ..runtime import parallel_map, resolve_threads, single_threaded
+
+
+def _score_chunk(work):
+    """Score a contiguous annotated chunk with one copy of frozen inputs."""
+    from ..contactmap import ContactMap
+    from ..exports import residue_identity
+
+    structures, tables, resource, geometry_only, calibration, normalizer, surface_context, surface_ownership, atom_count = work
+    results = []
+    for structure in structures:
+        identity, edge_tables, summaries, surface_atoms, surface_edges, error = None, [], [], [], [], ""
+        try:
+            observations = contact_observations(structure, interface="tcr_peptide", cutoff=5.)
+            if normalizer:
+                from .context_normalization import normalized_edges, apply_normalized
+                current_class = "II" if any(c.chain_supertype == "MHCII" for c in structure.chains) else "I"
+                if current_class != normalizer["mhc_class"]:
+                    raise ValueError("coordinate MHC class differs from normalizer")
+            if calibration or normalizer:
+                from .weighted import multiplicity_edges
+                opportunities = multiplicity_edges(observations, resource)
+            if normalizer:
+                increments = normalized_edges(opportunities, normalizer)
+            if calibration:
+                from .weighted import calibrated_weights, apply_weighted
+                weights = calibrated_weights(opportunities, calibration)
+            contacts = None if geometry_only else ContactMap.from_structure(structure, cutoff=5.).interface("tcr_peptide", tcr_regions="all")
+            identity = residue_identity(structure)
+            if geometry_only:
+                from .mechanism import geometry_diagnostics
+                diagnosis = geometry_diagnostics(observations, resource)
+                edge_tables.append(diagnosis)
+                summaries.append(dict(id=structure.pdb_id, n_cdr_edges=diagnosis.height))
+            if surface_context:
+                from .exposure import contact_surface
+                from .surface_reference import surface_reference_score
+                atom_surface, edge_surface = contact_surface(structure, ownership=surface_ownership)
+                surface_atoms.append(atom_surface)
+                surface_edges.append(edge_surface)
+            for pot in tables.values():
+                table, summary = score_contact_penalties(contacts, observations, pot, resource)
+                if atom_count:
+                    from .atom_counts import score_atom_counts
+                    current_class = "II" if any(c.chain_supertype == "MHCII" for c in structure.chains) else "I"
+                    table, atom_summary = score_atom_counts(table, observations, atom_count, summary["original"], mhc_class=current_class)
+                    summary.update(atom_summary)
+                if calibration:
+                    table, summary = apply_weighted(table, weights, summary)
+                if normalizer:
+                    table, summary = apply_normalized(table, increments, summary)
+                if surface_context:
+                    summary.update(surface_reference_score(atom_surface, edge_surface, pot))
+                edge_tables.append(table)
+                summaries.append(dict(id=structure.pdb_id, mhc_class="II" if any(c.chain_supertype=="MHCII" for c in structure.chains) else "I", **summary))
+        except Exception as exc:
+            error = f"score: {type(exc).__name__}: {exc}"
+        results.append((identity, edge_tables, summaries, surface_atoms, surface_edges, error))
+    return results
 
 
 @single_threaded
-def penalty_export(sources, resource_path, output, *, chunk=32, threads=1, potentials=("tcren2", "karnaukhov2022"), geometry_only=False, calibration_path=None, normalizer_path=None, surface_context=False, surface_ownership="deepest_sphere", atom_count_path=None):
-    """Parse one bounded batch; annotate/search once per batch; release its atoms."""
+def penalty_export(sources, resource_path, output, *, chunk=512, threads=0, potentials=("tcren2", "karnaukhov2022"), geometry_only=False, calibration_path=None, normalizer_path=None, surface_context=False, surface_ownership="deepest_sphere", atom_count_path=None):
+    """Annotate one bounded batch, score coarse chunks, then release its atoms."""
     from ..annotation.batch import annotate_batch
     from ..annotation import classify_chains
     from ..mhc import annotate_mhc_batch
     from ..structure import parse_structure, structure_paths
     from ..structure.io import structure_stem, resolve_sources
-    from ..contactmap import ContactMap
     from ..pipeline import _BUNDLED_POTENTIALS
-    from ..exports import _sha256, residue_identity
+    from ..exports import _sha256
     from ..provenance import annotation_indexes
     if surface_ownership not in {"deepest_sphere", "accessible_boundary"}:
         raise ValueError("unknown surface ownership method")
@@ -88,54 +145,26 @@ def penalty_export(sources, resource_path, output, *, chunk=32, threads=1, poten
                     if not row["error"]:
                         row["error"] = f"annotation: {type(exc).__name__}: {exc}"
                 typed = []
-            for structure, row in typed:
-                try:
-                    observations = contact_observations(structure, interface="tcr_peptide", cutoff=5.)
-                    if normalizer:
-                        from .context_normalization import normalized_edges, apply_normalized
-                        current_class = "II" if any(c.chain_supertype == "MHCII" for c in structure.chains) else "I"
-                        if current_class != normalizer["mhc_class"]:
-                            raise ValueError("coordinate MHC class differs from normalizer")
-                    if calibration or normalizer:
-                        from .weighted import multiplicity_edges
-                        opportunities = multiplicity_edges(observations, resource)
-                    if normalizer:
-                        increments = normalized_edges(opportunities, normalizer)
-                    if calibration:
-                        from .weighted import calibrated_weights, apply_weighted
-                        weights = calibrated_weights(opportunities, calibration)
-                    contacts = None if geometry_only else ContactMap.from_structure(structure, cutoff=5.).interface("tcr_peptide", tcr_regions="all")
-                    identity = residue_identity(structure)
+            count = min(threads, len(typed))
+            work = [([s for s, _ in typed[i*len(typed)//count:(i+1)*len(typed)//count]],
+                     tables, resource, geometry_only, calibration, normalizer,
+                     surface_context, surface_ownership, atom_count) for i in range(count)]
+            results = [result for group in parallel_map(_score_chunk, work, threads) for result in group]
+            for (structure, row), result in zip(typed, results, strict=True):
+                identity, edge_tables, scored, atoms, surfaces, error = result
+                if identity is not None:
                     residues.write(identity.write_csv(separator="\t", include_header=first_residue))
                     first_residue = False
-                    if geometry_only:
-                        from .mechanism import geometry_diagnostics
-                        diagnosis = geometry_diagnostics(observations, resource)
-                        edges.write(diagnosis.write_csv(separator="\t", include_header=first_edge))
-                        first_edge = False
-                        summaries.append(dict(id=structure.pdb_id, n_cdr_edges=diagnosis.height))
-                    if surface_context:
-                        from .exposure import contact_surface
-                        from .surface_reference import surface_reference_score
-                        atom_surface, edge_surface = contact_surface(structure, ownership=surface_ownership)
-                        surface_atoms.append(atom_surface)
-                        surface_edges.append(edge_surface)
-                    for pot in tables.values():
-                        table, summary = score_contact_penalties(contacts, observations, pot, resource)
-                        if atom_count:
-                            from .atom_counts import score_atom_counts
-                            current_class = "II" if any(c.chain_supertype == "MHCII" for c in structure.chains) else "I"
-                            table, atom_summary = score_atom_counts(table, observations, atom_count, summary["original"], mhc_class=current_class)
-                            summary.update(atom_summary)
-                        if calibration:
-                            table, summary = apply_weighted(table, weights, summary)
-                        if normalizer:
-                            table, summary = apply_normalized(table, increments, summary)
-                        if surface_context:
-                            summary.update(surface_reference_score(atom_surface, edge_surface, pot))
-                        edges.write(table.write_csv(separator="\t", include_header=first_edge))
-                        first_edge = False
-                        summaries.append(dict(id=structure.pdb_id, mhc_class="II" if any(c.chain_supertype=="MHCII" for c in structure.chains) else "I", **summary))
+                for table in edge_tables:
+                    edges.write(table.write_csv(separator="\t", include_header=first_edge))
+                    first_edge = False
+                summaries.extend(scored)
+                surface_atoms.extend(atoms)
+                surface_edges.extend(surfaces)
+                if error:
+                    row["error"] = error
+                    continue
+                try:
                     lineage = annotation_indexes([structure], previous=lineage)
                     annotation.write(json.dumps(dict(id=structure.pdb_id, searched_indexes=annotation_indexes([structure])), default=str)+"\n")
                     row["status"] = "ok"
@@ -144,6 +173,7 @@ def penalty_export(sources, resource_path, output, *, chunk=32, threads=1, poten
             if surface_context and surface_atoms:
                 pl.concat(surface_atoms, how="diagonal_relaxed").write_parquet(output/"surface"/f"atoms-{offset:06d}.parquet")
                 pl.concat(surface_edges, how="diagonal_relaxed").write_parquet(output/"surface"/f"edges-{offset:06d}.parquet")
+            del parsed, typed, work, results
             print(json.dumps(dict(processed=min(offset+chunk, len(paths)), total=len(paths), elapsed_s=time.monotonic()-start)), flush=True)
     pl.DataFrame(ledger).write_csv(output/"accounting.tsv", separator="\t")
     if summaries:
@@ -168,8 +198,8 @@ def penalty_command(
     structures: list[str] = typer.Option(..., "-s", "--structures"),
     resource: Path = typer.Option(..., "--resource", exists=True, dir_okay=False),
     out: Path = typer.Option(..., "-o", "--out"),
-    chunk: int = typer.Option(32, "--chunk", min=1),
-    threads: int = typer.Option(1, "-t", "--threads"),
+    chunk: int = typer.Option(512, "--chunk", min=1),
+    threads: int = typer.Option(0, "-t", "--threads", help="0: all allocated CPUs; 1: serial; N: explicit CPU budget"),
     calibration: Path | None = typer.Option(None, "--calibration", exists=True, dir_okay=False),
     normalizer: Path | None = typer.Option(None, "--normalizer", exists=True, dir_okay=False),
     surface_context: bool = typer.Option(False, "--surface-context"),
@@ -184,8 +214,8 @@ def geometry_audit_command(
     structures: list[str] = typer.Option(..., "-s", "--structures"),
     resource: Path = typer.Option(..., "--resource", exists=True, dir_okay=False),
     out: Path = typer.Option(..., "-o", "--out"),
-    chunk: int = typer.Option(32, "--chunk", min=1),
-    threads: int = typer.Option(1, "-t", "--threads"),
+    chunk: int = typer.Option(512, "--chunk", min=1),
+    threads: int = typer.Option(0, "-t", "--threads", help="0: all allocated CPUs; 1: serial; N: explicit CPU budget"),
 ):
     """Trace worst-tail geometry and all-atom chemistry without recalculating scores."""
     penalty_export(structures, resource, out, chunk=chunk, threads=threads, geometry_only=True)

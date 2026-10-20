@@ -32,7 +32,7 @@ atanh(cos(angle)), external/native sufficient statistics and declared chemistry
 backoff. The external actual counts supply prior strength; there is no label input.
 Angular torsion sign is discarded; missing/boundary geometry remains unavailable.
 
-`contact-penalties -s manifest.txt --resource RESOURCE.json --chunk 32 -t 1 -o NEW_DIR`
+`contact-penalties -s manifest.txt --resource RESOURCE.json --chunk 512 -t 0 -o NEW_DIR`
 exports original TCRen2 and 2022 TCRen energies plus fixed, matrix-scaled, literal
 flip and favourable-only flip contributions. It keeps the legacy all-TCR peptide
 baseline, adding one increment per physical CDR:peptide residue edge. Framework
@@ -40,7 +40,10 @@ contacts remain explicitly unassessed. Worst supported atom/marginal predictive
 tail defines the shared weight; no score-time fitting, probability-of-naturalness
 claim or independent-marginal product. Missing potential entries retain legacy
 omission with explicit counts/null contributions. Batched annotation is bounded
-by `--chunk`; no worker pool or computed-part cache.
+by `--chunk` (default512); parent-only batched annotation precedes coarse
+contiguous spawn-worker scoring. `-t 0` (default) uses all allocated CPUs; `1`
+is explicit serial and positive N is a bounded allocation. Native kernels stay
+serial inside workers; pool failure propagates. No computed-part cache.
 
 `contact-compare --labels labels.tsv --scores NEW_DIR/scores.tsv -o COMPARISON`
 uses exactly the same finite IDs for all arms/original/ipTM within every potential,
