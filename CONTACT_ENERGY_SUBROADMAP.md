@@ -23,6 +23,28 @@ Physical contacts are correlated within complexes. These counts are not that
 many independent structures or freely supported parameters. Adding distance,
 angle, residue identity and context axes would multiply sparsity.
 
+Completed follow-through: all nine exported energy columns now have the recorded
+ATLAS/MD endpoint audit (72 Pearson/Spearman entries). Fresh contact-arm exports
+retain 176 matched correlations on 179 successful native structures, with ten
+explicit eligibility failures. On the common 178-structure MD population, the
+atom layer lowers Pearson correlation from 0.453750 to 0.339511 for TCRen2.
+
+The first legacy gate scored 382764 candidate/potential rows across 222 ranking
+units using the actual published 2022 coefficients and current TCRen2. Median
+within-unit AUROC changes from 0.927000 to 0.923963 for IEDB (204 units; 79 gains,
+108 losses, 17 ties), and 0.738095 to 0.726190 for Bigot (14; 5 gains, 7 losses,
+2 ties). Bobisse retains rank 1/79; all three corrected Birnbaum AUROCs improve.
+The largest IEDB unit loss is 0.865 to 0.124. These results do not pass a blanket
+legacy nonregression claim. Exact historical random pools, original Birnbaum
+protocol, modeled/crystal and shuffled-receptor comparisons remain open.
+
+Both contact export and candidate CLI scoring now use bounded coarse workers
+with all allocated CPUs. On 128 raw models, serial/parallel scores and contact
+exports agree exactly; cold runtime changes from 28.331 to 8.428 seconds
+(3.361-fold). This does not establish full-cohort scaling. Virtual residue
+substitutions have no mutant atom coordinates, so atom/surface corrections for
+those candidates remain undefined rather than silently set to zero.
+
 ## Work order and verification
 
 1. **Publish safely.** Keep raw inputs, private provenance, host paths and private
