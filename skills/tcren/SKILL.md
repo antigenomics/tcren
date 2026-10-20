@@ -31,6 +31,22 @@ Resource/input hashes and original scores remain explicit; `contact-compare`
 retains the separate arm. No new default, physical free energy or accuracy claim.
 See `docs/contact-penalties.rst` for equations, provenance and support semantics.
 
+## Within-residue atom-pattern layer
+
+`contact-atom-pattern-fit --native contacts.parquet --external antibody.parquet
+--equivalence-resource prior.json -t 0 -o pattern.json` freezes edge-balanced
+atom marks: each physical residue edge contributes one unit divided among its
+atom pairs, before saved chemical-equivalence aggregation. Source raw counts
+and fractional masses remain explicit. D=-ln[P(i,j|a,b)/(qB(i|a)qT(j|b))]
+uses the resulting directed endpoint marginals. Native class-I CDR:peptide and
+antibody peptide references only; no assay/source weights or distance regression.
+`contact-penalties --atom-pattern-resource pattern.json` adds one mean D per
+known CDR edge to original TCRen, fixed coefficient one. Unsupported pairs abstain
+with zero and remain in the denominator. Separate export from atom-count resource;
+`contact-compare` retains `atom_pattern` and all original arms. This categorical
+within-contact measure is not full atom occupancy or a joint graph likelihood.
+See `ATOM_PATTERN_SPEC.md` and contact-penalties docs for support/provenance.
+
 ## Directed residue+atom count layer
 
 `contact-atom-count-fit --native contacts.parquet --external curated_atom_contacts.parquet

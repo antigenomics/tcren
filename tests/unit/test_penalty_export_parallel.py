@@ -13,7 +13,7 @@ from tcren.runtime import available_cpus, native_threads, parallel_map
 from test_contact_observations import complex_fixture
 
 
-@pytest.mark.parametrize("mode", ["scores", "geometry", "deepest_sphere", "accessible_boundary", "atom_count_and_chemical_core"])
+@pytest.mark.parametrize("mode", ["scores", "geometry", "deepest_sphere", "accessible_boundary", "atom_count_and_chemical_core", "atom_pattern"])
 def test_contact_penalty_coarse_workers_equal_serial(mode):
     if available_cpus() < 2:
         pytest.skip("requires two allocated CPUs")
@@ -25,7 +25,7 @@ def test_contact_penalty_coarse_workers_equal_serial(mode):
     tables = {} if geometry else {name: factory() for name, factory in _BUNDLED_POTENTIALS.items()
                                  if name in ("tcren2", "karnaukhov2022")}
     atom_count = chemical_core = None
-    if mode == "atom_count_and_chemical_core":
+    if mode in ("atom_count_and_chemical_core", "atom_pattern"):
         from tcren.contacts.atom_counts import TYPES, derive_atom_counts
         from tcren.contacts.chemical_core import derive_chemical_core
         swap = pl.col("role.from") != "tcr"
@@ -35,8 +35,18 @@ def test_contact_penalty_coarse_workers_equal_serial(mode):
             for side, other in [("from", "to"), ("to", "from")]
             for field, dest in [("field_0", "aa"), ("field_1", "atom")]
         ]).group_by(TYPES).len(name="count")
-        chemical_core = derive_chemical_core(counts, counts.head(0))
-        atom_count = derive_atom_counts(counts, counts.head(0))
+        if mode == 'atom_pattern':
+            from tcren.contacts.atom_patterns import derive_atom_patterns
+            data = observations.select(
+                pl.struct('chain.id.from','residue.index.from','chain.id.to','residue.index.to').alias('edge'), *[
+                    pl.when(swap).then(pl.col('chem.'+other)).otherwise(pl.col('chem.'+side))
+                    .str.split_exact(':',1).struct.field(field).alias(dest+'_'+side)
+                    for side,other in [('from','to'),('to','from')]
+                    for field,dest in [('field_0','aa'),('field_1','atom')]])
+            atom_count = derive_atom_patterns(data,data.head(0))
+        else:
+            chemical_core = derive_chemical_core(counts, counts.head(0))
+            atom_count = derive_atom_counts(counts, counts.head(0))
     options = (tables, resource, geometry, None, None,
                mode in ("deepest_sphere", "accessible_boundary"),
                mode if mode in ("deepest_sphere", "accessible_boundary") else "deepest_sphere", atom_count, chemical_core)

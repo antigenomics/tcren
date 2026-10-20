@@ -69,7 +69,8 @@ def derive_atom_counts(native, external, equivalences=None):
 
 def score_atom_counts(contacts, observations, resource, original, *, mhc_class="I"):
     """Add one mean atom residual to each supported original CDR contribution."""
-    if resource.get('version') != VERSION or resource.get('cutoff_A') != 5.:
+    pattern = resource.get('version') == 'within-residue-atom-pattern-1'
+    if (not pattern and resource.get('version') != VERSION) or resource.get('cutoff_A') != 5.:
         raise ValueError('unsupported directed atom-count resource')
     if mhc_class != resource.get('mhc_class'):
         raise ValueError('atom-count reference supports class I only')
@@ -104,9 +105,14 @@ def score_atom_counts(contacts, observations, resource, original, *, mhc_class="
         pl.col('atom_count_pairs','atom_count_unsupported_pairs').fill_null(0))
     result = result.with_columns((pl.col('original_contribution')+pl.col('atom_count_increment')).alias('atom_count_contribution'))
     increment = float(result['atom_count_increment'].sum())
-    return result, dict(atom_count=original+increment, atom_count_increment=increment,
+    summary = dict(atom_count=original+increment, atom_count_increment=increment,
         atom_count_pairs=int(result['atom_count_pairs'].sum()),
         atom_count_unsupported_atoms=int(result['atom_count_unsupported_pairs'].sum()))
+    if pattern:
+        rename = {c:c.replace('atom_count','atom_pattern',1) for c in result.columns if c.startswith('atom_count')}
+        result = result.rename(rename)
+        summary = {c.replace('atom_count','atom_pattern',1):v for c,v in summary.items()}
+    return result, summary
 
 
 @single_threaded

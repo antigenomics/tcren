@@ -335,6 +335,8 @@ def comparison_command(
         arms.append("normalized")
     if "atom_count" in scored.columns:
         arms.append("atom_count")
+    if "atom_pattern" in scored.columns:
+        arms.append("atom_pattern")
     if "chemical_core" in scored.columns:
         arms.append("chemical_core")
     if "surface_context_sum" in scored.columns:

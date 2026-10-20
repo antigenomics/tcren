@@ -111,6 +111,9 @@ def penalty_export(sources, resource_path, output, *, chunk=512, threads=0, pote
     resource_path = Path(resource_path)
     resource = json.loads(resource_path.read_text())
     atom_count = json.loads(Path(atom_count_path).read_text()) if atom_count_path else None
+    if atom_count and atom_count.get('version') == 'within-residue-atom-pattern-1':
+        from .atom_patterns import validate_resource
+        validate_resource(atom_count)
     if atom_count and geometry_only:
         raise ValueError("atom-count layer requires score export")
     calibration = json.loads(Path(calibration_path).read_text()) if calibration_path else None
@@ -218,10 +221,13 @@ def penalty_command(
     surface_context: bool = typer.Option(False, "--surface-context"),
     surface_ownership: str = typer.Option("deepest_sphere", "--surface-ownership"),
     atom_count_resource: Path | None = typer.Option(None, "--atom-count-resource", exists=True, dir_okay=False),
+    atom_pattern_resource: Path | None = typer.Option(None, "--atom-pattern-resource", exists=True, dir_okay=False),
     chemical_core_resource: Path | None = typer.Option(None, "--chemical-core-resource", exists=True, dir_okay=False),
 ):
     """Apply the same frozen geometry weight to four declared penalty arms."""
-    penalty_export(structures, resource, out, chunk=chunk, threads=threads, calibration_path=calibration, normalizer_path=normalizer, surface_context=surface_context, surface_ownership=surface_ownership, atom_count_path=atom_count_resource, chemical_core_path=chemical_core_resource)
+    if atom_count_resource and atom_pattern_resource:
+        raise ValueError("use separate exports for atom-count and atom-pattern resources")
+    penalty_export(structures, resource, out, chunk=chunk, threads=threads, calibration_path=calibration, normalizer_path=normalizer, surface_context=surface_context, surface_ownership=surface_ownership, atom_count_path=atom_pattern_resource or atom_count_resource, chemical_core_path=chemical_core_resource)
 
 
 def geometry_audit_command(
@@ -240,6 +246,8 @@ def register(app, panel):
     app.command("contact-prior-fit", rich_help_panel=panel)(fit_command)
     from .atom_counts import fit_command as atom_count_fit
     app.command("contact-atom-count-fit", rich_help_panel=panel)(atom_count_fit)
+    from .atom_patterns import fit_command as atom_pattern_fit
+    app.command("contact-atom-pattern-fit", rich_help_panel=panel)(atom_pattern_fit)
     from .chemical_core import fit_command as chemical_core_fit
     app.command("contact-chemical-core-fit", rich_help_panel=panel)(chemical_core_fit)
     app.command("contact-penalties", rich_help_panel=panel)(penalty_command)

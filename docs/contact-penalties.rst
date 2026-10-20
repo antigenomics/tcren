@@ -572,3 +572,33 @@ clusters, naming-equivalent atoms and generator/template effects remain relevant
 Class-exclusive contacts can reflect finite sampling. Discovering contacts from
 these labels and rescoring the same models would leak evaluation information;
 no filtering benefit or improved final potential follows from this audit alone.
+
+Within-residue atom patterns
+----------------------------
+
+``contact-atom-pattern-fit --native native.parquet --external antibody.parquet
+--equivalence-resource prior.json -t 0 -o pattern.json`` freezes
+``within-residue-atom-pattern-1``. Each physical reference residue edge supplies
+unit mass, divided over its physical atom pairs before chemical-equivalence
+aggregation. Native class-I CDR:peptide and antibody peptide edges are pooled
+without assay or source weights. Unlike integer atom-contact weighting, a dense
+edge does not supply more reference mass. Source physical counts and fractional
+masses are retained separately.
+
+For directed residues a,b and atom labels i,j, m_abij is the sum of per-edge
+atom-pair fractions. P(i,j|a,b) normalizes this mass within the residue pair;
+qB(i|a) and qT(j|b) are its directed endpoint marginals. The frozen value is
+D_abij = -ln[P(i,j|a,b)/(qB(i|a)qT(j|b))]. These are dimensionless empirical
+contact-mark probabilities, not exposed-atom opportunities or independent
+observations. All formulae and the evaluation contract are in
+``ATOM_PATTERN_SPEC.md``.
+
+``contact-penalties --atom-pattern-resource pattern.json`` adds the arithmetic
+mean D of physical atom pairs once per known CDR residue edge to unchanged
+original TCRen. Unknown cells abstain with zero and remain in the denominator;
+framework and missing-table policies remain unchanged. Separate exports are
+required for ``--atom-count-resource`` and ``--atom-pattern-resource`` so their
+arms cannot be mislabeled or overwrite each other. ``contact-compare`` includes
+``atom_pattern`` alongside original and other requested arms on identical rows.
+No assay weights, fitted coefficient, distance regression, joint graph
+likelihood, binding free energy or new package default is implied.

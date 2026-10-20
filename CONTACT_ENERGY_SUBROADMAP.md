@@ -405,3 +405,21 @@ and any chosen frozen candidate has
 all requested matched comparisons. Source review or a complete ranking-only run
 cannot certify this broader goal. Keep scientific records private where required;
 no manuscript findings or package default changes without explicit author review.
+
+## Within-residue atom-pattern candidate —21 October2026
+
+The author authorized implementation and frozen evaluation of an edge-balanced
+native/antibody atom-pattern potential. `ATOM_PATTERN_SPEC.md` owns its exact
+observation measure, equations, support and comparison contract. Each reference
+residue contact contributes one unit divided over its physical atom pairs;
+directed conditional atom-mark log ratios are averaged once per query CDR edge
+and added to unchanged original scores with coefficient one. No assay/source
+weights, new distance regression, blacklist or default promotion.
+
+The frozen resource precedes evaluation. Preserve every current ranking case,
+potential, metric and template stratum; verify exact original-score identity and
+membership before attaching both completed surface baselines. Native energy and
+graded-response endpoints require their own accepted membership checks. A
+ranking-only result cannot establish all-task completion or legacy threading
+capability. Private evidence retains exact resource/input/output hashes and all
+gains and losses; do not place private provenance or benchmark rows here.
