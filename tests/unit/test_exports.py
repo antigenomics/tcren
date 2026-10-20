@@ -67,7 +67,7 @@ def test_exact_export_quantities_and_author_identity():
 
 
 @pytest.mark.parametrize("archived", [False, True])
-@pytest.mark.parametrize("quantity", ["contacts", "contact-atoms"])
+@pytest.mark.parametrize("quantity", ["contacts", "contact-atoms", "atom-inventory"])
 def test_batch_accounts_for_parse_failure_and_zero_contact_rows(tmp_path, monkeypatch, archived, quantity):
     import tcren.annotation
     import tcren.annotation.batch
@@ -98,7 +98,7 @@ def test_batch_accounts_for_parse_failure_and_zero_contact_rows(tmp_path, monkey
     monkeypatch.setattr(tcren.annotation, "classify_chains", lambda *a, **kw: None)
     monkeypatch.setattr(tcren.mhc, "annotate_mhc_batch", lambda *a, **kw: None)
     monkeypatch.setattr(exports, "annotation_lineage", lambda organisms: {"organisms": list(organisms)})
-    out = tmp_path / ("reference.parquet" if quantity == "contact-atoms" else "reference.tsv")
+    out = tmp_path / ("reference.parquet" if quantity in {"contact-atoms", "atom-inventory"} else "reference.tsv")
     sources = [good, bad]
     if archived:
         bad.write_text("broken structure")
@@ -110,7 +110,10 @@ def test_batch_accounts_for_parse_failure_and_zero_contact_rows(tmp_path, monkey
     ledger = exports.export_batch(sources, out, quantity=quantity, peptide_potential=classic(),
                                    mhc_potential=mj(), cutoff=0.00001)
     assert ledger["status"].to_list() == ["ok", "error"]
-    assert ledger["n_rows"].to_list() == [0, 0]
+    if quantity == "atom-inventory":
+        assert ledger["n_rows"][0] > 0 and ledger["n_rows"][1] == 0
+    else:
+        assert ledger["n_rows"].to_list() == [0, 0]
     assert calls == [1]
     assert ledger["pdb.id"].to_list() == ["good_full_stem", "missing"]
     if archived:
@@ -124,12 +127,20 @@ def test_batch_accounts_for_parse_failure_and_zero_contact_rows(tmp_path, monkey
         assert meta["contact_observations"]["conformer_policy"]
         assert meta["contact_summary_sha256"]
         assert pl.read_csv(str(out) + ".summary.tsv", separator="\t").is_empty()
+    elif quantity == "atom-inventory":
+        inventory = pl.read_parquet(out)
+        assert inventory.height == ledger["n_rows"][0]
+        assert meta["potentials"] == {}
+        assert meta["atom_inventory"]["conformer_policy"]
+        assert meta["atom_inventory"]["noncontact_atoms_retained"]
+        assert meta["interface"] == "all"
+        assert meta["residue_phi_accounting"].startswith("not applicable")
     else:
         assert meta["potentials"]["peptide"]["sha256"]
     assert Path(str(out) + ".residues.tsv").exists()
 
 
-@pytest.mark.parametrize("quantity", ["contacts", "contact-atoms"])
+@pytest.mark.parametrize("quantity", ["contacts", "contact-atoms", "atom-inventory"])
 def test_all_failed_cli_retains_accounting(tmp_path, quantity):
     out = tmp_path / "failed.tsv"
     annotation_path = Path(str(out) + ".annotation.json")

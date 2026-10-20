@@ -13,14 +13,93 @@ _CDRS = {"CDR1", "CDR2", "CDR3"}
 _HELICES = {"HELIX_A1", "HELIX_A2", "HELIX_B1"}
 
 
-def _selected_atoms(structure):
-    """Copy only supported component atoms; retain original heavy-atom indices."""
-    chains, records = [], []
+def _validate_complex(structure):
+    """Shared alpha-beta receptor, standard peptide and MHC scope validation."""
+    types = {c.chain_type for c in structure.chains}
+    if not {"TRA", "TRB", "PEPTIDE", "MHCa"} <= types or types & {"TRG", "TRD", "IGH", "IGK", "IGL"}:
+        raise ValueError("contact observations require an alpha-beta TCR:pMHC complex")
+    peptides = structure.by_type("PEPTIDE")
+    if len(peptides) != 1 or set(peptides[0].sequence()) - set("ACDEFGHIKLMNPQRSTVWY"):
+        raise ValueError("exactly one standard-amino-acid peptide required")
+    classes = {c.chain_supertype for c in structure.chains if c.chain_type in {"MHCa", "MHCb"}}
+    if classes not in ({"MHCI"}, {"MHCII"}) or (classes == {"MHCII"} and "MHCb" not in types):
+        raise ValueError("consistent annotated MHC-I or two-chain MHC-II groove required")
+    return classes
+
+
+_INVENTORY_SCHEMA = {
+    "pdb.id": pl.String, "chain.id": pl.String, "chain.type": pl.String,
+    "residue.index": pl.Int64, "residue.index.pdb": pl.Int64,
+    "insertion_code": pl.String, "residue.aa": pl.String, "residue.resname": pl.String,
+    "region.type": pl.String, "peptide.pos": pl.Int64, "atom.name": pl.String,
+    "atom.source_index": pl.Int64, "element": pl.String,
+    "altloc": pl.String, "altloc.selected": pl.String,
+    "x": pl.Float64, "y": pl.Float64, "z": pl.Float64,
+    "role": pl.String, "contact_role": pl.String, "contact_eligible": pl.Boolean,
+    "n_altloc_omitted": pl.Int64,
+}
+
+
+def atom_inventory(structure) -> pl.DataFrame:
+    """Selected observed heavy atoms, including uncontacted full-component context.
+
+    Coordinates are in Angstroms. ``peptide.pos`` is the one-based ordinal in the
+    complete observed peptide, independent of author numbering and seq_index.
+    ``atom.source_index`` enumerates heavy atoms across all input chains before
+    selection, exactly as for contact observations. ``n_altloc_omitted`` counts
+    heavy atoms removed by residue conformer/name selection only, repeated per
+    retained atom; no Gly or region filtering is applied to inventory membership.
+    ``contact_role`` uses the existing CDR/helix role; ``contact_eligible`` adds
+    the existing Gly backbone restriction. No geometry or missing atoms are built.
+    """
+    _validate_complex(structure)
+    chain_keys = set()
+    for chain in structure.chains:
+        if chain.chain_id in chain_keys:
+            raise ValueError("duplicate chain identity in atom inventory")
+        chain_keys.add(chain.chain_id)
+        sequence_keys, author_keys = set(), set()
+        for residue in chain.residues:
+            author = (residue.pdb_index, residue.insertion_code)
+            if residue.seq_index in sequence_keys or author in author_keys:
+                raise ValueError("duplicate residue identity in atom inventory")
+            sequence_keys.add(residue.seq_index)
+            author_keys.add(author)
+    roles = {"TRA": "tcr", "TRB": "tcr", "PEPTIDE": "peptide",
+             "MHCa": "mhc", "MHCb": "mhc", "B2M": "b2m"}
+    records = []
+    for chain, residue, position, region, contact_role, selected, heavy, kept in _residue_atoms(structure):
+        if chain.chain_type not in roles:
+            continue
+        for source_index, atom in kept:
+            try:
+                xyz = np.asarray(atom.coord, dtype=float)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("atom inventory requires finite three-dimensional atom coordinates") from exc
+            if xyz.shape != (3,) or not np.isfinite(xyz).all():
+                raise ValueError("atom inventory requires finite three-dimensional atom coordinates")
+            records.append({
+                "pdb.id": structure.pdb_id, "chain.id": chain.chain_id,
+                "chain.type": chain.chain_type, "residue.index": residue.seq_index,
+                "residue.index.pdb": residue.pdb_index, "insertion_code": residue.insertion_code,
+                "residue.aa": residue.aa, "residue.resname": residue.resname,
+                "region.type": region, "peptide.pos": position if chain.chain_type == "PEPTIDE" else None,
+                "atom.name": atom.name, "atom.source_index": source_index, "element": atom.element,
+                "altloc": atom.altloc, "altloc.selected": selected,
+                **{axis: float(xyz[i]) for i, axis in enumerate("xyz")},
+                "role": roles[chain.chain_type], "contact_role": contact_role,
+                "contact_eligible": contact_role is not None and (residue.aa != "G" or atom.name in BACKBONE_ATOMS),
+                "n_altloc_omitted": len(heavy) - len(kept),
+            })
+    return pl.DataFrame(records, schema=_INVENTORY_SCHEMA)
+
+
+def _residue_atoms(structure):
+    """Yield conformer-selected atoms with indices over *all* source heavy atoms."""
     source_index = 0
     for chain in structure.chains:
         regions = {r.seq_index: reg.region_type for reg in chain.regions for r in reg.residues}
-        residues = []
-        for residue in chain.residues:
+        for position, residue in enumerate(chain.residues, 1):
             heavy = []
             for atom in residue.atoms:
                 if atom.element.strip().upper() in {"H", "D"}:
@@ -38,26 +117,34 @@ def _selected_atoms(structure):
             for index, atom in sorted(heavy, key=lambda x: bool(x[1].altloc)):
                 if atom.altloc in {"", selected}:
                     by_name[atom.name] = (index, atom)
-            kept = [(i, a) for i, a in by_name.values() if role is not None
-                    and (residue.aa != "G" or a.name in BACKBONE_ATOMS)]
-            residues.append(replace(residue, atoms=tuple(a for _, a in kept)))
-            coords = {a.name: a.coord for _, a in kept}
-            for original_index, atom in kept:
-                xyz = np.asarray(atom.coord, dtype=float)
-                if xyz.shape != (3,) or not np.isfinite(xyz).all():
-                    raise ValueError("contact observations require finite three-dimensional atom coordinates")
-                record = {"atom.index": len(records), "atom.source_index": original_index,
-                          "residue.index.pdb": residue.pdb_index, "insertion_code": residue.insertion_code,
-                          "chain.type": chain.chain_type, "region.type": region, "role": role,
-                          "altloc": atom.altloc, "altloc.selected": selected,
-                          "n_atoms_omitted": len(heavy) - len(kept), "element": atom.element,
-                          "chem": residue.aa + ":" + atom.name}
-                for prefix, value in (("", xyz), ("n.", coords.get("N")),
-                                      ("ca.", coords.get("CA")), ("cb.", coords.get("CB"))):
-                    record.update({prefix + axis: None if value is None else float(value[k])
-                                   for k, axis in enumerate("xyz")})
-                records.append(record)
-        chains.append(replace(chain, residues=residues))
+            yield chain, residue, position, region, role, selected, heavy, list(by_name.values())
+
+
+def _selected_atoms(structure):
+    """Copy only supported component atoms; retain original heavy-atom indices."""
+    residues_by_chain = {id(chain): [] for chain in structure.chains}
+    records = []
+    for chain, residue, _, region, role, selected, heavy, conformer in _residue_atoms(structure):
+        kept = [(i, a) for i, a in conformer if role is not None
+                and (residue.aa != "G" or a.name in BACKBONE_ATOMS)]
+        residues_by_chain[id(chain)].append(replace(residue, atoms=tuple(a for _, a in kept)))
+        coords = {a.name: a.coord for _, a in kept}
+        for original_index, atom in kept:
+            xyz = np.asarray(atom.coord, dtype=float)
+            if xyz.shape != (3,) or not np.isfinite(xyz).all():
+                raise ValueError("contact observations require finite three-dimensional atom coordinates")
+            record = {"atom.index": len(records), "atom.source_index": original_index,
+                      "residue.index.pdb": residue.pdb_index, "insertion_code": residue.insertion_code,
+                      "chain.type": chain.chain_type, "region.type": region, "role": role,
+                      "altloc": atom.altloc, "altloc.selected": selected,
+                      "n_atoms_omitted": len(heavy) - len(kept), "element": atom.element,
+                      "chem": residue.aa + ":" + atom.name}
+            for prefix, value in (("", xyz), ("n.", coords.get("N")),
+                                  ("ca.", coords.get("CA")), ("cb.", coords.get("CB"))):
+                record.update({prefix + axis: None if value is None else float(value[k])
+                               for k, axis in enumerate("xyz")})
+            records.append(record)
+    chains = [replace(chain, residues=residues_by_chain[id(chain)]) for chain in structure.chains]
     schema = {"atom.index": pl.Int64, "atom.source_index": pl.Int64, "residue.index.pdb": pl.Int64,
               "insertion_code": pl.String, "chain.type": pl.String, "region.type": pl.String,
               "role": pl.String, "altloc": pl.String, "altloc.selected": pl.String,
@@ -95,15 +182,7 @@ def contact_observations(structure, *, cutoff=5.0, interface="all") -> pl.DataFr
     """
     if interface not in ("all", *INTERFACES):
         raise ValueError("invalid contact observation interface")
-    types = {c.chain_type for c in structure.chains}
-    if not {"TRA", "TRB", "PEPTIDE", "MHCa"} <= types or types & {"TRG", "TRD", "IGH", "IGK", "IGL"}:
-        raise ValueError("contact observations require an alpha-beta TCR:pMHC complex")
-    peptides = structure.by_type("PEPTIDE")
-    if len(peptides) != 1 or set(peptides[0].sequence()) - set("ACDEFGHIKLMNPQRSTVWY"):
-        raise ValueError("exactly one standard-amino-acid peptide required")
-    classes = {c.chain_supertype for c in structure.chains if c.chain_type in {"MHCa", "MHCb"}}
-    if classes not in ({"MHCI"}, {"MHCII"}) or (classes == {"MHCII"} and "MHCb" not in types):
-        raise ValueError("consistent annotated MHC-I or two-chain MHC-II groove required")
+    classes = _validate_complex(structure)
     for chain in structure.by_type("MHCa", "MHCb"):
         if not any(r.region_type in _HELICES for r in chain.regions):
             raise ValueError("MHC helix region annotation required for contact observations")

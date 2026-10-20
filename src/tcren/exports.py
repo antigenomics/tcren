@@ -25,7 +25,7 @@ from .potential import Potential
 
 RECEPTOR_REGIONS = {"all": None, "cdr": ("CDR1", "CDR2", "CDR3"),
                     "cdr12": ("CDR1", "CDR2"), "cdr3": ("CDR3",)}
-QUANTITIES = ("receptor-reference", "position", "residue", "contacts", "contact-context", "contact-atoms", "placement", "contact-topology", "backbone", "pmhc", "pmhc-cells", "contact-exposure", "surface-contacts")
+QUANTITIES = ("receptor-reference", "position", "residue", "contacts", "contact-context", "contact-atoms", "atom-inventory", "placement", "contact-topology", "backbone", "pmhc", "pmhc-cells", "contact-exposure", "surface-contacts")
 
 
 def receptor_reference(contact_map: ContactMap, peptide_potential: Potential,
@@ -232,6 +232,9 @@ def export_structure(structure, quantity: str, peptide_potential: Potential,
         raise ValueError("export requires exactly one standard-amino-acid peptide")
     if quantity == "placement":
         return placement_table(structure)
+    if quantity == "atom-inventory":
+        from .contacts.observations import atom_inventory
+        return atom_inventory(structure)
     if quantity == "contact-atoms":
         from .contacts.observations import contact_observations
         return contact_observations(structure, cutoff=cutoff, interface=interface)
@@ -343,7 +346,7 @@ def export_batch(sources, output, *, quantity, peptide_potential, mhc_potential,
     if not organisms or set(organisms) - {"human", "mouse"}:
         raise ValueError("positive threads and human/mouse organisms are required")
     if (quantity not in QUANTITIES or interface not in {"tcr_peptide", "tcr_mhc", "peptide_mhc", "all"}
-            or (interface == "all" and quantity != "contact-atoms")):
+            or (interface == "all" and quantity not in {"contact-atoms", "atom-inventory"})):
         raise ValueError("invalid export quantity or interface")
     if not math.isfinite(cutoff) or cutoff <= 0:
         raise ValueError("cutoff must be finite and positive")
@@ -362,7 +365,7 @@ def export_batch(sources, output, *, quantity, peptide_potential, mhc_potential,
         try:
             row["sha256"] = _sha256(path)
             structure = (parse_structure(path, pdb_id=pdb_id, keep_modified=True)
-                         if register_reference_id is not None or quantity == "contact-atoms"
+                         if register_reference_id is not None or quantity in {"contact-atoms", "atom-inventory"}
                          else parse_structure(path, pdb_id=pdb_id))
             parsed.append((structure, row))
             return structure
@@ -442,7 +445,7 @@ def export_batch(sources, output, *, quantity, peptide_potential, mhc_potential,
                 if not row["error"]:
                     row["error"] = f"annotation: {type(exc).__name__}: {exc}"
     table = pl.concat(tables, how="diagonal_relaxed") if tables else pl.DataFrame(schema={"pdb.id": pl.String})
-    if quantity in {"contact-atoms", "contact-exposure", "surface-contacts"} and output.suffix == ".parquet":
+    if quantity in {"contact-atoms", "atom-inventory", "contact-exposure", "surface-contacts"} and output.suffix == ".parquet":
         table.write_parquet(output)
     else:
         table.write_csv(output, separator="\t")
@@ -464,7 +467,7 @@ def export_batch(sources, output, *, quantity, peptide_potential, mhc_potential,
         (pl.concat(registers) if registers else pl.DataFrame(schema={"pdb.id": pl.String})).write_csv(
             str(output) + ".registers.tsv", separator="\t")
     potentials = {}
-    for label, potential in (() if quantity in {"pmhc", "pmhc-cells", "contact-topology", "backbone", "contact-atoms", "contact-exposure", "surface-contacts"} else (("peptide", peptide_potential), ("mhc", mhc_potential))):
+    for label, potential in (() if quantity in {"pmhc", "pmhc-cells", "contact-topology", "backbone", "contact-atoms", "atom-inventory", "contact-exposure", "surface-contacts"} else (("peptide", peptide_potential), ("mhc", mhc_potential))):
         path = Path(str(output) + f".{label}.potential.tsv")
         potential.matrix.write_csv(path, separator="\t")
         potentials[label] = {"name": potential.name, "sha256": _sha256(path),
@@ -477,13 +480,14 @@ def export_batch(sources, output, *, quantity, peptide_potential, mhc_potential,
     manifest_text = files("tcren.data").joinpath("potentials.json").read_text()
     stamp(output, command=command, columns=table.columns, extra={
         **lineage, "searched_indexes": annotation_indexes(s for s, _ in parsed),
-        "organisms": list(organisms), "quantity": quantity, "interface": interface, "cutoff_A": cutoff,
+        "organisms": list(organisms), "quantity": quantity, "interface": "all" if quantity == "atom-inventory" else interface, "cutoff_A": None if quantity == "atom-inventory" else cutoff,
         "threads": threads, "potentials": potentials, "bundled_potential_manifest": json.loads(manifest_text),
         "custom_potential_derivation": "not inferred; supplied matrix is exported and hashed",
         "n_input": len(accounting), "n_ok": succeeded,
         "n_error": len(accounting) - succeeded, "sources": [str(p) for p in paths],
         "reference_semantics": ("directed conserved surface allocation; intact target; separate endpoint areas; no score" if quantity == "surface-contacts"
                                 else "atom SASA in isolated binder/intact pMHC/bound complex; unchanged coordinates; no energy" if quantity == "contact-exposure"
+                                else "selected observed heavy atoms across full protein components; zero-contact atoms retained; no energy" if quantity == "atom-inventory"
                                 else "observed heavy-atom pairs; no energy or fitted model" if quantity == "contact-atoms"
                                 else "intrinsic C-alpha geometry; not a strain score" if quantity == "backbone"
                                 else "separate residue-contact graphs; CDR-only receptor; no fitted score" if quantity == "contact-topology"
@@ -498,6 +502,14 @@ def export_batch(sources, output, *, quantity, peptide_potential, mhc_potential,
             symmetry="one physical atom pair; unordered residue+atom chemical endpoint tuples",
             angles="trRosetta N/CA/observed CB definitions; radians; missing/degenerate null",
             fitted=False) if quantity == "contact-atoms" else None),
+        "atom_inventory": ({"conformer_policy": CONFORMER_POLICY,
+            "source_index": "zero-based heavy-atom enumeration across all parsed chains before selection; not PDB serial",
+            "scope": "TRA/TRB, peptide, full MHCa/MHCb/B2M; parsed observed protein atoms only",
+            "noncontact_atoms_retained": True, "units": "angstrom", "model": "parser-selected model",
+            "missing_atoms": "not reconstructed", "hydrogens": "H/D excluded",
+            "chemical_state": "no waters, ions, bonded topology, charges or protonation inferred",
+            "omission_count": "heavy atoms removed by conformer/name selection only; repeated per retained atom"}
+            if quantity == "atom-inventory" else None),
         "surface_allocation": ({"n_points": 100, "probe_A": 1.4, "sphere": "native Fibonacci-y", "owner": "minimum signed distance to opposing expanded sphere; exact ties split equally", "atoms_sha256": _sha256(Path(str(output) + ".atoms.parquet")), "energy": "none"} if quantity == "surface-contacts" else None),
         "exposure_parameters": ({"n_points": 100, "probe_A": 1.4, "radii": "Bio.PDB.SASA", "units": "A^2", "hydrogens": "excluded", "frame": "supplied coordinates", "context": "intact peptide/MHC/B2M target; peptide alone only for MHC shielding"} if quantity == "contact-exposure" else None),
         "surface_parameters": ({"grid_yx": [64,32], "extent_A": [-20,20,-25,25], "probe_A": 1.4, "smooth": "8-neighbour, padded", "scale": "Kyte-Doolittle", "ridge_percentile": 90, "frame": "pMHC only; receptor removed"} if quantity == "pmhc-cells" else None),
@@ -506,6 +518,7 @@ def export_batch(sources, output, *, quantity, peptide_potential, mhc_potential,
             "sha256": _sha256(Path(str(output) + ".registers.tsv"))} if register_reference_id else None),
         "peptide_selection": ({"sha256": _sha256(Path(peptide_selection)), "rows": selections}
                               if peptide_selection is not None else None),
-        "residue_phi_accounting": ("not applicable: atom surface areas, no energy" if quantity in {"contact-exposure", "surface-contacts"}
+        "residue_phi_accounting": ("not applicable: atom inventory, no energy" if quantity == "atom-inventory"
+                                   else "not applicable: atom surface areas, no energy" if quantity in {"contact-exposure", "surface-contacts"}
                                    else "each contact contributes to both endpoints; sum is 2*Phi")})
     return ledger

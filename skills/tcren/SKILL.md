@@ -120,6 +120,31 @@ Partitions are estimated reference dependencies with no assay-fitted weights.
 The relative factor may have either sign and does not supply binding free
 energy or SASA/pocket normalization.
 
+## Opportunity-aware contact-class audit
+
+`export --quantity atom-inventory --interface all -o atoms.parquet` exports all
+selected observed heavy atoms in full TRA/TRB/peptide/MHC/B2M components, including
+zero-contact atoms, with the existing contact conformer/source-index policy.
+No potential, SASA, bonds/protonation inference or energy is used. Inventory
+membership includes context/framework/Gly-extra atoms; contact_role/eligible
+retain the separate historical scope. Source index is parsed-heavy-atom ordinal,
+not PDB serial; peptide.pos is observed one-based ordinal.
+
+`contact-class-audit --manifest labels.tsv -o NEW_DIR -t 0 --chunk 128` performs
+fresh batched annotation/coarse-worker structural export, then opportunity-aware
+statistics. Required manifest: id,label,receptor_cluster,dataset,cohort,epitope,
+mhc,mhc_class,template_coverage,source,sha256. All selected TCR regions are separate
+binder contexts; targets are peptide and annotated MHC helices. Physical atom and
+residue contact counts use fixed5A. Sparse opportunities multiply full matching
+endpoint availabilities, retaining C0/Opositive and explicit O0 missingness.
+Site views stay case/allele-specific; overall chemistry contrasts weight cases
+equally and retain MHC class/coverage and separate TCRvdb epitopes. Exact support,
+prevalence, density, unsmoothed ratios and receptor-clustered CR1/t uncertainty
+are exported; unreplicated/degenerate inference stays null. All failures retain
+accounting and block statistics. No score, fitted weights, significance filtering,
+FDR/permutations, cached feature inputs or default promotion. See
+`docs/contact-penalties.rst` for full definitions and observational limits.
+
 ## Contact observations (18 October 2026)
 
 `tcren export -s native.txt --quantity contact-atoms --interface all -t 1 -o atoms.parquet`

@@ -504,3 +504,68 @@ estimated under a different model; this normalization does not prove their
 chemical signal has been removed. Reference contacts are correlated and actual
 contact pooling can be antibody dominated. There is no radial/angular or site
 fit, physical kcal/mol term, accuracy claim or change to the default scorer.
+
+Opportunity-aware class audit
+------------------------------
+
+``export --quantity atom-inventory --interface all -o atoms.parquet`` needs no
+potential. It retains selected observed heavy atoms across full TRA/TRB, peptide,
+MHCa/MHCb and B2M components, including zero-contact atoms. Its conformer policy
+and source-heavy-atom indexing match contact observations. Source indices are
+not PDB serial numbers. Peptide positions are observed one-based ordinals.
+The inventory includes full framework/MHC context and observed Gly extra atoms;
+``contact_role``/``contact_eligible`` separately describe the narrower historical
+observation scope. No missing atom, hydrogen, water, ion, bond, charge or
+protonation state is inferred. Parsing selects one model. Standalone export
+writes its complete accounting and residue sidecars, not an energy.
+
+``contact-class-audit --manifest labels.tsv -o audit -t 0 --chunk 128`` rebuilds
+label-free structural observations from each raw structure exactly once, with
+one batched annotation phase followed by bounded coarse workers. The manifest
+requires unique ``id``, binary ``label``, ``receptor_cluster``, ``dataset``,
+``cohort``, ``epitope``, ``mhc``, ``mhc_class``, ``template_coverage``, raw-file
+``source`` and expected ``sha256``. It creates a new output directory; no resume,
+cache, score calculation, fitted potential or default promotion is performed.
+Any failed input prevents statistical reduction and leaves complete accounting.
+
+Contacts join all selected TCR regions, kept separately, to peptide or annotated
+MHC helices at the inclusive 5 Angstrom cutoff. Full inventory also preserves
+non-target environment atoms. Atom contacts count every physical pair; residue
+contacts count each physical residue pair once. Directed features retain TCR
+chain/region and amino-acid identities; atom features also retain atom names.
+The site view keeps peptide ordinal or MHC author residue/insertion position
+within its exact allele/case. The chemistry view pools positions within a case.
+Only chemistry features receive an across-case overall summary.
+
+For complex m and feature f, C_mf is its observed contact count. N_B,mf and
+N_T,mf count all available matching binder and target atoms or residues,
+including uncontacted endpoints. O_mf = N_B,mf*N_T,mf is the number of available
+endpoint combinations, and d_mf = C_mf/O_mf when O_mf > 0. These dimensionless
+opportunities account for available amino-acid/atom composition; they are not
+solvent-accessible, sterically allowed or independent bond opportunities.
+No dense universe of all possible feature pairs is constructed. The observed
+chemistry-feature union is formed across all cases before its sparse opportunity
+joins, retaining eligible zero contacts in cases where a feature was never seen.
+
+Observed binder-only, shared and nonbinder-only sets use class contact presence,
+not a claim of chemical requirement or impossibility. Outputs report support,
+all-model and eligible-model prevalence, unavailable-opportunity counts, C/O
+sums and equal-complex mean densities for both classes. Mean-density differences
+and unsmoothed log2 ratios remain explicit, including zero/undefined states.
+Each exact epitope/MHC/coverage case has its own contrast. Overall contrasts use
+equal weights across eligible cases, retaining coverage and MHC class separately;
+TCRvdb epitopes remain separate. Receptor-cluster influence contributions are
+summed across cases before variance estimation. CR1 clustered t inference is an
+approximation assuming independent supplied receptor clusters; its formulas and
+estimability checks are in ``contacts.class_statistics``. Unreplicated classes,
+insufficient residual degrees of freedom and degenerate variance do not produce
+spurious zero-error significance. No permutation, multiplicity correction or
+significance-based feature selection is added.
+
+The output retains source hashes, annotations, raw inventory/physical-pair
+partitions, feature dictionaries, per-model C/O and every case/overall statistic.
+These are observational diagnostics. Shared gene ancestry beyond the supplied
+clusters, naming-equivalent atoms and generator/template effects remain relevant.
+Class-exclusive contacts can reflect finite sampling. Discovering contacts from
+these labels and rescoring the same models would leak evaluation information;
+no filtering benefit or improved final potential follows from this audit alone.

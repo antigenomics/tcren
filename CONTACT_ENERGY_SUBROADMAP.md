@@ -220,6 +220,19 @@ consumer migration gates remain in the research roadmap.
 
 ## Work order and verification
 
+Additional author-requested audit, 21 October: compare binder-only, shared and
+nonbinder/mock-only residue and atom contacts on the locked 1706 VDJdb/TCRvdb
+models. Keep exact epitope/MHC cases, template coverage, receptor regions and
+both TCRvdb epitopes separate. Full observed atom inventories supply amino-acid/
+atom availability denominators, including zero-contact sites. Equal-complex
+densities and equal-case overall effects address class imbalance; paired-junction
+clusters block repeated receptors. Retain exact support, missing opportunities,
+all contrasts and non-estimable uncertainty. These are observed class sets, not
+proof of chemically required/forbidden contacts. Do not score the discovery
+labels with a filter learned from those same labels. The optional
+`contact-class-audit` CLI exports these diagnostics without fitting a potential
+or altering any accepted score; its plan is frozen before cohort extraction.
+
 1. **Publish safely.** Keep raw inputs, private provenance, host paths and private
    evaluation records out of the public payload and its ancestors. Preserve the
    private research history. Verify the public branch and both host tree hashes.
