@@ -35,8 +35,18 @@ within-unit AUROC changes from 0.927000 to 0.923963 for IEDB (204 units; 79 gain
 108 losses, 17 ties), and 0.738095 to 0.726190 for Bigot (14; 5 gains, 7 losses,
 2 ties). Bobisse retains rank 1/79; all three corrected Birnbaum AUROCs improve.
 The largest IEDB unit loss is 0.865 to 0.124. These results do not pass a blanket
-legacy nonregression claim. Exact historical random pools, original Birnbaum
-protocol, modeled/crystal and shuffled-receptor comparisons remain open.
+legacy nonregression claim.
+
+The notebook-protocol follow-up adds 630924 fresh scores across 315 ranking
+units. Median AUROC changes from 0.9405 to 0.9375 for the exact shuffled-RNG
+random pool (218 units; 96 gains, 111 losses, 11 ties), 0.793 to 0.766 for modeled
+complexes (47; 21 gains, 24 losses, 2 ties), and 0.956 to 0.930 for their crystal
+counterparts (47; 16 gains, 26 losses, 5 ties). All three original-protocol
+Birnbaum AUROCs improve. Notebook model/crystal arms draw distinct historical
+pools; each compared matrix uses identical candidates within its arm. Their
+original 2022 population and LOO/LCO outputs remain separate evidence.
+Shuffled-receptor scoring now has a paired-CDR3 CLI route; fresh evaluation and
+exact original-paper coordinate/protocol mapping remain open.
 
 Both contact export and candidate CLI scoring now use bounded coarse workers
 with all allocated CPUs. On 128 raw models, serial/parallel scores and contact
