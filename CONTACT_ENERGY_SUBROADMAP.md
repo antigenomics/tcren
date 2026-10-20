@@ -218,6 +218,26 @@ energy audit; no new complete mirror, file deletion, label revision or model
 regeneration is part of this step. Private source paths, overlap manifests and
 consumer migration gates remain in the research roadmap.
 
+## Scientific priority — author clarification, 21 October2026
+
+The unavailable 6150-case historical registry is a documented reproduction issue,
+not a blocker for improving the scientific model. Use the available historical
+coordinate sets and retain exact limits on what their comparisons establish;
+do not wait for an absent registry or replace it with modern generated models.
+
+Prioritize whether atom patterns add information conditional on an existing
+residue contact. The completed contact-class statistics permit an exact
+residue-contact-density versus within-residue atomic-occupancy attribution,
+with unchanged populations and explicit opportunity/zero-contact states.
+This is forensic evidence, not a trained contact filter or an accuracy claim.
+Keep the original score and both frozen atom candidates intact.
+
+The next reference question is whether reference counting and query aggregation
+use the same physical observation unit. Existing fitting counts physical atom
+contacts while querying averages atom terms per residue edge. Audit that declared
+choice using native/antibody evidence before estimating another table; no
+assay-selected weights, added distance regression or discarded losses follow.
+
 ## Work order and verification
 
 Additional author-requested audit, 21 October: compare binder-only, shared and
@@ -380,7 +400,8 @@ and edge averaging still do not establish a physical or independent likelihood.
 ## Completion gates
 
 The goal remains active until the task/score coverage audit and legacy comparisons
-are complete, missing producers are resolved, and any chosen frozen candidate has
+are complete for available inputs, historical asset limitations are explicit,
+and any chosen frozen candidate has
 all requested matched comparisons. Source review or a complete ranking-only run
 cannot certify this broader goal. Keep scientific records private where required;
 no manuscript findings or package default changes without explicit author review.
