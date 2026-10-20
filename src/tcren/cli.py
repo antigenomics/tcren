@@ -2723,7 +2723,7 @@ def export_exact(
     structures: list[str] = typer.Option(..., "-s", "--structures"),
     output: Path = typer.Option(..., "-o", "--output"),
     quantity: str = typer.Option("receptor-reference", "--quantity",
-                                help="receptor-reference, position, residue, contacts, contact-context, placement, contact-topology, backbone, pmhc or pmhc-cells"),
+                                help="receptor-reference, position, residue, contacts, contact-context, contact-atoms, placement, contact-topology, backbone, pmhc, pmhc-cells, contact-exposure or surface-contacts"),
     potential: str = typer.Option(None, "--potential", help="Explicit TCR:peptide potential name or CSV; not needed for pmhc"),
     mhc_potential: str = typer.Option("mj", "--mhc-potential"),
     reference_mode: str = typer.Option("virtual", "--reference-mode", help="receptor-reference only: structural alanine truncation or historical virtual identities"),
@@ -2745,15 +2745,16 @@ def export_exact(
 
     from .exports import export_batch
 
-    if quantity not in {"pmhc", "pmhc-cells", "contact-topology", "backbone"} and potential is None:
-        raise typer.BadParameter("--potential is required except for --quantity pmhc, pmhc-cells, contact-topology or backbone")
+    potential_free = {"pmhc", "pmhc-cells", "contact-topology", "backbone", "contact-atoms", "contact-exposure", "surface-contacts"}
+    if quantity not in potential_free and potential is None:
+        raise typer.BadParameter("--potential is required except for --quantity pmhc, pmhc-cells, contact-topology, backbone, contact-atoms, contact-exposure or surface-contacts")
     if reference_mode not in ("virtual", "structural"):
         raise typer.BadParameter("--reference-mode must be virtual or structural")
     if reference_mode == "structural" and quantity != "receptor-reference":
         raise typer.BadParameter("structural reference requires --quantity receptor-reference")
     ledger = export_batch(structures, output, quantity=quantity,
-                          peptide_potential=None if quantity in {"pmhc", "pmhc-cells", "contact-topology", "backbone"} else _load_potential(potential),
-                          mhc_potential=None if quantity in {"pmhc", "pmhc-cells", "contact-topology", "backbone"} else _load_potential(mhc_potential), interface=interface,
+                          peptide_potential=None if quantity in potential_free else _load_potential(potential),
+                          mhc_potential=None if quantity in potential_free else _load_potential(mhc_potential), interface=interface,
                           cutoff=cutoff, organisms=tuple(organism), threads=threads,
                           command=shlex.join(sys.argv), reference_mode=reference_mode,
                           register_reference_id=register_reference_id, register_p1=register_p1,
@@ -2769,6 +2770,12 @@ app.command("inspect-models", rich_help_panel=_P_ANNOT)(inspect_models_command)
 
 from .associations import association_command
 app.command("associate", rich_help_panel=_P_SCORE)(association_command)
+
+from .contacts.prior_geometry import geometry_command
+app.command("contact-prior-geometry", rich_help_panel=_P_ANNOT)(geometry_command)
+
+from .contacts.penalty_export import register as register_contact_penalties
+register_contact_penalties(app, _P_SCORE)
 
 from .validation.md_exports import app as md_app
 app.add_typer(md_app, name="md", rich_help_panel=_P_ANNOT)

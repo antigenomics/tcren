@@ -13,6 +13,31 @@ they are not bundled, they are fetched from Hugging Face, and `DATASETS.md` cove
 
 ---
 
+## Experimental contact-marginals resource — derived, not bundled
+
+The opt-in `contact-prior-fit` CLI derives a separately versioned JSON resource
+from exact external antibody atom contacts/current-coordinate frame verification
+and fresh native `export --quantity contact-atoms --interface all` observations.
+External deposit identity, license, download hashes and overlap policy are recorded
+in `audit/2026-10-18/CONTACT_PRIOR_SOURCES.md`; model definitions and commands are
+in `docs/contact-penalties.rst`. This does not regenerate either bundled TCRen table.
+
+The resource retains actual external and native marginal counts/means/variance
+sums, the pooled-chemistry backoff and external-support categorical Dirichlet
+counts. The external counts supply the prior strength; this is an estimated
+dependency. Normal transformed marginals, discarded torsion signs and correlated
+within-complex observations limit interpretation. Posterior predictive tails are
+compatibility scores, not calibrated naturalness/binding probabilities. All four
+penalty constructions use the same frozen worst-supported geometry weight and
+full-table potential maximum, fixed before benchmark accuracy inspection.
+
+Exact regeneration requires the pinned raw deposit and current mmCIF source
+manifests, complete native-ID exclusions, fresh native input hashes, producing
+noneditable wheel and resource digest. Raw inputs and private benchmark mappings
+remain in their owning storage; no cohort normalization or assay-fitted coefficient
+is bundled. Reference and score outputs carry their hashes rather than version-only
+claims. Missing matrix entries and recovered geometry are explicit.
+
 ## `sidechain_geometry.json` — derived
 
 Side-chain internal coordinates: per residue type and atom, the bond length to its parent, the bond
@@ -224,3 +249,22 @@ one-class readouts therefore do not imply label-free or negative-independent tra
 - Spring units use the default multiplicity/distance² with distances in Å: reduced stiffness
   Å^-2, force Å^-1, work dimensionless, all with an unspecified energy scale. No SI calibration
   was inferred. Unit/count spring weighting has a different arbitrary scale, documented by the API.
+
+Multiplicity-conditioned contact ranks (18 October 2026)
+-------------------------------------------------------
+Experimental derived resource, never a raw structural probability table. Inputs are
+requested final native-b.parquet and external_geometry.tsv.gz contact observations,
+with raw PDB/mmCIF correspondence and DTU 22555672 provenance documented above and
+in audit/2026-10-18/CONTACT_PRIOR_SOURCES.md. Native CDR:peptide rank references only;
+external antibody:antigen exact-opportunity fallback. The approved native/external
+marginal resource remains SHA256
+63c141f0a8be2e090cda543193148dbd8b06f937dcaf5f4f428124c77d013f16.
+Regenerate: tcren contact-weight-calibrate --external external_geometry.tsv.gz
+--native native-b.parquet --resource frozen-contact-prior-c.json -o NEW_RESOURCE.json.
+Exact input hashes/command/installed-wheel identity are retained in benchmark
+results/contact-weighted-20261018/calibration.RUN.json and calibration.json.
+Frozen resource SHA256
+c096b37a19f5937ce5d40afa4a0c84d4caf8d438a4dc32203e0774d05ebaf07e.
+Scientific definition, native/external counts, estimated dependencies and limits:
+audit/2026-10-18/CONTACT_WEIGHTED.md. No assay label, potential coefficient or
+predictor confidence is used to estimate these ranks. Prior results are preserved.

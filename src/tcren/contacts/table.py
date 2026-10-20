@@ -1,8 +1,8 @@
-"""Annotate and symmetrise the residue contact table.
+"""Annotate separate directed views of each physical contact.
 
-Joins per-residue annotations (chain type, region type, region start, amino acid) onto
-the raw contacts and mirrors the R ``rbind(contacts, swapped)`` symmetrisation, yielding
-the fully annotated, bidirectional contact table the contact map is built from.
+Both endpoint orientations are retained so biological interface selection can
+choose binder→target. These views must never be pooled as independent counts,
+used to fold residue identities, or averaged into a symmetric potential.
 """
 
 from __future__ import annotations
@@ -52,8 +52,12 @@ def residue_annotation(structure: Structure) -> pl.DataFrame:
     return pl.DataFrame(rows, schema=schema) if rows else pl.DataFrame(schema=schema)
 
 
-def symmetrize(contacts: pl.DataFrame) -> pl.DataFrame:
-    """Return contacts plus their from/to-swapped mirror (R ``rbind`` semantics)."""
+def directed_views(contacts: pl.DataFrame) -> pl.DataFrame:
+    """Return both endpoint views, preserving each physical edge and its data.
+
+    Select the biological binder→target interface before counting or scoring.
+    The reverse view is not a second observation or a residue-folding operation.
+    """
     swapped = contacts.rename(
         {
             "chain.id.from": "chain.id.to",
@@ -74,7 +78,7 @@ def tidy_contacts(
     structure: Structure, cutoff: float = 5.0, count_atoms: bool = False,
     atom_pairs: bool = False, sidechain: bool = False,
 ) -> pl.DataFrame:
-    """Symmetrised, fully annotated contact table for a structure.
+    """Fully annotated directed contact views for a structure.
 
     Each inter-chain residue contact appears in both directions, with chain type,
     region type, region start and amino acid attached on both the ``from`` and ``to``
@@ -87,9 +91,9 @@ def tidy_contacts(
     ``atom_pairs`` passes through to :func:`~tcren.contacts.geometry.all_atom_contacts`: every
     heavy-atom pair instead of each residue pair's closest one. Chemical typing needs it. So does
     ``sidechain``, which adds the ``sc.from``/``sc.to``/``n_sc_pairs`` side-chain-participation
-    flags; the two ``sc`` flags are swapped along with the rest when the table is symmetrised.
+    flags; the two ``sc`` flags are swapped along with the rest in the reverse view.
     """
-    contacts = symmetrize(
+    contacts = directed_views(
         all_atom_contacts(structure, cutoff=cutoff, count_atoms=count_atoms,
                           atom_pairs=atom_pairs, sidechain=sidechain)
     )

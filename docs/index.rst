@@ -79,6 +79,7 @@ What tcren does
    getting-started
    fit-free
    associations
+   contact-penalties
    md-validation
    prediction
    reproduction

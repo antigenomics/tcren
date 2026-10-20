@@ -139,24 +139,13 @@ class Potential:
     def scale(self) -> float:
         r"""The potential's own energy scale: the standard deviation over its defined pairs.
 
-        Two potentials Boltzmann-inverted from different contact statistics are not on a common
-        scale, so summing energies read off them weights whichever has the wider matrix. Measured
-        over the shipped matrices: TCRen2 0.4880, MJ 0.3270, **Keskin 1.3181** -- so an unweighted
-        :math:`\Phi_{\mathrm{TCR:pep}} + \Phi_{\mathrm{TCR:MHC}} + \Phi_{\mathrm{pep:MHC}}` is
-        2.70x more sensitive to a presentation contact than to a recognition one when the
-        presentation interfaces are scored with Keskin.
-
-        Dividing each interface energy by its potential's scale makes the three terms commensurate.
-        The coefficient is a property of the matrix alone -- no cohort, no label, no fit.
-
-        Diagonal and off-diagonal entries are pooled and each unordered pair counted once, since
-        the matrix is symmetric in use.
+        Every finite directed cell contributes once, including both orientations
+        when defined. This matrix statistic does not make distinct empirical
+        reference states physically commensurate.
         """
         m, _ = self.as_matrix()
         v = np.asarray(m, float)
-        iu = np.triu_indices_from(v)
-        w = v[iu]
-        w = w[np.isfinite(w)]
+        w = v[np.isfinite(v)]
         if w.size < 2:
             raise ValueError(f"potential {self.name!r} has {w.size} defined pairs; no scale")
         return float(w.std(ddof=0))
@@ -164,16 +153,13 @@ class Potential:
     def offset(self) -> float:
         """The potential's mean over its defined pairs (see :meth:`scale`).
 
-        An additive offset multiplied by a contact count is a contact count, not an energy, so a
-        potential with a large one -- Keskin's mean is -3.5630 and every entry is negative -- makes
-        its interface energy read mostly as interface size. Subtracting it leaves the identity
-        preference, which is what the other channels do not already carry.
+        Every finite directed cell contributes once. Subtracting this mean from
+        every contact contribution shifts the total by the mean times the number
+        of scored contacts; it is not a change in the empirical reference state.
         """
         m, _ = self.as_matrix()
         v = np.asarray(m, float)
-        iu = np.triu_indices_from(v)
-        w = v[iu]
-        w = w[np.isfinite(w)]
+        w = v[np.isfinite(v)]
         if not w.size:
             raise ValueError(f"potential {self.name!r} has no defined pairs")
         return float(w.mean())

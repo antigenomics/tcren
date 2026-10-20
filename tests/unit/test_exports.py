@@ -67,7 +67,8 @@ def test_exact_export_quantities_and_author_identity():
 
 
 @pytest.mark.parametrize("archived", [False, True])
-def test_batch_accounts_for_parse_failure_and_zero_contact_rows(tmp_path, monkeypatch, archived):
+@pytest.mark.parametrize("quantity", ["contacts", "contact-atoms"])
+def test_batch_accounts_for_parse_failure_and_zero_contact_rows(tmp_path, monkeypatch, archived, quantity):
     import tcren.annotation
     import tcren.annotation.batch
     import tcren.mhc
@@ -79,11 +80,15 @@ def test_batch_accounts_for_parse_failure_and_zero_contact_rows(tmp_path, monkey
     calls = []
     original_parse = tcren.structure.parse_structure
 
-    def parse(path, pdb_id):
+    def parse(path, pdb_id, **kwargs):
         if pdb_id == "missing":
             raise ValueError("invalid fixture")
-        original_parse(path, pdb_id=pdb_id)
+        original_parse(path, pdb_id=pdb_id, **kwargs)
         structure = typed_structure()
+        if quantity == "contact-atoms":
+            for chain in structure.by_type("MHCa"):
+                chain.regions = [RegionMarkup("HELIX_A1", 0, len(chain.residues)-1,
+                                             chain.sequence(), chain.residues)]
         structure.pdb_id = pdb_id
         return structure
 
@@ -93,7 +98,7 @@ def test_batch_accounts_for_parse_failure_and_zero_contact_rows(tmp_path, monkey
     monkeypatch.setattr(tcren.annotation, "classify_chains", lambda *a, **kw: None)
     monkeypatch.setattr(tcren.mhc, "annotate_mhc_batch", lambda *a, **kw: None)
     monkeypatch.setattr(exports, "annotation_lineage", lambda organisms: {"organisms": list(organisms)})
-    out = tmp_path / "reference.tsv"
+    out = tmp_path / ("reference.parquet" if quantity == "contact-atoms" else "reference.tsv")
     sources = [good, bad]
     if archived:
         bad.write_text("broken structure")
@@ -102,7 +107,7 @@ def test_batch_accounts_for_parse_failure_and_zero_contact_rows(tmp_path, monkey
             for path in sources:
                 stream.add(path, arcname=path.name)
         sources = [archive]
-    ledger = exports.export_batch(sources, out, quantity="contacts", peptide_potential=classic(),
+    ledger = exports.export_batch(sources, out, quantity=quantity, peptide_potential=classic(),
                                    mhc_potential=mj(), cutoff=0.00001)
     assert ledger["status"].to_list() == ["ok", "error"]
     assert ledger["n_rows"].to_list() == [0, 0]
@@ -113,16 +118,25 @@ def test_batch_accounts_for_parse_failure_and_zero_contact_rows(tmp_path, monkey
         assert ledger["source"].str.contains("inputs.tar.gz#").all()
     meta = json.loads(Path(str(out) + ".provenance.json").read_text())
     assert (meta["n_input"], meta["n_ok"], meta["n_error"]) == (2, 1, 1)
-    assert meta["potentials"]["peptide"]["sha256"]
+    if quantity == "contact-atoms":
+        assert pl.read_parquet(out).is_empty()
+        assert meta["potentials"] == {}
+        assert meta["contact_observations"]["conformer_policy"]
+        assert meta["contact_summary_sha256"]
+        assert pl.read_csv(str(out) + ".summary.tsv", separator="\t").is_empty()
+    else:
+        assert meta["potentials"]["peptide"]["sha256"]
     assert Path(str(out) + ".residues.tsv").exists()
 
 
-def test_all_failed_cli_retains_accounting(tmp_path):
+@pytest.mark.parametrize("quantity", ["contacts", "contact-atoms"])
+def test_all_failed_cli_retains_accounting(tmp_path, quantity):
     out = tmp_path / "failed.tsv"
     annotation_path = Path(str(out) + ".annotation.json")
     annotation_path.write_text('{"old": "stale"}')
     result = CliRunner().invoke(app, ["export", "-s", str(tmp_path / "absent.pdb"),
-                                    "-o", str(out), "--potential", "karnaukhov2022"])
+                                    "-o", str(out), "--quantity", quantity,
+                                    "--potential", "karnaukhov2022"])
     assert result.exit_code == 1, result.output
     ledger = pl.read_csv(str(out) + ".accounting.tsv", separator="\t")
     assert ledger["status"].to_list() == ["error"]
@@ -133,6 +147,34 @@ def test_all_failed_cli_retains_accounting(tmp_path):
 def test_export_rejects_invalid_cutoff():
     with pytest.raises(ValueError, match="cutoff"):
         exports.export_structure(typed_structure(), "contacts", classic(), mj(), cutoff=float("nan"))
+
+
+def test_contact_atoms_rejects_modified_peptide_before_shortening(tmp_path, monkeypatch):
+    import tcren.annotation
+    import tcren.annotation.batch
+    import tcren.mhc
+    lines = PDB.read_text().splitlines(keepends=True)
+    peptide_residue = next(line[22:27] for line in lines if line.startswith("ATOM  ") and line[21] == "C")
+    modified = tmp_path / "modified.pdb"
+    modified.write_text("".join("HETATM" + line[6:17] + "MSE" + line[20:]
+        if line.startswith("ATOM  ") and line[21] == "C" and line[22:27] == peptide_residue
+        else line for line in lines))
+    assert "X" in parse_structure(modified, keep_modified=True).chain("C").sequence()
+    assert "X" not in parse_structure(modified).chain("C").sequence()
+    def classify(s, **kwargs):
+        for chain in s.chains:
+            chain.chain_type = {"A": "MHCa", "B": "B2M", "C": "PEPTIDE", "D": "TRA", "E": "TRB"}[chain.chain_id]
+            chain.chain_supertype = "MHCI" if chain.chain_type in {"MHCa", "B2M"} else chain.chain_type
+            region = "HELIX_A1" if chain.chain_type == "MHCa" else "CDR3"
+            chain.regions = [RegionMarkup(region, 0, len(chain.residues)-1, chain.sequence(), chain.residues)]
+    monkeypatch.setattr(tcren.annotation.batch, "annotate_batch", lambda structures, **kw: [{} for _ in structures])
+    monkeypatch.setattr(tcren.annotation, "classify_chains", classify)
+    monkeypatch.setattr(tcren.mhc, "annotate_mhc_batch", lambda *a, **kw: None)
+    monkeypatch.setattr(exports, "annotation_lineage", lambda *a: {})
+    ledger = exports.export_batch([modified], tmp_path / "atoms.parquet", quantity="contact-atoms",
+                                 peptide_potential=None, mhc_potential=None, interface="all")
+    assert ledger["status"].to_list() == ["error"]
+    assert "standard-amino-acid peptide" in ledger["error"][0]
 
 
 def test_structural_reference_rebuilds_contacts_and_preserves_input():

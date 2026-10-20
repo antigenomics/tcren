@@ -178,3 +178,42 @@ Accounting retains empty models; undefined topography remains NaN for affected
 surface selections. Missing potential entries are counted and omitted as in the
 original sum. ``--accounting`` supplies a relocated ledger explicitly. Compare
 new sums with exact recorded baselines rather than perturbing old score ties.
+
+Exact atom observations
+-----------------------
+
+.. code-block:: console
+
+   tcren export -s native.txt --quantity contact-atoms --interface all -t 1 -o atoms.parquet
+
+This opt-in quantity requires no potential. It selects CDR1/2/3 contacts with
+peptide or annotated MHC helices and peptide contacts with those helices, counting
+each physical heavy-atom pair once. Groove-floor and B2M contacts are outside this
+observation scope. Missing helix annotation fails explicitly. Choose an existing
+individual interface name instead of ``all`` to restrict the export.
+The ``.parquet`` suffix selects compressed columnar output for this quantity;
+other suffixes retain TSV output. Its summary/accounting sidecars remain TSV.
+
+The per-residue conformer policy chooses the lexicographically first nonblank
+alternate label plus blank atoms, preferring the selected label on atom-name ties.
+This deterministic convention is not occupancy selection or proof of correlated
+conformer compatibility between residues. Legacy contacts/scoring are unchanged.
+Glycine contributes observed backbone atoms only; no C-beta is synthesized.
+
+Physical sides retain atom/source indices, author residue/insertion, alternate
+labels, coordinates, chain roles and regions. ``chem.a``/``chem.b`` sort whole
+amino-acid/atom-name tuples, independently of physical side order. Observed
+N/CA/CB geometry yields trRosetta omega, endpoint-specific theta/phi in radians
+and C-beta distance in angstroms. Missing atoms and degenerate vectors yield null,
+not a favourable geometry value. Existing v2 chemical flags remain distance/type
+heuristics; stacking uses the existing ring geometry. Hydrogen-bond angles,
+line-of-sight, plausibility probabilities and penalties are not calculated here.
+
+The summary sidecar separates atom-pair and residue-pair frequencies by MHC class,
+interface and receptor region. Residue rows use the closest retained atom distance
+and the union of type flags across all atom pairs. Chemical types overlap; their
+counts need not sum to the total. Summary groups contain observed contacts only;
+the accounting sidecar separately retains successful zero-contact structures.
+No count is labelled an independent sample size or a probability of physical
+validity. Provenance retains the summary hash, conformer policy, annotation and
+searched-reference identities. See :mod:`tcren.contacts.observations`.

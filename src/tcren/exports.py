@@ -20,11 +20,12 @@ import numpy as np
 import polars as pl
 
 from .contactmap import ContactMap
+from .contacts.observations import CONFORMER_POLICY
 from .potential import Potential
 
 RECEPTOR_REGIONS = {"all": None, "cdr": ("CDR1", "CDR2", "CDR3"),
                     "cdr12": ("CDR1", "CDR2"), "cdr3": ("CDR3",)}
-QUANTITIES = ("receptor-reference", "position", "residue", "contacts", "contact-context", "placement", "contact-topology", "backbone", "pmhc", "pmhc-cells")
+QUANTITIES = ("receptor-reference", "position", "residue", "contacts", "contact-context", "contact-atoms", "placement", "contact-topology", "backbone", "pmhc", "pmhc-cells", "contact-exposure", "surface-contacts")
 
 
 def receptor_reference(contact_map: ContactMap, peptide_potential: Potential,
@@ -205,6 +206,12 @@ def export_structure(structure, quantity: str, peptide_potential: Potential,
         raise ValueError(f"quantity must be one of {QUANTITIES}")
     if not math.isfinite(cutoff) or cutoff <= 0:
         raise ValueError("cutoff must be finite and positive")
+    if quantity == "surface-contacts":
+        from .contacts.exposure import contact_surface
+        return contact_surface(structure)[1]
+    if quantity == "contact-exposure":
+        from .contacts.exposure import context_exposure
+        return context_exposure(structure)
     if quantity == "pmhc-cells":
         from .topology.pmhc import pmhc_cells
         return pmhc_cells(structure)
@@ -225,6 +232,9 @@ def export_structure(structure, quantity: str, peptide_potential: Potential,
         raise ValueError("export requires exactly one standard-amino-acid peptide")
     if quantity == "placement":
         return placement_table(structure)
+    if quantity == "contact-atoms":
+        from .contacts.observations import contact_observations
+        return contact_observations(structure, cutoff=cutoff, interface=interface)
     cm = ContactMap.from_structure(structure, cutoff=cutoff)
     if quantity == "contact-topology":
         return contact_topology(cm)
@@ -332,7 +342,8 @@ def export_batch(sources, output, *, quantity, peptide_potential, mhc_potential,
     threads = resolve_threads(threads)
     if not organisms or set(organisms) - {"human", "mouse"}:
         raise ValueError("positive threads and human/mouse organisms are required")
-    if quantity not in QUANTITIES or interface not in {"tcr_peptide", "tcr_mhc", "peptide_mhc"}:
+    if (quantity not in QUANTITIES or interface not in {"tcr_peptide", "tcr_mhc", "peptide_mhc", "all"}
+            or (interface == "all" and quantity != "contact-atoms")):
         raise ValueError("invalid export quantity or interface")
     if not math.isfinite(cutoff) or cutoff <= 0:
         raise ValueError("cutoff must be finite and positive")
@@ -343,7 +354,7 @@ def export_batch(sources, output, *, quantity, peptide_potential, mhc_potential,
     output = Path(output)
     output.parent.mkdir(parents=True, exist_ok=True)
     Path(str(output) + ".annotation.json").write_text("{}\n")
-    accounting, parsed, tables, identities = [], [], [], []
+    accounting, parsed, tables, identities, surfaces = [], [], [], [], []
     def parse_one(path, pdb_id, source, archive_hash=None):
         row = {"pdb.id": pdb_id, "source": source, "sha256": None,
                "archive_sha256": archive_hash, "status": "error", "error": "", "n_rows": 0}
@@ -351,7 +362,8 @@ def export_batch(sources, output, *, quantity, peptide_potential, mhc_potential,
         try:
             row["sha256"] = _sha256(path)
             structure = (parse_structure(path, pdb_id=pdb_id, keep_modified=True)
-                         if register_reference_id is not None else parse_structure(path, pdb_id=pdb_id))
+                         if register_reference_id is not None or quantity == "contact-atoms"
+                         else parse_structure(path, pdb_id=pdb_id))
             parsed.append((structure, row))
             return structure
         except Exception as exc:
@@ -411,9 +423,14 @@ def export_batch(sources, output, *, quantity, peptide_potential, mhc_potential,
                         registers.append(structural_register(structure, reference, register_p1))
                     identity = residue_identity(structure)
                     identities.append(identity)
-                    table = export_structure(structure, quantity, peptide_potential, mhc_potential,
-                                             cutoff=cutoff, interface=interface,
-                                             reference_mode=reference_mode)
+                    if quantity == "surface-contacts":
+                        from .contacts.exposure import contact_surface
+                        atom_surface, table = contact_surface(structure)
+                        surfaces.append(atom_surface)
+                    else:
+                        table = export_structure(structure, quantity, peptide_potential, mhc_potential,
+                                                 cutoff=cutoff, interface=interface,
+                                                 reference_mode=reference_mode)
                     if "pdb.id" not in table.columns:
                         table = table.with_columns(pl.lit(structure.pdb_id).alias("pdb.id"))
                     tables.append(table)
@@ -425,10 +442,18 @@ def export_batch(sources, output, *, quantity, peptide_potential, mhc_potential,
                 if not row["error"]:
                     row["error"] = f"annotation: {type(exc).__name__}: {exc}"
     table = pl.concat(tables, how="diagonal_relaxed") if tables else pl.DataFrame(schema={"pdb.id": pl.String})
-    table.write_csv(output, separator="\t")
+    if quantity in {"contact-atoms", "contact-exposure", "surface-contacts"} and output.suffix == ".parquet":
+        table.write_parquet(output)
+    else:
+        table.write_csv(output, separator="\t")
+    if quantity == "surface-contacts":
+        (pl.concat(surfaces, how="diagonal_relaxed") if surfaces else pl.DataFrame(schema={"pdb.id": pl.String})).write_parquet(str(output) + ".atoms.parquet")
     if quantity == "pmhc-cells" and table.height:
         from .topology.pmhc import spatial_features
         spatial_features(table).write_csv(str(output) + ".summary.tsv", separator="\t")
+    if quantity == "contact-atoms" and tables:
+        from .contacts.observations import summarize_contact_observations
+        summarize_contact_observations(table).write_csv(str(output) + ".summary.tsv", separator="\t")
     ledger = pl.DataFrame(accounting, infer_schema_length=None) if accounting else pl.DataFrame(
         schema={"pdb.id": pl.String, "status": pl.String, "error": pl.String, "n_rows": pl.Int64})
     ledger.write_csv(str(output) + ".accounting.tsv", separator="\t")
@@ -439,7 +464,7 @@ def export_batch(sources, output, *, quantity, peptide_potential, mhc_potential,
         (pl.concat(registers) if registers else pl.DataFrame(schema={"pdb.id": pl.String})).write_csv(
             str(output) + ".registers.tsv", separator="\t")
     potentials = {}
-    for label, potential in (() if quantity in {"pmhc", "pmhc-cells", "contact-topology", "backbone"} else (("peptide", peptide_potential), ("mhc", mhc_potential))):
+    for label, potential in (() if quantity in {"pmhc", "pmhc-cells", "contact-topology", "backbone", "contact-atoms", "contact-exposure", "surface-contacts"} else (("peptide", peptide_potential), ("mhc", mhc_potential))):
         path = Path(str(output) + f".{label}.potential.tsv")
         potential.matrix.write_csv(path, separator="\t")
         potentials[label] = {"name": potential.name, "sha256": _sha256(path),
@@ -457,17 +482,30 @@ def export_batch(sources, output, *, quantity, peptide_potential, mhc_potential,
         "custom_potential_derivation": "not inferred; supplied matrix is exported and hashed",
         "n_input": len(accounting), "n_ok": succeeded,
         "n_error": len(accounting) - succeeded, "sources": [str(p) for p in paths],
-        "reference_semantics": ("intrinsic C-alpha geometry; not a strain score" if quantity == "backbone"
+        "reference_semantics": ("directed conserved surface allocation; intact target; separate endpoint areas; no score" if quantity == "surface-contacts"
+                                else "atom SASA in isolated binder/intact pMHC/bound complex; unchanged coordinates; no energy" if quantity == "contact-exposure"
+                                else "observed heavy-atom pairs; no energy or fitted model" if quantity == "contact-atoms"
+                                else "intrinsic C-alpha geometry; not a strain score" if quantity == "backbone"
                                 else "separate residue-contact graphs; CDR-only receptor; no fitted score" if quantity == "contact-topology"
                                 else "pMHC only; supplied conformation; no potential or receptor coordinates" if quantity in {"pmhc", "pmhc-cells"}
                                 else "structural alanine truncation; contacts rebuilt" if reference_mode == "structural"
                                 else "virtual receptor identities on unchanged contact map"),
         "surface_summary_sha256": (_sha256(Path(str(output) + ".summary.tsv")) if quantity == "pmhc-cells" and table.height else None),
+        "contact_summary_sha256": (_sha256(Path(str(output) + ".summary.tsv")) if quantity == "contact-atoms" and tables else None),
+        "contact_observations": (dict(conformer_policy=CONFORMER_POLICY,
+            scope="CDR1/2/3, peptide, annotated MHC helices; interchain only",
+            chemistry="existing v2 distance/type heuristics; no angular hydrogen-bond assignment",
+            symmetry="one physical atom pair; unordered residue+atom chemical endpoint tuples",
+            angles="trRosetta N/CA/observed CB definitions; radians; missing/degenerate null",
+            fitted=False) if quantity == "contact-atoms" else None),
+        "surface_allocation": ({"n_points": 100, "probe_A": 1.4, "sphere": "native Fibonacci-y", "owner": "minimum signed distance to opposing expanded sphere; exact ties split equally", "atoms_sha256": _sha256(Path(str(output) + ".atoms.parquet")), "energy": "none"} if quantity == "surface-contacts" else None),
+        "exposure_parameters": ({"n_points": 100, "probe_A": 1.4, "radii": "Bio.PDB.SASA", "units": "A^2", "hydrogens": "excluded", "frame": "supplied coordinates", "context": "intact peptide/MHC/B2M target; peptide alone only for MHC shielding"} if quantity == "contact-exposure" else None),
         "surface_parameters": ({"grid_yx": [64,32], "extent_A": [-20,20,-25,25], "probe_A": 1.4, "smooth": "8-neighbour, padded", "scale": "Kyte-Doolittle", "ridge_percentile": 90, "frame": "pMHC only; receptor removed"} if quantity == "pmhc-cells" else None),
         "structural_register": ({"reference_id": register_reference_id, "reference_p1": register_p1,
             "method": "MHC-groove-only superposition; forward/reverse nine-residue C-alpha RMSD",
             "sha256": _sha256(Path(str(output) + ".registers.tsv"))} if register_reference_id else None),
         "peptide_selection": ({"sha256": _sha256(Path(peptide_selection)), "rows": selections}
                               if peptide_selection is not None else None),
-        "residue_phi_accounting": "each contact contributes to both endpoints; sum is 2*Phi"})
+        "residue_phi_accounting": ("not applicable: atom surface areas, no energy" if quantity in {"contact-exposure", "surface-contacts"}
+                                   else "each contact contributes to both endpoints; sum is 2*Phi")})
     return ledger

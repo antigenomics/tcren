@@ -7,6 +7,27 @@ All notable changes to `tcren` are recorded here. Format follows
 
 ### Added
 
+- Directed-only residue derivation and summaries; remove folding APIs, use all
+  defined directed cells for matrix moments, reject asymmetric intra-peptide
+  potentials, and migrate angular priors to contact-marginals-2.
+- Optional frozen native opportunity-stratum reference partitions for geometry
+  increments, with source/version/class checks and unchanged original scores.
+
+
+- Multiplicity-conditioned native/external reference ranks and frozen weighted
+  TCRen, with unchanged matrix baselines, bounded scoring and signed cohort diagnostics.
+
+- Contact-mechanism diagnostics: worst-marginal lineage, all-atom versus closest-atom
+  chemistry, continuous contact equivalents and exact accepted-rank attribution.
+
+- Experimental frozen geometry priors and the four declared contact-penalty
+  constructions, with bounded raw-coordinate export and exactly matched
+  original-energy/ipTM comparison. Estimated dependencies remain explicit.
+
+- Exact opt-in heavy-atom observations via ``export --quantity contact-atoms``,
+  with physical atom identities, unordered chemical pairs, observed C-beta
+  geometry, explicit conformer policy and separate atom/residue count summaries.
+
 - Table-only `contact-summary` reduces canonical residue-pair counts, preserving
   composition ties and zero-contact models under declared structural selections.
 

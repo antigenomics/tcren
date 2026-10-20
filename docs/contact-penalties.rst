@@ -1,0 +1,368 @@
+Experimental contact penalties
+==============================
+
+The four declared penalty constructions share one frozen geometry compatibility
+weight. They are experimental development readouts, not validated probabilities
+of natural contacts, nonbinding or affinity. Existing scoring defaults are unchanged.
+
+Raw reference and freezing
+--------------------------
+
+``contact-prior-geometry --source DEPOSIT --exclude native_ids.txt -o NEW_DIR``
+checks the deposited antibody contacts against current compressed raw mmCIFs,
+one structure at a time. It requires exact amino-acid/atom identity and float32
+coordinate agreement with a unique selected atom. IMGT and author residue numbers
+are not equated. First model and deterministic single-conformer selection apply;
+ambiguous or unmatched atoms retain missing recovered frames. The output retains
+the deposited identities, current author identities and per-structure accounting.
+``--limit`` explicitly produces a diagnostic subset.
+
+``export --quantity contact-atoms --interface all`` supplies the fresh native
+observations. Exclude every native PDB ID from the external reference first.
+``contact-prior-fit --external external_geometry.tsv.gz --native native.parquet
+-o NEW_RESOURCE.json`` freezes both reference sufficient statistics. No benchmark
+labels, predictor confidence, fitted classifier or cohort normalization enters.
+The source deposit and current-coordinate correspondence have different provenance;
+their hashes and overlap exclusions must accompany a derived resource.
+
+The distance transform is :math:`x=\log[d/(5-d)]`, where :math:`d` is the observed
+heavy-atom separation in angstroms and :math:`0<d<5`. Orientation marginals use
+:math:`x=\operatorname{atanh}(\cos a)` for the observed omega, theta and phi angles
+:math:`a` in radians. Exact transform boundaries and missing frames stay unavailable;
+there is no clipping floor or invented C-beta. Torsion sign is discarded. A normal
+model for these transformed marginals is an approximation, not a joint angular
+density or a demonstration of normal residuals.
+
+Distances condition on unordered whole amino-acid:atom tuples; pooled chemistry
+uses element plus backbone/sidechain identity. Orientations retain ordered binder-to-target residue pairs. Theta and phi
+also identify binder or target endpoints, including separate fallback pools.
+Active resources use contact-marginals-2; version-1 angular resources are rejected. Each physical
+residue edge supplies orientation observations once, rather than once per atom pair.
+An external exact group with fewer than two observations or zero variance uses
+the declared external pool. A scoring category unseen during freezing uses that
+same external pool, with no scoring-time update.
+
+For each marginal, the external-data posterior under the reference prior
+:math:`p(\mu,\sigma^2)\propto1/\sigma^2` becomes the native-update prior. Its
+effective observation count is the actual external count, not a tuned strength.
+The resource records external and native counts, means and squared-deviation sums
+separately. Contacts within a complex are correlated; these counts are not numbers
+of independent complexes. Pools overlap their exact groups and are alternatives,
+not extra observations added to those groups.
+
+Let :math:`n>1` be the resulting observation count, :math:`\bar x` its mean and
+:math:`B>0` its sum of squared deviations. The dimensionless predictive scale is
+:math:`h=\sqrt{B(1+1/n)/(n-1)}`. Compatibility is
+:math:`s=2\Pr[T_{n-1}\geq |x-\bar x|/h]`, where :math:`T_{n-1}` is a standard
+Student-t variable. This tail is dimensionless and lies in :math:`[0,1]`;
+it is not a probability of physical naturalness. No product of marginal tails or
+marginal-independence assumption is made.
+
+The categorical Dirichlet update has external integer counts as its alpha values
+on the observed external support. Native categories outside that support remain
+explicitly unavailable; no smoothing mass is invented. These conditional frequency
+summaries do not determine the geometry weight or label rare chemistry unnatural.
+Reference consistency tables are descriptive in-sample checks, not held-out
+calibration or independent posterior-predictive validation.
+
+Residue contributions and comparison
+------------------------------------
+
+``contact-penalties -s structures.txt --resource RESOURCE.json --chunk 32 -t 1
+-o NEW_DIR`` preserves the original all-TCR peptide contact sum for both TCRen2
+and the original 2022 TCRen table. One bounded structure batch is parsed and
+annotated at a time; searches are batched, and numerical kernels remain serial.
+Residue identities, searched-index lineage, potential tables and all failures are
+exported. CDR1/2/3:peptide contacts receive the experimental increment; framework
+contacts retain their original contribution and are explicitly unassessed.
+The separate pMHC observations inform the reference but do not silently add another
+interface energy to the legacy TCR:peptide baseline.
+
+For physical residue edge :math:`r`, set :math:`u_r=1-\min s`, taking the minimum
+over its supported atom-level and orientation marginals. Thus :math:`0\leq u_r\leq1`.
+Unavailable marginals are counted; an edge with no support remains unavailable.
+This worst-supported reduction gives large residues more opportunities for a
+penalty. It was declared before accuracy inspection and is not scanned against labels.
+
+Let :math:`e_r` be the original dimensionless potential entry and
+:math:`M=\max_{a,b}|V_{ab}|` over finite entries of the full frozen table :math:`V`.
+The four resulting contributions are:
+
+* Fixed: :math:`e_r+u_r`, one natural-log potential unit at full weight.
+* Matrix-scaled: :math:`e_r+u_rM`.
+* Literal flip: :math:`(1-2u_r)e_r`, a signed diagnostic that can reward a contact
+  whose original entry was positive.
+* Favourable-only flip: :math:`e_r+2u_r\max(-e_r,0)`.
+
+The other three increments are nonnegative. A zero table has :math:`M=0`; the
+matrix-scaled arm is then degenerate. Missing table entries remain null. The
+legacy scorer's omission of unknown entries is retained and counted explicitly;
+such totals cover only defined entries. No absent entry is assigned zero or used
+to define :math:`M`. Every physical edge exports its original contribution,
+weight, increment and resulting contribution. The sum counts a residue edge once.
+
+``contact-compare --labels labels.tsv --scores NEW_DIR/scores.tsv -o COMPARISON``
+reports ROC AUC, average precision and the existing precision-at-recall metrics.
+All four arms, original energy and native ipTM use one common finite population
+within each potential, cohort, MHC class and template-coverage stratum. It writes
+row membership, excluded counts and every delta/loss against both baselines.
+Labels need unique ``id``, ``dataset``, ``task``, ``cohort``, ``mhc_class``,
+``template_coverage``, binary ``y`` and native ``iptm``. Lower energies and higher
+ipTM remain favourable. No significance tests, fitted coefficients, threshold scan
+or label-selected direction is introduced.
+
+API
+---
+
+.. automodule:: tcren.contacts.plausibility
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. automodule:: tcren.contacts.prior_geometry
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. automodule:: tcren.contacts.penalty_export
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+
+Mechanism audit without changing scores
+---------------------------------------
+
+``contact-geometry-audit`` accepts the same raw-source/resource/chunk options as
+``contact-penalties`` but exports only CDR:peptide chemistry and geometry lineage.
+It records any-atom chemical support, closest-atom support, overlapping v2 flags,
+the minimum-tail family/key/parameter source, distance range and distinct marginal
+opportunities. A winning orientation belongs to the residue frame, not a unique
+atom pair. Existing v2 hydrogen-bond/cation–pi labels are distance/type heuristics,
+not angular energetic validation. No scores or reference parameters are updated.
+
+``contact-mechanism --run ACCEPTED_RUN --geometry NEW_DIAGNOSTICS -o NEW_AUDIT``
+reads the accepted final decompositions and unchanged labels/scores. It requires
+complete row membership and verifies physical keys, frozen weights, four signed
+sum identities and every recorded AUROC delta by exact pair-concordance accounting
+(ties carry half credit). It exports model/label profiles, chemistry/marginal
+classes, motif sums, matrix-cell selection counts and illustrative changed-rank
+pairs, separately per cohort/class/template stratum and potential.
+
+Chemistry-supported and proximity-only counts are heuristic labels, not physical
+truth. Continuous geometry equivalents are sum(1-u) and sum(u) across assessed
+physical edges, not integer real/virtual classifications. Missing potential entries
+are retained in contact counts and omitted from the original energy arithmetic,
+with a separate known-entry geometry sum. Framework contacts remain unassessed.
+The original potential coefficients are unchanged; filtering or weighting changes
+the score and generally changes the contact population's log-odds interpretation.
+No new metric, binary cutoff, model selection, fitting or default change occurs.
+
+Multiplicity-conditioned weighted TCRen
+---------------------------------------
+
+``contact-weight-calibrate --external external_geometry.tsv.gz --native native.parquet
+--resource marginal-resource.json -o calibration.json`` freezes one empirical
+minimum-tail distribution per reference source and opportunity stratum. The native
+calibration selects CDR:peptide contacts; antibody:antigen observations supply only
+strata absent from native contacts. Other native interfaces do not enter these ranks.
+The underlying native/external marginal resource is unchanged and its SHA256 is
+bound into the new resource. Neither command accepts benchmark labels.
+
+For each physical residue edge, let ``s`` be its worst supported marginal predictive
+tail. Its stratum records the number of supported atom-distance rows and the number
+of distinct ``(marginal key, transformed value)`` omega, theta and phi terms. Repeated
+angular copies across atom rows contribute once. If the selected frozen stratum
+contains ``N`` reference edges, the contact weight is
+``w = (1 + count(reference minimum tail <= s)) / (N + 1)``. The added one is the
+query's own inclusive rank contribution, with ties retained conservatively; it is
+not a tuned floor or prior-strength parameter. Native strata take precedence over
+external strata regardless of count. Unseen strata or unavailable geometry retain
+``w=1`` with explicit status, rather than dropping the model. Every scored edge
+exports reference-edge/structure counts and the selected source.
+
+``contact-penalties -s manifest.txt --resource marginal-resource.json
+--calibration calibration.json --chunk 32 -t 1 -o NEW_DIR`` adds weighted TCRen to
+both unchanged matrix tables. Each assessed CDR entry ``e`` contributes ``w*e``;
+framework contacts retain their original contribution. Unknown matrix entries keep
+the legacy omission with explicit counts. Empty contact maps retain zero scores.
+``contact-compare`` detects the weighted column and compares original, weighted
+and native ipTM on the same finite model IDs, within each cohort/class/template
+stratum. Score directions remain fixed. Prior four-penalty comparisons are unchanged
+when no calibration is supplied.
+
+``contact-weight-summary --run NEW_RUN --accepted ACCEPTED_RUN --mechanism
+PREVIOUS_MECHANISM -o NEW_AUDIT`` validates unchanged raw identities, labels,
+contact graphs, matrix entries and original scores. It exports signed magnitudes,
+CDR-only retained/downweighted equivalents, native/external/uncalibrated support,
+chemistry classes, motifs and exact positive-negative rank-credit accounting.
+All model denominators include zero-contact models. The mechanism input supplies
+previous final chemical classifications only; old geometry weights do not enter
+the weighted score.
+
+These are in-reference conditional empirical ranks, not contact-validity,
+occupancy or binding probabilities. Conditioning accounts for the declared
+opportunity counts, without asserting independent atoms or exchangeability across
+chemistries. Reference edges helped estimate the underlying marginals, so neither
+independent validation nor conformal coverage is claimed. Matrix coefficients are
+numerically preserved; their weighting creates a different score, not an empirically
+re-estimated conditional potential or a binding free energy. All gains and losses
+remain development evidence on previously inspected benchmark labels.
+
+
+Directed reference-partition correction
+---------------------------------------
+
+Residue counts, potentials and endpoint marginals retain binder-to-target
+direction. No reverse residue counts or transpose averaging are used. Only
+individual atom-pair chemistry is exchangeable. Internal contact-table endpoint
+views are selected by biological role before counting or scoring.
+
+Freeze a native class-I CDR-to-peptide reference partition before evaluation::
+
+    contact-normalizer-fit --native native.parquet --resource prior-v2.json --mhc-class I --out normalizer.json --reference-checks checks.tsv
+
+Exact opportunity strata contain supported distance and distinct omega/theta/phi
+term counts. Let logZ=log(mean_reference(exp(-u))). The corrected increment
+g=u+logZ satisfies mean_reference(exp(-g))=1 in the empirical group; a constant
+reference penalty cancels exactly. No assay coefficient, threshold, floor or
+cohort centering is fitted. The native partitions and external marginals remain
+estimated dependencies. This relative factor may have either sign; it is not
+an absolute nonnegative punishment, a contact-validity probability or a binding
+free energy.
+
+Add --normalizer normalizer.json to contact-penalties; contact-compare includes
+the normalized arm alongside the original and four diagnostic arms on matched
+finite IDs. Resource hash, marginal version and MHC class must match. Unseen
+groups get zero increment with a flag; missing geometry stays unavailable.
+Framework contributions and legacy omitted potential entries remain unchanged.
+
+Neither composition nor geometry-partition normalization supplies local SASA,
+pocket enclosure, water thermodynamics or all noncontact opportunities. Total
+SASA is not a residue-resolved opportunity distribution.
+
+Atom-resolved context exposure
+------------------------------
+
+``tcren export -s MANIFEST --quantity contact-exposure -o OUTPUT`` exports
+heavy-atom SASA in square angstroms for isolated TRA/TRB, intact pMHC, and the
+bound complex. The target keeps its MHC and beta-2-microglobulin occluders.
+Each row preserves physical atom/residue identity and binder/target role,
+including noncontact atoms. ``partner_burial_A2`` is isolated minus bound area;
+residue exposure is the sum over its atoms. Peptide-only
+``peptide_alone_sasa_A2`` and ``mhc_shielding_A2`` distinguish MHC shielding
+from receptor burial. Other atoms have null values in these two fields.
+
+The calculation reuses Bio.PDB Shrake-Rupley with 100 sphere points and a
+1.4 angstrom probe in the supplied coordinate frame. Finite surface sampling
+has orientation-dependent quadrature error. The coordinates are not relaxed;
+removing a partner does not recover an experimental apo conformation. Solvent
+waters are not modeled, and these areas are not hydration energies.
+No score or competing-contact allocation is changed by this export. Process
+bounded input chunks because the general exporter retains its output tables.
+
+Conserved surface allocation and exposed reference
+--------------------------------------------------
+
+``tcren export --quantity surface-contacts`` exports directed atom pairs with
+separate ``binder_area_A2`` and ``target_area_A2``. Its ``.atoms.parquet``
+sidecar contains every selected heavy atom, including noncontacts. The native
+SASA kernel uses its existing 100-point Fibonacci-y sphere, a 1.4 angstrom
+probe and Bio.PDB atomic radii. This orientation differs from the Bio.PDB
+reference export above; do not silently exchange the two finite grids.
+
+An atom's patches buried within its own partner are excluded. Each remaining
+patch covered by the opposite partner is assigned to the expanded sphere
+with smallest signed surface gap (distance to centre minus expanded radius).
+Exact ties share its area equally. Allocated area sums to isolated minus
+bound SASA for each atom. The two endpoint surfaces are separate quantities,
+not a symmetrized residue statistic. This is a geometrical allocation of a
+finite surface budget, not a chemical-valence or hydrogen-bond assignment.
+
+``contact-penalties --surface-context`` additionally computes a fixed
+exposed-surface reference, retaining all original arms. Let ``S_B(a)`` be
+isolated exposed CDR area of binder identity ``a`` and ``S_T(b)`` peptide
+area of target identity ``b`` within intact pMHC. Normalize each role's area
+composition separately. Their product, conditioned on finite ordered matrix
+support, is ``Q_ab``. For the supplied matrix ``V_ab``, compute
+``logZ = log(sum Q_ab exp(-V_ab))``. Then ``V_ab + logZ`` is the negative
+log density ratio against that declared reference on its positive support;
+``sum Q_ab exp(-V_ab-logZ) = 1``. A constant table offset cancels.
+
+The new ``surface_context_sum`` is ``sum A_ab*(V_ab+logZ)``, where ``A_ab``
+is binder-side area assigned from CDRs to peptide. MHC competes for patch
+ownership but is excluded from this CDR-to-peptide chemistry score. Also
+export ``surface_raw_sum=sum A_ab*V_ab`` and the supported area, so the
+normalization effect is exactly ``A_supported*logZ``. Units are square
+angstroms times dimensionless table scale: area-weighted composite log odds,
+not binding free energies or independent-contact likelihoods. Lower is favorable.
+No coefficient, label-dependent selection, pseudocount or floor is fitted.
+
+Missing matrix cells and observed area outside positive exposed support are
+omitted with explicit area accounting. Empty supported sums are zero; the
+per-area diagnostic is null at zero area and is not used to shrink the matched
+comparison population. The complete atom and pair products are bounded-batch
+Parquet shards. Every source structure remains in accounting. Global exposed
+compositions do not capture every local pocket motif or hydration effect;
+independent predictive validation remains necessary.
+
+For ``N`` atoms, ``P`` sphere points and ``K_i`` local neighbours of atom ``i``,
+point testing costs ``O(P*sum K_i)`` after spatial indexing, plus sorting and
+unique neighbour bookkeeping. Memory is ``O(N+P+max K_i+E)`` for ``E`` output
+atom edges; no dense all-pair coordinate array is allocated. In dense adversarial
+geometry the time can still reach ``O(P*N^2)``. The kernel releases the GIL and
+uses one native thread. Bounded source batches limit retained table/coordinate
+memory; they do not eliminate output-size cost. Finite sampling gives exact
+conservation on the sampled grid, not an exact continuous-surface error bound.
+
+Accessible-boundary ownership option
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``contact-penalties --surface-context --surface-ownership accessible_boundary``
+uses the same native sphere grid and isolated/bound SASA as the default
+``deepest_sphere`` method. Each lost patch is assigned to the nearest sampled
+isolated boundary point of the opposite partner; exact distance ties divide area
+equally among distinct atom owners. Peptide and MHC boundary points compete before
+CDR→peptide selection. Endpoint areas remain separate and residue roles remain
+directed. Every recipient atom has positive sampled isolated exposure, and each
+endpoint's total allocated area still equals isolated minus bound SASA.
+
+The implementation exports exposed points from the existing native sampler and
+uses SciPy's batched ``cKDTree`` with one worker. Only exact ties require ragged
+processing. It raises an error if lost patches have no sampled opposite boundary.
+Nearest sampled boundary is a geometric approximation, not an exact molecular
+surface, a chemical valence rule or evidence of predictive improvement. This
+option changes ownership and therefore score support, but neither fits weights
+nor changes the default scorer. Compare separately named runs on identical rows;
+never overwrite a prior run. The method is recorded in export provenance.
+Directed atom-count layer
+-------------------------
+
+``contact-atom-count-fit --native observations.parquet --external curated.parquet
+--equivalence-resource marginal-resource.json -o atom-count.json`` derives one
+frozen directed residue-conditional atom-contact enrichment table. Native input
+is restricted to class-I CDR:peptide; external input to the existing curated
+peptide-target rows. The optional resource supplies only its explicit chemical
+equivalences, applied identically to references and queries. Physical atom pairs
+remain separate observations. No assay labels or weights enter derivation.
+
+For binder atom type ``(a,i)`` and target type ``(b,j)``, pooled native/external
+integer count ``n`` and residue-pair total ``N_ab`` give
+``D = -ln[(n/N_ab)/(qB(i|a)*qT(j|b))]``. Role-specific atom fractions ``qB`` and
+``qT`` describe observed-contact endpoint composition across opposing residue
+types. Counts and sources remain explicit. This enrichment retains geometry,
+availability and context effects; it is not isolated chemical energy.
+
+``contact-penalties ... --atom-count-resource atom-count.json`` adds the mean
+``D`` across observed atoms once per known CDR residue edge, with fixed unit
+coefficient, to each original potential. Framework and missing original entries
+retain their existing policies. Unseen atom cells receive zero correction with
+support counts and stay in the averaging denominator; zero does not establish
+compatibility. Missing CDR observations fail explicitly. Empty contacts retain
+zero. ``contact-compare`` includes the ``atom_count`` arm on matched finite rows.
+
+The dimensionless edge average controls direct atom-count inflation; it is not a
+joint likelihood, a binding free energy, or a calibrated validity probability.
+The neutral unseen-cell policy does not complete a globally normalized density.
+References are estimated dependencies; raw contacts are correlated within
+structures. No score-time fitting or default change is introduced.

@@ -157,6 +157,14 @@ tcren.contacts.table module
    :undoc-members:
    :show-inheritance:
 
+tcren.contacts.observations module
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: tcren.contacts.observations
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 tcren.contactmap module
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 

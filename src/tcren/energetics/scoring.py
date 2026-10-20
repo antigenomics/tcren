@@ -40,10 +40,9 @@ def intra_peptide_energy(
 
     Summed over :func:`tcren.peptide_internal_contacts` (5 Å, sequence separation ≥ 3, so sequence
     neighbours — in contact because they are bonded, not because the peptide folded — are excluded),
-    under the **symmetrised** potential ``(F + Fᵀ) / 2``: an intra-chain pair has no ``from``/``to``
-    orientation to respect, and the canonical residue order labelling a pair's sides is an artefact
-    of the contact table, not chemistry. That matters for a directed potential such as TCRen and is
-    a no-op for a symmetric one such as MJ. Lower is more favourable, as everywhere in tcren.
+    using an intrinsically symmetric potential. An intra-chain pair has no binder/target
+    roles, so directed interface potentials are rejected rather than averaged.
+    Lower is more favourable, as everywhere in tcren.
 
     On an extended class-I 9-mer this is a small, sparse term: such peptides make one or two internal
     contacts, so it moves a score only where a peptide is genuinely bulged or packed against itself.
@@ -51,8 +50,7 @@ def intra_peptide_energy(
 
     Args:
         contact_map: a map built with ``ContactMap.from_structure(..., peptide_internal=True)``.
-        potential: pairwise potential (MJ is the sensible choice — TCRen is derived from
-            TCR↔peptide contacts, not from a chain's contacts with itself).
+        potential: intrinsically symmetric pairwise potential, such as MJ.
         peptide: candidate sequence threaded onto the structure's peptide positions. ``None``
             (default) scores the structure's own residues.
         contact_weight: ``"residue"`` (default, one per contacting pair) or ``"atomic"``
@@ -74,6 +72,9 @@ def intra_peptide_energy(
             "contact_weight='atomic' needs the n_atom_contacts column; build the contact "
             "map with ContactMap.from_structure(..., count_atoms=True, peptide_internal=True)"
         )
+    matrix, index = potential.as_matrix()
+    if not np.allclose(matrix, matrix.T, rtol=0, atol=0, equal_nan=True):
+        raise ValueError("intra-peptide energy requires a symmetric potential; directed interface potentials cannot be averaged")
     if pairs.is_empty():
         return 0.0
     weights = (np.asarray(pairs["n_atom_contacts"].to_list(), dtype=np.float64)
@@ -83,14 +84,12 @@ def intra_peptide_energy(
     else:
         aa_from, aa_to = ([peptide[p] if 0 <= p < len(peptide) else "" for p in side]
                           for side in (pairs["pos.from"], pairs["pos.to"]))
-    matrix, index = potential.as_matrix()
     # Pairs whose residue is outside the alphabet, or that the potential leaves undefined (NaN,
-    # e.g. cysteine in TCRen), drop out of the sum — exactly as score_peptides drops them.
+    # in a partial symmetric matrix), drop out exactly as score_peptides drops them.
     i = np.array([index.get(a, -1) for a in aa_from], dtype=np.int64)
     j = np.array([index.get(b, -1) for b in aa_to], dtype=np.int64)
     valid = (i >= 0) & (j >= 0)
-    sym = 0.5 * (matrix + matrix.T)
-    return float(np.nansum(sym[i[valid], j[valid]] * weights[valid]))
+    return float(np.nansum(matrix[i[valid], j[valid]] * weights[valid]))
 
 
 def score_peptides(
