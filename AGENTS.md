@@ -93,3 +93,14 @@ source or supported package. Do not restore discarded experiments merely because
 Retain the contact model, self-consistent regeneration and peptide–MHC MD model: current consumers
 use them. `OBSOLETE.md` records the dependency-based disposition; absence from one descriptor family
 alone is not evidence that code is unused.
+
+## Contact energy follow-up — 20 October 2026
+
+The author authorized the complete energy-score audit across all tasks, including
+poorly performing tasks and legacy 2022 benchmarks, plus sparse atom-potential
+research with antibody transfer and carefully scoped exchange symmetry.
+`CONTACT_ENERGY_SUBROADMAP.md` owns this subgoal and its completion gates.
+Retain original TCRen, identical populations and all gains/losses; fit no assay
+weights. The earlier 3808-model ranking comparison does not certify all-task or
+legacy performance. Use all allocated CPUs for parallelizable work and fix thread
+explosions rather than retreating to serial; keep one bounded compute layer.

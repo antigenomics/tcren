@@ -450,3 +450,12 @@ residue-matrix surface score. Private subroadmap and completed-output mechanisms
 `private-evaluation-record`.
 No new structure extraction or fitting was performed. Atom-reference opportunity,
 context transfer and independent classification validation remain separate gates.
+
+## 20 October: sparse contact energy and complete task audit
+
+Follow [CONTACT_ENERGY_SUBROADMAP.md](CONTACT_ENERGY_SUBROADMAP.md). The author
+requires every current energy task and legacy 2022 benchmark, retaining bad
+outcomes and original potential identities. The completed residue+atom candidate
+improves ILA1/YLQ and loses SB27; it does not restore all CPL classifications.
+Chemical pooling, antibody transfer and exchange symmetry must address support
+before introducing more atom/residue/context cells. No assay-fit or default change.
