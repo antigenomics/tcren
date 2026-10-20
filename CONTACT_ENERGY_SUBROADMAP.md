@@ -233,6 +233,21 @@ labels with a filter learned from those same labels. The optional
 `contact-class-audit` CLI exports these diagnostics without fitting a potential
 or altering any accepted score; its plan is frozen before cohort extraction.
 
+Completed audit: all 1706 models in 24 exact cases, with zero failures, 1676
+paired-junction variance blocks and 93942 observed chemistry motifs. Final
+evidence contains 2556705 feature/case rows and 375768 overall chemistry rows.
+Among 468285 class-exclusive feature/case rows, 62241 lack counterclass endpoint
+opportunities; 406044 retain eligible counterclass models with zero contacts.
+These are descriptive motif/case counts, not independent contacts or predictive
+gains. Fixed 128-feature blocks preserve the full cohort per motif and use the
+CPU allocation in bounded worker windows; the completed 16-CPU run took 471.153
+seconds with sampled peak tree RSS 9539665920 bytes. Private reports retain all
+sets, effects, supports, uncertainty states and execution identities. The next
+decision is whether a physically interpretable contact rule can be frozen for
+independent evaluation; this audit does not authorize evaluating a learned
+filter on its discovery labels or changing the accepted energy defaults.
+
+
 1. **Publish safely.** Keep raw inputs, private provenance, host paths and private
    evaluation records out of the public payload and its ancestors. Preserve the
    private research history. Verify the public branch and both host tree hashes.
