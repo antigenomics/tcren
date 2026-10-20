@@ -37,8 +37,8 @@ _INTERFACE_POTENTIAL = {"tcr_peptide": "tcren2", "tcr_mhc": "mj", "peptide_mhc":
 # apart `tcren2` resolved in `tcren score` and fell through to a path lookup in `tcren scoring`,
 # which then reported "FileNotFoundError: tcren2" once per structure.
 #
-# `tcren2` is the current matrix; the 2022 one is `karnaukhov2022` after its paper. The bare name
-# `tcren` is deliberately absent: it read as "the TCRen potential" while meaning the 2022 matrix.
+# `tcren2` is current; `karnaukhov2022` retains the May-2026 classic update.
+# See SOURCES for the distinct original-paper table; the bare `tcren` alias stays absent.
 _BUNDLED_POTENTIALS = {
     "tcren2": tcren2,
     "tcren2_em": tcren2_em,

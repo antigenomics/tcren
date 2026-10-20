@@ -70,10 +70,27 @@ heavy atom of any of the nineteen non-glycine types from a backbone and a chi ve
 The classic TCRen TCR↔peptide potential. **Directed**: rows are the TCR side, columns the peptide
 side, so it must not be symmetrised or decomposed.
 
-- Origin: derived by us from the Native2022 TCR:pMHC contact statistics (Karnaukhov et al. 2024).
-- Regenerate: `tcren derive-potential -s <structures> -o TCRen_potential.csv`; the current file is
-  the published 2024 derivation, not a re-run.
-- Loader: `tcren.potential.tcren()`.
+- Bundled identity: the May 2026 updated classic table from commit
+  `ef204be2f787ece0088cc2471c24079f135621a3`, copied into the Python package at
+  `91f50249ae788e468e6735b6128472da347a9cbc`. SHA256:
+  `1aba9dce3cf67600d1216f3dd533290f33f355c0df9cc282b084d85e8047794b`.
+- Original-paper artifact: root and pipeline `TCRen_potential.csv` at December 2022
+  commit `e2b6b95b6bdf876d6bd92f9eda733ec240cb43c3` have SHA256
+  `d940e80abf7c9742c009fb463423a00758e3a277f77f750300c3ed24b3f3fea6`.
+  All 380 values match the saved Figure 3 TCRen subset and the March 2026 root
+  table. The contemporaneous pipeline copy differs; do not conflate variants.
+- Reference metadata changes from 239 structures / 140 nonredundant representatives
+  in the original snapshot to 333 / 196 in the May update. The original R recipe
+  selects nonredundant representatives, counts directed contacts and adds one
+  pseudocount before marginal normalization. Updated populations and alternative
+  redundancy recipes can legitimately change coefficients; numerical differences
+  alone do not establish a calculation error.
+- Regeneration is not certified by a generic `derive-potential` call: exact input
+  membership, representative selection and recipe/version must be pinned.
+- Loader: `tcren.potential.tcren()` / CLI `karnaukhov2022` retains the bundled May
+  table for compatibility. Its alias is not proof of original-paper identity.
+  The original saved CSV can be supplied explicitly through `--potential CSV`;
+  this provenance correction changes no coefficients or defaults.
 
 ## `TCRen2_potential.csv` — derived
 

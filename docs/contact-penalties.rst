@@ -70,7 +70,9 @@ Residue contributions and comparison
 
 ``contact-penalties -s structures.txt --resource RESOURCE.json --chunk 512 -t 0
 -o NEW_DIR`` preserves the original all-TCR peptide contact sum for both TCRen2
-and the original 2022 TCRen table. One bounded structure batch is parsed and
+and the bundled classic TCRen table. Its ``karnaukhov2022`` alias retains the
+May 2026 update; it is distinct from the recovered original-paper table (see
+``SOURCES``). Coefficients and defaults are unchanged. One bounded structure batch is parsed and
 annotated at a time; searches stay in the parent, followed by coarse contiguous
 spawn-worker scoring and ordered reduction. The default is all allocated CPUs
 (``-t 0``) and a 512-structure batch; ``-t 1`` requests serial execution and

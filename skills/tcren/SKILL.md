@@ -5,6 +5,15 @@ description: tcren — TCR-pMHC contact potential (TCRen) pipeline; conventions 
 
 # tcren Skills Guide
 
+## Classic reference identities
+
+The `karnaukhov2022` CLI alias / `potential.tcren()` retains the bundled May-2026
+updated classic table. The original December-2022 root table, matching saved
+Figure 3 and the March-2026 root, is a distinct frozen resource; use an explicit
+CSV when comparing that baseline. Native populations and redundancy/debiasing
+recipes must be named separately, along with full/LOO/LCO status. See `SOURCES`;
+no coefficient/default changes follow from this provenance clarification.
+
 ## Symmetric chemical core, directed composition
 
 `contact-chemical-core-fit --native contacts.parquet --external curated.parquet
@@ -50,7 +59,7 @@ backoff. The external actual counts supply prior strength; there is no label inp
 Angular torsion sign is discarded; missing/boundary geometry remains unavailable.
 
 `contact-penalties -s manifest.txt --resource RESOURCE.json --chunk 512 -t 0 -o NEW_DIR`
-exports original TCRen2 and 2022 TCRen energies plus fixed, matrix-scaled, literal
+exports original TCRen2 and bundled classic TCRen energies plus fixed, matrix-scaled, literal
 flip and favourable-only flip contributions. It keeps the legacy all-TCR peptide
 baseline, adding one increment per physical CDR:peptide residue edge. Framework
 contacts remain explicitly unassessed. Worst supported atom/marginal predictive

@@ -404,7 +404,7 @@ def _bundled(filename: str) -> Path:
 
 
 @lru_cache(maxsize=None)
-@not_in_tcren2('The 2022 matrix, kept for reproducing published results. TCRen2 is tcren.potential.tcren2() and is the default since 2.11.0; the two correlate at r = 0.867 with a maximum absolute difference of 0.943 and are not interchangeable.')
+@not_in_tcren2('The bundled May-2026 classic matrix under the historical 2022 alias; distinct from the original-paper table (see SOURCES). TCRen2 is tcren.potential.tcren2() and is the default since 2.11.0; the two correlate at r = 0.867 with a maximum absolute difference of 0.943 and are not interchangeable.')
 def tcren() -> Potential:
     """Load the bundled classic TCRen potential (cached; treat as read-only)."""
     return Potential.from_csv(_bundled("TCRen_potential.csv"), name="TCRen")
@@ -434,7 +434,7 @@ def tcren2_em() -> Potential:
     (:func:`tcren.potts.fit_selfconsistent`).
 
     It is a **smaller** perturbation of :func:`tcren2` than :func:`tcren` is: Pearson *r* = 0.944
-    against TCRen2 over the 380 cells, against *r* = 0.867 between TCRen2 and the 2022 matrix. The
+    against TCRen2 over the 380 cells, against *r* = 0.867 between TCRen2 and the bundled classic matrix. The
     movement concentrates where the crystal tally was thin — mean absolute shift 0.152 in the
     quartile of cells holding a median of 2 observations, 0.057 in the quartile holding 47.
 

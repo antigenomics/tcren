@@ -30,7 +30,8 @@ explicit eligibility failures. On the common 178-structure MD population, the
 atom layer lowers Pearson correlation from 0.453750 to 0.339511 for TCRen2.
 
 The first legacy gate scored 382764 candidate/potential rows across 222 ranking
-units using the actual published 2022 coefficients and current TCRen2. Median
+units using the bundled classic coefficients and current TCRen2. The reference
+identity amendment below distinguishes that May 2026 table from the paper artifact. Median
 within-unit AUROC changes from 0.927000 to 0.923963 for IEDB (204 units; 79 gains,
 108 losses, 17 ties), and 0.738095 to 0.726190 for Bigot (14; 5 gains, 7 losses,
 2 ties). Bobisse retains rank 1/79; all three corrected Birnbaum AUROCs improve.
@@ -129,7 +130,7 @@ most of the directed layer's gain. Both receptor-ranking epitopes lose against
 the directed layer; the GLC loss also includes both surfaces and original.
 
 Across seven CPL AUROCs, core versus original has four gains/three losses for
-TCRen2 and five/two for published TCRen. For six template-covered VDJdb cases,
+TCRen2 and five/two for the bundled classic TCRen. For six template-covered VDJdb cases,
 both potentials have three gains/three losses versus original. For sixteen
 scarce-template cases, both have eight/eight. Against the directed layer,
 covered cases have two gains/four losses for TCRen2 and one/five for TCRen;
@@ -148,6 +149,51 @@ surfaces (178 structures); TCRen2 Pearson changes 0.453750 to 0.378634,
 Spearman 0.455755 to 0.372674. Core beats the directed atom layer in 12/16
 native entries, losing all four koff entries. No direction is selected. Virtual legacy residue substitutions
 still lack candidate atom coordinates; no atom corrections are imputed for them.
+
+## Original-paper reference and remaining legacy panel
+
+The spring R-only root table is byte-identical to the December 2022 artifact;
+all 380 values match saved Figure 3. The bundled classic table is the May 2026
+updated reference, with a different native population. Earlier numeric results
+remain valid for that recorded table, but their `published2022` label did not
+establish an original-paper comparison. Root, pipeline, full/LOO/LCO and
+redundancy/debiasing variants retain separate identities; no default is replaced.
+
+The recovered original CSV was scored explicitly, without fitting, on the same
+191382 locked candidate instances in the first legacy batch. Current scores
+were read unchanged. Across 204 IEDB units, median AUROC is 0.907500 for the
+original table and 0.923963 for TCRen2 (101 gains, 92 losses, 11 ties). Bigot's
+14 units change 0.750000 to 0.726190 (5/7/2); Bobisse remains rank 1/79.
+Corrected Birnbaum has two AUROC gains and one loss across three units. These
+are full frozen tables, not a reconstruction of paper LOO/LCO or sampled pools.
+A separate saved-paper-score comparison confirms identical 602 Bigot candidates
+and the same 5/7/2 AUROC outcome; Bobisse's 79 saved-paper LOO scores retain
+perfect ranking. No current score, matrix, threshold or candidate was changed.
+
+The paper also describes a large-scale VDJdb homology-model benchmark of 6150
+paired TCR–epitope cases. It is distinct from the 47 modeled/crystal complexes.
+The saved multi-method Figure 4c ranks lack TRA/HLA/model identity and include
+method-dependent row counts and duplicate beta-CDR3/peptide keys. Its exact
+candidate/method populations and source linkage remain open; do not certify the
+whole legacy paper from the already completed smaller panels.
+
+The current-task audit additionally closes 112 graded-response correlations for
+all contact arms and 384 previously omitted archival-energy metric cells, using
+saved scores and exact locked populations. Native-reference-weighted totals
+remain excluded from final models even when they gain on CPL. Experimental
+log2FoldChange contrast orientation is unverified in inspected provenance; raw
+signed associations do not become gains by choosing an epitope-specific sign.
+
+## Deferred model-storage harmonization
+
+Ongoing global VDJdb modeling and manuscript-specific selections have separate
+owners. Keep a single canonical coordinate payload with versioned cohort/source
+manifests; preserve the balanced positive/negative manuscript selection and its
+labels. Audit exact byte identity before deduplication: matching model IDs can
+refer to different coordinate payloads. Storage migration is deferred behind the
+energy audit; no new complete mirror, file deletion, label revision or model
+regeneration is part of this step. Private source paths, overlap manifests and
+consumer migration gates remain in the research roadmap.
 
 ## Work order and verification
 
