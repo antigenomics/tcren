@@ -28,7 +28,9 @@ q^r_T(j|b) the target marginal, for r=0,1. Then exactly on observed support:
 The four terms are cell numerator, residue-pair normalization, binder marginal
 and target marginal. All terms are dimensionless. Individual cell/normalizer
 pieces depend on the count gauge; their conditional-distribution sum and complete
-D change do not. The global native/antibody fraction alone cannot identify
+D change do not. Equal edge mass is a modeling choice, not a correction of a demonstrated bug:
+a one-atom edge receives the same reference mass as a dense many-atom edge.
+The global native/antibody fraction alone cannot identify
 source influence: edge balancing also changes each source's within-pair atom
 distribution and the source mixture separately for each residue pair.
 
@@ -105,6 +107,23 @@ by calling both terms dimensionless. Dropping E0 and keeping only D_S would
 discard residue-pair enrichment; it would not be complete atom-level rescoring.
 Directly summing atom pairs would also introduce linear contact multiplicity,
 whereas the present mean gives one evidence unit per residue edge.
+
+A deliberate hybrid can nevertheless be probabilistically coherent. If the
+original residue table has documented normalized P0_res and Q0_res with
+E0=-ln(P0_res/Q0_res), define
+
+    P_H(a,b,i,j) = P0_res(a,b) P_S(i,j|a,b),
+    Q_H(a,b,i,j) = Q0_res(a,b) q_SB(i|a)q_ST(j|b).
+
+Both are normalized distributions, and -ln(P_H/Q_H)=E0+D_S on common positive
+support. Thus different reference sources do not by themselves make an additive
+correction invalid or double-counted. The assumption is a deliberately chosen
+hybrid conditional model; its usefulness for recognition still needs evidence.
+For the actual empirical tables, their original normalization/support policies
+must be checked before claiming this exact interpretation. Arithmetic averaging
+over dependent atom marks remains a composite statistic, not a joint whole-edge
+likelihood. This distinction favors preserving the useful residue prior rather
+than requiring a common-source rebuild merely for aesthetic consistency.
 
 **Recommended working route:** preserve E0 and formulate one explicit conditional
 atom-pattern likelihood ratio, with the same context/support definition in its

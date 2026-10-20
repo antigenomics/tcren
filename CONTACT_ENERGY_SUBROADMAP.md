@@ -464,3 +464,9 @@ Next scientific order:
 5. Freeze any later estimator/data extension separately before evaluation, retain
    all-task and legacy coverage, and fit no assay/source weights. The present
    authorization continues the analysis/design; it adds no new scientific run.
+
+A deliberate hybrid is also admissible: normalized P0_res*P_S(pattern|residue)
+and Q0_res*Q_S(pattern|residue) give E0+D exactly on their common support when
+E0 has that documented original probability ratio. Mixed sources alone are not
+a proof of double counting. The audit distinguishes such a hierarchical model
+from a common-reference joint rebuilding and from averaging dependent atom marks.
