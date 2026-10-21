@@ -54,7 +54,8 @@ def test_glm_training_boundary_is_enforced(column, value):
         fit(data, labels.with_columns(pl.lit(value).alias(column)))
 
 
-def test_glm_cli_roundtrip_and_frozen_output(tmp_path):
+@pytest.mark.parametrize("pairwise", [False, True])
+def test_glm_cli_roundtrip_and_frozen_output(tmp_path, pairwise):
     from typer.testing import CliRunner
     from tcren.cli import app
     data, labels = sample()
@@ -68,6 +69,8 @@ def test_glm_cli_roundtrip_and_frozen_output(tmp_path):
     args = ['integral-fit', '--features', str(paths['features']), '--labels', str(paths['labels']),
             '--excluded-epitopes', str(paths['epitopes']), '--excluded-receptors', str(paths['receptors']),
             '-o', str(model)]
+    if pairwise:
+        args.append('--pairwise')
     result = runner.invoke(app, args)
     assert result.exit_code == 0, result.exception
     before = model.read_bytes()
@@ -77,3 +80,29 @@ def test_glm_cli_roundtrip_and_frozen_output(tmp_path):
                                 '--model', str(model), '-o', str(paths['scores'])])
     assert result.exit_code == 0, result.exception
     assert pl.read_csv(paths['scores'], separator='\t').height == len(data)
+
+
+def test_pairwise_glm_keeps_original_support_and_has_no_intercept():
+    data, labels = sample()
+    model = fit(data, labels, pairwise=True)
+    assert model['format'] == 'integral-pairwise-glm-1'
+    assert model['n_training'] == 80 and model['n_pairs'] == 800
+    assert model['intercept'] == 0
+    scores = integral_glm_scores(data, model)
+    assert scores.filter(labels['y']==1)['integral_glm_logit'].min() > 0
+    assert scores.filter(labels['y']==0)['integral_glm_logit'].max() < 0
+    assert integral_glm_scores(data.head(1), model).equals(scores.head(1))
+
+
+def test_pair_weights_preserve_model_count_and_weight_epitope_support():
+    from tcren.integral_glm import _pairwise_design
+    design=np.arange(14).reshape(7,2)
+    paired,y,w,n=_pairwise_design(design,np.array([0,1,0,0,1,0,1]),np.array(['a']*3+['b']*4))
+    assert n==6 and paired.shape==(12,2)
+    assert w.sum()==pytest.approx(7)
+    assert w[:4].sum()==pytest.approx(7*np.sqrt(3)/(np.sqrt(3)+2))
+    assert w[4:].sum()==pytest.approx(14/(np.sqrt(3)+2))
+    np.testing.assert_array_equal(paired[:2],-paired[2:4])
+    assert y[:4].tolist()==[1,1,0,0]
+    with pytest.raises(ValueError,match='one million'):
+        _pairwise_design(np.zeros((2001,8)),np.r_[np.zeros(1000),np.ones(1001)],np.full(2001,'a'))

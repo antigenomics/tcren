@@ -17,6 +17,7 @@ import typer
 from .integral import _potential_hash, _read, _sha, _validated
 
 FORMAT = "integral-glm-1"
+PAIRWISE_FORMAT = "integral-pairwise-glm-1"
 INPUTS = ("iptm", "energy", "geometry", "topology")
 
 
@@ -27,7 +28,7 @@ def _matrix(table):
     return np.column_stack([values[k] for k in INPUTS])
 
 
-def fit_integral_glm(table, labels, *, excluded_epitopes, excluded_receptors, provenance):
+def fit_integral_glm(table, labels, *, excluded_epitopes, excluded_receptors, provenance, pairwise=False):
     """Fit nine or fewer coefficients; labels require explicit epitope/receptor IDs.
 
     Caller verifies current positive assignments, mock construction, coordinate
@@ -66,29 +67,60 @@ def fit_integral_glm(table, labels, *, excluded_epitopes, excluded_receptors, pr
         raise ValueError("provenance requires input_sha256")
     counts = lab.join(cells, on=["epitope", "y"], validate="m:1", maintain_order="left")["len"].to_numpy()
     weights = len(lab) / (len(cells) * counts)
+    if pairwise:
+        sizes = lab.group_by("epitope").len()
+        n_epitope = lab.join(sizes, on="epitope", validate="m:1", maintain_order="left")["len"].to_numpy()
+        weights = len(lab) * np.sqrt(n_epitope) / (2 * counts * np.sqrt(sizes["len"].to_numpy()).sum())
     missing = ~np.isfinite(x)
     means = np.array([np.average(x[~missing[:, j], j], weights=weights[~missing[:, j]]) for j in range(4)])
     scales = np.array([np.sqrt(np.average((x[~missing[:, j], j] - means[j])**2,
         weights=weights[~missing[:, j]])) for j in range(4)])
     scales[scales == 0] = 1
     design = np.column_stack([np.where(missing, 0, (x - means) / scales), missing.astype(float)])
-    model = LogisticRegression(C=1., solver="lbfgs", tol=1e-8, max_iter=1000, random_state=0)
+    target = lab["y"].to_numpy()
+    n_pairs = None
+    if pairwise:
+        design, target, weights, n_pairs = _pairwise_design(design, target, lab["epitope"].to_numpy())
+    model = LogisticRegression(C=1., solver="lbfgs", tol=1e-8, max_iter=1000,
+                               random_state=0, fit_intercept=not pairwise)
     with warnings.catch_warnings(), threadpool_limits(limits=1):
         warnings.simplefilter("error", ConvergenceWarning)
-        model.fit(design, lab["y"].to_numpy(), sample_weight=weights)
-    return dict(format=FORMAT, mhc_class="I", potential_sha256=_potential_hash(),
+        model.fit(design, target, sample_weight=weights)
+    return dict(format=PAIRWISE_FORMAT if pairwise else FORMAT, mhc_class="I", potential_sha256=_potential_hash(),
         inputs=list(INPUTS), means=means.tolist(), scales=scales.tolist(),
         coefficients=model.coef_[0].tolist(), intercept=float(model.intercept_[0]),
-        n_training=len(lab), n_epitopes=lab["epitope"].n_unique(),
+        n_training=len(lab), n_epitopes=lab["epitope"].n_unique(), n_pairs=n_pairs,
         n_missing=missing.sum(axis=0).tolist(), C=1.,
         sklearn_version=sklearn_version, numpy_version=np.__version__,
-        objective="equal epitope/class cell weights, sum weights equals n_training",
+        objective=("within-epitope pairwise logistic, square-root model-count epitope weights, sum weights equals n_training"
+                   if pairwise else "equal epitope/class cell weights, sum weights equals n_training"),
         provenance=dict(provenance))
+
+
+def _pairwise_design(design, target, epitopes):
+    groups = [(np.flatnonzero((epitopes == e) & (target == 1)),
+               np.flatnonzero((epitopes == e) & (target == 0))) for e in np.unique(epitopes)]
+    n_pairs = sum(len(pos) * len(neg) for pos, neg in groups)
+    # ponytail: materialize at most one million pairs; stream the objective for larger cohorts.
+    if n_pairs > 1_000_000:
+        raise ValueError("pairwise GLM exceeds one million pairs; no subsampling is performed")
+    paired = np.empty((2 * n_pairs, design.shape[1]))
+    labels, weights = np.empty(2 * n_pairs, dtype=int), np.empty(2 * n_pairs)
+    support = np.sqrt([len(pos) + len(neg) for pos, neg in groups])
+    start = 0
+    for group_index, (pos, neg) in enumerate(groups):
+        delta = (design[pos, None, :] - design[neg][None, :, :]).reshape(-1, design.shape[1])
+        n = len(delta)
+        paired[start:start+n], paired[start+n:start+2*n] = delta, -delta
+        labels[start:start+n], labels[start+n:start+2*n] = 1, 0
+        weights[start:start+2*n] = len(design) * support[group_index] / (2 * n * support.sum())
+        start += 2 * n
+    return paired, labels, weights, n_pairs
 
 
 def integral_glm_scores(table, model):
     """Apply frozen training transformations and expose additive logit contributions."""
-    if model.get("format") != FORMAT or model.get("mhc_class") != "I" or model.get("inputs") != list(INPUTS):
+    if model.get("format") not in {FORMAT, PAIRWISE_FORMAT} or model.get("mhc_class") != "I" or model.get("inputs") != list(INPUTS):
         raise ValueError("unsupported integral GLM format, class or inputs")
     if model.get("potential_sha256") != _potential_hash():
         raise ValueError("GLM potential differs from bundled TCRen2")
@@ -99,6 +131,8 @@ def integral_glm_scores(table, model):
     if (means.shape != (4,) or scales.shape != (4,) or beta.shape != (8,) or intercept.shape != ()
             or not all(np.isfinite(a).all() for a in (means, scales, beta, intercept)) or (scales <= 0).any()):
         raise ValueError("invalid finite GLM parameters")
+    if model["format"] == PAIRWISE_FORMAT and intercept != 0:
+        raise ValueError("pairwise GLM has no intercept")
     x = _matrix(table)
     missing = ~np.isfinite(x)
     contribution = np.where(missing, 0, (x - means) / scales) * beta[:4]
@@ -120,6 +154,7 @@ def fit_command(
     excluded_epitopes: Path = typer.Option(..., "--excluded-epitopes", exists=True, dir_okay=False),
     excluded_receptors: Path = typer.Option(..., "--excluded-receptors", exists=True, dir_okay=False),
     output: Path = typer.Option(..., "-o", "--output"),
+    pairwise: bool = typer.Option(False, "--pairwise", help="fit within-epitope ordering without an intercept"),
 ):
     """Freeze a separate-training GLM; exclusion files contain epitope/receptor_id columns."""
     if output.exists():
@@ -128,7 +163,7 @@ def fit_command(
         excluded_epitopes_sha256=_sha(excluded_epitopes), excluded_receptors_sha256=_sha(excluded_receptors))
     model = fit_integral_glm(_read(features), _read(labels),
         excluded_epitopes=set(_read(excluded_epitopes)["epitope"]),
-        excluded_receptors=set(_read(excluded_receptors)["receptor_id"]), provenance=provenance)
+        excluded_receptors=set(_read(excluded_receptors)["receptor_id"]), provenance=provenance, pairwise=pairwise)
     with output.open("x") as stream:
         stream.write(json.dumps(model, indent=2, allow_nan=False) + "\n")
     typer.echo(f"Frozen GLM from {model['n_training']} models in {model['n_epitopes']} training epitopes")
@@ -141,8 +176,9 @@ def predict_command(
 ):
     """Apply a frozen GLM without fitting, cohort normalization or new thresholds."""
     from .provenance import stamp
-    result = integral_glm_scores(_read(features), json.loads(model.read_text()))
+    resource = json.loads(model.read_text())
+    result = integral_glm_scores(_read(features), resource)
     result.write_csv(output, separator="\t")
     stamp(output, command="integral-predict", extra=dict(input_sha256=_sha(features),
-        model_sha256=_sha(model), format=FORMAT, potential_sha256=_potential_hash()))
+        model_sha256=_sha(model), format=resource["format"], potential_sha256=_potential_hash()))
     typer.echo(f"Wrote {result.height} frozen GLM scores")

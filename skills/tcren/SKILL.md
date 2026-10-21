@@ -2164,3 +2164,12 @@ additive logit contributions and the logistic score; all-missing queries remain
 unavailable. No query-cohort fitting, whitening or adaptive signs. Existing
 outputs cannot be overwritten by fitting. API: `integral_glm.fit_integral_glm`
 and `integral_glm.integral_glm_scores`; equations and scope: `docs/integral.rst`.
+
+`integral-fit --pairwise` keeps those inputs but fits eight
+coefficients without an intercept to real/mock differences within training
+epitopes. Epitope weights are proportional to square roots of model counts, with class-balanced
+training scaling. Pair weights sum to the original model count, not the
+expanded pair count; C=1 is unchanged. More than one million unordered pairs fail
+before allocation. Format `integral-pairwise-glm-1` uses the same prediction command
+and exposes utility plus its monotonic logistic transform, not a pointwise binding
+probability. `fit_integral_glm(..., pairwise=True)` is the matching API.

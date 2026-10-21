@@ -11,6 +11,8 @@ All notable changes to `tcren` are recorded here. Format follows
   logistic readout with explicit evaluation exclusions, training-only scaling,
   equal epitope/class weighting and missingness indicators. Learned coefficients
   are exported; the readout is not a calibrated binding probability or a default.
+  Optional `--pairwise` learns within-epitope ordering without an intercept,
+  preserving original sample support when weighting expanded pairs.
 
 - Experimental `integral-reference` and `integrate`: fixed-reference integration
   of ipTM, mean contact energy, surface shape and graph cycles, with equal block

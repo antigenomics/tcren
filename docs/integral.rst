@@ -134,3 +134,41 @@ training labels or receptor identifiers.
 
 .. automodule:: tcren.integral_glm
    :members: fit_integral_glm, integral_glm_scores
+
+Within-epitope ranking option
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``integral-fit --pairwise`` freezes ``integral-pairwise-glm-1``. It retains the
+same inputs, exclusion checks and L2 strength, but fits
+ordering within each training epitope rather than pointwise class probabilities.
+Let :math:`v_i=(z_{i1},\ldots,z_{i4},m_{i1},\ldots,m_{i4})` be the eight-entry
+design vector, and :math:`\theta` its eight fitted coefficients. With
+:math:`n_{e+}` real and :math:`n_{e-}` mock models for epitope :math:`e`, the objective is
+
+.. math::
+
+   \sum_e\frac{\sqrt{n_e}}{(\sum_f\sqrt{n_f}) n_{e+}n_{e-}}
+   \sum_{i\in e+,\,j\in e-}\log(1+\exp[-\theta^T(v_i-v_j)])
+   +\frac{\lVert\theta\rVert_2^2}{2CN}.
+
+Here :math:`n_e=n_{e+}+n_{e-}` is the epitope model count and :math:`N=\sum_e n_e`,
+and :math:`C=1`. There is no intercept or epitope coefficient. The implementation
+uses both directions of every pair with opposite binary labels and weights
+:math:`N\sqrt{n_e}/(2 (\sum_f\sqrt{n_f}) n_{e+}n_{e-})`; their total is :math:`N`, so enumerating pairs does
+not increase the declared sample support or dilute regularization. It rejects
+more than one million unordered pairs before allocation, without subsampling.
+
+Training means and scales use row weights :math:`N\sqrt{n_e}/(2 (\sum_f\sqrt{n_f}) n_{ey})`, where
+:math:`n_{ey}` counts models in epitope :math:`e` and class :math:`y`. Thus each
+epitope has total weight proportional to the square root of its model count,
+split equally between classes. The fixed square-root rule tempers large groups
+without giving sparse groups equal influence; it is not tuned to validation.
+Sparse class counts must still accompany results; these weights do not create
+independent evidence or justify a mechanism from a small group.
+
+Prediction still returns the additive utility in ``integral_glm_logit`` and its
+monotonic logistic transform in ``integral_glm_score``. Neither is a pointwise
+binding probability in this mode. Pairwise preference probabilities, under the
+fitted model, are the logistic transform of utility differences. Every shared
+score offset cancels from a within-epitope comparison; no query-cohort centering
+is performed. The resource records both original model count and pair count.
