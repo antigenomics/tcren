@@ -4,6 +4,7 @@ from dataclasses import replace
 import polars as pl
 import pytest
 from typer.testing import CliRunner
+from click import unstyle
 
 import tcren.cli as cli
 from tcren.potential import Potential
@@ -111,7 +112,7 @@ def test_receptor_cutoff_rejected_before_annotation(tmp_path, monkeypatch, cutof
     result = CliRunner().invoke(cli.app, ["score-receptors", "-s", "unused.pdb", "-c",
         str(tmp_path / "unused.tsv"), "--cutoff", cutoff])
     assert result.exit_code != 0
-    assert "cutoff must be finite and positive" in result.output
+    assert "cutoff must be finite and positive" in unstyle(result.output)
 
 
 def _junction(name):
