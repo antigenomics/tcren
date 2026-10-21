@@ -3,9 +3,14 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
-## [4.0.1] — unreleased
+## [4.1.0] — unreleased
 
 ### Added
+
+- Experimental `integral-reference` and `integrate`: fixed-reference integration
+  of ipTM, mean contact energy, surface shape and graph cycles, with equal block
+  weights, component outputs, explicit missingness and reference/potential hashes.
+  Class I only; no assay fitting, adaptive signs or default promotion.
 
 - `atom-inventory` export and `contact-class-audit`: complete selected protein
   heavy-atom context, class-exclusive/shared residue and atom contact sets,

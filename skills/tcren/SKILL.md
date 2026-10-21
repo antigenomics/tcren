@@ -5,6 +5,21 @@ description: tcren — TCR-pMHC contact potential (TCRen) pipeline; conventions 
 
 # tcren Skills Guide
 
+## Experimental integral receptor readout
+
+`features -i interface,topology,energetics` owns the inputs for the class-I
+`integral-reference-1` candidate. `integral-reference --features native.tsv -o ref.json`
+freezes native class-I mid-distributions of -Phi_tcr_pep/n_contacts_tp, sc_shape
+and g_cyclo_frac; caller verifies native origin. `integrate --features models.tsv
+--reference ref.json --confidence iptm.tsv -o scores.tsv` joins unique complex.id
+keys and averages these three bounded contributions with native-scale ipTM.
+No assay weights, query normalization or adaptive sign. Missing components use
+0.5 with explicit flags/count; all missing yields null. Original scores are
+unchanged. Reference and bundled potential hashes are explicit; this is estimated
+reference scaling, not a binding probability or a promoted default. Use bundled
+TCRen2/5-Angstrom inputs and retain producer provenance. API: integral.build_reference
+and integral.integral_scores. See docs/integral.rst for domains and equations.
+
 ## Classic reference identities
 
 The `karnaukhov2022` CLI alias / `potential.tcren()` retains the bundled May-2026
