@@ -19,12 +19,20 @@ def _score_chunk(work):
     from ..contactmap import ContactMap
     from ..exports import residue_identity
 
-    structures, tables, resource, geometry_only, calibration, normalizer, surface_context, surface_ownership, atom_count, chemical_core = work
+    structures, tables, resource, geometry_only, calibration, normalizer, surface_context, surface_ownership, atom_count, chemical_core, inventory_pattern = work
+    prepared_pattern = None
+    if inventory_pattern:
+        from .inventory_patterns import prepare_resource
+        prepared_pattern = prepare_resource(inventory_pattern)
     results = []
     for structure in structures:
         identity, edge_tables, summaries, surface_atoms, surface_edges, error = None, [], [], [], [], ""
         try:
             observations = contact_observations(structure, interface="tcr_peptide", cutoff=5.)
+            inventory = None
+            if inventory_pattern:
+                from .observations import atom_inventory
+                inventory = atom_inventory(structure)
             if normalizer:
                 from .context_normalization import normalized_edges, apply_normalized
                 current_class = "II" if any(c.chain_supertype == "MHCII" for c in structure.chains) else "I"
@@ -58,6 +66,11 @@ def _score_chunk(work):
                     current_class = "II" if any(c.chain_supertype == "MHCII" for c in structure.chains) else "I"
                     table, atom_summary = score_atom_counts(table, observations, atom_count, summary["original"], mhc_class=current_class)
                     summary.update(atom_summary)
+                if inventory_pattern:
+                    from .inventory_patterns import score_inventory_patterns
+                    current_class = "II" if any(c.chain_supertype == "MHCII" for c in structure.chains) else "I"
+                    table, pattern_summary = score_inventory_patterns(table, observations, inventory, inventory_pattern, summary["original"], mhc_class=current_class, prepared=prepared_pattern)
+                    summary.update(pattern_summary)
                 if chemical_core:
                     from .chemical_core import score_chemical_core
                     current_class = "II" if any(c.chain_supertype == "MHCII" for c in structure.chains) else "I"
@@ -78,7 +91,7 @@ def _score_chunk(work):
 
 
 @single_threaded
-def penalty_export(sources, resource_path, output, *, chunk=512, threads=0, potentials=("tcren2", "karnaukhov2022"), geometry_only=False, calibration_path=None, normalizer_path=None, surface_context=False, surface_ownership="deepest_sphere", atom_count_path=None, chemical_core_path=None):
+def penalty_export(sources, resource_path, output, *, chunk=512, threads=0, potentials=("tcren2", "karnaukhov2022"), geometry_only=False, calibration_path=None, normalizer_path=None, surface_context=False, surface_ownership="deepest_sphere", atom_count_path=None, chemical_core_path=None, inventory_pattern_path=None):
     """Annotate one bounded batch, score coarse chunks, then release its atoms."""
     from ..annotation.batch import annotate_batch
     from ..annotation import classify_chains
@@ -99,6 +112,13 @@ def penalty_export(sources, resource_path, output, *, chunk=512, threads=0, pote
     ids = [structure_stem(p) for p in paths]
     if not paths or len(set(ids)) != len(ids):
         raise ValueError("nonempty input set with globally unique complete stems required")
+    inventory_pattern = None
+    if inventory_pattern_path is not None:
+        from .inventory_patterns import validate_resource
+        inventory_pattern = json.loads(Path(inventory_pattern_path).read_text())
+        validate_resource(inventory_pattern)
+        if geometry_only:
+            raise ValueError("inventory-pattern layer requires score export")
     chemical_core = None
     if chemical_core_path is not None:
         from .chemical_core import validate_resource
@@ -163,7 +183,7 @@ def penalty_export(sources, resource_path, output, *, chunk=512, threads=0, pote
             count = min(threads, len(typed))
             work = [([s for s, _ in typed[i*len(typed)//count:(i+1)*len(typed)//count]],
                      tables, resource, geometry_only, calibration, normalizer,
-                     surface_context, surface_ownership, atom_count, chemical_core) for i in range(count)]
+                     surface_context, surface_ownership, atom_count, chemical_core, inventory_pattern) for i in range(count)]
             results = [result for group in parallel_map(_score_chunk, work, threads) for result in group]
             for (structure, row), result in zip(typed, results, strict=True):
                 identity, edge_tables, scored, atoms, surfaces, error = result
@@ -195,6 +215,7 @@ def penalty_export(sources, resource_path, output, *, chunk=512, threads=0, pote
         pl.DataFrame(summaries, infer_schema_length=None).write_csv(output/("geometry_models.tsv" if geometry_only else "scores.tsv"), separator="\t")
     provenance = dict(resource_sha256=_sha256(resource_path), resource_version=resource["version"],
         atom_count_sha256=_sha256(atom_count_path) if atom_count else None,
+        inventory_pattern_sha256=_sha256(inventory_pattern_path) if inventory_pattern else None,
         chemical_core_sha256=_sha256(chemical_core_path) if chemical_core else None,
         calibration_sha256=_sha256(calibration_path) if calibration else None,
         normalizer_sha256=_sha256(normalizer_path) if normalizer else None,
@@ -223,11 +244,12 @@ def penalty_command(
     atom_count_resource: Path | None = typer.Option(None, "--atom-count-resource", exists=True, dir_okay=False),
     atom_pattern_resource: Path | None = typer.Option(None, "--atom-pattern-resource", exists=True, dir_okay=False),
     chemical_core_resource: Path | None = typer.Option(None, "--chemical-core-resource", exists=True, dir_okay=False),
+    inventory_pattern_resource: Path | None = typer.Option(None, "--inventory-pattern-resource", exists=True, dir_okay=False),
 ):
     """Apply the same frozen geometry weight to four declared penalty arms."""
     if atom_count_resource and atom_pattern_resource:
         raise ValueError("use separate exports for atom-count and atom-pattern resources")
-    penalty_export(structures, resource, out, chunk=chunk, threads=threads, calibration_path=calibration, normalizer_path=normalizer, surface_context=surface_context, surface_ownership=surface_ownership, atom_count_path=atom_pattern_resource or atom_count_resource, chemical_core_path=chemical_core_resource)
+    penalty_export(structures, resource, out, chunk=chunk, threads=threads, calibration_path=calibration, normalizer_path=normalizer, surface_context=surface_context, surface_ownership=surface_ownership, atom_count_path=atom_pattern_resource or atom_count_resource, chemical_core_path=chemical_core_resource, inventory_pattern_path=inventory_pattern_resource)
 
 
 def geometry_audit_command(
@@ -246,6 +268,8 @@ def register(app, panel):
     app.command("contact-prior-fit", rich_help_panel=panel)(fit_command)
     from .atom_counts import fit_command as atom_count_fit
     app.command("contact-atom-count-fit", rich_help_panel=panel)(atom_count_fit)
+    from .inventory_patterns import fit_command as inventory_pattern_fit
+    app.command("contact-inventory-pattern-fit", rich_help_panel=panel)(inventory_pattern_fit)
     from .atom_patterns import fit_command as atom_pattern_fit
     app.command("contact-atom-pattern-fit", rich_help_panel=panel)(atom_pattern_fit)
     from .chemical_core import fit_command as chemical_core_fit

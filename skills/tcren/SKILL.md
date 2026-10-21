@@ -2115,3 +2115,19 @@ CDR3. Missing/gapped/invalid anchors fail. Candidate junctions start C, end F/W 
 match the exact observed junction length. Include physical anchor contacts and
 index the filtered view from junction start; never mutate structures/contact maps.
 Default `--receptor-region cdr3` behavior and columns remain unchanged.
+
+## Inventory-aware whole-pattern correction
+
+`contact-inventory-pattern-fit --native native_counts.parquet --external
+external_counts.parquet --equivalence-resource prior.json -t 0 -o inventory.json`
+freezes integer contact/opportunity estimates without assay inputs. Counts have
+`aa_from,atom_from,aa_to,atom_to,count,opportunity` columns; include zero-contact
+opportunities from complete observed inventories of reference contacting edges.
+`contact-penalties --inventory-pattern-resource inventory.json` adds one complete
+binary-pattern log ratio per scored CDR residue edge to unchanged original TCRen.
+P has cell-specific Jeffreys-smoothed probabilities; Q has a pooled probability
+for the directed residue pair. Both condition on at least one contact and use
+the same full observed Cartesian inventory. Physical multiplicities survive
+chemical-equivalence pooling. Unsupported opportunities abstain for the whole
+edge. `contact-compare` retains the `inventory_pattern` arm. See
+`INVENTORY_PATTERN_SPEC.md` for equations and explicit independence assumptions.

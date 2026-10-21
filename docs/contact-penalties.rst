@@ -602,3 +602,30 @@ arms cannot be mislabeled or overwrite each other. ``contact-compare`` includes
 ``atom_pattern`` alongside original and other requested arms on identical rows.
 No assay weights, fitted coefficient, distance regression, joint graph
 likelihood, binding free energy or new package default is implied.
+
+Inventory-aware whole patterns
+------------------------------
+
+``contact-inventory-pattern-fit`` accepts native and antibody Parquet count
+products with directed amino-acid/atom labels, integer ``count`` and integer
+``opportunity``. Opportunities include noncontacting cells of the complete
+observed atom inventories on existing reference residue contacts. The resource
+freezes Jeffreys-smoothed cell probabilities P and a pooled residue-pair density Q.
+Both independent-Bernoulli distributions condition on at least one contact.
+
+``contact-penalties --inventory-pattern-resource inventory.json`` adds the whole
+binary-pattern negative log P/Q once per scored CDR edge to unchanged original
+TCRen. Noncontact terms and the nonempty normalization remain included. Missing
+opportunity support abstains for the whole edge. This dimensionless conditional
+model assumes independent cells and does not describe binding free energy.
+No assay weights, source weights, cohort normalization or default changes apply.
+The repository's ``INVENTORY_PATTERN_SPEC.md`` defines the exact estimator,
+physical multiplicities, equations and matched-cohort evaluation contract.
+
+Output ``inventory_pattern_pairs`` counts Cartesian opportunity cells, while
+``inventory_pattern_contact_pairs`` counts contacting physical pairs.
+``inventory_pattern_unsupported_pairs`` and
+``inventory_pattern_unsupported_edges`` expose whole-edge abstention. The saved
+``inventory_pattern_contact_increment``,
+``inventory_pattern_noncontact_increment`` and
+``inventory_pattern_normalizer_increment`` sum to the total correction.

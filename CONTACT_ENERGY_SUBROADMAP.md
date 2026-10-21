@@ -470,3 +470,42 @@ and Q0_res*Q_S(pattern|residue) give E0+D exactly on their common support when
 E0 has that documented original probability ratio. Mixed sources alone are not
 a proof of double counting. The audit distinguishes such a hierarchical model
 from a common-reference joint rebuilding and from averaging dependent atom marks.
+
+## Inventory-aware whole-pattern correction —21 October2026
+
+The author now authorizes this new candidate and its fresh evaluation. This
+supersedes the preceding no-new-run stage for this candidate only.
+`INVENTORY_PATTERN_SPEC.md` defines its fixed P/Q estimator, inventory support,
+noncontact terms, conditional normalization and unchanged original residue score.
+The selected approximation uses reference-estimated Bernoulli cell probabilities
+and an exchangeable-cell Q, both conditional on an existing contacting edge.
+This is a whole binary pattern model with explicit independence assumptions,
+not another average of contacting atom marks.
+
+1. Recover missing observed native/antibody inventories through the owning raw
+   extractors; verify every frozen contact is contained and preserve all edges.
+2. Freeze pooled integer contact/opportunity counts, Jeffreys-smoothed P/Q,
+   support, source hashes and the immutable implementation before evaluation.
+3. Evaluate the new arm from raw structures on the exact accepted cohorts;
+   preserve every original score, both surface baselines, potential and metric.
+4. Report all ranking, native-energy and graded-response gains and losses;
+   separate covered/scarce receptors and both TCRvdb epitopes. Keep legacy atom
+   coordinate limitations explicit without blocking current scientific work.
+5. Explain any changes using contact, noncontact and nonempty-normalizer terms;
+   retain the result as development evidence rather than automatic promotion.
+
+Execution status: the new reference inventories, P/Q freeze and full matched
+ranking/native-energy/graded-response evaluation are complete. Original scores
+and accepted populations are unchanged. Private final tables retain every gain
+and loss, supported/abstained edge accounting and saved contact/noncontact/
+normalization terms. This candidate remains separate: gains in some receptor
+and peptide tasks coexist with a substantial SB27 loss and native-endpoint
+regressions. Do not promote it or claim that noncontact evidence alone caused
+the gains; opportunity estimates and whole-pattern aggregation changed together.
+
+Next scientific subgoal: specify a molecular pattern/dependence model that
+addresses correlated atom-pair evidence while distinguishing native-versus-model
+packing from real-versus-mock specificity under the same generator. Keep the
+frozen result, original TCRen and both surfaces. Any new estimator requires its
+own reference-only freeze and identical-cohort loss ledger; no assay weights,
+post-hoc contact blacklist or selected rescaling follows from these results.

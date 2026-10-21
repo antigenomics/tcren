@@ -13,7 +13,7 @@ from tcren.runtime import available_cpus, native_threads, parallel_map
 from test_contact_observations import complex_fixture
 
 
-@pytest.mark.parametrize("mode", ["scores", "geometry", "deepest_sphere", "accessible_boundary", "atom_count_and_chemical_core", "atom_pattern"])
+@pytest.mark.parametrize("mode", ["scores", "geometry", "deepest_sphere", "accessible_boundary", "atom_count_and_chemical_core", "atom_pattern", "inventory_pattern"])
 def test_contact_penalty_coarse_workers_equal_serial(mode):
     if available_cpus() < 2:
         pytest.skip("requires two allocated CPUs")
@@ -24,8 +24,8 @@ def test_contact_penalty_coarse_workers_equal_serial(mode):
     geometry = mode == "geometry"
     tables = {} if geometry else {name: factory() for name, factory in _BUNDLED_POTENTIALS.items()
                                  if name in ("tcren2", "karnaukhov2022")}
-    atom_count = chemical_core = None
-    if mode in ("atom_count_and_chemical_core", "atom_pattern"):
+    atom_count = chemical_core = inventory_pattern = None
+    if mode in ("atom_count_and_chemical_core", "atom_pattern", "inventory_pattern"):
         from tcren.contacts.atom_counts import TYPES, derive_atom_counts
         from tcren.contacts.chemical_core import derive_chemical_core
         swap = pl.col("role.from") != "tcr"
@@ -35,7 +35,11 @@ def test_contact_penalty_coarse_workers_equal_serial(mode):
             for side, other in [("from", "to"), ("to", "from")]
             for field, dest in [("field_0", "aa"), ("field_1", "atom")]
         ]).group_by(TYPES).len(name="count")
-        if mode == 'atom_pattern':
+        if mode == 'inventory_pattern':
+            from tcren.contacts.inventory_patterns import derive_inventory_patterns
+            counts = counts.with_columns((pl.col('count')*10).alias('opportunity'))
+            inventory_pattern = derive_inventory_patterns(counts, counts.head(0))
+        elif mode == 'atom_pattern':
             from tcren.contacts.atom_patterns import derive_atom_patterns
             data = observations.select(
                 pl.struct('chain.id.from','residue.index.from','chain.id.to','residue.index.to').alias('edge'), *[
@@ -49,7 +53,7 @@ def test_contact_penalty_coarse_workers_equal_serial(mode):
             atom_count = derive_atom_counts(counts, counts.head(0))
     options = (tables, resource, geometry, None, None,
                mode in ("deepest_sphere", "accessible_boundary"),
-               mode if mode in ("deepest_sphere", "accessible_boundary") else "deepest_sphere", atom_count, chemical_core)
+               mode if mode in ("deepest_sphere", "accessible_boundary") else "deepest_sphere", atom_count, chemical_core, inventory_pattern)
     # Unequal contiguous chunks include an ordinary per-structure failure.
     work = [(structures[:2], *options), ([None, structures[2]], *options)]
     with native_threads():

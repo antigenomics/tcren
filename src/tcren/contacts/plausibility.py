@@ -337,6 +337,8 @@ def comparison_command(
         arms.append("atom_count")
     if "atom_pattern" in scored.columns:
         arms.append("atom_pattern")
+    if "inventory_pattern" in scored.columns:
+        arms.append("inventory_pattern")
     if "chemical_core" in scored.columns:
         arms.append("chemical_core")
     if "surface_context_sum" in scored.columns:
