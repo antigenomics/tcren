@@ -7,6 +7,11 @@ All notable changes to `tcren` are recorded here. Format follows
 
 ### Added
 
+- Experimental `integral-fit` and `integral-predict`: a frozen four-component
+  logistic readout with explicit evaluation exclusions, training-only scaling,
+  equal epitope/class weighting and missingness indicators. Learned coefficients
+  are exported; the readout is not a calibrated binding probability or a default.
+
 - Experimental `integral-reference` and `integrate`: fixed-reference integration
   of ipTM, mean contact energy, surface shape and graph cycles, with equal block
   weights, component outputs, explicit missingness and reference/potential hashes.

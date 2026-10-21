@@ -115,7 +115,8 @@ def integral_scores(table: pl.DataFrame, reference: dict) -> pl.DataFrame:
 
 def _read(path):
     return pl.read_parquet(path) if path.suffix == ".parquet" else pl.read_csv(
-        path, separator="," if path.suffix == ".csv" else "\t", infer_schema_length=None)
+        path, separator="," if path.suffix == ".csv" else "\t", infer_schema_length=None,
+        schema_overrides={"complex.id": pl.String, "receptor_id": pl.String})
 
 
 def _sha(path):
@@ -130,12 +131,15 @@ def reference_command(
 
     Input: features -i interface,topology,energetics; caller verifies native origin.
     """
+    if output.exists():
+        raise FileExistsError(output)
     provenance = {"input_sha256": _sha(features)}
     sidecar = Path(str(features) + ".provenance.json")
     if sidecar.exists():
         provenance["cli_provenance_sha256"] = _sha(sidecar)
     resource = build_reference(_read(features), provenance=provenance)
-    output.write_text(json.dumps(resource, indent=2, allow_nan=False) + "\n")
+    with output.open("x") as stream:
+        stream.write(json.dumps(resource, indent=2, allow_nan=False) + "\n")
     typer.echo(f"Frozen {resource['n_reference']} native class-I rows; reference {_sha(output)}")
 
 

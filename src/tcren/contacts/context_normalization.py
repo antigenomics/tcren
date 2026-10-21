@@ -108,7 +108,8 @@ def apply_normalized(table, increments, summary):
         pl.when(cdr).then(pl.col("normalizer_status").fill_null("unavailable_geometry"))
         .otherwise(pl.lit("unassessed_framework")).alias("normalizer_status"))
     result = result.with_columns((pl.col("original_contribution")+pl.col("normalized_increment")).alias("normalized_contribution"))
-    missing = result.filter(cdr & (pl.col("normalizer_status") == "unavailable_geometry")).height
+    missing = result.filter(cdr & pl.col("original_contribution").is_finite().fill_null(False)
+        & (pl.col("normalizer_status") == "unavailable_geometry")).height
     return result, dict(summary, normalized=None if missing else result["normalized_contribution"].sum(),
         normalized_missing_geometry=missing,
         normalized_unseen_stratum=result.filter(pl.col("normalizer_status") == "unseen_multiplicity").height)

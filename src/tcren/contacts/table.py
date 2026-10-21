@@ -69,6 +69,8 @@ def directed_views(contacts: pl.DataFrame) -> pl.DataFrame:
             "atom.from": "atom.to",
             "atom.to": "atom.from",
         }
+        | ({"atom.index.from": "atom.index.to", "atom.index.to": "atom.index.from"}
+           if "atom.index.from" in contacts.columns else {})
         | ({"sc.from": "sc.to", "sc.to": "sc.from"} if "sc.from" in contacts.columns else {})
     ).select(contacts.columns)
     return pl.concat([contacts, swapped])

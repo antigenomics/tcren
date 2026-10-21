@@ -2146,3 +2146,21 @@ the same full observed Cartesian inventory. Physical multiplicities survive
 chemical-equivalence pooling. Unsupported opportunities abstain for the whole
 edge. `contact-compare` retains the `inventory_pattern` arm. See
 `INVENTORY_PATTERN_SPEC.md` for equations and explicit independence assumptions.
+
+## Separate-training integral GLM
+
+`integral-fit --features train.tsv --labels labels.tsv --excluded-epitopes heldout.tsv
+--excluded-receptors receptors.tsv -o model.json` freezes `integral-glm-1` from a
+separate current-positive/constructed-mock pool. Labels require `complex.id`,
+`epitope`, `receptor_id`, `y`; exclusion tables require their named columns.
+Both exclusion sets are mandatory and any overlap fails. The caller verifies
+biological identities, current records and disjoint validation splits. Never fit
+or select on the evaluation panels. Each training epitope must have both classes.
+Four raw components (ipTM, -Phi/n, sc_shape, g_cyclo_frac), training-only weighted
+mean/scale, four missingness flags and L2 logistic C=1 yield at most nine learned
+coefficients. This is explicitly fitted, not a fit-free score or binding energy.
+`integral-predict --features query.tsv --model model.json -o scores.tsv` exposes
+additive logit contributions and the logistic score; all-missing queries remain
+unavailable. No query-cohort fitting, whitening or adaptive signs. Existing
+outputs cannot be overwritten by fitting. API: `integral_glm.fit_integral_glm`
+and `integral_glm.integral_glm_scores`; equations and scope: `docs/integral.rst`.

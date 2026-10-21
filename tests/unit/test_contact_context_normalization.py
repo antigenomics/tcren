@@ -122,3 +122,15 @@ def test_normalizer_cli_export_and_comparison_keep_declared_arms(tmp_path, monke
     metrics = pl.read_csv(tmp_path/"comparison/metrics.tsv", separator="\t")
     assert set(metrics["arm"]) == {"original", *ARMS, "normalized", "iptm"}
     assert metrics["n_excluded"].sum() == 0
+
+
+def test_missing_potential_entry_does_not_require_geometry():
+    reference = edges((.2, None), (2, 2))
+    increments = normalized_edges(reference, normalizer(edges()))
+    table = reference.select(KEYS).with_columns(
+        pl.Series("original_contribution", [-2., None]),
+        pl.lit("supported_cdr_geometry").alias("geometry_status"))
+    result, summary = apply_normalized(table, increments, {})
+    assert summary["normalized_missing_geometry"] == 0
+    assert summary["normalized"] == result["normalized_contribution"][0]
+    assert result["normalized_contribution"][1] is None

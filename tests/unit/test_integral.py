@@ -81,3 +81,15 @@ def test_cli_roundtrip_keyed_confidence_and_provenance(tmp_path):
     assert result.exit_code == 0, result.output
     np.testing.assert_allclose(pl.read_csv(out, separator="\t")["integral_score"], [.125, .5, .875])
     assert Path(str(out) + ".provenance.json").exists()
+
+
+def test_reference_refuses_existing_output_including_input(tmp_path):
+    from tcren.integral import reference_command
+    data, ref = tmp_path / "features.tsv", tmp_path / "ref.json"
+    table().write_csv(data, separator="\t")
+    ref.write_text("frozen reference")
+    for output in (ref, data):
+        before = output.read_bytes()
+        with pytest.raises(FileExistsError):
+            reference_command(data, output)
+        assert output.read_bytes() == before

@@ -142,11 +142,13 @@ def test_directed_views_preserve_physical_edges_for_role_selection():
     from tcren.contacts.table import directed_views
     from tcren.contactmap import ContactMap
     structure = complex_fixture()
-    physical = all_atom_contacts(structure)
+    physical = all_atom_contacts(structure, atom_indices=True)
     views = directed_views(physical)
     assert views.height == 2*physical.height
     assert_frame_equal(views.head(physical.height), physical)
     reverse = views.tail(physical.height)
+    assert reverse["atom.index.from"].to_list() == physical["atom.index.to"].to_list()
+    assert reverse["atom.index.to"].to_list() == physical["atom.index.from"].to_list()
     assert reverse["residue.aa.from"].to_list() == physical["residue.aa.to"].to_list()
     assert reverse["residue.aa.to"].to_list() == physical["residue.aa.from"].to_list()
     interface = ContactMap.from_structure(structure).interface("tcr_peptide")
