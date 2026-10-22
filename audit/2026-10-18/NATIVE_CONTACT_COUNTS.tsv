@@ -1,0 +1,7 @@
+mhc_class	interface	atom_pairs	structures_with_contacts	residue_pairs	atom_rows_missing_omega
+I	peptide_mhc	123452	263	11681	4748
+I	tcr_mhc	74321	263	9565	7511
+I	tcr_peptide	48827	263	5641	8577
+II	peptide_mhc	50675	94	5531	3836
+II	tcr_mhc	27624	94	3532	2793
+II	tcr_peptide	15022	92	1885	2329

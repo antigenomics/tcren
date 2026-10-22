@@ -61,6 +61,7 @@ def all_atom_contacts(
     scope: str = "inter",
     atom_pairs: bool = False,
     sidechain: bool = False,
+    atom_indices: bool = False,
 ) -> pl.DataFrame:
     """Closest atom contact for each residue pair within ``cutoff`` Å.
 
@@ -95,6 +96,8 @@ def all_atom_contacts(
             bridge whose nearest atom pair happens to be Arg CG–Asp OD1 is invisible in the
             collapsed table, because the charged NH1–OD2 pair it also makes was discarded.
             Changes the row count, not the schema.
+        atom_indices: Add zero-based flattened heavy-atom endpoint indices. These
+            distinguish alternate atoms with identical names; default output is unchanged.
 
     Returns:
         Columns: ``chain.id.from``, ``residue.index.from``, ``chain.id.to``,
@@ -121,6 +124,9 @@ def all_atom_contacts(
     }
     if count_atoms:
         schema["n_atom_contacts"] = pl.UInt32
+    if atom_indices:
+        schema["atom.index.from"] = pl.Int64
+        schema["atom.index.to"] = pl.Int64
     if sidechain:
         schema["sc.from"] = pl.Boolean
         schema["sc.to"] = pl.Boolean
@@ -172,6 +178,9 @@ def all_atom_contacts(
     group_keys = [
         "chain.id.from", "residue.index.from", "chain.id.to", "residue.index.to",
     ]
+    if atom_indices:
+        df = df.with_columns(pl.Series("atom.index.from", pick(i, j)),
+                             pl.Series("atom.index.to", pick(j, i)))
     if count_atoms:
         # One row per atom-atom pair, so the group size is the heavy-atom-pair count.
         df = df.with_columns(pl.len().over(group_keys).alias("n_atom_contacts"))

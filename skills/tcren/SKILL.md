@@ -5,6 +5,245 @@ description: tcren — TCR-pMHC contact potential (TCRen) pipeline; conventions 
 
 # tcren Skills Guide
 
+## Primary entry point — `tcren screen`
+
+`screen -s models.tar.gz -o scores.tsv` ranks a cohort of separately modelled αβ
+TCR:pMHC candidates. Automatic identity uses the annotated peptide and CDR3 pair:
+fixed receptor/varying peptides is epitope ranking; fixed peptide/varying receptors
+is TCR ranking. Keep one MHC background; mixed sets and sets where nothing varies
+are refused. ipTM comes from metadata.tsv or `--confidence`, never from tcren.
+
+The structural alanine reference follows the varying side: epitope
+`reference_delta(..., structure=)` or contacted-CDR
+`receptor_reference(..., structure=)`, both rebuilding the contact map. The TCR
+combination carries energy, `sc_shape`, `g_cyclo_frac` and confidence; epitope
+ranking carries energy and confidence. Components use raw-column frozen means
+and scales, then direction correction. Weighted Stouffer is
+`sum(w*z)/sqrt(sum(w*w))` over observed components. Confidence weight is 0.8 for
+TCR ranking (structure shares 0.2) and 0.5 for epitope ranking. These empirical
+reference dependencies are not query-derived or fitted at scoring time.
+
+Zero-contact models retain output rows/reasons but no score and do not count
+toward the default 30-model floor. Smaller cohorts retain components alone.
+Flags report by default; `--on-flag` explicitly selects report, structure,
+geometry, withhold or reverse. Responses cannot restore unavailable scores or
+erase their original reasons. Reversal is not recommended as a modelling correction.
+
+Keep ipTM primary for receptor ranking and inspect the separate components,
+missingness, flags and provenance sidecar. No universal improvement, affinity,
+calibrated probability or receptor-specific discrimination follows from a score.
+API: `screen.screen_scores`, `screen.cohort_signature`, `screen.stouffer`.
+Equations and diagrams: `docs/screening.rst`; resource dependencies: `SOURCES`.
+
+## Epitope-ranking score
+
+`rank-epitopes --features descriptors.tsv -o scores.tsv` ranks candidate peptides for one
+receptor against the bundled frozen reference `tcren-epitope-rank-1`. Inputs are `complex.id`,
+`dPhi_tcr_pep` from `scoring --delta --reference-mode structural` (the epitope truncated to
+alanine in 3D with the contact map rebuilt -- the virtual fixed-map substitution is NOT this
+quantity), and the generator's `iptm`. The score is the equal-weight mean of the two
+standardized components, the energy negated so higher is always more binder-like.
+
+The frozen means and scales come from a held-out training pool of 729 models over 14 off-panel
+epitopes with no label read, so they are a change of units rather than fitted weights; the
+resource hash travels with every result. Nothing is fitted at scoring time and nothing is
+normalized against the query cohort, so batch and single-row scoring agree. Missing components
+are flagged and excluded from the mean rather than imputed, and a row with no observed component
+is null. Dimensionless ranking score, not a binding free energy or a calibrated probability.
+
+Epitope ranking and TCR ranking are different tasks. `rank-epitopes` serves the former;
+`screen` supports both with task-matched references. For TCR ranking ipTM remains primary
+and the combined score is a complementary readout, not an established improvement over ipTM.
+API: `ranking.epitope_rank` and `ranking.bundled_reference`; equations: `docs/ranking.rst`.
+
+## Classic reference identities
+
+The `karnaukhov2022` CLI alias / `potential.tcren()` retains the bundled May-2026
+updated classic table. The original December-2022 root table, matching saved
+Figure 3 and the March-2026 root, is a distinct frozen resource; use an explicit
+CSV when comparing that baseline. Native populations and redundancy/debiasing
+recipes must be named separately, along with full/LOO/LCO status. See `SOURCES`;
+no coefficient/default changes follow from this provenance clarification.
+
+## Symmetric chemical core, directed composition
+
+`contact-chemical-core-fit --native contacts.parquet --external curated.parquet
+-o chemical-core.json -t 0` freezes `chemical-core-count-1`: a potential-specific
+19-type map, unordered physical counts and symmetric enrichment W against pooled
+role-specific endpoint products. Native class-I CDR:peptide and curated antibody
+peptide contacts use actual integer counts at 5 Å; no assay/source weights.
+Conditional role marginals define `Z_ab=sum qB(c|a)qT(d|b)W_cd` and
+`Delta=-ln W_cd+ln Z_ab`. General contact classification stays unchanged.
+`contact-penalties ... --chemical-core-resource chemical-core.json` adds one
+physical-atom-pair mean per known CDR edge, unit coefficient, as `chemical_core`.
+Unseen W=1 yields ln Z, not final zero. Unknown mappings/zero conditional support
+abstain with final zero, distinct counts and unchanged mean denominator.
+Resource/input hashes and original scores remain explicit; `contact-compare`
+retains the separate arm. No new default, physical free energy or accuracy claim.
+See `docs/contact-penalties.rst` for equations, provenance and support semantics.
+
+## Within-residue atom-pattern layer
+
+`contact-atom-pattern-fit --native contacts.parquet --external antibody.parquet
+--equivalence-resource prior.json -t 0 -o pattern.json` freezes edge-balanced
+atom marks: each physical residue edge contributes one unit divided among its
+atom pairs, before saved chemical-equivalence aggregation. Source raw counts
+and fractional masses remain explicit. D=-ln[P(i,j|a,b)/(qB(i|a)qT(j|b))]
+uses the resulting directed endpoint marginals. Native class-I CDR:peptide and
+antibody peptide references only; no assay/source weights or distance regression.
+`contact-penalties --atom-pattern-resource pattern.json` adds one mean D per
+known CDR edge to original TCRen, fixed coefficient one. Unsupported pairs abstain
+with zero and remain in the denominator. Separate export from atom-count resource;
+`contact-compare` retains `atom_pattern` and all original arms. This categorical
+within-contact measure is not full atom occupancy or a joint graph likelihood.
+See `ATOM_PATTERN_SPEC.md` and contact-penalties docs for support/provenance.
+
+## Directed residue+atom count layer
+
+`contact-atom-count-fit --native contacts.parquet --external curated_atom_contacts.parquet
+--equivalence-resource prior.json -o atom-count.json` freezes directed conditional
+atom enrichment from existing native class-I CDR:peptide and curated antibody
+peptide contacts, pooling actual integer counts. Saved chemical equivalences
+apply to both references and queries without collapsing physical observations.
+`D=-ln[(n_xy/N_ab)/(qB(i|a)qT(j|b))]` uses contact-endpoint marginals, not exposure.
+`contact-penalties ... --atom-count-resource atom-count.json` adds one mean D per
+known CDR residue edge to each original score; unit coefficient, no assay fit.
+Unknown cells contribute neutral zero with explicit counts and remain in the
+average denominator. Framework/missing original entries retain their policy;
+missing CDR observations fail. `contact-compare` reports `atom_count` alongside
+all original arms. Class I only; no angular/distance regression, surface-area
+measure, physical-validity probability or new default. See contact-penalties docs.
+
+## Experimental frozen contact penalties (18 October 2026)
+
+`contact-prior-geometry --source DEPOSIT --exclude native_ids.txt -o NEW_DIR`
+recovers external raw frames only through unique exact float32 chemical/coordinate
+correspondence; numbering is not assumed equal. It handles one raw mmCIF at a time.
+`contact-prior-fit --external external_geometry.tsv.gz --native native.parquet
+-o RESOURCE.json` freezes approximate normal marginals of logit(d/5 Å) and
+atanh(cos(angle)), external/native sufficient statistics and declared chemistry
+backoff. The external actual counts supply prior strength; there is no label input.
+Angular torsion sign is discarded; missing/boundary geometry remains unavailable.
+
+`contact-penalties -s manifest.txt --resource RESOURCE.json --chunk 512 -t 0 -o NEW_DIR`
+exports original TCRen2 and bundled classic TCRen energies plus fixed, matrix-scaled, literal
+flip and favourable-only flip contributions. It keeps the legacy all-TCR peptide
+baseline, adding one increment per physical CDR:peptide residue edge. Framework
+contacts remain explicitly unassessed. Worst supported atom/marginal predictive
+tail defines the shared weight; no score-time fitting, probability-of-naturalness
+claim or independent-marginal product. Missing potential entries retain legacy
+omission with explicit counts/null contributions. Batched annotation is bounded
+by `--chunk` (default512); parent-only batched annotation precedes coarse
+contiguous spawn-worker scoring. `-t 0` (default) uses all allocated CPUs; `1`
+is explicit serial and positive N is a bounded allocation. Native kernels stay
+serial inside workers; pool failure propagates. No computed-part cache.
+
+`contact-compare --labels labels.tsv --scores NEW_DIR/scores.tsv -o COMPARISON`
+uses exactly the same finite IDs for all arms/original/ipTM within every potential,
+cohort, MHC class and template stratum. Existing ROC/AP/precision-at-recall metrics,
+membership and all gains/losses are exported. See `docs/contact-penalties.rst`.
+The resource is an estimated experimental dependency, not a new final-paper model.
+
+``contact-geometry-audit`` exports fresh bounded all-atom chemistry plus exact
+worst-tail lineage with the frozen resource; it does not recalculate energies.
+``contact-mechanism --run ACCEPTED_RUN --geometry NEW_DIAGNOSTICS -o NEW_DIR``
+verifies unchanged row membership, weights, signed sums and accepted AUROC deltas
+via pair-concordance accounting. Outputs separate chemical/proximity counts from
+continuous Σ(1−u)/Σu geometry equivalents; motif/matrix selection and changed-rank
+examples retain cohort/class/template strata. No binary geometry cutoff or new
+score is selected. See the mechanism section in `docs/contact-penalties.rst`.
+
+## Multiplicity-calibrated weighted contact scores (18 October 2026)
+
+`contact-weight-calibrate --external external_geometry.tsv.gz --native native.parquet
+--resource marginal-resource.json -o calibration.json` freezes conditional empirical
+ranks of the existing minimum predictive tail. The opportunity group counts supported
+atom-distance rows and distinct `(key,x)` omega/theta/phi terms. Native CDR:peptide
+strata take precedence; external antibody:antigen is used only for native-empty
+strata. Weight `w=(1+#reference_tail<=query_tail)/(N+1)` retains ties inclusively.
+Export native/external source, edge/structure counts and missing support. Unseen
+strata/missing geometry retain neutral weight one explicitly. No labels or tuned
+thresholds/coefficient enter calibration. The marginal resource hash is bound.
+
+`contact-penalties ... --calibration calibration.json` additionally exports weighted
+entries `w*e`, with unchanged framework/missing-entry policies and original matrices.
+`contact-compare` then compares original/weighted/ipTM on identical finite IDs.
+`contact-weight-summary --run NEW --accepted OLD --mechanism PREVIOUS -o AUDIT`
+verifies exact original scores/graphs/raw membership and exports signed losses,
+CDR-only equivalents, support, motifs and exact pair-concordance accounting.
+Reference ranks do not establish contact-validity probabilities, independent
+calibration or binding free energies. See `docs/contact-penalties.rst`.
+
+## Directed reference-partition correction
+
+contact-normalizer-fit --native PARQUET --resource V2 --mhc-class I --out JSON
+freezes logZ=log(mean_native(exp(-u))) in exact native CDR→peptide opportunity
+strata (n_distance,n_omega,n_theta,n_phi). contact-penalties --normalizer JSON
+adds g=u+logZ once per edge; contact-compare retains all original arms.
+Empirical mean exp(-g)=1 and constant penalties cancel. Source version/hash/class
+are checked. Unseen groups have zero increment with a flag; missing geometry
+stays unavailable; framework and missing-table policies are unchanged.
+Partitions are estimated reference dependencies with no assay-fitted weights.
+The relative factor may have either sign and does not supply binding free
+energy or SASA/pocket normalization.
+
+## Opportunity-aware contact-class audit
+
+`export --quantity atom-inventory --interface all -o atoms.parquet` exports all
+selected observed heavy atoms in full TRA/TRB/peptide/MHC/B2M components, including
+zero-contact atoms, with the existing contact conformer/source-index policy.
+No potential, SASA, bonds/protonation inference or energy is used. Inventory
+membership includes context/framework/Gly-extra atoms; contact_role/eligible
+retain the separate historical scope. Source index is parsed-heavy-atom ordinal,
+not PDB serial; peptide.pos is observed one-based ordinal.
+
+`contact-class-audit --manifest labels.tsv -o NEW_DIR -t 0 --chunk 128` performs
+fresh batched annotation/coarse-worker structural export, then opportunity-aware
+statistics in bounded feature blocks, retaining all models/clusters per feature.
+Final Parquet paths can be partitioned datasets read by `polars.read_parquet`.
+Required manifest: id,label,receptor_cluster,dataset,cohort,epitope,
+mhc,mhc_class,template_coverage,source,sha256. All selected TCR regions are separate
+binder contexts; targets are peptide and annotated MHC helices. Physical atom and
+residue contact counts use fixed5A. Sparse opportunities multiply full matching
+endpoint availabilities, retaining C0/Opositive and explicit O0 missingness.
+Site views stay case/allele-specific; overall chemistry contrasts weight cases
+equally and retain MHC class/coverage and separate TCRvdb epitopes. Exact support,
+prevalence, density, unsmoothed ratios and receptor-clustered CR1/t uncertainty
+are exported; unreplicated/degenerate inference stays null. All failures retain
+accounting and block statistics. No score, fitted weights, significance filtering,
+FDR/permutations, cached feature inputs or default promotion. See
+`docs/contact-penalties.rst` for full definitions and observational limits.
+
+## Contact observations (18 October 2026)
+
+`tcren export -s native.txt --quantity contact-atoms --interface all -t 1 -o atoms.parquet`
+uses the existing batched annotation/search and one neighbour search per structure.
+No potential required. `all` selects CDR1/2/3:peptide, CDR1/2/3:MHC helices and
+peptide:MHC helices; the existing three interface names select individual arms.
+MHC groove-floor/B2M contacts are excluded. Missing MHC helix annotations fail
+explicitly. Existing quantities and legacy conformer handling are unchanged.
+
+The new quantity selects the lexicographically first nonblank altloc per residue,
+plus blank atoms, with selected-label atoms winning name ties; this is not an
+occupancy selection or proof of inter-residue conformer compatibility. It retains
+altloc/source atom indices and omitted-atom counts. Glycine uses observed backbone
+atoms only. `chem.a`/`chem.b` canonicalize whole residue+atom tuples; physical sides
+retain chain/author residue/insertion, coordinates and biological region labels.
+Observed N/CA/CB define trRosetta omega/theta/phi in radians; glycine/missing CB and
+degenerate geometry remain null. Current v2 chemistry flags remain heuristics;
+stacking uses the existing ring geometry. No angular hydrogen-bond assignment,
+plausibility probability, penalty or energy is calculated.
+
+The new quantity writes compressed Parquet for a `.parquet` output suffix,
+otherwise TSV. `atoms.parquet.summary.tsv` separates exchangeable atom chemistry and directed binder-to-target residue frequencies by
+class, interface and receptor region. Residue distances are closest retained atom
+distances and type flags are unions over atom pairs, not closest-pair labels.
+Overlapping type counts do not sum to totals. The observation API is
+`contacts.observations.contact_observations`; table-only reduction is
+`summarize_contact_observations`. Accounting includes zero-contact structures;
+summary rows describe observed groups, not missing groups or independent samples.
+Summary hash, annotation/index lineage and conformer policy remain in provenance.
+
 ## MD diagnostics (issue 26)
 
 `tcren md inspect --trajectory protein-continuous.pdb --reference first.pdb
@@ -1671,31 +1910,21 @@ from tcren.paper import (
   regression oracle (legacy mir/R outputs: `contact_maps_PDB.csv`, `tcren_am/tcren.txt`, the
   `example/` set) lives under `tests/assets/oracle/`; the legacy R/Java pipeline was deleted.
 
-## Symmetric TCRen — `derive_tcren(..., symmetric=True)`
+## Directed binder-to-target contact models
 
-TCRen is **directed**: `from` is a TCR residue, `to` a peptide residue, so `F[a,b] != F[b,a]` and
-the shipped matrix is 19x20 (classic drops the `from == "C"` row). MJ — used for the presentation
-interfaces — is symmetric 20x20. `symmetric=True` folds the **raw counts** onto their transpose
-(`potential.symmetrize_counts`, `N + N.T`) *before* the log-odds, so the marginals and hence the
-expected term are rebuilt from the folded counts.
+Residue counts, potentials, backgrounds and contextual likelihoods retain ordered
+binder → target roles. Derivation never adds reverse residue counts or averages
+a potential with its transpose. TCRen's receptor and target marginals are distinct;
+published MJ tables retain their original entries without altering TCRen to match
+their intrinsic symmetry. Only individual atom-pair chemistry may use exchangeable
+whole amino-acid:atom tuples. Angular keys retain binder/target residue order and
+the endpoint whose theta/phi is measured. New resources use contact-marginals-2;
+version-1 angular resources are rejected by active scoring.
 
-```python
-from tcren.potential import derive_tcren, symmetrize_counts
-sym = derive_tcren(contacts, variant="classic", symmetric=True)   # exactly symmetric, 20x20
-```
-
-- **Not a post-hoc average.** Averaging the finished energies leaves the asymmetric background in
-  place; on Native2026 the two differ by 0.29 mean / 0.82 max. Symmetrise counts, not energies.
-- **Cys is grafted, not dropped.** Free Cys is essentially absent from CDR loops — 4 of 8062
-  Native2026 contacts (0.05%) are TCR-side Cys vs 32 (0.40%) peptide-side. The fold grafts the
-  peptide-side observations onto the Cys row, so the symmetric matrix keeps a full 20x20 alphabet
-  instead of dropping a column for lack of data. `drop_cys` is forced `False` when `symmetric`.
-- **Why it is interesting:** it puts TCRen in MJ's functional form, making them directly
-  comparable for the first time. They turn out to be nearly **uncorrelated** (Pearson +0.07,
-  Spearman +0.10 over the 210 unordered pairs) — TCR:peptide recognition chemistry is not generic
-  protein-folding contact chemistry, which is the argument for TCRen existing separately at all.
-  Symmetric vs directed TCRen: r = +0.67, mean|diff| 0.29.
-- Default is `symmetric=False`; the shipped `TCRen_potential.csv` is unchanged.
+Potential.scale() and offset() use every finite defined directed cell. Frozen
+historical interface moments are unchanged. An intra-peptide term requires an
+intrinsically symmetric source potential; it rejects asymmetric TCRen instead
+of averaging its entries.
 
 ## Geometry: contacts, region pairs, docking angle
 
@@ -1872,3 +2101,85 @@ the stamped source and complete accounting, keeps zero-contact models, exposes
 missing entries and undefined surface selections, and records input hashes. No
 structures, MMseqs searches, label inputs, tolerance rounding or fitting. Use these
 CLI sums downstream; R owns tidy summaries/macros rather than replacement scoring.
+
+## Atom-resolved context exposure
+
+`export -s MANIFEST --quantity contact-exposure -o OUTPUT` exports all heavy atoms
+of annotated alpha-beta TCR and intact pMHC, including noncontacts, without a
+potential. `isolated_sasa_A2`, `bound_sasa_A2`, `partner_burial_A2` retain physical
+atom keys and binder/target roles. Target isolation retains MHC/B2M; peptide-alone
+area and `mhc_shielding_A2` are separate peptide-only fields. Residue areas are
+sums over atoms. Uses existing Bio.PDB Shrake-Rupley, 100 points, 1.4 A probe,
+supplied-coordinate frame. Coordinate stripping is not experimental apo geometry.
+This is an exposure export, not a context-normalized score or water free energy.
+Use bounded manifest chunks: the general export collects its output tables.
+
+`export --quantity surface-contacts` uses the native SASA sphere and emits
+binder→target atom pairs with separate endpoint allocated areas; the companion
+`.atoms.parquet` retains exposed noncontacts. Area is conserved per endpoint;
+nearest expanded-sphere signed gap owns each patch, exact ties split equally.
+`contact-penalties --surface-context` adds raw/normalized area-weighted sums
+using isolated CDR and intact-pMHC peptide exposed compositions. Original
+scores remain unchanged. `contact-compare` compares both new sums on the same
+finite rows; the nullable per-area diagnostic is not a comparison arm. See
+`docs/contact-penalties.rst` for equations, missing-support accounting and units.
+
+
+`contact-penalties --surface-context --surface-ownership accessible_boundary`
+selects nearest sampled isolated opposing boundary ownership. The default
+`deepest_sphere` remains unchanged. This option conserves each endpoint's area
+and assigns only to atoms with positive sampled isolated exposure; exact ties
+split among distinct atom owners. Python API: `contact_surface(structure,
+ownership="accessible_boundary")`. The native sampler's optional `samples=True`
+exports exposed sample coordinates, atom indices, areas and lost/bound flags.
+SciPy batched nearest-neighbour queries use one worker. Record the chosen method,
+keep runs separate, and do not claim an accuracy gain from geometric invariants.
+
+## Frozen candidate-pool scoring
+
+`score -s templates.txt -c candidates.tsv -p karnaukhov2022|tcren2 -t 0 -o scores.csv`
+uses parent-only batch annotation followed by coarse template workers, sharing
+one potential/options tuple per chunk. Default0 uses the allocation;1 is serial.
+Candidate TSV uses `complex.id,peptide`; metadata/labels are benchmark-owned.
+Preserve the exact candidate pool and duplicate multiplicities when comparing
+potentials. `rank` generates another random background and is not a substitute.
+Sequence threading changes residue identities on template contacts; it does not
+provide physical mutant sidechain atoms for the atom-count/surface correction.
+
+`score-receptors -s templates.txt -c receptors.tsv -p karnaukhov2022 -t 0 -o scores.csv`
+threads paired anchor-excluded CDR3s onto fixed CDR3:peptide contacts using
+`score_peptides(..., substituted_side="from", require_same_length=False)`.
+TSV columns: `complex.id,candidate.id,cdr3a,cdr3b`; IDs unique per template,
+distinct IDs with identical sequences retained. Standard uppercase amino acids,
+exact observed template CDR3 lengths, one physical TRA/TRB CDR3 and exactly one
+observed standard-amino-acid peptide are required. Cutoff must be finite and
+positive; missing templates fail. One fresh ContactMap per template, parent batched annotation,
+coarse bounded workers and serial native kernels; `-t 0` uses allocation.
+Output `score.tra,score.trb,score` retains directed potential sums and original
+missing-cell omission. Default CDR3 mode excludes framework/CDR1/2 contacts.
+No coordinates, anchor synthesis, peptide-only weighting/reference options or fitting.
+
+`--receptor-region junction` requires `junctiona,junctionb` instead of `cdr3a,cdr3b`.
+Junctions include the actual observed Cys104 and F/W118: recover FR3 last/FR4 first,
+requiring unambiguous annotations and immediate adjacency to contiguous observed
+CDR3. Missing/gapped/invalid anchors fail. Candidate junctions start C, end F/W and
+match the exact observed junction length. Include physical anchor contacts and
+index the filtered view from junction start; never mutate structures/contact maps.
+Default `--receptor-region cdr3` behavior and columns remain unchanged.
+
+## Inventory-aware whole-pattern correction
+
+`contact-inventory-pattern-fit --native native_counts.parquet --external
+external_counts.parquet --equivalence-resource prior.json -t 0 -o inventory.json`
+freezes integer contact/opportunity estimates without assay inputs. Counts have
+`aa_from,atom_from,aa_to,atom_to,count,opportunity` columns; include zero-contact
+opportunities from complete observed inventories of reference contacting edges.
+`contact-penalties --inventory-pattern-resource inventory.json` adds one complete
+binary-pattern log ratio per scored CDR residue edge to unchanged original TCRen.
+P has cell-specific Jeffreys-smoothed probabilities; Q has a pooled probability
+for the directed residue pair. Both condition on at least one contact and use
+the same full observed Cartesian inventory. Physical multiplicities survive
+chemical-equivalence pooling. Unsupported opportunities abstain for the whole
+edge. `contact-compare` retains the `inventory_pattern` arm. See
+`INVENTORY_PATTERN_SPEC.md` for equations and explicit independence assumptions.
+

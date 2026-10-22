@@ -61,10 +61,31 @@ and the structure sets ``fetch-data`` populates in ``data/`` (``Native2026``, ``
 ``$TCREN_DATA_DIR`` overrides the ``data/`` subdirectory on its own
 (:func:`tcren.paths.data_dir`).
 
-Command line
-------------
+Rank a cohort
+-------------
 
-End-to-end candidate-epitope scoring from a structure:
+Once the annotation references are available, start with separately modelled
+candidate complexes for one ranking task:
+
+.. code-block:: console
+
+   $ tcren screen -s models.tar.gz -o scores.tsv
+   $ tcren screen -s models.tar.gz --confidence confidence.tsv -o scores.tsv
+
+A cohort fixes either the receptor or the pMHC. ``screen`` detects which side varies
+from the annotated peptide and CDR3 pair and applies its task-matched reference.
+Keep the MHC background consistent. The optional confidence table carries unique
+``complex.id`` and ``iptm`` columns; otherwise the set's metadata supplies ipTM.
+Zero-contact models are discarded from scoring, retained with reasons, and excluded
+from the default 30-model floor. Smaller cohorts report components alone.
+
+Continue with :doc:`screening` for formulas and output semantics, or :doc:`kit`
+for interpretation and component inspection.
+
+Thread peptides on one fixed template
+-------------------------------------
+
+Use this separate protocol when candidates share a template contact map:
 
 .. code-block:: console
 
@@ -191,21 +212,23 @@ validated to have all five required chains):
 What tcren can answer
 ---------------------
 
-From a single TCR–peptide–MHC structure (crystal or model), each task is one command — or, where the
-task has no command of its own, one call:
+Start with ``tcren screen`` when you have a cohort — one side held fixed across every structure.
+The rest are toolkit commands, reached when you want a particular number:
 
-=================================================  ==========================================================
-question                                           command
-=================================================  ==========================================================
-Which candidate epitopes does this TCR recognise?  ``tcren score -s c.pdb -c candidates.txt -o ranked.csv``
-Is this peptide a strong binder for this TCR?       ``tcren rank -s c.pdb -o rank.csv``
-How does a mutation change recognition (ΔΔG)?       ``tcren ddg -s c.pdb --native EPI --alanine-scan``
-Which of these modelled TCRs bind?                  ``tcren features -s models/ -o f.tsv``, then ``tcren recognize --features f.tsv -o s.tsv``
-Three-interface energy Φ (and ΔΦ, and Q)?           ``tcren scoring -s c.pdb --delta --geometry``
-Substitute a peptide and relax its pose?            ``tcren refine -s c.pdb --substitute KQWLVWLFL -o out/``
-What does a TCR meet on this pMHC surface?         ``tcren surface -s c.pdb -o surf.csv --compare``
-Does the peptide hold its own conformation?        ``peptide_stability(structure).rmsf``
-=================================================  ==========================================================
+==========================================================  ==========================================================================================
+question                                                    command
+==========================================================  ==========================================================================================
+I have a cohort of models — rank them                       ``tcren screen -s models/ -o scores.tsv`` (start here)
+Which candidate epitopes does this TCR recognise?           ``tcren score -s c.pdb -c candidates.txt -o ranked.csv``
+Rank peptides for one receptor, against a frozen reference  ``tcren rank-epitopes --features f.tsv -o scores.tsv``
+Is this peptide a strong binder for this TCR?               ``tcren rank -s c.pdb -o rank.csv``
+How does a mutation change recognition (ΔΔG)?               ``tcren ddg -s c.pdb --native EPI --alanine-scan``
+Which of these modelled TCRs bind?                          ``tcren features -s models/ -o f.tsv``, then ``tcren recognize --features f.tsv -o s.tsv``
+Three-interface energy Φ (and ΔΦ, and Q)?                   ``tcren scoring -s c.pdb --delta --geometry``
+Substitute a peptide and relax its pose?                    ``tcren refine -s c.pdb --substitute KQWLVWLFL -o out/``
+What does a TCR meet on this pMHC surface?                  ``tcren surface -s c.pdb -o surf.csv --compare``
+Does the peptide hold its own conformation?                 ``peptide_stability(structure).rmsf``
+==========================================================  ==========================================================================================
 
 Case studies
 ------------

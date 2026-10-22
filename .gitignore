@@ -352,6 +352,10 @@ data/immrep23_negatives/
 data/vdjdb_binder_benchmark/
 data/vdjdb_mut2023_benchmark/
 data/tables/
+# Requested native contact-observation deliverables; compact audit counts are tracked separately.
+data/contact-observations-*/
+# Licensed external raw contact-prior inputs; provenance is tracked in the audit dossier.
+data/contact-priors/
 
 # Claude Code <-> Obsidian memory sync (machine-local absolute paths)
 .claude/obsidian-sync.json

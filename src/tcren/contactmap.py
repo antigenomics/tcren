@@ -1,6 +1,6 @@
 """Residue-level contact map and interface partitioning.
 
-A :class:`ContactMap` wraps the annotated, symmetrised contact table and exposes the
+A :class:`ContactMap` wraps separate annotated endpoint views and selects the
 three biological interfaces (TCR↔peptide, TCR↔MHC, peptide↔MHC). The TCR↔peptide
 interface is the central object for scoring and reproduces the schema of
 ``data/contact_maps_PDB.csv`` once chains and regions are annotated.
@@ -34,7 +34,7 @@ TCR_REGIONS: dict[str, set[str] | None] = {
 
 @dataclass(slots=True)
 class ContactMap:
-    """Annotated, symmetrised residue contacts for one structure."""
+    """Annotated endpoint views; interface selection retains binder→target only."""
 
     pdb_id: str
     contacts: pl.DataFrame

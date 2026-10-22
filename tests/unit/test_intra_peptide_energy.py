@@ -3,9 +3,8 @@
 Every interface energy in the package sums over contacts between two *different* chains, so a
 peptide held in its bound conformation by its own side chains costs the same as one that is not.
 ``intra_weight`` is that omitted term, made optional. The tests that matter are the two guards:
-the term is off by default and changes nothing when it is, and the potential is symmetrised —
-an intra-chain pair has no ``from``/``to`` orientation, so a directed potential such as TCRen must
-not be read as though it did.
+the term is off by default and changes nothing when it is, and directed interface potentials
+are rejected because intra-chain pairs have no binder/target roles.
 """
 
 from __future__ import annotations
@@ -63,23 +62,22 @@ def _toy_map(n_atom_contacts: int | None = None) -> ContactMap:
                       peptide_internal=pl.DataFrame(cols))
 
 
-def test_the_potential_is_symmetrised():
-    """An intra-chain pair has no from/to orientation, so the two directions are averaged."""
-    energy = intra_peptide_energy(_toy_map(), _directed_potential())
-    assert energy == pytest.approx((-2.0 + 4.0) / 2)
+def test_directed_intra_potential_is_rejected():
+    with pytest.raises(ValueError, match="requires a symmetric potential"):
+        intra_peptide_energy(_toy_map(), _directed_potential())
+    empty = _toy_map()
+    empty.peptide_internal = empty.peptide_internal.head(0)
+    with pytest.raises(ValueError, match="requires a symmetric potential"):
+        intra_peptide_energy(empty, _directed_potential())
 
 
-def test_threading_a_candidate_reads_the_pair_positions():
-    # Position 0 -> K and position 4 -> A: the same unordered pair, so the same symmetrised value.
-    energy = intra_peptide_energy(_toy_map(), _directed_potential(), peptide="KAAAA")
-    assert energy == pytest.approx((-2.0 + 4.0) / 2)
-    # Both positions A: F[A,A] = 1.0, symmetric already.
-    assert intra_peptide_energy(_toy_map(), _directed_potential(), peptide="AAAAA") == pytest.approx(1.0)
-
-
-def test_atomic_weighting_multiplies_by_the_atom_pair_count():
-    pot = _directed_potential()
-    assert intra_peptide_energy(_toy_map(3), pot, contact_weight="atomic") == pytest.approx(3.0)
+def test_threading_and_atomic_weights_keep_intrinsic_mj_entries():
+    pot = mj()
+    expected = pot.value("A", "K")
+    assert intra_peptide_energy(_toy_map(), pot) == pytest.approx(expected)
+    assert intra_peptide_energy(_toy_map(), pot, peptide="KAAAA") == pytest.approx(expected)
+    assert intra_peptide_energy(_toy_map(), pot, peptide="AAAAA") == pytest.approx(pot.value("A", "A"))
+    assert intra_peptide_energy(_toy_map(3), pot, contact_weight="atomic") == pytest.approx(3*expected)
 
 
 def test_atomic_weighting_without_the_count_names_the_flag():

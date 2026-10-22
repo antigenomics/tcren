@@ -2,9 +2,9 @@ name: docs
 
 on:
   push:
-    branches: [develop, master]
+    branches: [dev, develop, master]
   pull_request:
-    branches: [develop, master]
+    branches: [dev, develop, master]
   workflow_dispatch:
 
 permissions:
@@ -27,8 +27,12 @@ jobs:
         with:
           enable-cache: true
       - name: Install pandoc
+        timeout-minutes: 5
         # nbsphinx converts the tutorial notebooks via pandoc (fails with PandocMissing otherwise).
-        run: sudo apt-get update && sudo apt-get install -y pandoc
+        run: |
+          if ! command -v pandoc >/dev/null 2>&1; then
+            sudo apt-get update && sudo apt-get install -y pandoc
+          fi
       - name: Install docs toolchain
         # A repo-local uv venv (the runner's Python is externally managed). autodoc imports tcren from
         # src/ with heavy deps mocked (docs/conf.py:autodoc_mock_imports), so arda / the native

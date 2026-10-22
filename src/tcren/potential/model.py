@@ -139,24 +139,13 @@ class Potential:
     def scale(self) -> float:
         r"""The potential's own energy scale: the standard deviation over its defined pairs.
 
-        Two potentials Boltzmann-inverted from different contact statistics are not on a common
-        scale, so summing energies read off them weights whichever has the wider matrix. Measured
-        over the shipped matrices: TCRen2 0.4880, MJ 0.3270, **Keskin 1.3181** -- so an unweighted
-        :math:`\Phi_{\mathrm{TCR:pep}} + \Phi_{\mathrm{TCR:MHC}} + \Phi_{\mathrm{pep:MHC}}` is
-        2.70x more sensitive to a presentation contact than to a recognition one when the
-        presentation interfaces are scored with Keskin.
-
-        Dividing each interface energy by its potential's scale makes the three terms commensurate.
-        The coefficient is a property of the matrix alone -- no cohort, no label, no fit.
-
-        Diagonal and off-diagonal entries are pooled and each unordered pair counted once, since
-        the matrix is symmetric in use.
+        Every finite directed cell contributes once, including both orientations
+        when defined. This matrix statistic does not make distinct empirical
+        reference states physically commensurate.
         """
         m, _ = self.as_matrix()
         v = np.asarray(m, float)
-        iu = np.triu_indices_from(v)
-        w = v[iu]
-        w = w[np.isfinite(w)]
+        w = v[np.isfinite(v)]
         if w.size < 2:
             raise ValueError(f"potential {self.name!r} has {w.size} defined pairs; no scale")
         return float(w.std(ddof=0))
@@ -164,16 +153,13 @@ class Potential:
     def offset(self) -> float:
         """The potential's mean over its defined pairs (see :meth:`scale`).
 
-        An additive offset multiplied by a contact count is a contact count, not an energy, so a
-        potential with a large one -- Keskin's mean is -3.5630 and every entry is negative -- makes
-        its interface energy read mostly as interface size. Subtracting it leaves the identity
-        preference, which is what the other channels do not already carry.
+        Every finite directed cell contributes once. Subtracting this mean from
+        every contact contribution shifts the total by the mean times the number
+        of scored contacts; it is not a change in the empirical reference state.
         """
         m, _ = self.as_matrix()
         v = np.asarray(m, float)
-        iu = np.triu_indices_from(v)
-        w = v[iu]
-        w = w[np.isfinite(w)]
+        w = v[np.isfinite(v)]
         if not w.size:
             raise ValueError(f"potential {self.name!r} has no defined pairs")
         return float(w.mean())
@@ -418,7 +404,7 @@ def _bundled(filename: str) -> Path:
 
 
 @lru_cache(maxsize=None)
-@not_in_tcren2('The 2022 matrix, kept for reproducing published results. TCRen2 is tcren.potential.tcren2() and is the default since 2.11.0; the two correlate at r = 0.867 with a maximum absolute difference of 0.943 and are not interchangeable.')
+@not_in_tcren2('The bundled May-2026 classic matrix under the historical 2022 alias; distinct from the original-paper table (see SOURCES). TCRen2 is tcren.potential.tcren2() and is the default since 2.11.0; the two correlate at r = 0.867 with a maximum absolute difference of 0.943 and are not interchangeable.')
 def tcren() -> Potential:
     """Load the bundled classic TCRen potential (cached; treat as read-only)."""
     return Potential.from_csv(_bundled("TCRen_potential.csv"), name="TCRen")
@@ -448,7 +434,7 @@ def tcren2_em() -> Potential:
     (:func:`tcren.potts.fit_selfconsistent`).
 
     It is a **smaller** perturbation of :func:`tcren2` than :func:`tcren` is: Pearson *r* = 0.944
-    against TCRen2 over the 380 cells, against *r* = 0.867 between TCRen2 and the 2022 matrix. The
+    against TCRen2 over the 380 cells, against *r* = 0.867 between TCRen2 and the bundled classic matrix. The
     movement concentrates where the crystal tally was thin — mean absolute shift 0.152 in the
     quartile of cells holding a median of 2 observations, 0.057 in the quartile holding 47.
 

@@ -13,6 +13,31 @@ they are not bundled, they are fetched from Hugging Face, and `DATASETS.md` cove
 
 ---
 
+## Experimental contact-marginals resource — derived, not bundled
+
+The opt-in `contact-prior-fit` CLI derives a separately versioned JSON resource
+from exact external antibody atom contacts/current-coordinate frame verification
+and fresh native `export --quantity contact-atoms --interface all` observations.
+External deposit identity, license, download hashes and overlap policy are recorded
+in `audit/2026-10-18/CONTACT_PRIOR_SOURCES.md`; model definitions and commands are
+in `docs/contact-penalties.rst`. This does not regenerate either bundled TCRen table.
+
+The resource retains actual external and native marginal counts/means/variance
+sums, the pooled-chemistry backoff and external-support categorical Dirichlet
+counts. The external counts supply the prior strength; this is an estimated
+dependency. Normal transformed marginals, discarded torsion signs and correlated
+within-complex observations limit interpretation. Posterior predictive tails are
+compatibility scores, not calibrated naturalness/binding probabilities. All four
+penalty constructions use the same frozen worst-supported geometry weight and
+full-table potential maximum, fixed before benchmark accuracy inspection.
+
+Exact regeneration requires the pinned raw deposit and current mmCIF source
+manifests, complete native-ID exclusions, fresh native input hashes, producing
+noneditable wheel and resource digest. Raw inputs and private benchmark mappings
+remain in their owning storage; no cohort normalization or assay-fitted coefficient
+is bundled. Reference and score outputs carry their hashes rather than version-only
+claims. Missing matrix entries and recovered geometry are explicit.
+
 ## `sidechain_geometry.json` — derived
 
 Side-chain internal coordinates: per residue type and atom, the bond length to its parent, the bond
@@ -45,10 +70,27 @@ heavy atom of any of the nineteen non-glycine types from a backbone and a chi ve
 The classic TCRen TCR↔peptide potential. **Directed**: rows are the TCR side, columns the peptide
 side, so it must not be symmetrised or decomposed.
 
-- Origin: derived by us from the Native2022 TCR:pMHC contact statistics (Karnaukhov et al. 2024).
-- Regenerate: `tcren derive-potential -s <structures> -o TCRen_potential.csv`; the current file is
-  the published 2024 derivation, not a re-run.
-- Loader: `tcren.potential.tcren()`.
+- Bundled identity: the May 2026 updated classic table from commit
+  `ef204be2f787ece0088cc2471c24079f135621a3`, copied into the Python package at
+  `91f50249ae788e468e6735b6128472da347a9cbc`. SHA256:
+  `1aba9dce3cf67600d1216f3dd533290f33f355c0df9cc282b084d85e8047794b`.
+- Original-paper artifact: root and pipeline `TCRen_potential.csv` at December 2022
+  commit `e2b6b95b6bdf876d6bd92f9eda733ec240cb43c3` have SHA256
+  `d940e80abf7c9742c009fb463423a00758e3a277f77f750300c3ed24b3f3fea6`.
+  All 380 values match the saved Figure 3 TCRen subset and the March 2026 root
+  table. The contemporaneous pipeline copy differs; do not conflate variants.
+- Reference metadata changes from 239 structures / 140 nonredundant representatives
+  in the original snapshot to 333 / 196 in the May update. The original R recipe
+  selects nonredundant representatives, counts directed contacts and adds one
+  pseudocount before marginal normalization. Updated populations and alternative
+  redundancy recipes can legitimately change coefficients; numerical differences
+  alone do not establish a calculation error.
+- Regeneration is not certified by a generic `derive-potential` call: exact input
+  membership, representative selection and recipe/version must be pinned.
+- Loader: `tcren.potential.tcren()` / CLI `karnaukhov2022` retains the bundled May
+  table for compatibility. Its alias is not proof of original-paper identity.
+  The original saved CSV can be supplied explicitly through `--potential CSV`;
+  this provenance correction changes no coefficients or defaults.
 
 ## `TCRen2_potential.csv` — derived
 
@@ -224,3 +266,86 @@ one-class readouts therefore do not imply label-free or negative-independent tra
 - Spring units use the default multiplicity/distance² with distances in Å: reduced stiffness
   Å^-2, force Å^-1, work dimensionless, all with an unspecified energy scale. No SI calibration
   was inferred. Unit/count spring weighting has a different arbitrary scale, documented by the API.
+
+Multiplicity-conditioned contact ranks (18 October 2026)
+-------------------------------------------------------
+Experimental derived resource, never a raw structural probability table. Inputs are
+requested final native-b.parquet and external_geometry.tsv.gz contact observations,
+with raw PDB/mmCIF correspondence and DTU 22555672 provenance documented above and
+in audit/2026-10-18/CONTACT_PRIOR_SOURCES.md. Native CDR:peptide rank references only;
+external antibody:antigen exact-opportunity fallback. The approved native/external
+marginal resource remains SHA256
+63c141f0a8be2e090cda543193148dbd8b06f937dcaf5f4f428124c77d013f16.
+Regenerate: tcren contact-weight-calibrate --external external_geometry.tsv.gz
+--native native-b.parquet --resource frozen-contact-prior-c.json -o NEW_RESOURCE.json.
+Exact input hashes/command/installed-wheel identity are retained in benchmark
+results/contact-weighted-20261018/calibration.RUN.json and calibration.json.
+Frozen resource SHA256
+c096b37a19f5937ce5d40afa4a0c84d4caf8d438a4dc32203e0774d05ebaf07e.
+Scientific definition, native/external counts, estimated dependencies and limits:
+audit/2026-10-18/CONTACT_WEIGHTED.md. No assay label, potential coefficient or
+predictor confidence is used to estimate these ranks. Prior results are preserved.
+
+## Experimental chemical core — derived resource, 20 October 2026
+
+`chemical-core-count-1` is a separately generated empirical reference dependency,
+not a bundled force field or raw experimental energy measurement. Its inputs are
+existing native class-I CDR:peptide contact observations and the existing curated
+antibody peptide-target contact population, exported as physical heavy-atom pairs
+at 5 Å. Preserve the original input source/curation provenance and membership
+accounting privately where access requires it; public documentation does not
+release those structures, identifiers or contact tables.
+
+Regenerate into a new output with neutral file placeholders:
+`tcren contact-chemical-core-fit --native observations.parquet --external curated.parquet -o chemical-core.json -t 0`.
+Pin exact input hashes, producer version, physical source counts and membership
+counts with the resulting immutable resource; record its hash in each consuming
+scoring run. No numerical resource or hash is asserted by this recipe alone.
+
+The potential-specific 19-type map separates carbonyl sites, methionine/cysteine
+sulfur and unknown-state histidine ring nitrogen without changing the general
+contact classifier. Actual contact counts determine symmetric unordered
+chemical enrichment; role-specific residue-conditional endpoint compositions
+supply the partition. Unseen W=1 is a neutral core completion, while unmapped or
+zero-conditional-support queries explicitly abstain. Mapping, reference measure,
+completion and mean-per-edge unit addition are versioned together. Counts are
+correlated observations and the pooled mixture can be antibody dominated.
+
+All estimation and scoring definitions belong to the library CLI. No assay
+labels, fitted combination/source weights, radial/angular or site fit enters
+this experimental recipe. Values are dimensionless composition log ratios, not
+physical binding free energies or independent likelihoods; neither transfer
+accuracy nor a default-model change follows from the estimator. Full equations,
+normalization and support policies: docs/contact-penalties.rst; frozen design:
+CHEMICAL_CORE_SPEC.md. Original TCRen and existing candidate resources are retained.
+
+
+## Frozen task-matched ranking references — 22 October 2026
+
+The bundled epitope-ranking and screen references are derived empirical scale
+resources, not experimental energy measurements or coefficient-free models.
+Means and scales come from a held-out pool of 729 models over 14 off-panel
+epitopes. Query cohorts and labels do not estimate these moments at scoring time.
+The screen signs are fixed a priori; saved training-pool ROC values check those
+signs and are label-dependent diagnostics, not independently estimated directions.
+The TCR confidence weight of 0.8 is an explicit design choice informed by recorded
+evaluation, not a prospectively validated learned parameter. Epitope weight 0.5
+retains the existing equal-weight readout. Applicability cuts and their reference
+populations are stored with the resources; flags report by default.
+
+Private input lineage and the exact producer revision are retained in the
+benchmark's `bench/scripts/make_screen_references.py` and its release records.
+No rerun or new estimation is authorized by this registry. Reproduction requires
+the source-verified held-out training inputs and exclusion ledger, not query data.
+The resources remain frozen during release verification. SHA-256 identities:
+- `epitope_rank_reference.json`: `c5e008f2bcbea1b9f274ee6c330a66838e6a8d7e1596f9eb0bbe1c57580bb98e`
+- `screen_reference_epitope.json`: `a42d1c06d19f41725905b63ed45cec03c1a4899735caa4525e692171a3e26366`
+- `screen_reference_tcr.json`: `5c55a250e6a4f10a54fd6fd611307f3f0077fbb732435adc28f9e3084f26a225`
+
+Release review correction: the epitope-rank energy mean is stored in the raw
+`dPhi_tcr_pep` convention, matching the screen reference and the producer. Its
+previous sign-corrected mean was incompatible with `direction * (x - mean) / sd`.
+This repairs a serialization convention, not a new fit. Previous resource SHA-256
+`815b40dc7147fb9199e9f23915fd719b8787462fd28ed14e26e22ed0ff05ba88` is archived with the manuscript release record. Complete-component
+rows change by a constant; rows with different missingness patterns need the new
+resource identity and must not be compared as though their old scores were unchanged.

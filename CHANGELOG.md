@@ -3,9 +3,128 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
-## [4.0.1] — unreleased
+## [4.1.0] — 2026-10-22
+
+### Fixed
+
+- Corrected the epitope-ranking energy reference to store the raw-column mean,
+  consistently with `screen` and `direction * (x - mean) / sd`; updated the
+  formula and resource identity. Complete-component scores shift by a constant;
+  mixed-missingness comparisons must use the corrected resource throughout.
+  Both ranking routes reject nonfinite reference means.
+- The bounded job guard now records SIGTERM/SIGINT cancellation and completes
+  descendant cleanup and reporting, including repeated signals during cleanup.
+- `screen` now carries the observed TCR:peptide contact count from the CLI's
+  contact map into scoring, so zero-contact models are actually discarded on
+  both tasks. The small-cohort flag uses the same post-discard floor as scoring.
+  Opt-in flag responses cannot restore discarded or withheld scores, and retain
+  their original unavailability reasons.
+
+### Removed
+
+- `integral.py` and `integral_glm.py`, with their CLI commands `integrate`,
+  `integral-reference`, `integral-fit` and `integral-predict`, their tests and
+  `docs/integral.rst`. The readout's energy component was
+  `-Phi_tcr_pep / n_contacts_tp`, a raw mean contact energy: it carried no
+  alanine reference, was undefined wherever an interface had no TCR:peptide
+  contact, and divided out the contact-burden term. Both fitted GLMs inherited
+  that input. The normalization was wrong, so the modules are withdrawn rather
+  than patched. Recorded measurements from these candidates are unchanged and
+  remain in the research record; see `attic/2026-10-release/INTEGRAL_RECONCILIATION.md`.
 
 ### Added
+
+- Reorganized the user documentation around task selection, cohort screening,
+  component inspection and interpretation. Added workflow and structural-alanine
+  diagrams and explicit energy, geometry, topology and combination equations.
+- `tcren screen` and `tcren.screen`: the primary entry point, in a new first help panel. It takes
+  a cohort — one side held fixed across every structure — decides from the annotated peptide and
+  CDR3 pair whether that is epitope ranking or TCR ranking, and refuses a set that is neither,
+  naming what differs. The structural alanine reference follows the side that varies, and
+  topology is carried only for TCR ranking where its direction is established. Components are
+  standardized against a frozen per-task reference and combined by weighted Stouffer, with the
+  confidence weight carried in the reference because it is task-specific (0.8 for TCR ranking,
+  0.5 for epitope ranking). Below 30 models the combined score is withheld and components are
+  reported alone, because per-cohort margin noise then exceeds any effect the combination
+  produces. Nothing is fitted at scoring time and nothing is normalized against the query cohort.
+  Verified on recorded panel data before the no-interface discard: the epitope task reproduces `rank-epitopes` at 0.961126
+  against its recorded 0.960913, and the TCR task reads +0.0119, +0.0031 and +0.0071 over ipTM
+  on the five-epitope screen, balanced VDJdb and v1.
+
+- Cohort flags on `tcren screen`: `small_cohort`, `low_confidence`, `forced_pose` and
+  `confidence_disagrees`, each read from the cohort's own descriptors with no label. Flags report by default on both tasks. In the recorded
+  pre-discard evaluation, `low_confidence` fires on 3 of 29 TCR cohorts and all 3 rank
+  below chance, against 3 of the other 26; acting on that observation remains opt-in. `forced_pose` abstains rather than reading false
+  when the strain was not standardized against the population its cut came from. Thresholds are
+  stated quantiles of the training pool's per-epitope distribution, never searched, and are
+  carried in the frozen references. Cohort confidence is reported as a z against that
+  distribution rather than compared to a hard cut, because the distance matters: the worst
+  evaluation cohort sits at −2.73 while the inverted cohorts the flag misses sit at +0.45 to
+  +0.56. `--on-flag` chooses the response — `report` (default), `structure` (drop ipTM and score
+  on the structural components alone, which cannot invert), `geometry`, `withhold` or `reverse`.
+  Over the 29 TCR-ranking cohorts `reverse` gives pooled ROC 0.7410 against 0.7250 and halves the
+  cohorts ranking below chance, taking the worst from 0.0479 to 0.9521, but a misfire would
+  invert a good cohort from 0.9735 to 0.0265; `structure` gives 0.7296 with a worst misfire of
+  0.0510. `report` is the default because the only evidence that acting helps comes from the same
+  panels the score is reported against. Models with zero TCR:peptide contacts are discarded
+  rather than scored and do not count toward the cohort floor: the receptor was never placed on
+  the groove, so their components are computed over an empty interface. This matters — in the
+  balanced VDJdb cohort RAQAPPPSW 11 of 20 binder-labelled models have no interface against 0 of
+  24 mocks, which is why its ipTM reads 0.0479; the confidence score is correct there and the
+  label disagrees with the coordinates.
+
+- `rank-epitopes` and `tcren.ranking`: the epitope-ranking score, an equal-weight mean of the
+  structural poly-alanine epitope energy and the generator's ipTM, each standardized against a
+  frozen reference whose constants were estimated on a held-out training pool without reading a
+  label. Nothing is fitted at scoring time and nothing is normalized against the query cohort,
+  so batch and single-row scoring agree. Missing components are flagged and excluded rather than
+  imputed; a row with no observed component is null. On the CPL panel it reads count-weighted
+  ROC AUC 0.960913 over 7 clones and 2,103 models, against 0.865236 for the best single
+  component and 0.823253 for ipTM alone. No TCR-ranking score is shipped: no combination of the
+  available components beats ipTM there on a pooled aggregate.
+
+
+- `atom-inventory` export and `contact-class-audit`: complete selected protein
+  heavy-atom context, class-exclusive/shared residue and atom contact sets,
+  composition-opportunity denominators, equal-complex/case summaries and
+  receptor-clustered uncertainty. Feature-block reduction bounds memory while
+  retaining the full cohort for every motif. Diagnostic only; no score or default
+  changes.
+
+- Experimental `contact-chemical-core-fit` and opt-in `chemical_core` contact
+  correction: versioned 19-type symmetric empirical core, directed conditional
+  composition normalization and explicit unseen/unsupported support accounting.
+  Actual native/antibody counts and hashes remain visible; original scores,
+  classifier and defaults are preserved, with no assay-fitted weights.
+
+- `score-receptors` threads paired CDR3 or explicit observed-junction candidate pools
+  onto fixed template contacts, retaining candidate IDs and directed TRA/TRB/summed
+  energies. Junction mode recovers actual adjacent FR3/FR4 anchors, including W118;
+  default CDR3 mode excludes anchors.
+
+- Contact-penalty and candidate-pool scoring use all allocated CPUs by default through coarse
+  bounded workers after batched annotation, preserving ordered serial results.
+
+- Directed-only residue derivation and summaries; remove folding APIs, use all
+  defined directed cells for matrix moments, reject asymmetric intra-peptide
+  potentials, and migrate angular priors to contact-marginals-2.
+- Optional frozen native opportunity-stratum reference partitions for geometry
+  increments, with source/version/class checks and unchanged original scores.
+
+
+- Multiplicity-conditioned native/external reference ranks and frozen weighted
+  TCRen, with unchanged matrix baselines, bounded scoring and signed cohort diagnostics.
+
+- Contact-mechanism diagnostics: worst-marginal lineage, all-atom versus closest-atom
+  chemistry, continuous contact equivalents and exact accepted-rank attribution.
+
+- Experimental frozen geometry priors and the four declared contact-penalty
+  constructions, with bounded raw-coordinate export and exactly matched
+  original-energy/ipTM comparison. Estimated dependencies remain explicit.
+
+- Exact opt-in heavy-atom observations via ``export --quantity contact-atoms``,
+  with physical atom identities, unordered chemical pairs, observed C-beta
+  geometry, explicit conformer policy and separate atom/residue count summaries.
 
 - Table-only `contact-summary` reduces canonical residue-pair counts, preserving
   composition ties and zero-contact models under declared structural selections.

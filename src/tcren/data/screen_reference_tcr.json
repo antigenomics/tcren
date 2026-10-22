@@ -1,0 +1,68 @@
+{
+  "format": "tcren-screen-1",
+  "task": "tcr",
+  "default_weight": 0.8,
+  "cohort_confidence": {
+    "mean": 0.74562,
+    "sd": 0.035717,
+    "n_epitopes": 14,
+    "flag_z": -0.6
+  },
+  "forced_pose": {
+    "mean_strain_cut": 0.5586,
+    "quantile": 0.8,
+    "n_epitopes": 14
+  },
+  "components": [
+    {
+      "name": "confidence",
+      "column": "iptm",
+      "direction": 1,
+      "definition": "generator interface pTM, supplied by the caller; tcren does not compute it",
+      "mean": 0.7593965870507545,
+      "sd": 0.11313900160374474,
+      "n": 729,
+      "pool_raw_roc": 0.600362,
+      "pool_verdict": "confirms"
+    },
+    {
+      "name": "energy",
+      "column": "dFT_tcr_pep_cdr",
+      "direction": -1,
+      "definition": "structural poly-alanine reference difference on the TCR:peptide interface, the contacted CDR residues truncated to alanine in 3D with the contact map rebuilt (export --quantity receptor-reference --reference-mode structural)",
+      "mean": -0.03628545954373086,
+      "sd": 2.444885363934208,
+      "n": 729,
+      "pool_raw_roc": 0.353922,
+      "pool_verdict": "confirms"
+    },
+    {
+      "name": "geometry",
+      "column": "sc_shape",
+      "direction": 1,
+      "definition": "height-field Pearson complementarity between the TCR underside and the pMHC face",
+      "mean": 0.5573030729380789,
+      "sd": 0.13090298332746947,
+      "n": 728,
+      "pool_raw_roc": 0.492762,
+      "pool_verdict": "undetermined"
+    },
+    {
+      "name": "topology",
+      "column": "g_cyclo_frac",
+      "direction": 1,
+      "definition": "(E - V + C) / E over the CDR:pMHC residue contact graph",
+      "mean": 0.24908462479069843,
+      "sd": 0.06009944543413727,
+      "n": 711,
+      "pool_raw_roc": 0.537915,
+      "pool_verdict": "undetermined"
+    }
+  ],
+  "standardization": "means and scales frozen on a held-out training pool of 729 models over 14 off-panel epitopes; no label was read to produce them, so this is a change of units and not a fit",
+  "sign_source": "fixed a priori by what each component means; the training pool is used only to check them, and each component records the pool's verdict",
+  "excluded_epitopes": [
+    "KLGGALQAK"
+  ],
+  "combination": "weighted Stouffer over the standardized components, sum(w z)/sqrt(sum w^2); the confidence block carries default_weight and the structural components share the remainder equally"
+}

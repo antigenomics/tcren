@@ -21,3 +21,22 @@ mean “not in the current potential estimator”, not “unused software”.
 - `tcren.potential.redundancy.cluster_weights` --- Explicit alternative clustering weights.
 - `tcren.potential.redundancy.epitope_weights` --- Explicit single-axis weighting alias.
 - `tcren.potential.redundancy.nonredundant_ids` --- Explicit cluster-member exclusion.
+
+## Disposition — 22 October 2026
+
+Acted on: `integral.py` and `integral_glm.py` were **removed**, with their four CLI commands,
+tests and `docs/integral.rst`. Their energy component carried no alanine reference, was
+undefined wherever an interface had no TCR:peptide contact, and divided out the contact-burden
+term; both fitted GLMs inherited that input. That was a wrong solution, not merely a retired
+one, so it was withdrawn rather than archived as a supported path. Its measurements stand.
+
+Checked and **not** removed: every module under `src/tcren/contacts/` has at least two callers
+in `src` or `tests`, counted 22 October — the lowest are `class_audit`, `context_normalization`,
+`prior_geometry`, `surface_reference` and `weighted_summary` at two each, and four of the set
+back a live CLI command. Nothing there is orphaned, so the contact-plausibility campaign's
+machinery is retained under the standing rule that retirement travels with caller cleanup rather
+than preceding it. Their measured records are research evidence and are unchanged.
+
+Release cleanup: removed six gitignored wheels/source archives for versions 2.15.0–2.20.0
+from `dist/` (11,336,132 bytes). They were superseded build output; accepted scientific
+records, historical source and required runtime/native assets are retained.

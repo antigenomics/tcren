@@ -1,0 +1,287 @@
+"""Memory-bounded raw-coordinate CLI for immutable contact penalties."""
+from __future__ import annotations
+
+import gzip
+import json
+from pathlib import Path
+import time
+
+import polars as pl
+import typer
+
+from .observations import contact_observations
+from .plausibility import comparison_command, fit_command, score_contact_penalties
+from ..runtime import parallel_map, resolve_threads, single_threaded
+
+
+def _score_chunk(work):
+    """Score a contiguous annotated chunk with one copy of frozen inputs."""
+    from ..contactmap import ContactMap
+    from ..exports import residue_identity
+
+    structures, tables, resource, geometry_only, calibration, normalizer, surface_context, surface_ownership, atom_count, chemical_core, inventory_pattern = work
+    prepared_pattern = None
+    if inventory_pattern:
+        from .inventory_patterns import prepare_resource
+        prepared_pattern = prepare_resource(inventory_pattern)
+    results = []
+    for structure in structures:
+        identity, edge_tables, summaries, surface_atoms, surface_edges, error = None, [], [], [], [], ""
+        try:
+            observations = contact_observations(structure, interface="tcr_peptide", cutoff=5.)
+            inventory = None
+            if inventory_pattern:
+                from .observations import atom_inventory
+                inventory = atom_inventory(structure)
+            if normalizer:
+                from .context_normalization import normalized_edges, apply_normalized
+                current_class = "II" if any(c.chain_supertype == "MHCII" for c in structure.chains) else "I"
+                if current_class != normalizer["mhc_class"]:
+                    raise ValueError("coordinate MHC class differs from normalizer")
+            if calibration or normalizer:
+                from .weighted import multiplicity_edges
+                opportunities = multiplicity_edges(observations, resource)
+            if normalizer:
+                increments = normalized_edges(opportunities, normalizer)
+            if calibration:
+                from .weighted import calibrated_weights, apply_weighted
+                weights = calibrated_weights(opportunities, calibration)
+            contacts = None if geometry_only else ContactMap.from_structure(structure, cutoff=5.).interface("tcr_peptide", tcr_regions="all")
+            identity = residue_identity(structure)
+            if geometry_only:
+                from .mechanism import geometry_diagnostics
+                diagnosis = geometry_diagnostics(observations, resource)
+                edge_tables.append(diagnosis)
+                summaries.append(dict(id=structure.pdb_id, n_cdr_edges=diagnosis.height))
+            if surface_context:
+                from .exposure import contact_surface
+                from .surface_reference import surface_reference_score
+                atom_surface, edge_surface = contact_surface(structure, ownership=surface_ownership)
+                surface_atoms.append(atom_surface)
+                surface_edges.append(edge_surface)
+            for pot in tables.values():
+                table, summary = score_contact_penalties(contacts, observations, pot, resource)
+                if atom_count:
+                    from .atom_counts import score_atom_counts
+                    current_class = "II" if any(c.chain_supertype == "MHCII" for c in structure.chains) else "I"
+                    table, atom_summary = score_atom_counts(table, observations, atom_count, summary["original"], mhc_class=current_class)
+                    summary.update(atom_summary)
+                if inventory_pattern:
+                    from .inventory_patterns import score_inventory_patterns
+                    current_class = "II" if any(c.chain_supertype == "MHCII" for c in structure.chains) else "I"
+                    table, pattern_summary = score_inventory_patterns(table, observations, inventory, inventory_pattern, summary["original"], mhc_class=current_class, prepared=prepared_pattern)
+                    summary.update(pattern_summary)
+                if chemical_core:
+                    from .chemical_core import score_chemical_core
+                    current_class = "II" if any(c.chain_supertype == "MHCII" for c in structure.chains) else "I"
+                    table, chemical_summary = score_chemical_core(table, observations, chemical_core, summary["original"], mhc_class=current_class)
+                    summary.update(chemical_summary)
+                if calibration:
+                    table, summary = apply_weighted(table, weights, summary)
+                if normalizer:
+                    table, summary = apply_normalized(table, increments, summary)
+                if surface_context:
+                    summary.update(surface_reference_score(atom_surface, edge_surface, pot))
+                edge_tables.append(table)
+                summaries.append(dict(id=structure.pdb_id, mhc_class="II" if any(c.chain_supertype=="MHCII" for c in structure.chains) else "I", **summary))
+        except Exception as exc:
+            error = f"score: {type(exc).__name__}: {exc}"
+        results.append((identity, edge_tables, summaries, surface_atoms, surface_edges, error))
+    return results
+
+
+@single_threaded
+def penalty_export(sources, resource_path, output, *, chunk=512, threads=0, potentials=("tcren2", "karnaukhov2022"), geometry_only=False, calibration_path=None, normalizer_path=None, surface_context=False, surface_ownership="deepest_sphere", atom_count_path=None, chemical_core_path=None, inventory_pattern_path=None):
+    """Annotate one bounded batch, score coarse chunks, then release its atoms."""
+    from ..annotation.batch import annotate_batch
+    from ..annotation import classify_chains
+    from ..mhc import annotate_mhc_batch
+    from ..structure import parse_structure, structure_paths
+    from ..structure.io import structure_stem, resolve_sources
+    from ..pipeline import _BUNDLED_POTENTIALS
+    from ..exports import _sha256
+    from ..provenance import annotation_indexes
+    if surface_ownership not in {"deepest_sphere", "accessible_boundary"}:
+        raise ValueError("unknown surface ownership method")
+    if surface_ownership != "deepest_sphere" and not surface_context:
+        raise ValueError("surface ownership requires --surface-context")
+    if chunk < 1:
+        raise ValueError("positive batch size required")
+    threads = resolve_threads(threads)
+    paths = [p for source in resolve_sources(sources) for p in structure_paths(source)]
+    ids = [structure_stem(p) for p in paths]
+    if not paths or len(set(ids)) != len(ids):
+        raise ValueError("nonempty input set with globally unique complete stems required")
+    inventory_pattern = None
+    if inventory_pattern_path is not None:
+        from .inventory_patterns import validate_resource
+        inventory_pattern = json.loads(Path(inventory_pattern_path).read_text())
+        validate_resource(inventory_pattern)
+        if geometry_only:
+            raise ValueError("inventory-pattern layer requires score export")
+    chemical_core = None
+    if chemical_core_path is not None:
+        from .chemical_core import validate_resource
+        chemical_core = json.loads(Path(chemical_core_path).read_text())
+        validate_resource(chemical_core)
+        if geometry_only:
+            raise ValueError("chemical-core layer requires score export")
+    output = Path(output)
+    output.mkdir(parents=True, exist_ok=False)
+    resource_path = Path(resource_path)
+    resource = json.loads(resource_path.read_text())
+    atom_count = json.loads(Path(atom_count_path).read_text()) if atom_count_path else None
+    if atom_count and atom_count.get('version') == 'within-residue-atom-pattern-1':
+        from .atom_patterns import validate_resource
+        validate_resource(atom_count)
+    if atom_count and geometry_only:
+        raise ValueError("atom-count layer requires score export")
+    calibration = json.loads(Path(calibration_path).read_text()) if calibration_path else None
+    if calibration and calibration["marginal_resource_sha256"] != _sha256(resource_path):
+        raise ValueError("calibration belongs to a different marginal resource")
+    normalizer = json.loads(Path(normalizer_path).read_text()) if normalizer_path else None
+    if normalizer:
+        from .context_normalization import validate_normalizer
+        validate_normalizer(normalizer, _sha256(resource_path))
+        if geometry_only:
+            raise ValueError("normalizer requires score export")
+    if surface_context and geometry_only:
+        raise ValueError("surface context requires score export")
+    if surface_context:
+        (output/"surface").mkdir()
+    tables = {} if geometry_only else {name: _BUNDLED_POTENTIALS[name]() for name in potentials}
+    for name, pot in tables.items():
+        pot.matrix.write_csv(output/(name+".potential.tsv"), separator="\t")
+    ledger, summaries, start = [], [], time.monotonic()
+    lineage = {}
+    first_edge = first_residue = True
+    with gzip.open(output/("geometry.tsv.gz" if geometry_only else "contacts.tsv.gz"), "wt") as edges, gzip.open(output/"residues.tsv.gz", "wt") as residues, (output/"annotation.jsonl").open("w") as annotation:
+        for offset in range(0, len(paths), chunk):
+            parsed, surface_atoms, surface_edges = [], [], []
+            for path, pid in zip(paths[offset:offset+chunk], ids[offset:offset+chunk]):
+                row = dict(id=pid, source=str(path), sha256=_sha256(path), status="error", error="")
+                ledger.append(row)
+                try:
+                    parsed.append((parse_structure(path, pdb_id=pid, keep_modified=True), row))
+                except Exception as exc:
+                    row["error"] = f"parse: {type(exc).__name__}: {exc}"
+            try:
+                records = annotate_batch([s for s, _ in parsed], threads=threads)
+                typed = []
+                for (structure, row), record in zip(parsed, records, strict=True):
+                    try:
+                        classify_chains(structure, organism="human", autodetect_species=True, precomputed_records=record)
+                        typed.append((structure, row))
+                    except Exception as exc:
+                        row["error"] = f"typing: {type(exc).__name__}: {exc}"
+                annotate_mhc_batch([s for s, _ in typed], threads=threads)
+            except Exception as exc:
+                for _, row in parsed:
+                    if not row["error"]:
+                        row["error"] = f"annotation: {type(exc).__name__}: {exc}"
+                typed = []
+            count = min(threads, len(typed))
+            work = [([s for s, _ in typed[i*len(typed)//count:(i+1)*len(typed)//count]],
+                     tables, resource, geometry_only, calibration, normalizer,
+                     surface_context, surface_ownership, atom_count, chemical_core, inventory_pattern) for i in range(count)]
+            results = [result for group in parallel_map(_score_chunk, work, threads) for result in group]
+            for (structure, row), result in zip(typed, results, strict=True):
+                identity, edge_tables, scored, atoms, surfaces, error = result
+                if identity is not None:
+                    residues.write(identity.write_csv(separator="\t", include_header=first_residue))
+                    first_residue = False
+                for table in edge_tables:
+                    edges.write(table.write_csv(separator="\t", include_header=first_edge))
+                    first_edge = False
+                summaries.extend(scored)
+                surface_atoms.extend(atoms)
+                surface_edges.extend(surfaces)
+                if error:
+                    row["error"] = error
+                    continue
+                try:
+                    lineage = annotation_indexes([structure], previous=lineage)
+                    annotation.write(json.dumps(dict(id=structure.pdb_id, searched_indexes=annotation_indexes([structure])), default=str)+"\n")
+                    row["status"] = "ok"
+                except Exception as exc:
+                    row["error"] = f"score: {type(exc).__name__}: {exc}"
+            if surface_context and surface_atoms:
+                pl.concat(surface_atoms, how="diagonal_relaxed").write_parquet(output/"surface"/f"atoms-{offset:06d}.parquet")
+                pl.concat(surface_edges, how="diagonal_relaxed").write_parquet(output/"surface"/f"edges-{offset:06d}.parquet")
+            del parsed, typed, work, results
+            print(json.dumps(dict(processed=min(offset+chunk, len(paths)), total=len(paths), elapsed_s=time.monotonic()-start)), flush=True)
+    pl.DataFrame(ledger).write_csv(output/"accounting.tsv", separator="\t")
+    if summaries:
+        pl.DataFrame(summaries, infer_schema_length=None).write_csv(output/("geometry_models.tsv" if geometry_only else "scores.tsv"), separator="\t")
+    provenance = dict(resource_sha256=_sha256(resource_path), resource_version=resource["version"],
+        atom_count_sha256=_sha256(atom_count_path) if atom_count else None,
+        inventory_pattern_sha256=_sha256(inventory_pattern_path) if inventory_pattern else None,
+        chemical_core_sha256=_sha256(chemical_core_path) if chemical_core else None,
+        calibration_sha256=_sha256(calibration_path) if calibration else None,
+        normalizer_sha256=_sha256(normalizer_path) if normalizer else None,
+        producer_sha256=_sha256(Path(__file__)), source_count=len(paths), chunk_size=chunk, threads=threads,
+        elapsed_s=time.monotonic()-start, potential_sha256={name: _sha256(output/(name+".potential.tsv")) for name in tables},
+        scope=("Fresh all-atom CDR:peptide chemistry and exact frozen marginal lineage; no score recalculation" if geometry_only else "Legacy all-TCR peptide energy; increments on CDR1/2/3 peptide contacts only; no pMHC or framework penalty"),
+        surface_context=(dict(version="exposed-surface-reference-1", n_points=100, probe_A=1.4, sphere="native Fibonacci-y", opportunity="isolated CDR and intact-pMHC peptide exposed area; finite directed support", score="sum binder-allocated area * (V + logZ); A^2 times table scale", ownership=surface_ownership, ownership_definition=("minimum signed expanded-sphere gap; exact ties split equally" if surface_ownership == "deepest_sphere" else "nearest sampled isolated opposite boundary; exact nearest atom-owner ties split equally"), partitions="geometry-derived per structure, no labels or fitted weights", missing="omitted and explicitly reported area; no supported area gives empty sum 0") if surface_context else None),
+        missing_matrix="Legacy unknown-entry omission retained; missing entries and partial totals explicitly counted",
+        no_scoring_time_fitting=True, searched_indexes=lineage)
+    (output/"provenance.json").write_text(json.dumps(provenance, indent=2)+"\n")
+    if not summaries:
+        raise ValueError("all input structures failed; see accounting.tsv")
+    return ledger
+
+
+def penalty_command(
+    structures: list[str] = typer.Option(..., "-s", "--structures"),
+    resource: Path = typer.Option(..., "--resource", exists=True, dir_okay=False),
+    out: Path = typer.Option(..., "-o", "--out"),
+    chunk: int = typer.Option(512, "--chunk", min=1),
+    threads: int = typer.Option(0, "-t", "--threads", help="0: all allocated CPUs; 1: serial; N: explicit CPU budget"),
+    calibration: Path | None = typer.Option(None, "--calibration", exists=True, dir_okay=False),
+    normalizer: Path | None = typer.Option(None, "--normalizer", exists=True, dir_okay=False),
+    surface_context: bool = typer.Option(False, "--surface-context"),
+    surface_ownership: str = typer.Option("deepest_sphere", "--surface-ownership"),
+    atom_count_resource: Path | None = typer.Option(None, "--atom-count-resource", exists=True, dir_okay=False),
+    atom_pattern_resource: Path | None = typer.Option(None, "--atom-pattern-resource", exists=True, dir_okay=False),
+    chemical_core_resource: Path | None = typer.Option(None, "--chemical-core-resource", exists=True, dir_okay=False),
+    inventory_pattern_resource: Path | None = typer.Option(None, "--inventory-pattern-resource", exists=True, dir_okay=False),
+):
+    """Apply the same frozen geometry weight to four declared penalty arms."""
+    if atom_count_resource and atom_pattern_resource:
+        raise ValueError("use separate exports for atom-count and atom-pattern resources")
+    penalty_export(structures, resource, out, chunk=chunk, threads=threads, calibration_path=calibration, normalizer_path=normalizer, surface_context=surface_context, surface_ownership=surface_ownership, atom_count_path=atom_pattern_resource or atom_count_resource, chemical_core_path=chemical_core_resource, inventory_pattern_path=inventory_pattern_resource)
+
+
+def geometry_audit_command(
+    structures: list[str] = typer.Option(..., "-s", "--structures"),
+    resource: Path = typer.Option(..., "--resource", exists=True, dir_okay=False),
+    out: Path = typer.Option(..., "-o", "--out"),
+    chunk: int = typer.Option(512, "--chunk", min=1),
+    threads: int = typer.Option(0, "-t", "--threads", help="0: all allocated CPUs; 1: serial; N: explicit CPU budget"),
+):
+    """Trace worst-tail geometry and all-atom chemistry without recalculating scores."""
+    penalty_export(structures, resource, out, chunk=chunk, threads=threads, geometry_only=True)
+
+
+def register(app, panel):
+    """Keep the existing CLI entrypoint small."""
+    app.command("contact-prior-fit", rich_help_panel=panel)(fit_command)
+    from .atom_counts import fit_command as atom_count_fit
+    app.command("contact-atom-count-fit", rich_help_panel=panel)(atom_count_fit)
+    from .inventory_patterns import fit_command as inventory_pattern_fit
+    app.command("contact-inventory-pattern-fit", rich_help_panel=panel)(inventory_pattern_fit)
+    from .atom_patterns import fit_command as atom_pattern_fit
+    app.command("contact-atom-pattern-fit", rich_help_panel=panel)(atom_pattern_fit)
+    from .chemical_core import fit_command as chemical_core_fit
+    app.command("contact-chemical-core-fit", rich_help_panel=panel)(chemical_core_fit)
+    app.command("contact-penalties", rich_help_panel=panel)(penalty_command)
+    app.command("contact-compare", rich_help_panel=panel)(comparison_command)
+    app.command("contact-geometry-audit", rich_help_panel=panel)(geometry_audit_command)
+    from .mechanism_summary import mechanism_command
+    app.command("contact-mechanism", rich_help_panel=panel)(mechanism_command)
+    from .context_normalization import normalizer_command
+    app.command("contact-normalizer-fit", rich_help_panel=panel)(normalizer_command)
+    from .weighted import calibration_command
+    app.command("contact-weight-calibrate", rich_help_panel=panel)(calibration_command)
+    from .weighted_summary import weighted_summary_command
+    app.command("contact-weight-summary", rich_help_panel=panel)(weighted_summary_command)

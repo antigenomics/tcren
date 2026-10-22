@@ -1,6 +1,6 @@
 """Statistical potentials: representation, bundled loaders, and derivation."""
 
-from .derive import derive_tcren, derive_tcren_loo, symmetrize_counts
+from .derive import derive_tcren, derive_tcren_loo
 from .aaindex import (AAindexEntry, aaindex, catalogue, entry, identify,
                       parse_aaindex3)
 from .model import (AA20, AA21, HydrophobicityFit, Potential,
@@ -18,7 +18,6 @@ __all__ = [
     "HydrophobicityFit",
     "derive_tcren",
     "derive_tcren_loo",
-    "symmetrize_counts",
     "tcren",
     "tcren2",
     "tcren2_em",

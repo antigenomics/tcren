@@ -1,3 +1,126 @@
+# Release direction — 22 October 2026
+
+The primary entry point is `tcren screen`, with task-matched frozen references
+for epitope and TCR ranking. `rank-epitopes` remains available. The structural
+alanine reference follows the varying side. Models with no TCR:peptide interface
+are retained with discard reasons and excluded from the 30-model cohort floor.
+Flags report by default; alternative responses require explicit `--on-flag`.
+ipTM remains primary for receptor ranking, with structural readouts alongside it.
+The combined score is not an established universal improvement over ipTM.
+
+The integral and integral-GLM readouts were withdrawn; their historical
+measurements do not approve them as supported scorers. Existing used toolkit and
+historical reproduction APIs remain. Current public behavior and limits are in
+`docs/screening.rst`, `docs/ranking.rst` and `skills/tcren/SKILL.md`.
+
+The sections below preserve earlier research checkpoints. Earlier proposals or
+shipping decisions are historical where they conflict with this release direction.
+Release verification, review and publication must be checked on the exact release
+commit; local checks do not establish a published release.
+
+---
+
+## 18 October: multiplicity-calibrated weighted TCRen
+
+Author-requested extension: calibrate native/external compatibility ranks conditional
+on atom-distance and distinct orientation opportunity counts, freeze before evaluation,
+and compare weighted/original TCRen and native ipTM on unchanged benchmark rows.
+Use bounded Stratos scoring and R diagnostic figures. Completed on all 3808 rows,
+with exact baseline/graph/membership checks and six R figure pages. Keep all 22 VDJdb cohorts by
+coverage, both TCRvdb epitopes and seven CPL clones separate; expose every gain/loss,
+missing/transfer support and signed mechanism. No default promotion or paper-prose
+rewrite. Design and verification: [CONTACT_WEIGHTED.md](audit/2026-10-18/CONTACT_WEIGHTED.md).
+
+## 18 October: completed contact-penalty mechanism investigation
+
+The author requests a meticulous case-by-case explanation of the completed penalty
+comparison on unchanged rows: signed energy attribution in GLC/YLQ, chemical and
+continuous geometry contact classifications, binder/nonbinder differences in every
+VDJdb case and template stratum, matrix preservation under filtering/weighting,
+and CPL extremes where ipTM succeeds or fails relative to TCRen. The author approved
+both chemistry-supported/proximity-only counts and continuous equivalents Σ(1−u)
+and Σu; no binary geometry cutoff is introduced. New diagnostic geometry exports
+trace the worst atom/marginal and compare closest-atom with any-atom typing. They
+reuse frozen parameters and do not recalculate or replace accepted scores. Literature
+and exact contact decompositions must support the mechanism; AF output patterns do
+not by themselves establish why its network chose a pose. No label-fitted score,
+threshold search, default change or publication-prose rewrite is authorized.
+Completed evidence: [CONTACT_MECHANISM.md](audit/2026-10-18/CONTACT_MECHANISM.md).
+All 3808 rows and 85669 assessed edges are verified; 31 separate case records
+identify contact-burden and signed-entry mechanisms. No new score is promoted.
+Calibrated residue-edge reliability, full angular/steric chemistry and the broader
+reference-prior goals remain separate follow-ups.
+
+## 18 October: directed context correction and CPL contact-count audit
+
+The author requires binder → target direction throughout residue statistics,
+potentials, reference marginals and orientation priors. Remove residue folding
+and triangular reductions; only individual atom-pair chemistry can be exchangeable.
+The earlier unordered residue interpretation is withdrawn. The shipped original
+scores remain fixed comparisons; no historical coefficients or moments are refitted.
+
+CPL audit separates the exact count term from mean geometry and uses existing
+source-matched receptor-free pMHC SASA/surface descriptors on the same rows.
+Scalar SASA is not a residue/atom opportunity distribution. Test a fixed
+reference-partition correction g=u+log(mean_reference(exp(-u))) within exact
+native class-I geometry-opportunity strata, frozen before labels. It cancels a
+constant background penalty and normalizes the empirical relative factor, without
+a fitted score coefficient. It is not a physical binding-free-energy claim.
+Retain original, unnormalized and corrected scores, all rows, all gains/losses,
+zero contacts and explicit unsupported strata. No new default is promoted.
+Private evidence: private-evaluation-record
+
+## 18 October: active contact-plausibility and positive-penalty goal
+
+Follow the author's manuscript `plan181026.txt` to summarize directed binder-to-target
+native residue contacts and exchangeable individual atom-pair chemistry, verify quantitative literature priors, and derive frozen
+chemical/geometric contact-plausibility rules. The author explicitly added a
+candidate **positive-energy penalty for unnatural contacts**, beyond deletion
+or down-weighting. GLC's recorded shared-motif inversion remains part of the
+mechanism to explain; rarity or assay-negative membership is not physical truth.
+[CONTACT_PLAUSIBILITY_PLAN.md](CONTACT_PLAUSIBILITY_PLAN.md) owns the design,
+source/API reconnaissance, phase verification and current review status.
+Compare frozen candidates with original energy and matched ipTM,
+preserving populations, class/template strata, gains and losses. No label-fitted
+classifier weights, cohort normalization, scoring-time fitting or altered
+historical default. The first implementation stage is complete:
+[CONTACT_OBSERVATIONS.md](audit/2026-10-18/CONTACT_OBSERVATIONS.md) records the
+exact CLI export and verified fresh native summary (357 complexes, 339921 atom
+pairs), including two explicit AMN-peptide exclusions versus historical parsing.
+The first frozen transformed-marginal resource and four-arm matched comparison are
+complete: [CONTACT_PENALTIES.md](audit/2026-10-18/CONTACT_PENALTIES.md) records
+3808 freshly scored models, zero matched-row exclusions, 1.358 GiB sampled peak
+RSS, exact baseline reproduction and every cohort-specific gain/loss. No default
+is promoted. Broader chemistry/PPI priors and class-II model evaluation remain open.
+The earlier bounded broad unit gate timed out; completed focused tests, docs and
+raw-coordinate checks are recorded in the stage reports.
+
+The author's follow-up authorizes a finite comparison of fixed additive,
+matrix-maximum-scaled additive, literal sign flip and favourable-only sign flip.
+The literal flip is a signed diagnostic: it can reward already positive entries.
+Keep the same frozen unnaturalness assignment across arms; retain every matched
+gain/loss. A common +matrix-maximum replacement is recorded as a proposal.
+
+The [quantitative source dossier](audit/2026-10-18/CONTACT_PRIOR_SOURCES.md)
+now resolves the large antibody survey to its 1833-complex publication, DTU
+deposit and pinned contact-table producer, and records inspectable PPI/Arpeggio
+criteria. The deposit is retrieved and the approved first marginal posterior is frozen;
+broader quantitative PPI/atlas priors remain open.
+
+## 17 October: YLQ/GLC contact-set difference investigation
+
+The author-requested complete eligible-cohort/native comparison is recorded in
+the benchmark's `CONTACT_DIFFERENCE.md` and `results/contact-difference-20261017-a/`.
+Fresh exact CLI exports cover 617 models and five matching native complexes;
+independent checks cover physical graphs, potential entries, set membership and
+native preservation. Counts, peptide-site occupancy, receptor-region/amino-acid
+motifs and local chemistry/context remain distinct. Native-reference dependencies
+and all prior ranking losses are explicit; no label-derived filter or fitted
+scorer is promoted. Existing chemical typing was audited through its direct API;
+[issue 59](https://github.com/antigenomics/tcren/issues/59) records the exact-export
+CLI gap. The next mechanism scope is region-specific native-compatible contact
+preservation/replacement. Stratos MD and release approvals remain untouched.
+
 ## 17 October: contact-local topology/topography goal
 
 The author clarified that contact filtering concerns local graph and surface
@@ -252,3 +375,126 @@ Details: audit/2026-10-17/CPL_AUTOMATIC_MAPPING.md. This updates the numerical-d
 ### 17 October: figure interpretation and matching 868 follow-up
 
 The current primary-record search returns unbound 5NMD and bound 5NME/5NMF/5NMG; none matches the complete saved CPL 868 construct. All five saved predictions share the same receptor sequence; the observed receptor substitutions persist across physical native copies. The benchmark records the exact query and 28 physical-role/copy comparisons. Pose accuracy and forced peptide/CDR deformation are now explicitly separate. Independent construct-matched deformation validation remains open; existing diagnostic APIs suffice pending appropriate structural truth. No replacement score or Stratos MD operation.
+
+### Directed antibody context correction — 18 October 2026
+
+Completed binder→target cleanup across count derivation, potential moments,
+angular priors and active benchmark producers. No residue reversal pooling or
+transpose averaging remains in the supported routes. Only individual atom-pair
+chemistry is exchangeable. Intrinsically symmetric published MJ tables are
+unchanged; they do not impose symmetry on TCRen.
+
+Both fresh directional-v2 runs retain 3808 models,7616 model–potential rows and
+88073 physical edges. Original energies, labels, membership and ipTM reproduce
+exactly. The frozen native-opportunity partition removes the constant geometry
+background without assay-fitted coefficients. Peptide-prior/TCRen2 SB27 AUROC:
+0.861510 original,0.176339 additive,0.820167 normalized. Gains and losses across
+all 31 cases are retained; no default promotion. Full pocket/exposure/water
+normalization and independent assay validation remain open. Private visible
+evidence: private-evaluation-record and
+private-evaluation-record.
+
+### Directed physical-context goal reinstated — 20 October 2026
+
+Active goal: improve contact definition and TCR ranking, including complementary
+information to geometry/topology/ipTM and hard CPLs. Continue from the preserved
+directed-v2 results; the existing multiplicity partition is not exposure/pocket
+normalization. No assay-fitted weights or default promotion. New arms must use
+the same 3808 raw models, retain original scores and all 31-case gains/losses.
+
+Ongoing dependency order: atom/residue exposure with intact target context →
+local pocket opportunity → area-conserving competing partners → frozen directed
+reference/partition → fresh same-row evaluation and independent transfer checks →
+R figures, tables and explicit examples. Physical definitions and invariants
+precede benchmark inspection; scalar SASA or observed degree alone is insufficient.
+
+Separate private independent-audit handoff and living state:
+`private-evaluation-record`.
+It records provenance, exact completed outcomes, implementation limits, pending
+work and reproducible audit questions. Full physical-context evaluation remains open.
+
+20 October implementation checkpoint: 3088cdf adds CLI-owned atom-resolved
+`contact-exposure`, retaining intact pMHC occlusion and separate peptide-only MHC
+shielding. Seven focused checks pass; existing scores are untouched. A 4848-atom
+implementation diagnostic took 0.74 s locally. The subsequent surface-reference
+checkpoint below supplies whole-cohort extraction, competing patch ownership and
+a first exposed-composition partition; complete physical-context matching remains open.
+
+20 October surface-reference checkpoint: d6d45a4 adds native conserved patch
+allocation and `contact-penalties --surface-context`. Exposed noncontact CDR and
+intact-pMHC peptide area define separate directed reference marginals; each
+structure's partition is explicit, with no assay fit. Original arms remain.
+Twenty-five installed-wheel checks and four visible-integration checks pass;
+Ruff and warning-fatal Sphinx pass. Independent six-model verification preserves
+all 12 original/prior rows and reconstructs areas and sums. The fresh 3808-model
+Stratos job `ab-surface-full-20261020` completed successfully in 1049.78 seconds.
+Full verification preserves all 7616 original/prior score rows and every benchmark
+model; independent area/partition reconstruction passes. Final per-case changes
+are mixed: the surface-context TCRen2 arm gains on three CPL cases and loses on
+four; receptor-ranking gains and losses remain separated by epitope and template
+coverage. The private `private-evaluation-record` separates the change
+of contact measure from the partition correction for all 248 case/potential/metric
+combinations. This candidate is not promoted. Frozen definition, provenance and audit commands are in the private
+handoff and `private-evaluation-record`. Local pocket/hydration matching,
+antibody atom-prior transfer and independent predictive validation remain open.
+
+Final-product audits now include 496 pair-ranking comparisons against original
+scores, shape complementarity, graph connectivity and ipTM. All model identities
+remain; unavailable descriptor pairs are explicit. Discordant correct pairs exist,
+but do not establish an improved combined predictor. The atom audit finds 11.572%
+of peptide-assigned binder area attributed to target atoms with zero sampled
+isolated-pMHC exposure. The current deepest-sphere ownership conserves area but
+can select an atom buried inside the target union; pooling exposure by amino-acid
+type masks most such assignments. Before another scoring run, establish an
+accessible-boundary ownership definition and its geometric invariants. Preserve
+the completed run, its losses, and its full atom tables. Private evidence:
+`private-evaluation-record` and `private-evaluation-record`;
+the R figure retains every case and template stratum.
+
+Accessible-boundary correction implemented as an explicit opt-in:
+`contact-penalties --surface-context --surface-ownership accessible_boundary`.
+It reuses native exposed samples and SciPy batched nearest-boundary queries;
+exact nearest atom-owner ties split area. Twenty-seven installed-wheel focused
+checks pass, including unchanged default output, enclosed-atom exclusion,
+conservation and end-to-end provenance. Ruff and warning-fatal Sphinx pass.
+The subsequent full 3808-model comparison and independent final-product checks
+completed successfully. Original scores and atom exposures are unchanged; all
+boundary owners are exposed. Predictive gains remain case-specific and losses
+are retained. The follow-up attribution on completed tables identifies changes
+in raw residue-table chemistry as the main mechanism behind the selected rank
+losses, with separate unchanged-logZ × changed-area partition effects.
+
+20 October author subgoal: use contact information beyond a closest-heavy-atom
+5 Å residue edge to distinguish modeled supported and mock receptor–pMHC pairs.
+Reconcile generator/label/native lineage before attributing wrong contacts; keep
+the original score and distinguish an atomic observation layer from the existing
+residue-matrix surface score. Private subroadmap and completed-output mechanisms:
+`private-evaluation-record`.
+No new structure extraction or fitting was performed. Atom-reference opportunity,
+context transfer and independent classification validation remain separate gates.
+
+## 20 October: sparse contact energy and complete task audit
+
+Follow [CONTACT_ENERGY_SUBROADMAP.md](CONTACT_ENERGY_SUBROADMAP.md). The author
+requires every current energy task and legacy 2022 benchmark, retaining bad
+outcomes and original potential identities. The completed residue+atom candidate
+improves ILA1/YLQ and loses SB27; it does not restore all CPL classifications.
+Chemical pooling, antibody transfer and exchange symmetry must address support
+before introducing more atom/residue/context cells. No assay-fit or default change.
+
+Contact-export scheduling now defaults to all allocated CPUs, parent-only batch
+annotation, coarse contiguous scoring workers and ordered reduction. An installed
+immutable-wheel128-model diagnostic measured28.331s serial versus8.428s on16CPUs
+(3.361× cold speedup),76 peak live OS threads and4319936512bytes sampled peak
+process-tree RSS. All256 score rows and complete contact/residue outputs match
+serial and frozen originals exactly. Seventeen focused checks, lint and
+warning-fatal docs pass. This is a measured subset, not a whole-cohort timing claim.
+
+Candidate-pool CLI scoring now also uses coarse all-allocation workers after one
+annotation batch. Twenty-seven focused exact-output tests cover both reference
+modes, weights, soft scoring and manifests; lint and warning-fatal docs pass.
+A fresh paired frozen-matrix legacy batch covers four named tasks with exact
+published380-cell identity, candidate multiplicity and source-hash verification.
+Random-decoy, model/crystal and receptor-shuffle coverage gates remain explicit.
+No historical fixture, fitted readout, scientific default or manuscript finding
+is changed by this scheduling/export follow-up.

@@ -62,7 +62,9 @@ app = typer.Typer(
          "orient/refine poses, and derive potentials from TCR:pMHC structures.",
 )
 
-# Help panels grouping the commands in `tcren --help` (rich_help_panel below).
+# Help panels grouping the commands in `tcren --help` (rich_help_panel below). Typer orders
+# panels by first use, so _P_MAIN must be used before any other panel for it to render first.
+_P_MAIN = "Start here"
 _P_SCORE = "Scoring & prediction"
 _P_ANNOT = "Annotation & contacts"
 _P_ORIENT = "Orientation & refinement"
@@ -166,6 +168,205 @@ def _read_candidates(path: Path) -> list[str] | dict[str, list[str]]:
             pools.setdefault(f[ic].strip().lower(), []).append(f[ip].strip())
         return pools
     return [line for line in lines if line.lower() != "peptide"]
+
+
+#: Re-exported so `screen`'s option defaults read from one place.
+from .screen import MIN_COHORT as SCREEN_MIN_COHORT  # noqa: E402
+
+
+def _screen_descriptors(structs: list, task, *, organism: str, threads: int) -> pl.DataFrame:
+    """The component columns the screen reference names, for one already-typed batch.
+
+    The structural alanine reference is taken on the side that VARIES, which is the whole point
+    of splitting the tasks: the epitope for epitope ranking, the contacted CDRs for TCR ranking.
+    Both are the STRUCTURAL form -- alanine truncated in 3D with the contact map rebuilt -- not
+    the fixed-map virtual substitution.
+    """
+    from .contactmap import ContactMap
+    from .exports import receptor_reference
+    from .potential import mj, tcren2
+    from .recognition import recognition_table
+    from .screen import CohortKind
+
+    # sc_shape and g_cyclo_frac come from the existing descriptor path, one batched call.
+    # recognition_table takes (id, structure) pairs; _typed_batch hands back bare Structures.
+    shape = pl.DataFrame(recognition_table(
+        [(s.pdb_id, s) for s in structs], organism=organism,
+        include=("interface", "topology"), threads=threads))
+    key = "complex.id" if "complex.id" in shape.columns else "pdb.id"
+    keep = [c for c in ("sc_shape", "g_cyclo_frac") if c in shape.columns]
+    table = shape.select(pl.col(key).alias("complex.id"), *keep)
+
+    peptide_pot, mhc_pot = tcren2(), mj()
+    rows = []
+    for s in structs:
+        cm = ContactMap.from_structure(s, cutoff=5.0)
+        if task is CohortKind.TCR_RANKING:
+            row = receptor_reference(cm, peptide_pot, mhc_pot, structure=s, cutoff=5.0)
+            rows.append({"complex.id": s.pdb_id,
+                         "n_contacts_tp": cm.tcr_peptide().height,
+                         "dFT_tcr_pep_cdr": row.get("dFT_tcr_pep_cdr")})
+        else:
+            from .energetics.mutation import reference_delta
+            peptide = next((c.sequence() for c in s.chains if c.chain_type == "PEPTIDE"), None)
+            rows.append({"complex.id": s.pdb_id,
+                         "n_contacts_tp": cm.tcr_peptide().height,
+                         "dPhi_tcr_pep": float(reference_delta(
+                             cm, peptide, peptide_pot, interface="tcr_peptide", structure=s))})
+    # The energy frame has one row per structure and is the authority on membership; the shape
+    # frame may be missing a row whose surface map failed, so join onto the energy frame.
+    energy = pl.DataFrame(rows)
+    return energy.join(table, on="complex.id", how="left", validate="1:1", maintain_order="left")
+
+
+def _screen_confidence(confidence: Path | None, structures) -> pl.DataFrame | None:
+    """ipTM for the set: an explicit table if given, otherwise the set's own metadata.tsv."""
+    from .metadata import read_metadata
+
+    if confidence is not None:
+        sep = "," if Path(confidence).suffix.lower() == ".csv" else "\t"
+        t = pl.read_csv(confidence, separator=sep, infer_schema_length=None,
+                        schema_overrides={"complex.id": pl.String})
+        missing = {"complex.id", "iptm"} - set(t.columns)
+        if missing:
+            raise typer.BadParameter(f"--confidence needs {sorted(missing)}; got {t.columns[:6]}")
+        if t["complex.id"].is_duplicated().any():
+            raise typer.BadParameter("--confidence has duplicate complex.id values")
+        return t.select("complex.id", pl.col("iptm").cast(pl.Float64))
+    for spec in (structures if isinstance(structures, list) else [structures]):
+        meta = read_metadata(spec)
+        if meta is not None and "iptm" in meta.columns:
+            return meta.select(pl.col("id").cast(pl.String).alias("complex.id"),
+                               pl.col("iptm").cast(pl.Float64)).unique(subset=["complex.id"])
+    return None
+
+
+@app.command(rich_help_panel=_P_MAIN)
+def screen(
+    structures: list[str] = typer.Option(..., "-s", "--structures", help="structure file(s), directory, .tar.gz, glob, or a .txt manifest of paths; repeatable and comma-separable"),
+    out: Path = typer.Option("screen.tsv", "-o", "--out", help="per-model score table (TSV)"),
+    task: str = typer.Option("auto", "--task", help="auto|epitope|tcr; a declared task is verified against the structures"),
+    confidence: Path = typer.Option(None, "--confidence", help="table of complex.id and iptm; by default ipTM is read from the set's metadata.tsv"),
+    reference: Path = typer.Option(None, "--reference", help="frozen reference JSON (default: the bundled one for the detected task)"),
+    min_cohort: int = typer.Option(SCREEN_MIN_COHORT, "--min-cohort", help="below this many models the combined score is withheld and only components are reported"),
+    on_flag: str = typer.Option("report", "--on-flag", help="what to do when a cohort is flagged low_confidence: report (default, change nothing) | structure (drop ipTM, score on structure alone) | geometry (geometry component alone) | withhold | reverse. All but report are opt-in because the only evidence that acting helps comes from the evaluation panels themselves."),
+    weight: float = typer.Option(None, "--weight", help="confidence weight in the Stouffer combination, in [0, 1]; default: the reference's own, which is task-specific"),
+    organism: str = typer.Option("human", "--organism"),
+    threads: int = typer.Option(1, "-t", "--threads", help="CPU budget: 1 serial, 0 all allocated, or a positive count"),
+) -> None:
+    """Rank a COHORT of modelled complexes — start here.
+
+    \b
+    A cohort holds one side fixed. The command works out which, and refuses a set that is
+    neither rather than scoring it as though it were one:
+
+      same receptor, peptides vary  ->  EPITOPE RANKING
+      same pMHC, receptors vary     ->  TCR RANKING
+
+    The two are different tasks and do not share a score. The alanine reference is taken on the
+    side that VARIES — the epitope for epitope ranking, the contacted CDRs for TCR ranking — and
+    topology is carried only for TCR ranking, because its direction inverts on peptide ranking.
+
+    \b
+    The generator's confidence stays primary: on every recorded receptor-ranking arm ipTM is the
+    strongest single input, and this combines it with the structural components by weighted
+    Stouffer at a confidence weight of 0.8, chosen so the worst observed outcome on the
+    evaluation panels is within those panels' own resolution.
+
+    Below a cohort of 30 models the combined score is WITHHELD and the components are reported
+    alone, because per-cohort margin noise then exceeds any effect the combination can produce.
+
+    Everything else in this package is a toolkit: `annotate` and `contacts` for markup and
+    contact listing, `superimpose` for canonical orientation, `surface` for pMHC topography,
+    `features` for the full descriptor table.
+    """
+    from .screen import (
+        FLAGS as FLAG_TEXT, CohortKind, FlagResponse, apply_flag_response, bundled_reference,
+        cohort_flags, cohort_signature, identities, read_reference, screen_scores, withhold_reason,
+    )
+
+    if task not in ("auto", "epitope", "tcr"):
+        raise typer.BadParameter("--task must be auto, epitope or tcr")
+    n_threads = resolve_threads(threads)
+    structs = _typed_batch(structures, organism, threads=n_threads)
+    if not structs:
+        raise typer.BadParameter(f"no structures found in {structures!r}")
+
+    peptides, receptors = identities(structs)
+    detected, summary = cohort_signature(peptides, receptors)
+    if task != "auto" and CohortKind(task) is not detected:
+        raise typer.BadParameter(
+            f"--task {task} was declared but the structures are a {detected.value} cohort: "
+            f"{summary['n_distinct_peptides']} distinct peptides and "
+            f"{summary['n_distinct_receptors']} distinct receptors across "
+            f"{summary['n_structures']} structures")
+
+    table = _screen_descriptors(structs, detected, organism=organism, threads=n_threads)
+    iptm = _screen_confidence(confidence, structures)
+    if iptm is not None:
+        table = table.join(iptm, on="complex.id", how="left", validate="1:1", maintain_order="left")
+    else:
+        table = table.with_columns(iptm=pl.lit(None, dtype=pl.Float64))
+
+    ref = bundled_reference(detected) if reference is None else read_reference(reference)
+    flags = cohort_flags(table, ref, min_cohort=min_cohort)
+    # Flags report by default; changing the score requires an explicit --on-flag response.
+    try:
+        response = FlagResponse(on_flag)
+    except ValueError as exc:
+        raise typer.BadParameter(
+            f"--on-flag must be one of {', '.join(r.value for r in FlagResponse)}") from exc
+    suppress = withhold_reason(flags, detected)
+    result = screen_scores(table, ref, weight=weight, min_cohort=min_cohort, suppress=suppress)
+    # Act on a flag only if asked, and never on a cohort whose score was already withheld for
+    # size -- rewriting a score that does not exist would only confuse the reason column.
+    acted = None
+    if (response is not FlagResponse.REPORT and flags.get("low_confidence") is True
+            and not flags.get("small_cohort")):
+        acted = f"low_confidence: {FLAG_TEXT['low_confidence']}"
+        result = apply_flag_response(result, table, ref, response=response, reason=acted)
+    for name in ("small_cohort", "no_interface", "forced_pose", "low_confidence",
+                 "confidence_disagrees"):
+        result = result.with_columns(pl.lit(flags.get(name)).alias(f"flag_{name}"))
+    result = result.with_columns(
+        cohort_mean_iptm=pl.lit(flags.get("mean_iptm")),
+        cohort_confidence_z=pl.lit(flags.get("cohort_confidence_z")),
+        cohort_n_no_interface=pl.lit(flags.get("n_no_interface")),
+        cohort_confidence_structure_agreement=pl.lit(
+            flags.get("confidence_structure_agreement")))
+    result.write_csv(out, separator="\t")
+    from .provenance import stamp
+    stamp(out, command="screen", extra={"task": detected.value, "format": ref["format"],
+                                        "flags": {k: v for k, v in flags.items()},
+                                        "on_flag": response.value,
+                                        "flag_response_applied": acted is not None,
+                                        "reference_sha256": ref["reference_sha256"],
+                                        "weight": weight if weight is not None
+                                        else ref.get("default_weight"),
+                                        "min_cohort": min_cohort,
+                                        "cohort": summary})
+    scored = int(result["screen_score"].is_not_null().sum())
+    discarded = int(result["no_interface"].sum()) if "no_interface" in result.columns else 0
+    raised = [k for k in ("small_cohort", "no_interface", "forced_pose", "low_confidence",
+                          "confidence_disagrees") if flags.get(k) is True]
+    typer.echo(
+        f"{detected.value} cohort: {summary['n_structures']} models, "
+        f"{summary['n_distinct_peptides']} peptide(s), {summary['n_distinct_receptors']} receptor(s)"
+        + (f"; mean ipTM {flags['mean_iptm']:.3f} (z {flags['cohort_confidence_z']:+.2f})"
+           if flags.get("cohort_confidence_z") == flags.get("cohort_confidence_z") else "")
+        + (f"; {discarded} discarded with no TCR:peptide interface" if discarded else "")
+        + (f"; flags: {', '.join(raised)}" if raised else "; no flags")
+        + ("" if iptm is not None else "; no ipTM supplied, structure components only"))
+    if acted and response is not FlagResponse.WITHHOLD:
+        typer.echo(f"--on-flag {response.value} applied — {acted}")
+    if scored:
+        typer.echo(f"{scored} models scored")
+    else:
+        # read the reason off the table rather than re-deriving it, so the line cannot disagree
+        # with the column: a flag response and the size floor withhold for different reasons.
+        reasons = [r for r in result["score_unavailable"].unique().to_list() if r]
+        typer.echo("combined score withheld — "
+                   + (reasons[0] if reasons else f"cohort below --min-cohort {min_cohort}"))
 
 
 @app.command(rich_help_panel=_P_INFO)
@@ -676,6 +877,29 @@ def _reference_energy(structure, cm, potential, interface, regions, mode, refere
     return _score_one(rcm, ref, potential, interface, regions, weights=w)
 
 
+def _candidate_score_chunk(work):
+    """Score a coarse contiguous template chunk without annotation searches."""
+    entries, pot, options = work
+    interface, regions, cutoff, intra_weight, drop_untyped, position_scheme, soft, delta, reference, reference_aa = options
+    frames = []
+    for s, mine in entries:
+        cm = ContactMap.from_structure(s, cutoff=cutoff, peptide_internal=bool(intra_weight))
+        if soft:
+            from .energetics.rotamers import contact_probabilities
+            frames.append(_soft_score(s, mine, pot, interface, cutoff, contact_probabilities))
+            continue
+        w = _score_weights(s, cm, interface, regions, drop_untyped, position_scheme)
+        frame = score_peptides(cm, mine, pot, interface=interface, tcr_regions=regions,
+                               intra_weight=intra_weight, weights=w)
+        if delta:
+            frame = frame.with_columns(
+                (pl.col("score") - _reference_energy(
+                    s, cm, pot, interface, regions, reference, reference_aa, cutoff,
+                    drop_untyped, position_scheme)).alias("dphi"))
+        frames.append(frame)
+    return frames
+
+
 @app.command(rich_help_panel=_P_SCORE)
 def score(
     structures: list[str] = typer.Option(..., "-s", "--structures", help="structure file(s), directory, .tar.gz, glob, or a .txt manifest of paths; repeatable and comma-separable"),
@@ -693,7 +917,7 @@ def score(
     delta: bool = typer.Option(False, "--delta", help="also report ΔΦ, the poly-alanine-referenced energy"),
     reference: str = typer.Option("structural", "--reference", help="how the poly-alanine baseline is built for --delta: structural (rebuild its own contacts) or virtual (re-index on the template map)"),
     reference_aa: str = typer.Option("A", "--reference-aa", help="reference residue for --delta (default: alanine)"),
-    threads: int = typer.Option(1, "-t", "--threads", help="CPU budget: 1 serial, 0 all allocated, or a positive count"),
+    threads: int = typer.Option(0, "-t", "--threads", help="CPU budget: 1 serial, 0 all allocated, or a positive count"),
 ) -> None:
     """Score candidate epitopes against input structures (end-to-end pipeline).
 
@@ -734,30 +958,149 @@ def score(
     pot = _load_potential(potential)
     cands = _read_candidates(candidates)
     pools = cands if isinstance(cands, dict) else None
-    frames = []
+    threads = resolve_threads(threads)
+    entries = []
     for s in _typed_batch(structures, organism, mhc=soft, threads=threads):
-        # A manifest names the template each pool belongs to; without one every structure scores
-        # every candidate, which is the behaviour every existing caller has.
+        # Manifest pools belong to one template; a flat pool applies to every template.
         mine = pools.get(str(s.pdb_id).lower()) if pools is not None else cands
-        if not mine:
-            continue
-        cm = ContactMap.from_structure(s, cutoff=cutoff, peptide_internal=bool(intra_weight))
-        if soft:
-            from .energetics.rotamers import contact_probabilities
-            frames.append(_soft_score(s, mine, pot, interface, cutoff, contact_probabilities))
-            continue
-        w = _score_weights(s, cm, interface, regions, drop_untyped, position_scheme)
-        frame = score_peptides(cm, mine, pot, interface=interface, tcr_regions=regions,
-                               intra_weight=intra_weight, weights=w)
-        if delta:
-            frame = frame.with_columns(
-                (pl.col("score") - _reference_energy(
-                    s, cm, pot, interface, regions, reference, reference_aa, cutoff,
-                    drop_untyped, position_scheme)).alias("dphi"))
-        frames.append(frame)
+        if mine:
+            entries.append((s, mine))
+    options = (interface, regions, cutoff, intra_weight, drop_untyped, position_scheme,
+               soft, delta, reference, reference_aa)
+    count = min(threads, len(entries))
+    work = [(entries[i*len(entries)//count:(i+1)*len(entries)//count], pot, options)
+            for i in range(count)]
+    frames = [frame for group in parallel_map(_candidate_score_chunk, work, threads) for frame in group]
     result = pl.concat(frames) if frames else pl.DataFrame()
     result.write_csv(str(out))
     typer.echo(f"The ranked list of candidate epitopes can be found in {out}")
+
+
+def _receptor_score_chunk(work):
+    """Thread paired observed receptor regions onto physical TRA/TRB contacts."""
+    entries, pot, cutoff, receptor_region = work
+    frames = []
+    alphabet = set("ACDEFGHIKLMNPQRSTVWY")
+    for structure, candidates in entries:
+        peptides = structure.by_type("PEPTIDE")
+        if (len(peptides) != 1 or not peptides[0].residues or
+                not set(peptides[0].sequence()) <= alphabet):
+            raise ValueError(f"{structure.pdb_id}: require exactly one observed standard-amino-acid peptide")
+        cm = ContactMap.from_structure(structure, cutoff=cutoff)
+        chain_scores = []
+        for chain_type, suffix in (("TRA", "a"), ("TRB", "b")):
+            column = receptor_region + suffix
+            chains = structure.by_type(chain_type)
+            regions = [r for c in chains for r in c.regions if r.region_type == "CDR3"]
+            if len(chains) != 1 or len(regions) != 1 or not regions[0].residues:
+                raise ValueError(f"{structure.pdb_id}: require exactly one observed {chain_type} CDR3")
+            region = regions[0]
+            observed = "".join(r.aa for r in region.residues)
+            if (not set(observed) <= alphabet or
+                    [r.seq_index for r in region.residues] !=
+                    list(range(region.start_seq_index, region.start_seq_index + len(observed)))):
+                raise ValueError(f"{structure.pdb_id}: invalid observed {chain_type} CDR3 annotation")
+            residues = region.residues
+            if receptor_region == "junction":
+                flanks = [[r for r in chains[0].regions if r.region_type == name]
+                          for name in ("FR3", "FR4")]
+                if any(len(regions) != 1 or not regions[0].residues for regions in flanks):
+                    raise ValueError(f"{structure.pdb_id}: junction requires observed FR3/FR4 anchors")
+                fr3, fr4 = [regions[0] for regions in flanks]
+                left, right = fr3.residues[-1], fr4.residues[0]
+                if (left.aa != "C" or right.aa not in "FW" or
+                        left.seq_index != fr3.end_seq_index or
+                        right.seq_index != fr4.start_seq_index or
+                        left.seq_index + 1 != region.start_seq_index or
+                        region.end_seq_index != residues[-1].seq_index or
+                        residues[-1].seq_index + 1 != right.seq_index):
+                    raise ValueError(f"{structure.pdb_id}: junction requires adjacent observed Cys104 and F/W118 anchors")
+                residues = [left, *residues, right]
+                if any((actual := chains[0].by_seq_index(r.seq_index)) is None or actual.aa != r.aa
+                       for r in residues):
+                    raise ValueError(f"{structure.pdb_id}: junction annotation does not match observed residues")
+                observed = "".join(r.aa for r in residues)
+            sequences = candidates[column].unique(maintain_order=True).to_list()
+            if any(len(seq) != len(observed) for seq in sequences):
+                raise ValueError(f"{structure.pdb_id}: {column} must match observed {receptor_region} length {len(observed)}"
+                                 + (" (anchors excluded)" if receptor_region == "cdr3" else " (anchors included)"))
+            contacts = cm.contacts.filter(
+                (pl.col("chain.id.from") == chains[0].chain_id) &
+                (pl.col("region.type.from") == "CDR3"))
+            if receptor_region == "junction":
+                contacts = cm.contacts.filter(
+                    (pl.col("chain.id.from") == chains[0].chain_id) &
+                    pl.col("residue.index.from").is_in([r.seq_index for r in residues]))
+                contacts = contacts.with_columns(
+                    pl.lit(residues[0].seq_index).alias("region.start.from"))
+            selected = ContactMap(cm.pdb_id, contacts, cm.peptide_length)
+            scores = score_peptides(selected, sequences, pot, substituted_side="from",
+                                    require_same_length=False)
+            # Score each distinct sequence once, then map back to candidate IDs; identical
+            # sequences belonging to distinct donors retain their original multiplicity.
+            lookup = dict(zip(scores["peptide"], scores["score"]))
+            chain_scores.append(candidates[column].replace_strict(lookup, return_dtype=pl.Float64)
+                                .alias(f"score.{chain_type.lower()}"))
+        frames.append(candidates.with_columns(*chain_scores, pl.lit(structure.pdb_id).alias("complex.id"),
+                        pl.lit(pot.name).alias("potential"))
+                      .with_columns((pl.col("score.tra") + pl.col("score.trb")).alias("score")))
+    return frames
+
+
+@app.command("score-receptors", rich_help_panel=_P_SCORE)
+def score_receptors(
+    receptor_region: str = typer.Option("cdr3", "--receptor-region", help="cdr3 excludes anchors; junction includes observed Cys104 and F/W118"),
+    structures: list[str] = typer.Option(..., "-s", "--structures"),
+    candidates: Path = typer.Option(..., "-c", "--candidates", help="TSV: complex.id,candidate.id and cdr3a/cdr3b or junctiona/junctionb"),
+    potential: str | None = typer.Option(None, "-p", "--potential"),
+    out: Path = typer.Option("candidate_receptors_TCRen.csv", "-o", "--out"),
+    organism: str = typer.Option("human", "--organism"),
+    cutoff: float = typer.Option(5.0, "--cutoff"),
+    threads: int = typer.Option(0, "-t", "--threads", help="CPU budget: 1 serial, 0 all allocated, or a positive count"),
+) -> None:
+    """Thread paired CDR3s or observed junctions onto fixed receptor:peptide contacts.
+
+    Output retains every candidate ID and reports directed TRA, TRB and summed
+    contact energies. Junction mode includes the observed FR3/FR4 anchor contacts.
+    No coordinates or peptide identities change.
+    """
+    from math import isfinite
+
+    if not isfinite(cutoff) or cutoff <= 0:
+        raise typer.BadParameter("--cutoff must be finite and positive")
+    if receptor_region not in ("cdr3", "junction"):
+        raise typer.BadParameter("--receptor-region must be cdr3 or junction")
+    columns = ["complex.id", "candidate.id", receptor_region + "a", receptor_region + "b"]
+    frame = pl.read_csv(candidates, separator="\t", infer_schema=False)
+    if not set(columns) <= set(frame.columns):
+        raise typer.BadParameter(f"candidate TSV requires {','.join(columns)}")
+    frame = frame.select(columns).with_columns(pl.col("complex.id").str.to_lowercase())
+    if frame.is_empty() or any(frame[c].null_count() or (frame[c] == "").any() for c in columns):
+        raise typer.BadParameter("candidate TSV must contain nonempty IDs and receptor sequences")
+    if frame.select("complex.id", "candidate.id").is_duplicated().any():
+        raise typer.BadParameter("candidate.id must be unique within each template")
+    for column in columns[2:]:
+        if not frame[column].str.contains("^[ACDEFGHIKLMNPQRSTVWY]+$").all():
+            raise typer.BadParameter(f"{column} must contain standard uppercase amino acids only")
+        if receptor_region == "junction" and not frame[column].str.contains("^C[ACDEFGHIKLMNPQRSTVWY]+[FW]$").all():
+            raise typer.BadParameter(f"{column} junction must start with C and end with F or W")
+    threads = resolve_threads(threads)
+    typed = _typed_batch(structures, organism, mhc=False, threads=threads)
+    ids = [str(s.pdb_id).lower() for s in typed]
+    if len(ids) != len(set(ids)):
+        raise typer.BadParameter("template complex.id must be unique")
+    missing = set(frame["complex.id"]) - set(ids)
+    if missing:
+        raise typer.BadParameter(f"candidate templates not found: {', '.join(sorted(missing))}")
+    entries = [(s, frame.filter(pl.col("complex.id") == str(s.pdb_id).lower())) for s in typed]
+    entries = [(s, rows) for s, rows in entries if not rows.is_empty()]
+    pot = _load_potential(potential)
+    count = min(threads, len(entries))
+    work = [(entries[i*len(entries)//count:(i+1)*len(entries)//count], pot, cutoff, receptor_region)
+            for i in range(count)]
+    frames = [f for group in parallel_map(_receptor_score_chunk, work, threads) for f in group]
+    pl.concat(frames).write_csv(out)
+    typer.echo(f"Candidate receptor scores can be found in {out}")
 
 
 @app.command("ddg", rich_help_panel=_P_SCORE)
@@ -2723,7 +3066,7 @@ def export_exact(
     structures: list[str] = typer.Option(..., "-s", "--structures"),
     output: Path = typer.Option(..., "-o", "--output"),
     quantity: str = typer.Option("receptor-reference", "--quantity",
-                                help="receptor-reference, position, residue, contacts, contact-context, placement, contact-topology, backbone, pmhc or pmhc-cells"),
+                                help="receptor-reference, position, residue, contacts, contact-context, contact-atoms, atom-inventory, placement, contact-topology, backbone, pmhc, pmhc-cells, contact-exposure or surface-contacts"),
     potential: str = typer.Option(None, "--potential", help="Explicit TCR:peptide potential name or CSV; not needed for pmhc"),
     mhc_potential: str = typer.Option("mj", "--mhc-potential"),
     reference_mode: str = typer.Option("virtual", "--reference-mode", help="receptor-reference only: structural alanine truncation or historical virtual identities"),
@@ -2745,15 +3088,16 @@ def export_exact(
 
     from .exports import export_batch
 
-    if quantity not in {"pmhc", "pmhc-cells", "contact-topology", "backbone"} and potential is None:
-        raise typer.BadParameter("--potential is required except for --quantity pmhc, pmhc-cells, contact-topology or backbone")
+    potential_free = {"pmhc", "pmhc-cells", "contact-topology", "backbone", "contact-atoms", "atom-inventory", "contact-exposure", "surface-contacts"}
+    if quantity not in potential_free and potential is None:
+        raise typer.BadParameter("--potential is required except for --quantity pmhc, pmhc-cells, contact-topology, backbone, contact-atoms, atom-inventory, contact-exposure or surface-contacts")
     if reference_mode not in ("virtual", "structural"):
         raise typer.BadParameter("--reference-mode must be virtual or structural")
     if reference_mode == "structural" and quantity != "receptor-reference":
         raise typer.BadParameter("structural reference requires --quantity receptor-reference")
     ledger = export_batch(structures, output, quantity=quantity,
-                          peptide_potential=None if quantity in {"pmhc", "pmhc-cells", "contact-topology", "backbone"} else _load_potential(potential),
-                          mhc_potential=None if quantity in {"pmhc", "pmhc-cells", "contact-topology", "backbone"} else _load_potential(mhc_potential), interface=interface,
+                          peptide_potential=None if quantity in potential_free else _load_potential(potential),
+                          mhc_potential=None if quantity in potential_free else _load_potential(mhc_potential), interface=interface,
                           cutoff=cutoff, organisms=tuple(organism), threads=threads,
                           command=shlex.join(sys.argv), reference_mode=reference_mode,
                           register_reference_id=register_reference_id, register_p1=register_p1,
@@ -2770,9 +3114,21 @@ app.command("inspect-models", rich_help_panel=_P_ANNOT)(inspect_models_command)
 from .associations import association_command
 app.command("associate", rich_help_panel=_P_SCORE)(association_command)
 
+from .contacts.class_audit import audit_command as contact_class_audit_command
+app.command("contact-class-audit", rich_help_panel=_P_ANNOT)(contact_class_audit_command)
+
+from .contacts.prior_geometry import geometry_command
+app.command("contact-prior-geometry", rich_help_panel=_P_ANNOT)(geometry_command)
+
+from .contacts.penalty_export import register as register_contact_penalties
+register_contact_penalties(app, _P_SCORE)
+
 from .validation.md_exports import app as md_app
 app.add_typer(md_app, name="md", rich_help_panel=_P_ANNOT)
 
+from .ranking import rank_command
+
+app.command("rank-epitopes", rich_help_panel=_P_SCORE)(rank_command)
 
 # The __main__ guard belongs at the VERY END of the module, below the last @app.command.
 # It has been moved twice for the same reason. It first sat just after `main()`, two thirds up,

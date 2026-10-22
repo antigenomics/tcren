@@ -79,6 +79,49 @@ std::vector<Vec3> unit_sphere(int n) {
     return pts;
 }
 
+// Shared spatial candidate owner for SASA and conserved surface allocation.
+struct SurfaceNeighbours {
+    const std::vector<Vec3>& pos;
+    const std::vector<double>& rad;
+    double cell;
+    std::unordered_map<unsigned long long, std::vector<int>> grid;
+    static unsigned long long hash(long a, long b, long c) {
+        return (static_cast<unsigned long long>(a) * 73856093ULL) ^
+               (static_cast<unsigned long long>(b) * 19349663ULL) ^
+               (static_cast<unsigned long long>(c) * 83492791ULL);
+    }
+    long key(double v) const { return static_cast<long>(std::floor(v / cell)); }
+    SurfaceNeighbours(const std::vector<Vec3>& p, const std::vector<double>& r, double maxr)
+        : pos(p), rad(r), cell(std::max(2.0 * maxr, 1e-3)) {
+        if (!std::isfinite(cell)) throw py::value_error("expanded radii exceed numeric range");
+        for (const auto& a : pos)
+            for (double v : {a.x, a.y, a.z})
+                if (std::abs(static_cast<long double>(v) / cell) >=
+                    static_cast<long double>(std::numeric_limits<long>::max()) - 2)
+                    throw py::value_error("coordinates exceed spatial-grid index range");
+        for (size_t i = 0; i < pos.size(); ++i)
+            grid[hash(key(pos[i].x), key(pos[i].y), key(pos[i].z))].push_back(static_cast<int>(i));
+    }
+    std::vector<int> at(int i) const {
+        std::vector<int> nb;
+        const long cx = key(pos[i].x), cy = key(pos[i].y), cz = key(pos[i].z);
+        for (long dx = -1; dx <= 1; ++dx)
+            for (long dy = -1; dy <= 1; ++dy)
+                for (long dz = -1; dz <= 1; ++dz) {
+                    auto it = grid.find(hash(cx + dx, cy + dy, cz + dz));
+                    if (it == grid.end()) continue;
+                    for (int j : it->second) {
+                        if (j != i && d2(pos[i], pos[j]) < (rad[i]+rad[j])*(rad[i]+rad[j]))
+                            nb.push_back(j);
+                    }
+                }
+        // Hash collisions may visit a bucket more than once; allocation must not.
+        std::sort(nb.begin(), nb.end());
+        nb.erase(std::unique(nb.begin(), nb.end()), nb.end());
+        return nb;
+    }
+};
+
 // Per-atom SASA via Shrake-Rupley with a uniform-grid neighbour list (fast on full complexes).
 py::array_t<double> shrake_rupley(py::array_t<double> xyz, py::array_t<double> radii,
                                   double probe, int n_points) {
@@ -96,40 +139,13 @@ py::array_t<double> shrake_rupley(py::array_t<double> xyz, py::array_t<double> r
     auto w = out.mutable_unchecked<1>();
     if (n == 0) return out;
 
-    // Grid: cell size = 2*rmax so any contacting neighbour lies in the 27-cell stencil.
-    const double cell = std::max(2.0 * rmax, 1e-3);
-    for (const auto& p : pos)
-        for (double v : {p.x, p.y, p.z})
-            if (std::abs(static_cast<long double>(v) / cell) >=
-                static_cast<long double>(std::numeric_limits<long>::max()) - 2)
-                throw py::value_error("coordinates exceed spatial-grid index range");
-    auto key = [cell](double v) { return static_cast<long>(std::floor(v / cell)); };
-    std::unordered_map<unsigned long long, std::vector<int>> grid;
-    auto hash = [](long a, long b, long c) {
-        return (static_cast<unsigned long long>(a) * 73856093ULL) ^ (static_cast<unsigned long long>(b) * 19349663ULL) ^
-               (static_cast<unsigned long long>(c) * 83492791ULL);
-    };
-    for (int i = 0; i < n; ++i)
-        grid[hash(key(pos[i].x), key(pos[i].y), key(pos[i].z))].push_back(i);
+    const SurfaceNeighbours neighbours(pos, rad, rmax);
 
     const std::vector<Vec3> sphere = unit_sphere(n_points);
     {
         py::gil_scoped_release release;
         for (int i = 0; i < n; ++i) {
-            // Collect neighbours from the 27-cell stencil.
-            std::vector<int> nb;
-            const long cx = key(pos[i].x), cy = key(pos[i].y), cz = key(pos[i].z);
-            for (long dx = -1; dx <= 1; ++dx)
-                for (long dy = -1; dy <= 1; ++dy)
-                    for (long dz = -1; dz <= 1; ++dz) {
-                        auto it = grid.find(hash(cx + dx, cy + dy, cz + dz));
-                        if (it == grid.end()) continue;
-                        for (int j : it->second) {
-                            if (j == i) continue;
-                            const double rr2 = (rad[i] + rad[j]) * (rad[i] + rad[j]);
-                            if (d2(pos[i], pos[j]) < rr2) nb.push_back(j);
-                        }
-                    }
+            const std::vector<int> nb = neighbours.at(i);
             int acc = 0;
             for (const Vec3& s : sphere) {
                 const Vec3 p{pos[i].x + rad[i] * s.x, pos[i].y + rad[i] * s.y, pos[i].z + rad[i] * s.z};
@@ -141,6 +157,83 @@ py::array_t<double> shrake_rupley(py::array_t<double> xyz, py::array_t<double> r
             }
             w(i) = (4.0 * M_PI * rad[i] * rad[i]) * (static_cast<double>(acc) / n_points);
         }
+    }
+    return out;
+}
+
+// Partition each independently exposed patch once among deepest opposite
+// expanded spheres. Endpoint areas stay separate; this is not an energy.
+py::dict surface_partition(py::array_t<double> xyz, py::array_t<double> radii,
+                           py::array_t<int> roles, double probe, int n_points, bool samples) {
+    const std::vector<Vec3> pos = load_xyz(xyz);
+    check_radii(radii, pos.size());
+    if (roles.ndim() != 1 || static_cast<size_t>(roles.size()) != pos.size())
+        throw py::value_error("roles must have one binary entry per atom");
+    if (!std::isfinite(probe) || probe < 0 || n_points <= 0)
+        throw py::value_error("probe must be finite and nonnegative, n_points positive");
+    const auto side = load_int(roles);
+    for (int r : side) if (r != 0 && r != 1) throw py::value_error("roles must be 0 or 1");
+    const int n = static_cast<int>(pos.size());
+    const auto rr = radii.unchecked<1>();
+    std::vector<double> rad(n);
+    double rmax = 0.;
+    for (int i = 0; i < n; ++i) { rad[i] = rr(i) + probe; rmax = std::max(rmax, rad[i]); }
+    const SurfaceNeighbours neighbours(pos, rad, rmax);
+    const auto sphere = unit_sphere(n_points);
+    py::array_t<double> isolated(n), bound(n);
+    auto iso = isolated.mutable_unchecked<1>();
+    auto bnd = bound.mutable_unchecked<1>();
+    std::vector<int> from, to;
+    std::vector<double> area, sample_xyz, sample_area;
+    std::vector<int> sample_atom, sample_lost;
+    {
+        py::gil_scoped_release release;
+        for (int i = 0; i < n; ++i) {
+            const auto nb = neighbours.at(i);
+            const double patch = 4.0 * M_PI * rad[i] * rad[i] / n_points;
+            int n_isolated = 0, n_bound = 0;
+            std::unordered_map<int, double> allocation;
+            std::vector<int> ties;
+            for (const auto& s : sphere) {
+                const Vec3 p{pos[i].x+rad[i]*s.x, pos[i].y+rad[i]*s.y, pos[i].z+rad[i]*s.z};
+                bool same_side_buried = false;
+                double best = std::numeric_limits<double>::infinity();
+                ties.clear();
+                for (int j : nb) {
+                    const double dist2 = d2(p, pos[j]);
+                    if (dist2 >= rad[j]*rad[j]) continue;
+                    if (side[i] == side[j]) { same_side_buried = true; break; }
+                    const double gap = std::sqrt(dist2) - rad[j];
+                    if (gap < best) { best = gap; ties.clear(); ties.push_back(j); }
+                    else if (gap == best) ties.push_back(j);
+                }
+                if (same_side_buried) continue;
+                ++n_isolated;
+                if (samples) {
+                    sample_xyz.insert(sample_xyz.end(), {p.x, p.y, p.z});
+                    sample_atom.push_back(i); sample_area.push_back(patch);
+                    sample_lost.push_back(!ties.empty());
+                }
+                if (ties.empty()) ++n_bound;
+                else for (int j : ties) allocation[j] += patch / ties.size();
+            }
+            iso(i) = n_isolated * patch;
+            bnd(i) = n_bound * patch;
+            // Stable atom-index output order, independent of hash bucket order.
+            for (int j : nb) {
+                auto it = allocation.find(j);
+                if (it != allocation.end()) { from.push_back(i); to.push_back(j); area.push_back(it->second); }
+            }
+        }
+    }
+    py::dict out;
+    out["isolated_A2"] = isolated; out["bound_A2"] = bound;
+    out["from"] = from; out["to"] = to; out["area_A2"] = area;
+    if (samples) {
+        py::array_t<double> points({static_cast<py::ssize_t>(sample_atom.size()), py::ssize_t(3)});
+        std::copy(sample_xyz.begin(), sample_xyz.end(), points.mutable_data());
+        out["sample_xyz"] = points; out["sample_atom"] = sample_atom;
+        out["sample_area_A2"] = sample_area; out["sample_lost"] = sample_lost;
     }
     return out;
 }
@@ -309,6 +402,9 @@ PYBIND11_MODULE(_geom, m) {
     m.def("shrake_rupley", &shrake_rupley, py::arg("xyz"), py::arg("radii"),
           py::arg("probe") = 1.4, py::arg("n_points") = 100,
           "Per-atom solvent-accessible surface area (Shrake-Rupley, grid neighbour list).");
+    m.def("surface_partition", &surface_partition, py::arg("xyz"), py::arg("radii"),
+          py::arg("roles").noconvert(), py::arg("probe") = 1.4, py::arg("n_points") = 100, py::arg("samples") = false,
+          "Conserved per-endpoint surface burial allocated to deepest opposing expanded spheres.");
     m.def("interface_hbonds", &interface_hbonds, py::arg("donor_xyz"), py::arg("acceptor_xyz"),
           py::arg("dist_cutoff") = 3.5, "Count polar-polar heavy-atom pairs across an interface.");
     m.def("contact_descriptors", &contact_descriptors, py::arg("tcra_xyz"), py::arg("tcra_res"),
