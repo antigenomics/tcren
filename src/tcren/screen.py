@@ -71,7 +71,42 @@ def _validate(reference: dict) -> list[dict]:
             raise ValueError(f"component {c['name']!r} has a nonfinite mean")
         if not np.isfinite(c["sd"]) or c["sd"] <= 0:
             raise ValueError(f"component {c['name']!r} has a nonpositive scale")
+        rho = c.get("confidence_rho")
+        if rho is not None:
+            if c["name"] == "confidence":
+                raise ValueError("the confidence component cannot be orthogonalized against itself")
+            if not np.isfinite(rho) or not -1.0 < float(rho) < 1.0:
+                raise ValueError(f"component {c['name']!r} confidence_rho must lie in (-1, 1)")
+    if (any(c.get("confidence_rho") is not None for c in components)
+            and not any(c["name"] == "confidence" for c in components)):
+        raise ValueError("confidence_rho needs a confidence component to orthogonalize against")
     return components
+
+
+def orthogonalize(z: np.ndarray, z_confidence: np.ndarray, rho: float) -> np.ndarray:
+    r"""Remove the confidence-explained part of a standardized component and restore unit scale.
+
+    .. math::  z^{\perp} = \frac{z - \rho\, z_{\mathrm{conf}}}{\sqrt{1 - \rho^{2}}}
+
+    :math:`\rho` is the frozen within-cohort slope of ``z`` on ``z_confidence``, both already
+    standardized by the reference's own mean and scale, so it is a correlation rather than a
+    regression coefficient in raw units. Subtraction alone would shrink the component's spread;
+    the divide puts it back on the scale the fixed Stouffer weights were chosen for, which is the
+    whole point -- a weight of 0.2 should buy 0.2 of *independent* structural evidence, and
+    without the rescale it buys :math:`0.2\sqrt{1-\rho^{2}}`.
+
+    This is a change of basis, not new evidence: ``z`` and ``z_confidence`` span the same space
+    before and after. What it changes is what the fixed weights mean.
+
+    Rows whose confidence is missing keep ``z`` unchanged -- there is nothing to project out of
+    them -- rather than being dropped or imputed.
+    """
+    z, c = np.asarray(z, float), np.asarray(z_confidence, float)
+    rho = float(rho)
+    if not -1.0 < rho < 1.0:
+        raise ValueError("rho must lie in (-1, 1)")
+    corrected = (z - rho * c) / np.sqrt(1.0 - rho * rho)
+    return np.where(np.isfinite(c), corrected, z)
 
 
 def stouffer(z: np.ndarray, weights: np.ndarray) -> np.ndarray:
@@ -401,23 +436,43 @@ def screen_scores(
     if absent:
         raise ValueError(f"missing component columns: {absent}")
 
-    out = {"complex.id": ids}
-    z_cols, weights = [], []
+    raw, z_cols, weights = [], [], []
     for c in components:
         x = np.asarray(table[c["column"]].cast(pl.Float64), dtype=float)
         if np.isinf(x).any():
             raise ValueError(f"infinite values in {c['column']}")
         seen = np.isfinite(x)
         z = c["direction"] * (x - c["mean"]) / c["sd"]
-        out[c["column"]] = x
-        out[f"z_{c['name']}"] = np.where(seen, z, np.nan)
-        out[f"missing_{c['name']}"] = ~seen
+        raw.append(x)
         z_cols.append(np.where(seen, z, np.nan))
         # The confidence block carries `weight`; the structural components share the remainder.
         weights.append(weight if c["name"] == "confidence" else 0.0)
     structural = [i for i, c in enumerate(components) if c["name"] != "confidence"]
     for i in structural:
         weights[i] = (1.0 - weight) / len(structural)
+
+    # A reference may carry a frozen `confidence_rho` per structural component. Where it does,
+    # the component enters the combination orthogonal to confidence and back on unit scale, so
+    # the fixed weights buy independent evidence rather than a second helping of ipTM. A
+    # reference without the key leaves every z exactly as it was, so the shipped behaviour and
+    # every score computed under it are unchanged.
+    conf = next((i for i, c in enumerate(components) if c["name"] == "confidence"), None)
+    applied = np.zeros(table.height, dtype=bool)
+    orthogonalized = [c.get("confidence_rho") is not None for c in components]
+    if conf is not None:
+        for i, c in enumerate(components):
+            if not orthogonalized[i]:
+                continue
+            z_cols[i] = orthogonalize(z_cols[i], z_cols[conf], c["confidence_rho"])
+            applied |= np.isfinite(z_cols[conf]) & np.isfinite(z_cols[i])
+
+    out = {"complex.id": ids}
+    for i, c in enumerate(components):
+        out[c["column"]] = raw[i]
+        out[f"z_{c['name']}"] = z_cols[i]
+        out[f"missing_{c['name']}"] = ~np.isfinite(raw[i])
+    if any(orthogonalized):
+        out["confidence_orthogonalized"] = applied
 
     Z = np.column_stack(z_cols)
     observed = np.isfinite(Z).sum(axis=1).astype(np.int16)

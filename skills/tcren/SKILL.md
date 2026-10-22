@@ -32,7 +32,15 @@ erase their original reasons. Reversal is not recommended as a modelling correct
 Keep ipTM primary for receptor ranking and inspect the separate components,
 missingness, flags and provenance sidecar. No universal improvement, affinity,
 calibrated probability or receptor-specific discrimination follows from a score.
-API: `screen.screen_scores`, `screen.cohort_signature`, `screen.stouffer`.
+
+A reference may carry `confidence_rho` on a structural component; that component then
+enters as `(z - rho*z_conf)/sqrt(1 - rho^2)`, orthogonal to confidence and back on unit
+scale, and `confidence_orthogonalized` reports per row whether it applied. The bundled
+references do not carry the key and are unchanged. The subtraction alone cannot move a
+ranking -- the two bases span the same space -- so what it buys is that a nominal
+structural weight means that much INDEPENDENT evidence instead of `w*sqrt(1-rho^2)`.
+API: `screen.screen_scores`, `screen.cohort_signature`, `screen.stouffer`,
+`screen.orthogonalize`.
 Equations and diagrams: `docs/screening.rst`; resource dependencies: `SOURCES`.
 
 ## Epitope-ranking score

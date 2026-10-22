@@ -342,6 +342,15 @@ The resources remain frozen during release verification. SHA-256 identities:
 - `screen_reference_epitope.json`: `a42d1c06d19f41725905b63ed45cec03c1a4899735caa4525e692171a3e26366`
 - `screen_reference_tcr.json`: `5c55a250e6a4f10a54fd6fd611307f3f0077fbb732435adc28f9e3084f26a225`
 
+Optional orthogonalization key, 23 October 2026: the `tcren-screen-1` format now admits
+`confidence_rho` on a structural component, applied as `(z - rho*z_conf)/sqrt(1 - rho^2)`.
+NEITHER BUNDLED REFERENCE CARRIES IT, so the three SHA-256 identities above and every score
+computed under them are unchanged; a reference without the key takes the original code path.
+The key is a frozen within-cohort correlation between two already-standardized quantities, so
+it is the same class of estimated reference dependency as the means and scales beside it, and
+no label enters it. Any resource that does carry one is an external file with its own hash and
+its own provenance record; this registry covers bundled tables only.
+
 Release review correction: the epitope-rank energy mean is stored in the raw
 `dPhi_tcr_pep` convention, matching the screen reference and the producer. Its
 previous sign-corrected mean was incompatible with `direction * (x - mean) / sd`.

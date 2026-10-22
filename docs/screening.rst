@@ -114,6 +114,35 @@ and :doc:`fit-free` for the dependency contract. Query rows never re-estimate
 these constants, so a row's numerical combination does not depend on its neighbours.
 The cohort governs whether that score is emitted.
 
+Optional confidence orthogonalization
+-------------------------------------
+
+A reference may carry a frozen ``confidence_rho`` on a structural component. Where
+it does, that component enters the combination with its confidence-explained part
+removed and its scale restored:
+
+.. math::
+
+   z_i^{\perp}=\frac{z_i-\rho_i z_{\mathrm{conf}}}{\sqrt{1-\rho_i^{2}}},
+   \qquad \rho_i\in(-1,1).
+
+:math:`\rho_i` is the frozen within-cohort Pearson correlation between the
+standardized component and the standardized confidence, both already on the
+reference's own scale, so it is dimensionless and no label enters it. The subtraction
+alone would shrink the component's spread; the divide puts it back on the scale the
+fixed weights were chosen for. Without it a nominal structural weight of 0.2 buys
+:math:`0.2\sqrt{1-\rho^{2}}` of independent evidence rather than 0.2.
+
+This is a change of basis, not new evidence: :math:`z_i` and
+:math:`z_{\mathrm{conf}}` span the same space before and after, so no ranking
+follows from the subtraction by itself. What changes is what the fixed weights mean,
+and therefore what a given weight is worth.
+
+Rows whose confidence is missing keep :math:`z_i` unchanged — there is nothing to
+project out of them — and ``confidence_orthogonalized`` reports per row whether the
+correction was applied. The column is emitted only by a reference that carries the
+key. The bundled references do not, so their scores are unchanged.
+
 Discard and cohort floor
 ------------------------
 
