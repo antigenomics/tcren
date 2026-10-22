@@ -494,7 +494,7 @@ def test_frozen_metadata_migration_preserves_every_parameter_array():
     import json
 
     record = json.loads((pathlib.Path(__file__).resolve().parents[2]
-                         / 'audit/2026-10-14/frozen-metadata-migration.json').read_text())
+                         / 'tests/assets/score/frozen-metadata-migration.json').read_text())
     z = np.load(MODEL_FILE, allow_pickle=False)
     meta = json.loads(str(z['meta']))
     assert meta['training_catalogue_digest'] == record['training_catalogue_digest']

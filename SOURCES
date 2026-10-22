@@ -9,7 +9,7 @@ The authoritative per-value detail lives in the loader docstrings in `src/tcren/
 reading the code, and so an unrecorded origin is visible as such rather than assumed.
 
 Structure datasets (`Native2022`, `Native2026`, `Canonical2026`, the modelled sets) are not here:
-they are not bundled, they are fetched from Hugging Face, and `DATASETS.md` covers them.
+they are not bundled, they are fetched from Hugging Face, and the benchmark repository owns their dataset catalogue.
 
 ---
 
@@ -19,7 +19,7 @@ The opt-in `contact-prior-fit` CLI derives a separately versioned JSON resource
 from exact external antibody atom contacts/current-coordinate frame verification
 and fresh native `export --quantity contact-atoms --interface all` observations.
 External deposit identity, license, download hashes and overlap policy are recorded
-in `audit/2026-10-18/CONTACT_PRIOR_SOURCES.md`; model definitions and commands are
+in `research archive: CONTACT_PRIOR_SOURCES.md`; model definitions and commands are
 in `docs/contact-penalties.rst`. This does not regenerate either bundled TCRen table.
 
 The resource retains actual external and native marginal counts/means/variance
@@ -256,7 +256,7 @@ one-class readouts therefore do not imply label-free or negative-independent tra
 - Metadata-only migration, 2026-10-14: corrected reduced spring units, finite-grid rupture scope,
   truncated Betti difference and approximate contact-loss labels. `training_catalogue_digest`
   retains the original fitted catalogue; `catalogue_digest` identifies the corrected interface.
-  `audit/2026-10-14/frozen-metadata-migration.json` records both digests, old/new bundle hashes,
+  `tests/assets/score/frozen-metadata-migration.json` records both digests, old/new bundle hashes,
   and the SHA-256 of all five unchanged numeric arrays. No refitting occurred.
 - Semantic migration: class-II chain-keyed literature descriptors, constrained shear direction,
   Potts chain-keyed sites/sampling, and corrected structure-selection/annotation/frame boundaries
@@ -272,7 +272,7 @@ Multiplicity-conditioned contact ranks (18 October 2026)
 Experimental derived resource, never a raw structural probability table. Inputs are
 requested final native-b.parquet and external_geometry.tsv.gz contact observations,
 with raw PDB/mmCIF correspondence and DTU 22555672 provenance documented above and
-in audit/2026-10-18/CONTACT_PRIOR_SOURCES.md. Native CDR:peptide rank references only;
+in research archive: CONTACT_PRIOR_SOURCES.md. Native CDR:peptide rank references only;
 external antibody:antigen exact-opportunity fallback. The approved native/external
 marginal resource remains SHA256
 63c141f0a8be2e090cda543193148dbd8b06f937dcaf5f4f428124c77d013f16.
@@ -283,7 +283,7 @@ results/contact-weighted-20261018/calibration.RUN.json and calibration.json.
 Frozen resource SHA256
 c096b37a19f5937ce5d40afa4a0c84d4caf8d438a4dc32203e0774d05ebaf07e.
 Scientific definition, native/external counts, estimated dependencies and limits:
-audit/2026-10-18/CONTACT_WEIGHTED.md. No assay label, potential coefficient or
+research archive: CONTACT_WEIGHTED.md. No assay label, potential coefficient or
 predictor confidence is used to estimate these ranks. Prior results are preserved.
 
 ## Experimental chemical core — derived resource, 20 October 2026
@@ -317,7 +317,7 @@ this experimental recipe. Values are dimensionless composition log ratios, not
 physical binding free energies or independent likelihoods; neither transfer
 accuracy nor a default-model change follows from the estimator. Full equations,
 normalization and support policies: docs/contact-penalties.rst; frozen design:
-CHEMICAL_CORE_SPEC.md. Original TCRen and existing candidate resources are retained.
+docs/CHEMICAL_CORE_SPEC.md. Original TCRen and existing candidate resources are retained.
 
 
 ## Frozen task-matched ranking references — 22 October 2026

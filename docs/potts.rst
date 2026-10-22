@@ -442,7 +442,7 @@ Retired geometry experiments
 ----------------------------
 
 The geometry prior, coordinate-chain model and cross-product experiment are archived
-under ``attic/2026-10-audit`` in the source repository. They are not shipped APIs.
+in the manuscript research archive (2026-10-audit). They are not shipped APIs.
 The contact model on supplied coordinates and its fitting recipes remain supported.
 
 Scoring the agreement: placement and level
@@ -593,7 +593,7 @@ composition-removed, pair-only, observed-support, normalized-contact and
 within-clone standardized combinations have no complete equivalent CLI route.
 Do not replace them with ``potts scan``. Their equations, original results and
 losses remain historical evidence; no new fitted replacement is authorized.
-See the issue-32 disposition record in ``audit/2026-10-16/``.
+See the issue-32 disposition record in the benchmark research archive (16 October 2026).
 
 The two terms it separates are different quantities, and which one a task needs is an empirical
 question. :math:`h^{\mathrm{par}}` is **composition** — how much a residue engages an available

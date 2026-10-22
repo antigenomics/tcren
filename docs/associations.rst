@@ -222,7 +222,7 @@ fixed peptide/MHC coordinates. Its spatial covariances therefore supply context
 for receptor-relative coverage, gap, clash and placement measurements rather than
 identifying that displacement alone. A singleton verified comparison does not
 establish a detector's sensitivity or specificity. The CPL evidence audit is
-recorded in ``audit/2026-10-16/CPL_POSE_TRUTH.md``.
+recorded in ``research archive: CPL_POSE_TRUTH.md``.
 
 Saved predictions and receptor-relative pose checks
 ---------------------------------------------------

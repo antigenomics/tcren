@@ -386,3 +386,6 @@ appendix/*.fls
 appendix/*.log
 appendix/*.out
 appendix/*.toc
+
+# Local agent instructions, campaign plans and notes.
+/*.md

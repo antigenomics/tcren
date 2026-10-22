@@ -6,7 +6,7 @@ from pathlib import Path
 
 from tcren._provenance import marked, not_in_tcren2
 
-OBSOLETE = Path(__file__).resolve().parents[2] / "OBSOLETE.md"
+OBSOLETE = Path(__file__).resolve().parents[2] / "docs/OBSOLETE.md"
 
 
 def test_obsolete_md_matches_the_markings():

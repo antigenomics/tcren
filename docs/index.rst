@@ -69,9 +69,11 @@ and distinguishes current scoring from historical fitted readouts.
    :caption: Reference dependencies and reproduction
 
    fit-free
+   ATOM_PATTERN_SPEC
+   INVENTORY_PATTERN_SPEC
+   CHEMICAL_CORE_SPEC
    reproduction
    oracle
-   rederivation
    assess
    potts
    reliability
@@ -80,8 +82,6 @@ and distinguishes current scoring from historical fitted readouts.
    :maxdepth: 1
    :caption: Tutorials
 
-   notebooks/score_vdjdb_panel
-   notebooks/rank_peptides_cpl
    notebooks/complementarity_map_2d
    notebooks/pocket_cdr_3d
    notebooks/canonical_frame_figures
@@ -90,7 +90,6 @@ and distinguishes current scoring from historical fitted readouts.
    notebooks/mhc_pseudosequence_mps
    notebooks/example_gil_a02_rs_motif
    notebooks/surface_topology
-   notebooks/tcren_analysis
 
 Indices
 -------

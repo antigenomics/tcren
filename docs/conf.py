@@ -39,10 +39,6 @@ extensions = [
     "sphinx.ext.viewcode",
     "sphinx.ext.githubpages",
     "nbsphinx",
-    # docs/rederivation.md is Markdown -- 238 lines and eight tables of a derivation sweep that
-    # would have to be retyped in reStructuredText to render otherwise. Registering the parser is
-    # two lines against a manual conversion, so the file is left as Markdown. Keep myst-parser in
-    # the `docs` extra AND in .github/workflows/docs.yml, whose install list is hand-maintained.
     "myst_parser",
 ]
 
@@ -62,7 +58,7 @@ autodoc_mock_imports = [
 ]
 
 templates_path = ["_templates"]
-exclude_patterns = ["_build", "**.ipynb_checkpoints"]
+exclude_patterns = ["_build", "**.ipynb_checkpoints", "README.md", "CHANGELOG.md", "OBSOLETE.md", "superpowers/**"]
 
 html_theme = "pydata_sphinx_theme"
 html_static_path = ["_static"]
