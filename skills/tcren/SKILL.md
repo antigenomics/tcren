@@ -96,7 +96,7 @@ known CDR edge to original TCRen, fixed coefficient one. Unsupported pairs absta
 with zero and remain in the denominator. Separate export from atom-count resource;
 `contact-compare` retains `atom_pattern` and all original arms. This categorical
 within-contact measure is not full atom occupancy or a joint graph likelihood.
-See `ATOM_PATTERN_SPEC.md` and contact-penalties docs for support/provenance.
+See `docs/ATOM_PATTERN_SPEC.md` and contact-penalties docs for support/provenance.
 
 ## Directed residue+atom count layer
 
@@ -343,7 +343,7 @@ labels below mean no fitting at scoring time and do not establish final eligibil
 Benchmark-local available-pair contact GLMs and Gaussian diagnostic fits are not
 equivalent to library Potts/assess commands by name. Preserve their historical
 results separately; final producers read fixed-potential and individual-descriptor
-CLI tables. `audit/2026-10-16/FINAL_PRODUCER_DISPOSITION.md` records this disposition.
+CLI tables. `research archive: FINAL_PRODUCER_DISPOSITION.md` records this disposition.
 
 `tcren export -s INPUT --potential tcren2 --quantity receptor-reference -o OUT.tsv`
 exports exact virtual receptor poly-Ala differences on unchanged contacts for all,
@@ -359,7 +359,7 @@ preserve exact region membership, and retain potential, raw-coordinate, scene, c
 and transformed-geometry hashes. Verify actual atom colours against the export.
 Keep class II, epitopes and template strata separate; inspect every final PNG and
 its composed page. The issue-34 acceptance record is
-`audit/2026-10-16/MOLECULAR_CLI_LINEAGE.md`.
+`research archive: MOLECULAR_CLI_LINEAGE.md`.
 
 Annotation requires ARDA >=2.36.2. `Structure.annotation_provenance` captures the
 resolved searched database prefix and sequence/header/index SHA256 values around
@@ -417,9 +417,9 @@ they resolve, and this table is the map.
 
 The geometry prior, coordinate-chain and cross-product experiment, its bundled geometry
 resources and CLI commands `potts geom`, `chain`, `cross`, `predict` are archived under
-`attic/2026-10-audit`. The retained contact model still uses supplied coordinates;
+`research archive: 2026-10-audit`. The retained contact model still uses supplied coordinates;
 `potts contacts`, `agreement`, fitting and self-consistent regeneration remain supported.
-Historical release notes are in `CHANGELOG.md`; publication gates are in `ROADMAP.md`.
+Historical release notes are in docs/CHANGELOG.md; scientific publication gates belong to the manuscript roadmap.
 
 `features --chunk N` limits structures held in memory and always recomputes from raw
 inputs. There is no resume mode or computed part cache. Empty/all-failed feature runs
@@ -437,7 +437,7 @@ training returns an unavailable (NaN) confidence residual. Feature/manifest join
 unique non-null keys and binary labels; fit metadata reports unmatched and incomplete counts.
 
 The 2026-10-14 definition migration preserves frozen coefficient arrays and numerical fit
-metadata; `audit/2026-10-14/frozen-metadata-migration.json` records their hashes and both
+metadata; `tests/assets/score/frozen-metadata-migration.json` records their hashes and both
 catalogue digests. This is not a refit or proof that corrected class-II/shear features reproduce
 historical outputs. Mechanics defaults have reduced stiffness Å^-2, force Å^-1 and dimensionless
 work; no SI energy calibration is supplied. `fp_chi_*` is β₀−β₁, equal to full Euler characteristic
@@ -1998,7 +1998,7 @@ complex. Retain all exclusions and matched per-feature/ipTM rows, class/template
 and clone separation. A singleton reference check supplies no detector accuracy.
 External DockQ 2.1.3 requires an isolated NumPy<2 environment; do not alter the
 locked TCRen wheel to accommodate it. Benchmark owns this validation, with the
-library export unchanged. See audit/2026-10-16/CPL_POSE_TRUTH.md.
+library export unchanged. See research archive: CPL_POSE_TRUTH.md.
 
 ### Cognate saved-pose validation
 
@@ -2014,7 +2014,7 @@ side-chain packing. Compare raw signed descriptor associations on the same finit
 feature/truth/both-confidence rows; do not choose signs or fit a replacement.
 Saved ranks of one complex are correlated models, not independent target samples.
 Exact-reference template inclusion and broad template-coverage strata are distinct
-metadata. See `audit/2026-10-16/COGNATE_POSE_VALIDATION.md`.
+metadata. See `research archive: COGNATE_POSE_VALIDATION.md`.
 
 ### Structural class-II core export
 
@@ -2181,5 +2181,5 @@ for the directed residue pair. Both condition on at least one contact and use
 the same full observed Cartesian inventory. Physical multiplicities survive
 chemical-equivalence pooling. Unsupported opportunities abstain for the whole
 edge. `contact-compare` retains the `inventory_pattern` arm. See
-`INVENTORY_PATTERN_SPEC.md` for equations and explicit independence assumptions.
+`docs/INVENTORY_PATTERN_SPEC.md` for equations and explicit independence assumptions.
 

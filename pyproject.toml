@@ -6,7 +6,7 @@ build-backend = "scikit_build_core.build"
 name = "tcren"
 version = "4.1.0"
 description = "Structure-based prediction of TCR recognition of epitopes via residue-level statistical potentials"
-readme = "README.md"
+readme = "docs/README.md"
 requires-python = ">=3.10"
 license = { text = "GPL-3.0-or-later" }
 authors = [{ name = "ISALGO laboratory", email = "mikhail.shugay@gmail.com" }]
@@ -77,6 +77,7 @@ build-dir = "build/{wheel_tag}"
 # builds from the sdist without it. /.claude and /.DS_Store are belt-and-braces: they are
 # untracked and CI builds from a clean checkout, but scikit-build-core does not read git's global
 # excludesfile, so a local `uv build` would otherwise package them.
+sdist.include = ["/docs/README.md"]
 sdist.exclude = [
     "/notebooks", "/tests", "/docs", "/data", "/assets", "/scripts", "/skills",
     "/.github", "/setup.sh", "/STATUS.md", "/BENCHMARKS.md",

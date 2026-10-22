@@ -324,7 +324,7 @@ same ``$TCREN_DATA_DIR`` this page sets, and it calls the **installed** ``tcren`
 that produced a number is whatever ``tcren info`` reported when it ran, not whatever is checked out
 here.
 
-The retired sequence-only contact-map stage is preserved in ``attic/2026-10-audit``.
+The retired sequence-only contact-map stage is preserved in ``research archive: 2026-10-audit``.
 It no longer runs as part of manuscript reproduction.
 
 .. note::

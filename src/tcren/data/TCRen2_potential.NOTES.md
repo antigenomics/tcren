@@ -15,5 +15,5 @@ nearest-donor imputation on TCRvdb (ΔSpearman +0.063 [+0.022, +0.109]), and it 
 series its whole signal (+0.706 → +0.137); on CPL every variant was inside noise once paired
 (Wilcoxon p ≥ 0.22). Removing the pseudocount entirely is the one change that clearly *breaks*
 things: 17 of 380 cells go to +∞, including Ile:Ile, and 317 of 2,103 CPL models return an
-undefined energy. If you are about to re-run one of these, read `../../../OBSOLETE.md` first and
+undefined energy. If you are about to re-run one of these, read `../../../docs/OBSOLETE.md` first and
 then don't.
