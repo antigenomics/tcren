@@ -1,3 +1,25 @@
+# Release direction — 22 October 2026
+
+The primary entry point is `tcren screen`, with task-matched frozen references
+for epitope and TCR ranking. `rank-epitopes` remains available. The structural
+alanine reference follows the varying side. Models with no TCR:peptide interface
+are retained with discard reasons and excluded from the 30-model cohort floor.
+Flags report by default; alternative responses require explicit `--on-flag`.
+ipTM remains primary for receptor ranking, with structural readouts alongside it.
+The combined score is not an established universal improvement over ipTM.
+
+The integral and integral-GLM readouts were withdrawn; their historical
+measurements do not approve them as supported scorers. Existing used toolkit and
+historical reproduction APIs remain. Current public behavior and limits are in
+`docs/screening.rst`, `docs/ranking.rst` and `skills/tcren/SKILL.md`.
+
+The sections below preserve earlier research checkpoints. Earlier proposals or
+shipping decisions are historical where they conflict with this release direction.
+Release verification, review and publication must be checked on the exact release
+commit; local checks do not establish a published release.
+
+---
+
 ## 18 October: multiplicity-calibrated weighted TCRen
 
 Author-requested extension: calibrate native/external compatibility ranks conditional

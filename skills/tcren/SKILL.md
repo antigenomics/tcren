@@ -5,6 +5,39 @@ description: tcren — TCR-pMHC contact potential (TCRen) pipeline; conventions 
 
 # tcren Skills Guide
 
+## Primary entry point — `tcren screen`
+
+`screen -s models.tar.gz -o scores.tsv` is where a user starts; everything else is a toolkit.
+It takes a COHORT, one side held fixed across every structure, works out which side varies from
+the annotated peptide and the annotated CDR3 pair, and refuses a set that is neither, naming what
+differs. Same receptor with varying peptides is EPITOPE RANKING; same pMHC with varying receptors
+is TCR RANKING. The structural alanine reference follows the side that VARIES -- the epitope via
+`reference_delta(..., structure=)`, the contacted CDRs via `receptor_reference(..., structure=)` --
+and topology is carried only for TCR ranking, its direction being inverted on peptide ranking.
+
+Components are standardized against a frozen bundled reference per task and combined by weighted
+Stouffer, `sum(w z)/sqrt(sum w^2)`. The confidence weight lives IN the reference because it is
+task-specific: 0.8 for TCR ranking where ipTM dominates, 0.5 for epitope ranking where the energy
+is stronger. Symmetric pooling -- Fisher, equal-weight Stouffer, logit-sum, geometric mean, min
+percentile -- was measured and scores below ipTM alone on every receptor arm.
+
+Four label-free cohort flags ship with it: `small_cohort`, `low_confidence` (cohort mean ipTM
+below 0.7237, the 20th percentile of the training pool's per-epitope means), `forced_pose` (mean
+`strain_z` above 0.5586, ABSTAINING unless the strain was standardized against the same
+population as the cut), and `confidence_disagrees`. The flags report by default and do not withhold the score on either task. In the recorded
+pre-discard evaluation, `low_confidence` fires on 3 of 29 TCR cohorts, all below chance;
+that observation does not establish a default intervention. `--on-flag` picks the response: report (default), structure (drop ipTM, cannot invert), geometry, withhold or reverse. Over 29 TCR cohorts reverse gives pooled ROC 0.7410 against 0.7250 and halves the cohorts below chance, but a misfire inverts a good cohort 0.9735 to 0.0265; structure gives 0.7296 with a worst misfire of 0.0510. report is the default because the only evidence for acting comes from the panels the score is reported against, and why ipTM inverts is still an open question. A cohort-level reweighting was
+measured and rejected: it moved the aggregate by at most +0.013 while making two of the four
+worst cohorts worse.
+
+Models with zero TCR:peptide contacts are DISCARDED -- the receptor was never placed on the groove, so their components are computed over an empty interface -- and they do not count toward the floor. Below 30 SCORABLE models the combined score is WITHHELD and components are reported alone, because
+per-cohort margin noise follows 0.0765/sqrt(n) + 0.0019 and then exceeds any effect the
+combination produces. ipTM comes from the set's `metadata.tsv` or `--confidence`; without either
+the structure components are scored alone and the summary says so. Nothing is fitted at scoring
+time and nothing is normalized against the query cohort, so batch and single-row scoring agree;
+the cohort governs only whether a score is emitted, never its value. API: `screen.screen_scores`,
+`screen.cohort_signature`, `screen.stouffer`; equations and limits: `docs/screening.rst`.
+
 ## Epitope-ranking score
 
 `rank-epitopes --features descriptors.tsv -o scores.tsv` ranks candidate peptides for one
@@ -21,8 +54,9 @@ normalized against the query cohort, so batch and single-row scoring agree. Miss
 are flagged and excluded from the mean rather than imputed, and a row with no observed component
 is null. Dimensionless ranking score, not a binding free energy or a calibrated probability.
 
-Epitope ranking and TCR ranking are different tasks: there is no shipped TCR-ranking score,
-because no combination of the available components beats ipTM on a pooled aggregate there.
+Epitope ranking and TCR ranking are different tasks. `rank-epitopes` serves the former;
+`screen` supports both with task-matched references. For TCR ranking ipTM remains primary
+and the combined score is a complementary readout, not an established improvement over ipTM.
 API: `ranking.epitope_rank` and `ranking.bundled_reference`; equations: `docs/ranking.rst`.
 
 ## Classic reference identities

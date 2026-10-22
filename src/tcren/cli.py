@@ -62,7 +62,9 @@ app = typer.Typer(
          "orient/refine poses, and derive potentials from TCR:pMHC structures.",
 )
 
-# Help panels grouping the commands in `tcren --help` (rich_help_panel below).
+# Help panels grouping the commands in `tcren --help` (rich_help_panel below). Typer orders
+# panels by first use, so _P_MAIN must be used before any other panel for it to render first.
+_P_MAIN = "Start here"
 _P_SCORE = "Scoring & prediction"
 _P_ANNOT = "Annotation & contacts"
 _P_ORIENT = "Orientation & refinement"
@@ -166,6 +168,205 @@ def _read_candidates(path: Path) -> list[str] | dict[str, list[str]]:
             pools.setdefault(f[ic].strip().lower(), []).append(f[ip].strip())
         return pools
     return [line for line in lines if line.lower() != "peptide"]
+
+
+#: Re-exported so `screen`'s option defaults read from one place.
+from .screen import MIN_COHORT as SCREEN_MIN_COHORT  # noqa: E402
+
+
+def _screen_descriptors(structs: list, task, *, organism: str, threads: int) -> pl.DataFrame:
+    """The component columns the screen reference names, for one already-typed batch.
+
+    The structural alanine reference is taken on the side that VARIES, which is the whole point
+    of splitting the tasks: the epitope for epitope ranking, the contacted CDRs for TCR ranking.
+    Both are the STRUCTURAL form -- alanine truncated in 3D with the contact map rebuilt -- not
+    the fixed-map virtual substitution.
+    """
+    from .contactmap import ContactMap
+    from .exports import receptor_reference
+    from .potential import mj, tcren2
+    from .recognition import recognition_table
+    from .screen import CohortKind
+
+    # sc_shape and g_cyclo_frac come from the existing descriptor path, one batched call.
+    # recognition_table takes (id, structure) pairs; _typed_batch hands back bare Structures.
+    shape = pl.DataFrame(recognition_table(
+        [(s.pdb_id, s) for s in structs], organism=organism,
+        include=("interface", "topology"), threads=threads))
+    key = "complex.id" if "complex.id" in shape.columns else "pdb.id"
+    keep = [c for c in ("sc_shape", "g_cyclo_frac") if c in shape.columns]
+    table = shape.select(pl.col(key).alias("complex.id"), *keep)
+
+    peptide_pot, mhc_pot = tcren2(), mj()
+    rows = []
+    for s in structs:
+        cm = ContactMap.from_structure(s, cutoff=5.0)
+        if task is CohortKind.TCR_RANKING:
+            row = receptor_reference(cm, peptide_pot, mhc_pot, structure=s, cutoff=5.0)
+            rows.append({"complex.id": s.pdb_id,
+                         "n_contacts_tp": cm.tcr_peptide().height,
+                         "dFT_tcr_pep_cdr": row.get("dFT_tcr_pep_cdr")})
+        else:
+            from .energetics.mutation import reference_delta
+            peptide = next((c.sequence() for c in s.chains if c.chain_type == "PEPTIDE"), None)
+            rows.append({"complex.id": s.pdb_id,
+                         "n_contacts_tp": cm.tcr_peptide().height,
+                         "dPhi_tcr_pep": float(reference_delta(
+                             cm, peptide, peptide_pot, interface="tcr_peptide", structure=s))})
+    # The energy frame has one row per structure and is the authority on membership; the shape
+    # frame may be missing a row whose surface map failed, so join onto the energy frame.
+    energy = pl.DataFrame(rows)
+    return energy.join(table, on="complex.id", how="left", validate="1:1", maintain_order="left")
+
+
+def _screen_confidence(confidence: Path | None, structures) -> pl.DataFrame | None:
+    """ipTM for the set: an explicit table if given, otherwise the set's own metadata.tsv."""
+    from .metadata import read_metadata
+
+    if confidence is not None:
+        sep = "," if Path(confidence).suffix.lower() == ".csv" else "\t"
+        t = pl.read_csv(confidence, separator=sep, infer_schema_length=None,
+                        schema_overrides={"complex.id": pl.String})
+        missing = {"complex.id", "iptm"} - set(t.columns)
+        if missing:
+            raise typer.BadParameter(f"--confidence needs {sorted(missing)}; got {t.columns[:6]}")
+        if t["complex.id"].is_duplicated().any():
+            raise typer.BadParameter("--confidence has duplicate complex.id values")
+        return t.select("complex.id", pl.col("iptm").cast(pl.Float64))
+    for spec in (structures if isinstance(structures, list) else [structures]):
+        meta = read_metadata(spec)
+        if meta is not None and "iptm" in meta.columns:
+            return meta.select(pl.col("id").cast(pl.String).alias("complex.id"),
+                               pl.col("iptm").cast(pl.Float64)).unique(subset=["complex.id"])
+    return None
+
+
+@app.command(rich_help_panel=_P_MAIN)
+def screen(
+    structures: list[str] = typer.Option(..., "-s", "--structures", help="structure file(s), directory, .tar.gz, glob, or a .txt manifest of paths; repeatable and comma-separable"),
+    out: Path = typer.Option("screen.tsv", "-o", "--out", help="per-model score table (TSV)"),
+    task: str = typer.Option("auto", "--task", help="auto|epitope|tcr; a declared task is verified against the structures"),
+    confidence: Path = typer.Option(None, "--confidence", help="table of complex.id and iptm; by default ipTM is read from the set's metadata.tsv"),
+    reference: Path = typer.Option(None, "--reference", help="frozen reference JSON (default: the bundled one for the detected task)"),
+    min_cohort: int = typer.Option(SCREEN_MIN_COHORT, "--min-cohort", help="below this many models the combined score is withheld and only components are reported"),
+    on_flag: str = typer.Option("report", "--on-flag", help="what to do when a cohort is flagged low_confidence: report (default, change nothing) | structure (drop ipTM, score on structure alone) | geometry (geometry component alone) | withhold | reverse. All but report are opt-in because the only evidence that acting helps comes from the evaluation panels themselves."),
+    weight: float = typer.Option(None, "--weight", help="confidence weight in the Stouffer combination, in [0, 1]; default: the reference's own, which is task-specific"),
+    organism: str = typer.Option("human", "--organism"),
+    threads: int = typer.Option(1, "-t", "--threads", help="CPU budget: 1 serial, 0 all allocated, or a positive count"),
+) -> None:
+    """Rank a COHORT of modelled complexes — start here.
+
+    \b
+    A cohort holds one side fixed. The command works out which, and refuses a set that is
+    neither rather than scoring it as though it were one:
+
+      same receptor, peptides vary  ->  EPITOPE RANKING
+      same pMHC, receptors vary     ->  TCR RANKING
+
+    The two are different tasks and do not share a score. The alanine reference is taken on the
+    side that VARIES — the epitope for epitope ranking, the contacted CDRs for TCR ranking — and
+    topology is carried only for TCR ranking, because its direction inverts on peptide ranking.
+
+    \b
+    The generator's confidence stays primary: on every recorded receptor-ranking arm ipTM is the
+    strongest single input, and this combines it with the structural components by weighted
+    Stouffer at a confidence weight of 0.8, chosen so the worst observed outcome on the
+    evaluation panels is within those panels' own resolution.
+
+    Below a cohort of 30 models the combined score is WITHHELD and the components are reported
+    alone, because per-cohort margin noise then exceeds any effect the combination can produce.
+
+    Everything else in this package is a toolkit: `annotate` and `contacts` for markup and
+    contact listing, `superimpose` for canonical orientation, `surface` for pMHC topography,
+    `features` for the full descriptor table.
+    """
+    from .screen import (
+        FLAGS as FLAG_TEXT, CohortKind, FlagResponse, apply_flag_response, bundled_reference,
+        cohort_flags, cohort_signature, identities, read_reference, screen_scores, withhold_reason,
+    )
+
+    if task not in ("auto", "epitope", "tcr"):
+        raise typer.BadParameter("--task must be auto, epitope or tcr")
+    n_threads = resolve_threads(threads)
+    structs = _typed_batch(structures, organism, threads=n_threads)
+    if not structs:
+        raise typer.BadParameter(f"no structures found in {structures!r}")
+
+    peptides, receptors = identities(structs)
+    detected, summary = cohort_signature(peptides, receptors)
+    if task != "auto" and CohortKind(task) is not detected:
+        raise typer.BadParameter(
+            f"--task {task} was declared but the structures are a {detected.value} cohort: "
+            f"{summary['n_distinct_peptides']} distinct peptides and "
+            f"{summary['n_distinct_receptors']} distinct receptors across "
+            f"{summary['n_structures']} structures")
+
+    table = _screen_descriptors(structs, detected, organism=organism, threads=n_threads)
+    iptm = _screen_confidence(confidence, structures)
+    if iptm is not None:
+        table = table.join(iptm, on="complex.id", how="left", validate="1:1", maintain_order="left")
+    else:
+        table = table.with_columns(iptm=pl.lit(None, dtype=pl.Float64))
+
+    ref = bundled_reference(detected) if reference is None else read_reference(reference)
+    flags = cohort_flags(table, ref, min_cohort=min_cohort)
+    # Flags report by default; changing the score requires an explicit --on-flag response.
+    try:
+        response = FlagResponse(on_flag)
+    except ValueError as exc:
+        raise typer.BadParameter(
+            f"--on-flag must be one of {', '.join(r.value for r in FlagResponse)}") from exc
+    suppress = withhold_reason(flags, detected)
+    result = screen_scores(table, ref, weight=weight, min_cohort=min_cohort, suppress=suppress)
+    # Act on a flag only if asked, and never on a cohort whose score was already withheld for
+    # size -- rewriting a score that does not exist would only confuse the reason column.
+    acted = None
+    if (response is not FlagResponse.REPORT and flags.get("low_confidence") is True
+            and not flags.get("small_cohort")):
+        acted = f"low_confidence: {FLAG_TEXT['low_confidence']}"
+        result = apply_flag_response(result, table, ref, response=response, reason=acted)
+    for name in ("small_cohort", "no_interface", "forced_pose", "low_confidence",
+                 "confidence_disagrees"):
+        result = result.with_columns(pl.lit(flags.get(name)).alias(f"flag_{name}"))
+    result = result.with_columns(
+        cohort_mean_iptm=pl.lit(flags.get("mean_iptm")),
+        cohort_confidence_z=pl.lit(flags.get("cohort_confidence_z")),
+        cohort_n_no_interface=pl.lit(flags.get("n_no_interface")),
+        cohort_confidence_structure_agreement=pl.lit(
+            flags.get("confidence_structure_agreement")))
+    result.write_csv(out, separator="\t")
+    from .provenance import stamp
+    stamp(out, command="screen", extra={"task": detected.value, "format": ref["format"],
+                                        "flags": {k: v for k, v in flags.items()},
+                                        "on_flag": response.value,
+                                        "flag_response_applied": acted is not None,
+                                        "reference_sha256": ref["reference_sha256"],
+                                        "weight": weight if weight is not None
+                                        else ref.get("default_weight"),
+                                        "min_cohort": min_cohort,
+                                        "cohort": summary})
+    scored = int(result["screen_score"].is_not_null().sum())
+    discarded = int(result["no_interface"].sum()) if "no_interface" in result.columns else 0
+    raised = [k for k in ("small_cohort", "no_interface", "forced_pose", "low_confidence",
+                          "confidence_disagrees") if flags.get(k) is True]
+    typer.echo(
+        f"{detected.value} cohort: {summary['n_structures']} models, "
+        f"{summary['n_distinct_peptides']} peptide(s), {summary['n_distinct_receptors']} receptor(s)"
+        + (f"; mean ipTM {flags['mean_iptm']:.3f} (z {flags['cohort_confidence_z']:+.2f})"
+           if flags.get("cohort_confidence_z") == flags.get("cohort_confidence_z") else "")
+        + (f"; {discarded} discarded with no TCR:peptide interface" if discarded else "")
+        + (f"; flags: {', '.join(raised)}" if raised else "; no flags")
+        + ("" if iptm is not None else "; no ipTM supplied, structure components only"))
+    if acted and response is not FlagResponse.WITHHOLD:
+        typer.echo(f"--on-flag {response.value} applied — {acted}")
+    if scored:
+        typer.echo(f"{scored} models scored")
+    else:
+        # read the reason off the table rather than re-deriving it, so the line cannot disagree
+        # with the column: a flag response and the size floor withhold for different reasons.
+        reasons = [r for r in result["score_unavailable"].unique().to_list() if r]
+        typer.echo("combined score withheld — "
+                   + (reasons[0] if reasons else f"cohort below --min-cohort {min_cohort}"))
 
 
 @app.command(rich_help_panel=_P_INFO)

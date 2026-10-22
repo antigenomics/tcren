@@ -76,6 +76,7 @@ What tcren does
    :maxdepth: 2
    :caption: Contents
 
+   screening
    getting-started
    fit-free
    associations

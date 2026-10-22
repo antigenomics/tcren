@@ -7,30 +7,6 @@
 
 <h1 align="center">tcren — structure-based prediction of TCR–epitope recognition</h1>
 
-### Relate score performance to the pMHC surface
-
-Export receptor-independent topology, peptide SASA and exposed hydropathy, then
-compare recorded scores with ipTM on exactly matched rows:
-
-```sh
-tcren export -s structures.txt --quantity pmhc -o pmhc.tsv
-# Separate CDR:peptide, CDR:MHC and peptide:MHC residue-contact graphs
-tcren export -s structures.txt --quantity contact-topology -o graphs.tsv -t 1
-# Intrinsic peptide/CDR backbone geometry with physical residue windows
-tcren export -s structures.txt --quantity backbone -o backbone.tsv -t 1
-# Local graph support, surface height/hydropathy and exact per-contact energy
-tcren export -s structures.txt --quantity contact-context --potential tcren2 -o contact-context.tsv -t 1
-tcren contact-summary -i contact-context.tsv -o contact-summary.tsv
-tcren associate --results recorded.csv --features pmhc_by_id.tsv \
-  --scores directions.json --feature-columns relief,frac_above_ridge,sasa_hydropathy \
-  -o associations
-```
-
-The association command keeps MHC class, template coverage, dataset and task
-separate and retains missingness, signed losses and row membership. It fits no
-replacement score. Add `--feature-product relief:sasa_hydropathy` (repeatable)
-to study raw joint scalar context while preserving the same score rows. See [input schemas, formulas and limits](docs/associations.rst).
-
 <p align="center">
   <a href="https://pypi.org/project/tcren/"><img alt="PyPI" src="https://img.shields.io/pypi/v/tcren"></a>
   <a href="https://github.com/antigenomics/tcren/actions/workflows/tests.yml"><img alt="tests" src="https://github.com/antigenomics/tcren/actions/workflows/tests.yml/badge.svg"></a>
@@ -73,6 +49,55 @@ distinguishes retained descriptive estimates from retired fitted scoring models.
 requires `recompute.sh --historical`. Future reference exports explicitly use
 structural alanine truncation and rebuilt contacts.
 
+## Start here
+
+```sh
+tcren screen -s models.tar.gz -o scores.tsv
+# tcr cohort: 420 models, 1 peptide(s), 420 receptor(s); 420 scored
+```
+
+`tcren screen` is the entry point. It takes a **cohort** — one side held fixed across every
+structure — works out which side varies, and scores accordingly:
+
+```
+Do the structures form a cohort?
+├── same receptor, peptides vary ──► EPITOPE RANKING  (alanine reference on the epitope)
+├── same pMHC, receptors vary ─────► TCR RANKING      (alanine reference on the contacted CDRs)
+└── neither ───────────────────────► refused, naming what differs
+
+Then: at least 30 models with a TCR:peptide interface?
+├── no  ──► ipTM and every component reported, no combined score
+└── yes ──► the above, plus the combined score
+```
+
+The alanine reference is taken on the side that **varies**, because substituting the fixed side
+would reference away a constant. The generator's ipTM stays primary — it is the strongest single
+input on every receptor-ranking arm — and the structural components are combined with it by
+weighted Stouffer. Below 30 models the combined score is withheld rather than decorated: the
+per-cohort noise then exceeds any effect the combination can produce.
+
+`screen` **discards models with no TCR:peptide contacts** — the receptor was docked off the
+groove, so every structural component for them is computed over an empty interface. They stay in
+the output with a reason and do not count toward the 30-model floor.
+
+`screen` also flags a cohort it should not rank. `low_confidence` (cohort mean ipTM below
+0.7237) marks the regime where the generator's own ranking inverts — on the evaluation cohorts it
+fires on 3 of 29 and **all 3 rank below chance** — and reports that flag alongside the score. It does not withhold the combined score by default.
+`forced_pose`,
+`confidence_disagrees` and `small_cohort` are reported alongside. `--on-flag` chooses what to do
+about it: `report` (default, change nothing), `structure` (drop ipTM, score on structure alone),
+`geometry`, `withhold`, or `reverse`. On the evaluation cohorts `reverse` halves the number
+ranking below chance and takes the worst from 0.048 to 0.952 — and would invert a good cohort
+completely if the flag ever misfired, so it is opt-in and not recommended.
+
+See [docs/screening.rst](docs/screening.rst) for the equation, the cohort floor, where the
+combination helps, and what it does not claim.
+
+**Everything else is a toolkit**, reached when you want a particular number:
+`annotate` and `contacts` (markup, contact listing), `superimpose` (canonical orientation),
+`surface` (pMHC height and hydropathy maps), `features` (the full descriptor table),
+`rank-epitopes` (the single-task epitope score), `scoring` (per-interface energies).
+
 ## What it is evaluated on
 
 Five benchmark blocks, chosen to cover the problems users actually bring to a modelled TCR:pMHC
@@ -88,7 +113,7 @@ way it does.
 | **Model-confidence diagnostics** | which confidently modelled complexes are not real? | `tcren inspect-models`, individual descriptors and matched native ipTM; `tcren associate` for feature associations |
 | **Recorded MD diagnostics** | component-relative motion, saved-frame energy minimum and offending atom identities | `tcren md inspect`, `md quality`, `md compare-forces`; explicit PBC/input provenance and separate MHC classes |
 
-Peptide ranking and receptor ranking are distinct tasks. Compare each score with native ipTM
+Epitope ranking and TCR ranking are distinct tasks. Compare each score with native ipTM
 on identical rows, keeping epitopes, template coverage and MHC classes separate. No universal
 score or fitted confidence correction is selected. Historical frozen-model APIs remain available
 for reproduction, with their parameter dependencies documented.
@@ -647,6 +672,30 @@ marimo run notebooks/pymol_interactive.py       # or `marimo edit` to change the
 ```
 
 Worked examples of every view, with images: **[Figure gallery](https://docs.isalgo.dev/tcren/gallery.html)**.
+
+## Relate score performance to the pMHC surface
+
+Export receptor-independent topology, peptide SASA and exposed hydropathy, then
+compare recorded scores with ipTM on exactly matched rows:
+
+```sh
+tcren export -s structures.txt --quantity pmhc -o pmhc.tsv
+# Separate CDR:peptide, CDR:MHC and peptide:MHC residue-contact graphs
+tcren export -s structures.txt --quantity contact-topology -o graphs.tsv -t 1
+# Intrinsic peptide/CDR backbone geometry with physical residue windows
+tcren export -s structures.txt --quantity backbone -o backbone.tsv -t 1
+# Local graph support, surface height/hydropathy and exact per-contact energy
+tcren export -s structures.txt --quantity contact-context --potential tcren2 -o contact-context.tsv -t 1
+tcren contact-summary -i contact-context.tsv -o contact-summary.tsv
+tcren associate --results recorded.csv --features pmhc_by_id.tsv \
+  --scores directions.json --feature-columns relief,frac_above_ridge,sasa_hydropathy \
+  -o associations
+```
+
+The association command keeps MHC class, template coverage, dataset and task
+separate and retains missingness, signed losses and row membership. It fits no
+replacement score. Add `--feature-product relief:sasa_hydropathy` (repeatable)
+to study raw joint scalar context while preserving the same score rows. See [input schemas, formulas and limits](docs/associations.rst).
 
 ## Modules
 

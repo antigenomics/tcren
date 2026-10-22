@@ -30,6 +30,15 @@ For a per-structure decision rather than a score table, ``tcren assess`` reads t
 and adds the score set, the ranking and the generator diagnostic — see :doc:`assess` for the
 read-outs and :doc:`reliability` for ``S`` and the band table.
 
+.. note::
+
+   :doc:`screening` is the current decision procedure and the entry point. This page remains the
+   fit-free predecessor tier it describes. Its second question — whether the generator had a
+   template, and whether that matters — now has a measured answer: on balanced VDJdb the
+   structural combination beats ipTM by +0.0350 on the 297 models that have a native template and
+   loses by 0.0528 on the 792 that do not, because without a template every component sits
+   between 0.455 and 0.540, which is chance. pLDDT does not substitute as that gate.
+
 The three questions the kit answers
 -----------------------------------
 

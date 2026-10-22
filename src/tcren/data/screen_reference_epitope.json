@@ -1,0 +1,46 @@
+{
+  "format": "tcren-screen-1",
+  "task": "epitope",
+  "default_weight": 0.5,
+  "cohort_confidence": {
+    "mean": 0.74562,
+    "sd": 0.035717,
+    "n_epitopes": 14,
+    "flag_z": -0.6
+  },
+  "forced_pose": {
+    "mean_strain_cut": 0.5586,
+    "quantile": 0.8,
+    "n_epitopes": 14
+  },
+  "components": [
+    {
+      "name": "confidence",
+      "column": "iptm",
+      "direction": 1,
+      "definition": "generator interface pTM, supplied by the caller; tcren does not compute it",
+      "mean": 0.7593965870507545,
+      "sd": 0.11313900160374474,
+      "n": 729,
+      "pool_raw_roc": 0.600362,
+      "pool_verdict": "confirms"
+    },
+    {
+      "name": "energy",
+      "column": "dPhi_tcr_pep",
+      "direction": -1,
+      "definition": "structural poly-alanine reference difference on the TCR:peptide interface, the epitope positions truncated to alanine in 3D with the contact map rebuilt (scoring --delta --reference-mode structural)",
+      "mean": 0.018446216146297146,
+      "sd": 2.5523082820202068,
+      "n": 729,
+      "pool_raw_roc": 0.429643,
+      "pool_verdict": "confirms"
+    }
+  ],
+  "standardization": "means and scales frozen on a held-out training pool of 729 models over 14 off-panel epitopes; no label was read to produce them, so this is a change of units and not a fit",
+  "sign_source": "fixed a priori by what each component means; the training pool is used only to check them, and each component records the pool's verdict",
+  "excluded_epitopes": [
+    "KLGGALQAK"
+  ],
+  "combination": "weighted Stouffer over the standardized components, sum(w z)/sqrt(sum w^2); the confidence block carries default_weight and the structural components share the remainder equally"
+}
