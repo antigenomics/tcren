@@ -2925,14 +2925,9 @@ register_contact_penalties(app, _P_SCORE)
 from .validation.md_exports import app as md_app
 app.add_typer(md_app, name="md", rich_help_panel=_P_ANNOT)
 
-from .integral import integrate_command, reference_command
-from .integral_glm import fit_command as integral_fit_command, predict_command as integral_predict_command
+from .ranking import rank_command
 
-app.command("integral-fit", rich_help_panel=_P_SCORE)(integral_fit_command)
-app.command("integral-predict", rich_help_panel=_P_SCORE)(integral_predict_command)
-app.command("integrate", rich_help_panel=_P_SCORE)(integrate_command)
-app.command("integral-reference", rich_help_panel=_P_SCORE)(reference_command)
-
+app.command("rank-epitopes", rich_help_panel=_P_SCORE)(rank_command)
 
 # The __main__ guard belongs at the VERY END of the module, below the last @app.command.
 # It has been moved twice for the same reason. It first sat just after `main()`, two thirds up,

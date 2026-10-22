@@ -5,20 +5,25 @@ description: tcren — TCR-pMHC contact potential (TCRen) pipeline; conventions 
 
 # tcren Skills Guide
 
-## Experimental integral receptor readout
+## Epitope-ranking score
 
-`features -i interface,topology,energetics` owns the inputs for the class-I
-`integral-reference-1` candidate. `integral-reference --features native.tsv -o ref.json`
-freezes native class-I mid-distributions of -Phi_tcr_pep/n_contacts_tp, sc_shape
-and g_cyclo_frac; caller verifies native origin. `integrate --features models.tsv
---reference ref.json --confidence iptm.tsv -o scores.tsv` joins unique complex.id
-keys and averages these three bounded contributions with native-scale ipTM.
-No assay weights, query normalization or adaptive sign. Missing components use
-0.5 with explicit flags/count; all missing yields null. Original scores are
-unchanged. Reference and bundled potential hashes are explicit; this is estimated
-reference scaling, not a binding probability or a promoted default. Use bundled
-TCRen2/5-Angstrom inputs and retain producer provenance. API: integral.build_reference
-and integral.integral_scores. See docs/integral.rst for domains and equations.
+`rank-epitopes --features descriptors.tsv -o scores.tsv` ranks candidate peptides for one
+receptor against the bundled frozen reference `tcren-epitope-rank-1`. Inputs are `complex.id`,
+`dPhi_tcr_pep` from `scoring --delta --reference-mode structural` (the epitope truncated to
+alanine in 3D with the contact map rebuilt -- the virtual fixed-map substitution is NOT this
+quantity), and the generator's `iptm`. The score is the equal-weight mean of the two
+standardized components, the energy negated so higher is always more binder-like.
+
+The frozen means and scales come from a held-out training pool of 729 models over 14 off-panel
+epitopes with no label read, so they are a change of units rather than fitted weights; the
+resource hash travels with every result. Nothing is fitted at scoring time and nothing is
+normalized against the query cohort, so batch and single-row scoring agree. Missing components
+are flagged and excluded from the mean rather than imputed, and a row with no observed component
+is null. Dimensionless ranking score, not a binding free energy or a calibrated probability.
+
+Epitope ranking and TCR ranking are different tasks: there is no shipped TCR-ranking score,
+because no combination of the available components beats ipTM on a pooled aggregate there.
+API: `ranking.epitope_rank` and `ranking.bundled_reference`; equations: `docs/ranking.rst`.
 
 ## Classic reference identities
 
@@ -2147,29 +2152,3 @@ chemical-equivalence pooling. Unsupported opportunities abstain for the whole
 edge. `contact-compare` retains the `inventory_pattern` arm. See
 `INVENTORY_PATTERN_SPEC.md` for equations and explicit independence assumptions.
 
-## Separate-training integral GLM
-
-`integral-fit --features train.tsv --labels labels.tsv --excluded-epitopes heldout.tsv
---excluded-receptors receptors.tsv -o model.json` freezes `integral-glm-1` from a
-separate current-positive/constructed-mock pool. Labels require `complex.id`,
-`epitope`, `receptor_id`, `y`; exclusion tables require their named columns.
-Both exclusion sets are mandatory and any overlap fails. The caller verifies
-biological identities, current records and disjoint validation splits. Never fit
-or select on the evaluation panels. Each training epitope must have both classes.
-Four raw components (ipTM, -Phi/n, sc_shape, g_cyclo_frac), training-only weighted
-mean/scale, four missingness flags and L2 logistic C=1 yield at most nine learned
-coefficients. This is explicitly fitted, not a fit-free score or binding energy.
-`integral-predict --features query.tsv --model model.json -o scores.tsv` exposes
-additive logit contributions and the logistic score; all-missing queries remain
-unavailable. No query-cohort fitting, whitening or adaptive signs. Existing
-outputs cannot be overwritten by fitting. API: `integral_glm.fit_integral_glm`
-and `integral_glm.integral_glm_scores`; equations and scope: `docs/integral.rst`.
-
-`integral-fit --pairwise` keeps those inputs but fits eight
-coefficients without an intercept to real/mock differences within training
-epitopes. Epitope weights are proportional to square roots of model counts, with class-balanced
-training scaling. Pair weights sum to the original model count, not the
-expanded pair count; C=1 is unchanged. More than one million unordered pairs fail
-before allocation. Format `integral-pairwise-glm-1` uses the same prediction command
-and exposes utility plus its monotonic logistic transform, not a pointwise binding
-probability. `fit_integral_glm(..., pairwise=True)` is the matching API.

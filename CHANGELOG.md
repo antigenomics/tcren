@@ -5,19 +5,31 @@ All notable changes to `tcren` are recorded here. Format follows
 
 ## [4.1.0] — unreleased
 
+### Removed
+
+- `integral.py` and `integral_glm.py`, with their CLI commands `integrate`,
+  `integral-reference`, `integral-fit` and `integral-predict`, their tests and
+  `docs/integral.rst`. The readout's energy component was
+  `-Phi_tcr_pep / n_contacts_tp`, a raw mean contact energy: it carried no
+  alanine reference, was undefined wherever an interface had no TCR:peptide
+  contact, and divided out the contact-burden term. Both fitted GLMs inherited
+  that input. The normalization was wrong, so the modules are withdrawn rather
+  than patched. Recorded measurements from these candidates are unchanged and
+  remain in the research record.
+
 ### Added
 
-- Experimental `integral-fit` and `integral-predict`: a frozen four-component
-  logistic readout with explicit evaluation exclusions, training-only scaling,
-  equal epitope/class weighting and missingness indicators. Learned coefficients
-  are exported; the readout is not a calibrated binding probability or a default.
-  Optional `--pairwise` learns within-epitope ordering without an intercept,
-  preserving original sample support when weighting expanded pairs.
+- `rank-epitopes` and `tcren.ranking`: the epitope-ranking score, an equal-weight mean of the
+  structural poly-alanine epitope energy and the generator's ipTM, each standardized against a
+  frozen reference whose constants were estimated on a held-out training pool without reading a
+  label. Nothing is fitted at scoring time and nothing is normalized against the query cohort,
+  so batch and single-row scoring agree. Missing components are flagged and excluded rather than
+  imputed; a row with no observed component is null. On the CPL panel it reads count-weighted
+  ROC AUC 0.960913 over 7 clones and 2,103 models, against 0.865236 for the best single
+  component and 0.823253 for ipTM alone. No TCR-ranking score is shipped: no combination of the
+  available components beats ipTM there on a pooled aggregate.
 
-- Experimental `integral-reference` and `integrate`: fixed-reference integration
-  of ipTM, mean contact energy, surface shape and graph cycles, with equal block
-  weights, component outputs, explicit missingness and reference/potential hashes.
-  Class I only; no assay fitting, adaptive signs or default promotion.
+
 
 - `atom-inventory` export and `contact-class-audit`: complete selected protein
   heavy-atom context, class-exclusive/shared residue and atom contact sets,
