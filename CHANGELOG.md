@@ -3,7 +3,7 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
-## [4.1.0] — unreleased
+## [4.1.0] — 2026-10-22
 
 ### Fixed
 
