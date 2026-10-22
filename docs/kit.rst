@@ -1,119 +1,79 @@
-A kit for AI-generated TCR–pMHC structures
-==========================================
+Working with modelled complexes
+===============================
 
-AlphaFold and TCRmodel2 will seat *any* TCR–peptide–MHC candidate in a plausible low-energy pose,
-binding or not. The generator's own confidence reports whether a plausible interface could be
-built; it does not report whether the chemistry and shape across that interface are those of a real
-complex. TCRen2 reads the second question from the coordinates alone, with no binding label and
-nothing the generator emits. This page is the decision procedure.
+A generated structure describes a proposed pose. Generator confidence, observed
+contacts and a statistical contact potential describe different aspects of that
+pose. Start with the task and retain those observations alongside the combined
+ranking rather than treating one number as a binding decision.
 
-This page documents the **fit-free predecessor tier**, which is still shipped and still reported.
-The score set that generalises it is :doc:`assess`, and ``S`` *composes* with the posterior there
-rather than being replaced by it.
+Prepare one cohort
+------------------
 
-Two commands
-------------
-
-The expensive pass — parse, annotate, contact map, descriptors — runs once:
+For peptide ranking, supply candidate complexes for a fixed receptor. For receptor
+ranking, supply candidate receptors against one pMHC background. Keep MHC identity
+consistent within the cohort. Automatic cohort detection reads the annotated
+peptide and CDR3 pair; it is not an experimental identity or restriction check.
+A CDR3 excludes the conserved junction anchors; use the supplied chain annotation.
 
 .. code-block:: console
 
-   tcren features   -s models/ -i placement,interface,topology,energetics -o feats.tsv
-   tcren recognize  --features feats.tsv -o scores.tsv
+   $ tcren screen -s models.tar.gz --confidence confidence.tsv -o screen.tsv
 
-``scores.tsv`` carries ``Q`` (interface geometry), ``T`` (footprint shape) and ``S``, their
-composition with the contact energy in native-sd units. Join your generator's ``iptm`` / ``plddt``
-on the structure-file stem if you want to compose with them; they are not structural quantities, so
-tcren does not compute them.
+The optional confidence table has unique ``complex.id`` and ``iptm`` columns.
+Without it, ``screen`` looks for the set's ``metadata.tsv``. If ipTM is unavailable,
+the output reports that fact and combines the available structural components.
+See :doc:`screening` for equations, the structural reference and missingness rules.
 
-For a per-structure decision rather than a score table, ``tcren assess`` reads the same feature file
-and adds the score set, the ranking and the generator diagnostic — see :doc:`assess` for the
-read-outs and :doc:`reliability` for ``S`` and the band table.
+Read the output before using the ranking
+----------------------------------------
 
-.. note::
+#. Check ``no_interface`` and ``score_unavailable``. A zero-contact model is retained
+   but discarded from scoring; a cohort below the scorable floor reports components.
+#. Inspect the raw component columns, ``z_*`` contributions and ``missing_*`` flags.
+   ``n_components`` reports observed inputs rather than an imputed complete vector.
+#. Read ``cohort_mean_iptm``, ``cohort_confidence_z`` and the cohort flags. Flags report
+   by default; they do not automatically change the score.
+#. For receptor ranking, retain ipTM as the primary comparator. The structural
+   combination is a complementary readout, with no universal improvement claimed.
+#. Use the provenance sidecar to recover the task, frozen-reference hash, weight,
+   cohort floor and requested flag response.
 
-   :doc:`screening` is the current decision procedure and the entry point. This page remains the
-   fit-free predecessor tier it describes. Its second question — whether the generator had a
-   template, and whether that matters — now has a measured answer: on balanced VDJdb the
-   structural combination beats ipTM by +0.0350 on the 297 models that have a native template and
-   loses by 0.0528 on the 792 that do not, because without a template every component sits
-   between 0.455 and 0.540, which is chance. pLDDT does not substitute as that gate.
+A label describes the candidate pair, not whether the generator successfully
+modelled it. Inspect off-groove poses before interpreting a low confidence score
+as a failure of ranking. ``--on-flag reverse`` is opt-in and is not recommended
+as a correction for such modelling failures.
 
-The three questions the kit answers
------------------------------------
+Inspect the components
+----------------------
 
-**1. Does this receptor bind this epitope?**
-   ``S`` (:func:`tcren.reliability.s_score`) is this tier's answer: three fit-free directional
-   blocks — geometry ``Q``, footprint topology ``T``, and the interface energy read against the
-   partition function — each divided by its own native spread, so they carry equal weight in
-   native-sd units. Nothing is fitted at score time, so it is **defined for a single structure** and
-   its value does not depend on what else you scored alongside it.
+.. code-block:: console
 
-   ``S`` leads the functionally validated receptor screen on its own, at ROC-AUC 0.818 against the
-   generator confidence's 0.795, and it **adds** to :func:`tcren.score.binder_score` rather than
-   being superseded by it: together they read 0.783 on the template-covered stratum of the VDJdb
-   panel against 0.665 and 0.682 alone.
+   $ tcren features -s models.tar.gz -i interface,topology,energetics -o features.tsv
+   $ tcren contacts -s models.tar.gz --interface tcr_peptide -o contacts.csv
+   $ tcren scoring -s models.tar.gz --delta --reference-mode structural -o energies.csv
+   $ tcren export -s models.tar.gz --quantity receptor-reference --reference-mode structural -o receptor.tsv
 
-   The cohort-refit posterior that used to sit beside it was discarded in 2.26.0. It refitted a
-   latent class per call, so it was undefined for one structure and its numbers depended on which
-   rows the fit was anchored on — neither property survives contact with a user who has one model.
+``features`` provides individual descriptors; its existing ``dPhi`` columns use
+the historical fixed-map route. For the structural epitope alanine difference use
+``scoring --delta --reference-mode structural``. For contacted-CDR substitution
+use the receptor-reference export. ``screen`` computes the task-appropriate
+structural reference itself. :doc:`screening` defines the difference explicitly.
 
-**2. Did the generator have a template, and does that matter?**
-   It matters enormously, and this is the result the method exists for. Split the VDJdb benchmark
-   by whether *some* receptor has already been co-crystallized with that peptide, and every score
-   that reads the interface collapses when the template goes:
+``surface`` inspects pMHC relief, hydropathy and charge in the supplied bound
+conformation, and the receptor underside in the same frame. Peptide-intrinsic
+surface properties do not by themselves establish receptor specificity.
+``inspect-models`` retains confidence and descriptor outputs; ``associate``
+compares quantities on identical rows within the declared task and strata.
+Report template availability rather than inferring it from a confidence value.
 
-   .. list-table::
-      :header-rows: 1
-      :widths: 40 20 20 20
+Other supported workflows
+-------------------------
 
-      * - macro ROC-AUC
-        - template-covered
-        - template-free
-        - lost
-      * - generator ipTM
-        - 0.692
-        - 0.555
-        - 0.136
-      * - interface geometry ``Q``
-        - 0.729
-        - 0.497
-        - 0.232
-      * - shape channel ``T``
-        - 0.756
-        - 0.608
-        - 0.148
-
-   The shape of a footprint — how evenly six loops spread their contacts, whether the touched
-   surface is one patch or several — is invariant under the rigid-body placement a co-folding model
-   is optimizing, which is why it still says something once that model has produced a confident
-   pose. Note also that the generator's confidence does *not* fall to warn you: a pose built
-   without a template is scored confidently and wrongly.
-
-**3. Is the recognition signal intrinsic, or an artefact of the generator?**
-   Intrinsic. On experimental crystals, scoring the native epitope against wrong-epitope decoys of
-   the same length on the *fixed* crystal contact map — no AlphaFold, no re-docking — ranks the
-   native above the decoys.
-
-Composing with the generator's confidence
------------------------------------------
-
-The generator's confidence and the structure are two read-outs of the same complex, and composing
-them is worth measuring rather than assuming. Report the confidence on its own, the structural score
-on its own, and the two together, on identical rows — a combination quoted without both of its parts
-cannot be checked.
-
-What the kit does *not* claim
------------------------------
-
-- **Not affinity.** TCRen2 ranks specificity. What a static interface reads of *dynamics* is
-  specific and not uniform: the rupture work tracks the dissociation rate, ride height and coverage
-  entropy track the equilibrium free energy where the rupture work does not, and alanine ΔΔG stays
-  with molecular dynamics. See :doc:`features`, :doc:`beyond-the-contact-sum` and ``tcren mechanics``.
-- **Not a substitute for reporting template coverage.** Nothing computable from the model announces
-  which regime a cohort is in — the generator's confidence least of all — so template availability
-  is a covariate to report, not one to infer. It needs only a PDB lookup on the peptide.
-- **Not a number you can carry between versions.** Every table ``tcren features`` writes is stamped
-  with the descriptor catalogue that produced it, and ``tcren recognize --features`` refuses a table
-  written under a different one. A score is only meaningful against the catalogue it was computed
-  from; recompute rather than re-read.
+Use ``score`` for fixed-template peptide threading, ``ddg`` for explicitly defined
+mutation readouts, and ``md``/``mechanics`` for their separate trajectory and
+mechanical quantities. None makes a contact log-odds a physical binding free energy.
+The historical ``recognize``, ``assess`` and fitted Potts APIs remain available
+for reproduction with their estimated dependencies documented in :doc:`fit-free`.
+They are not the current cohort screen. The withdrawn integral commands are no
+longer supported. Scientific campaign results and publication figures are maintained
+with the manuscript and benchmark records, separately from this API guide.

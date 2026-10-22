@@ -338,6 +338,14 @@ benchmark's `bench/scripts/make_screen_references.py` and its release records.
 No rerun or new estimation is authorized by this registry. Reproduction requires
 the source-verified held-out training inputs and exclusion ledger, not query data.
 The resources remain frozen during release verification. SHA-256 identities:
-- `epitope_rank_reference.json`: `815b40dc7147fb9199e9f23915fd719b8787462fd28ed14e26e22ed0ff05ba88`
+- `epitope_rank_reference.json`: `c5e008f2bcbea1b9f274ee6c330a66838e6a8d7e1596f9eb0bbe1c57580bb98e`
 - `screen_reference_epitope.json`: `a42d1c06d19f41725905b63ed45cec03c1a4899735caa4525e692171a3e26366`
 - `screen_reference_tcr.json`: `5c55a250e6a4f10a54fd6fd611307f3f0077fbb732435adc28f9e3084f26a225`
+
+Release review correction: the epitope-rank energy mean is stored in the raw
+`dPhi_tcr_pep` convention, matching the screen reference and the producer. Its
+previous sign-corrected mean was incompatible with `direction * (x - mean) / sd`.
+This repairs a serialization convention, not a new fit. Previous resource SHA-256
+`815b40dc7147fb9199e9f23915fd719b8787462fd28ed14e26e22ed0ff05ba88` is archived with the manuscript release record. Complete-component
+rows change by a constant; rows with different missingness patterns need the new
+resource identity and must not be compared as though their old scores were unchanged.

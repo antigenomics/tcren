@@ -7,6 +7,13 @@ All notable changes to `tcren` are recorded here. Format follows
 
 ### Fixed
 
+- Corrected the epitope-ranking energy reference to store the raw-column mean,
+  consistently with `screen` and `direction * (x - mean) / sd`; updated the
+  formula and resource identity. Complete-component scores shift by a constant;
+  mixed-missingness comparisons must use the corrected resource throughout.
+  Both ranking routes reject nonfinite reference means.
+- The bounded job guard now records SIGTERM/SIGINT cancellation and completes
+  descendant cleanup and reporting, including repeated signals during cleanup.
 - `screen` now carries the observed TCR:peptide contact count from the CLI's
   contact map into scoring, so zero-contact models are actually discarded on
   both tasks. The small-cohort flag uses the same post-discard floor as scoring.
@@ -27,6 +34,9 @@ All notable changes to `tcren` are recorded here. Format follows
 
 ### Added
 
+- Reorganized the user documentation around task selection, cohort screening,
+  component inspection and interpretation. Added workflow and structural-alanine
+  diagrams and explicit energy, geometry, topology and combination equations.
 - `tcren screen` and `tcren.screen`: the primary entry point, in a new first help panel. It takes
   a cohort — one side held fixed across every structure — decides from the annotated peptide and
   CDR3 pair whether that is epitope ranking or TCR ranking, and refuses a set that is neither,

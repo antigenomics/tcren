@@ -2,9 +2,8 @@
 
 Epitope ranking and TCR ranking are different tasks and do not share a score. This module owns
 the **epitope-ranking** score, where the peptide varies while the receptor and MHC are held
-fixed. The TCR-ranking score is not shipped: on the recorded evaluation arms no combination of
-the available components beats the generator's own ipTM on a pooled aggregate, so there is
-nothing to promote yet. See `ROADMAP.md` section 2f.
+fixed. The separate cohort screen in :mod:`tcren.screen` supports both tasks;
+for TCR ranking it keeps ipTM primary and exposes complementary structural readouts.
 
 The score is a fixed arithmetic combination, not a fit. Each component is standardized by a mean
 and scale frozen on a held-out training pool whose labels were never read, so the constants are a
@@ -54,6 +53,8 @@ def _validate(reference: dict) -> list[dict]:
             raise ValueError(f"component {c.get('name')!r} missing {sorted(missing)}")
         if c["direction"] not in (1, -1):
             raise ValueError(f"component {c['name']!r} direction must be +1 or -1")
+        if not np.isfinite(c["mean"]):
+            raise ValueError(f"component {c['name']!r} has a nonfinite mean")
         if not np.isfinite(c["sd"]) or c["sd"] <= 0:
             raise ValueError(f"component {c['name']!r} has a nonpositive scale")
     return components

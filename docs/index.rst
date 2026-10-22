@@ -1,104 +1,80 @@
-tcren documentation
-====================
+tcren: rank and inspect TCR–pMHC models
+=======================================
 
-.. important::
+Start with a cohort of modelled αβ TCR:peptide–MHC complexes. ``tcren screen``
+identifies the ranking task, computes a structural alanine reference on the side
+that varies, and reports generator confidence alongside energy, geometry and topology.
+The frozen task-matched combination is a dimensionless ranking readout.
+It is not an affinity estimate or a calibrated binding probability.
 
-   Final models use fixed empirical contact potentials with explicit provenance.
-   Gaussian/GLM, fitted Potts and transition models, and reference-estimated Q/T/S
-   are historical readouts, excluded from the final specification. Nothing fitted
-   at scoring time does not mean fit-free. See :doc:`fit-free`.
+.. image:: _static/screening-workflow.svg
+   :alt: Cohort input branches into peptide or receptor ranking, followed by structural reference, component reporting and cohort checks.
+   :width: 100%
 
-``tcren`` is a Python re-implementation (and extension) of the TCRen method for structure-based
-prediction of T-cell-receptor recognition of epitopes. From one TCR–peptide–MHC structure
-(experimental or modelled) it parses and annotates the complex — TCR chains via
-`arda <https://github.com/antigenomics/arda>`_, MHC chains mapped against a curated reference and
-the groove partitioned — orients it into a canonical frame, computes residue contacts, and scores
-every candidate epitope with a residue-level statistical potential derived from TCR:pMHC crystal
-structures.
+Start with the ranking task
+---------------------------
 
-Where the original TCRen scored only TCR↔peptide contacts, this version scores all three interfaces
-(TCR↔peptide with TCRen, TCR↔MHC and peptide↔MHC with Miyazawa–Jernigan) for the full binding
-picture, and adds mutation ΔΔG, binder ranking for AI-generated models, pose refinement, and
-interface mechanics.
+* **One receptor, candidate peptides:** use ``screen`` for separately modelled
+  candidate complexes, or ``score`` to thread candidates on one fixed template.
+  These are different structural protocols. ``rank-epitopes`` accepts an existing
+  structural-energy/ipTM table for the single-task frozen readout.
+* **One pMHC, candidate receptors:** use ``screen``. Keep ipTM primary and inspect
+  the separate structural components, cohort flags and missingness.
+* **A heterogeneous set or one model:** use ``features``, ``contacts`` or
+  ``scoring`` to inspect its quantities. A set without a fixed side is not a ranking
+  cohort; small cohorts retain components without a combined score.
 
-What tcren does
----------------
+.. code-block:: console
 
-* **Inspect a modelled complex** -- ``inspect-models`` retains native confidence and individual
-  structural descriptors. ``associate`` compares scores against ipTM on matched rows, separately
-  by MHC class and template coverage (see :doc:`prediction` and :doc:`associations`).
-* **Historical fitted assessment** -- ``assess`` preserves the five frozen-model readouts for
-  reproduction; these are excluded from final scoring (:doc:`assess`).
-* **Score & rank epitopes** -- ``score`` / ``rank`` / ``scoring``: TCRen energy per candidate, a
-  percentile rank against a random background, and the three-interface breakdown plus total.
-* **Mutation ΔΔG** -- ``ddg``: alanine scans and neoantigen substitutions on the native contact map
-  (virtual-matrix, no re-docking).
-* **Interface descriptors** -- ``features``: one flat per-structure table of 164 catalogued
-  descriptors in six families, four of them computed by default (see :doc:`features`).
-* **The historical reference-estimated tier** -- ``recognize``: ``Q`` (interface geometry), ``T`` (footprint
-  shape) and their composition with the contact energy, ``S`` (see :doc:`kit`). Their reference statistics are estimated; these readouts are historical, not final models.
-* **Annotation & contacts** -- ``annotate`` / ``contacts``: TCR CDR/FR, MHC groove helices/floor and
-  peptide markup; multi-layer (5/8/12 Å) contact tables.
-* **Canonical orientation** -- ``orient`` / ``superimpose``: one common MHC frame, docking angles,
-  reverse-dock detection.
-* **Peptide substitution & refinement** -- ``refine``: backbone-preserving substitution plus a
-  DOPE-scored Monte-Carlo pose refinement (with CCD/OpenMM/ProMod3/FlexPepDock engines), and
-  ``--repack`` to place every side chain in the χ rotamer DOPE prefers.
-* **Surface topology** -- ``surface``: the receptor-stripped pMHC face in the supplied coordinates, as a height field
-  over the groove with hydropathy and charge painted on, plus the scalars that make "featureless" a
-  number (``relief``, ``peak_to_valley``, ``frac_above_ridge``) and a map distance that clusters
-  epitopes; ``--side tcr`` rasters the receptor underside in the same frame, and
-  ``surface_complementarity`` scores shape, charge and hydropathy agreement between the two faces
-  (:mod:`tcren.topology.surface`).
-* **Backbone dynamics** -- :func:`tcren.peptide_stability`: flexible-backbone Metropolis Monte Carlo
-  of the peptide's φ/ψ against DOPE, reporting how far the peptide *wanders* rather than a better
-  pose -- whether its own side chains hold the TCR-facing conformation, which a contact potential
-  scoring a single handed-in pose cannot see (:mod:`tcren.mechanics.dynamics`).
-* **Potential derivation** -- ``derive-potential``: re-derive the TCRen potential (classic/AM/LOO,
-  with non-redundancy filtering) from a structure set.
-* **Historical fitted contact-map Potts model** -- ``potts fit`` / ``score`` / ``contacts``: a Boltzmann distribution
-  over the contact map itself, whose sites are the residue pairs that *could* have contacted. Gives
-  a structure's map an energy (``neg_energy``, the term ``S`` reads), a partition function and
-  a likelihood, and every residue pair a contact probability (:mod:`tcren.potts`, see :doc:`potts`).
-* **QC, mechanics & maps** -- steric-clash and register checks, an interface spring-network /
-  rupture model, and 2D complementarity maps + 3D pocket/CDR views.
+   $ tcren screen -s models.tar.gz -o scores.tsv
 
-.. note::
+ipTM is supplied by the generator's metadata or ``--confidence``; tcren does not
+compute it. Frozen references ship with the package. No parameter is fitted to a
+query cohort. Models with no TCR:peptide contact remain in output with a discard
+reason and do not count toward the default 30-model floor.
 
-   **Ranking, not affinity.** TCRen ranks peptide/TCR *specificity* for a given receptor; it is not a
-   binding-affinity model. On the ATLAS SPR benchmark neither the raw contact energy nor its
-   poly-alanine difference (:func:`tcren.energetics.mutation.reference_delta`) predicts Kd/ΔG/koff/kon (ρ ≤ 0.3 in
-   magnitude). The
-   one affinity-adjacent quantity a static structure predicts is the off-rate koff, via interface
-   mechanics (:mod:`tcren.mechanics`) — not the contact sum.
+Read :doc:`getting-started` for installation and input formats, :doc:`screening`
+for the component equations and output contract, and :doc:`kit` for inspection
+and interpretation. :doc:`fit-free` documents estimated reference dependencies
+and distinguishes current scoring from historical fitted readouts.
 
 .. toctree::
    :maxdepth: 2
-   :caption: Contents
+   :caption: Start and rank
 
-   screening
    getting-started
-   fit-free
-   associations
-   contact-penalties
-   md-validation
-   prediction
+   screening
    ranking
-   reproduction
-   assess
+   kit
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Inspect structures and explain scores
+
    features
    descriptor_table
-   oracle
    potentials
-   rederivation
-   potts
-   background
+   contact-penalties
+   prediction
+   associations
+   md-validation
    beyond-the-contact-sum
-   reliability
-   kit
+   background
    gallery
    performance
    modules
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Reference dependencies and reproduction
+
+   fit-free
+   reproduction
+   oracle
+   rederivation
+   assess
+   potts
+   reliability
 
 .. toctree::
    :maxdepth: 1

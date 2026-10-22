@@ -1,40 +1,19 @@
-"""Screen a cohort of modelled complexes — the primary entry point.
+"""Task-matched cohort screening with frozen references and explicit availability.
 
-Everything else in this package is a toolkit: annotation, canonical orientation, contact listing,
-surface topography, descriptor extraction. This module answers the question a user actually
-arrives with — *rank these models for me* — and it is deliberately narrow about when it will.
+Peptide ranking fixes a receptor and varies epitopes; receptor ranking fixes a
+pMHC and varies receptors. The structural alanine reference follows the varying
+side. Topology is included only for the receptor-ranking task.
 
-**It requires a cohort**, meaning one side held fixed across every structure:
+The weighted Stouffer readout combines direction-corrected standardized
+components against a frozen task reference. ipTM is caller-supplied and remains
+the primary receptor-ranking comparator. The combined score is dimensionless,
+not a calibrated probability or a physical binding free energy.
 
-``EPITOPE_RANKING``
-    The same receptor against varying peptides. The alanine reference is taken on the **epitope**,
-    because the substituted side must be the side that varies. Topology is excluded: its direction
-    is established for receptor ranking and inverted on peptide ranking.
-
-``TCR_RANKING``
-    The same pMHC against varying receptors. The alanine reference is taken on the contacted
-    **CDRs**, and topology is carried.
-
-A set that is neither is rejected, naming what differs, rather than scored as though it were one.
-
-**The generator's confidence stays primary.** On every recorded receptor-ranking arm ipTM is the
-strongest single input and no combination beats it on a pooled aggregate. The combination here is
-weighted Stouffer, ``sum(w_i z_i) / sqrt(sum w_i^2)``, with the confidence weight defaulting to
-0.8 — chosen so the worst observed outcome across the evaluation panels is within the resolution
-of those panels. Symmetric pooling (Fisher, equal-weight Stouffer, logit-sum, geometric mean) was
-measured and loses, because it treats confidence and structure as exchangeable evidence.
-
-**Below a cohort of 30 the combined score is withheld**, and the components are reported alone.
-Per-cohort margin noise follows ``|margin| ~ 0.0765/sqrt(n) + 0.0019``, so under about 30 models
-the noise exceeds every effect this combination can produce; a score there would be decoration.
-
-Nothing is fitted at scoring time, and nothing is normalized against the query cohort: a model's
-score depends on its own descriptors and the frozen reference, so scoring one model alone and
-scoring it inside a batch give the same number. The cohort governs only whether a score is
-emitted at all, never its value.
-
-The readout is dimensionless. It is a ranking score, not a binding free energy and not a
-calibrated probability.
+Models with no TCR:peptide contacts are retained with discard reasons and do not
+count toward the cohort floor. Below the default 30-model floor, components are
+reported without a combined score. Cohort flags report by default; explicit
+responses preserve discarded and withheld rows. No query-cohort normalization
+or fitting is performed. Equations and output semantics: docs/screening.rst.
 """
 
 from __future__ import annotations
@@ -88,6 +67,8 @@ def _validate(reference: dict) -> list[dict]:
             raise ValueError(f"component {c.get('name')!r} missing {sorted(missing)}")
         if c["direction"] not in (1, -1):
             raise ValueError(f"component {c['name']!r} direction must be +1 or -1")
+        if not np.isfinite(c["mean"]):
+            raise ValueError(f"component {c['name']!r} has a nonfinite mean")
         if not np.isfinite(c["sd"]) or c["sd"] <= 0:
             raise ValueError(f"component {c['name']!r} has a nonpositive scale")
     return components
@@ -218,11 +199,8 @@ def cohort_flags(
     evidence says a ranking may be untrustworthy, and the right response is to look rather than to
     accept a number.
 
-    They do not act on the score unless a caller asks. A cohort-level reweighting was measured
-    and moved the aggregate by at most +0.013 while making two of the four worst cohorts worse.
-    Withholding or reversing on `low_confidence` is supported by the evaluation panels and
-    untestable on the only held-out population available, so it is offered rather than imposed:
-    see :data:`WITHHOLDING_FLAGS`.
+    They do not act on the score unless a caller asks. Applicability observations
+    do not validate an automatic corrective response: see :data:`WITHHOLDING_FLAGS`.
 
     Args:
         table: the same descriptor table passed to :func:`screen_scores`.
@@ -307,24 +285,8 @@ def cohort_flags(
     return out
 
 
-#: Flags that withhold the combined score rather than merely annotating it, per task.
-#:
-#: **Empty by default, and the reason is worth stating precisely.**
-#:
-#: On the evaluation panels `low_confidence` looks like a clean detector: it fires on 3 of 29
-#: cohorts and all 3 rank below chance, flagged cohorts averaging ROC 0.2959 against 0.6775.
-#: Acting on it there would remove the regime where the ranking inverts.
-#:
-#: The held-out training pool cannot confirm or refute that. It fires on 3 of its 14 epitopes,
-#: and all three -- ALSKGVHFV, DATYQRTRALVR, CTELKLSDY at 28, 24 and 18 models -- sit BELOW the
-#: 30-model floor, so their scores are already withheld for size and the flag never gets to act
-#: on them. Of the 3 training epitopes that do reach the floor, none is flagged. The pool offers
-#: **no test case at all** in the regime where the flag would operate.
-#:
-#: So the only evidence that acting helps comes from the same panels the score is reported
-#: against, and building that action into the default would be tuning on the evaluation set.
-#: The flags therefore report by default and act only when a caller asks, through
-#: ``screen_scores(..., suppress=...)`` or the CLI's ``--on-flag withhold``.
+#: No cohort flag automatically withholds a score. Responses remain explicit;
+#: the no-interface discard and cohort floor apply independently on both tasks.
 WITHHOLDING_FLAGS: dict[CohortKind, tuple[str, ...]] = {
     CohortKind.TCR_RANKING: (),
     CohortKind.EPITOPE_RANKING: (),
@@ -340,28 +302,11 @@ def withhold_reason(flags: dict, task: CohortKind) -> str | None:
 
 
 class FlagResponse(str, Enum):
-    """What to do about a cohort the flags call untrustworthy.
+    """Explicit responses to a low-confidence cohort; REPORT leaves scores unchanged.
 
-    Measured over the 29 TCR-ranking evaluation cohorts. The flag fires on 3 of them. The
-    trade-off is between how much a flagged cohort is rescued and what the response would cost if
-    the flag ever fired on a good one:
-
-    ====================  ==========  ==========  =================  ==========================
-    response              pooled ROC  pooled PR   cohorts below .5   worst cost on a good cohort
-    ====================  ==========  ==========  =================  ==========================
-    ``report`` (default)      0.7250     0.7049                  6   none, nothing changes
-    ``structure``             0.7296     0.7063                  6   0.9735 -> 0.9225
-    ``geometry``              0.7273     0.7033                  6   0.9735 -> 0.7316
-    ``withhold``                   -          -                  -   a usable score is lost
-    ``reverse``               0.7410     0.7162                  3   0.9735 -> 0.0265
-    ====================  ==========  ==========  =================  ==========================
-
-    ``reverse`` is much the strongest rescue -- it takes RAQAPPPSW from 0.0479 to 0.9521 and
-    halves the number of cohorts ranking below chance -- and much the most dangerous, because a
-    misfire inverts a good cohort completely. ``structure`` is the middle: it lifts RAQAPPPSW from
-    0.0479 to 0.4667, which is to chance rather than above it, and its worst misfire costs 0.05.
-    Nothing but ``report`` is the default, because the only evidence that acting helps comes from
-    the same panels the score is reported against.
+    Alternatives change only the combined score. Components, missingness and
+    original reasons for unavailable scores remain visible. Reversal is not a
+    validated correction for modelling failure.
     """
 
     REPORT = "report"

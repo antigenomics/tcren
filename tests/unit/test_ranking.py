@@ -110,3 +110,21 @@ def test_reference_resource_is_valid_json_with_finite_frozen_constants():
     for c in ref["components"]:
         assert np.isfinite(c["mean"]) and np.isfinite(c["sd"]) and c["sd"] > 0
         assert c["n"] == 729
+
+
+def test_epitope_routes_use_the_same_raw_component_centering():
+    from tcren.screen import CohortKind, bundled_reference as screen_reference, screen_scores
+
+    table = _table(n=3, iptm=[0.8, None, 0.6])
+    ranked = epitope_rank(table)
+    screened = screen_scores(table, screen_reference(CohortKind.EPITOPE_RANKING), min_cohort=1)
+    for name in ("energy", "confidence"):
+        np.testing.assert_allclose(ranked[f"z_{name}"], screened[f"z_{name}"], equal_nan=True)
+
+
+@pytest.mark.parametrize("mean", [float("nan"), float("inf"), -float("inf")])
+def test_nonfinite_reference_means_are_rejected(mean):
+    reference = bundled_reference()
+    reference["components"][0]["mean"] = mean
+    with pytest.raises(ValueError, match="nonfinite mean"):
+        epitope_rank(_table(), reference)

@@ -7,7 +7,7 @@
       "column": "dPhi_tcr_pep",
       "direction": -1,
       "definition": "structural poly-alanine reference difference on the TCR:peptide interface, epitope positions truncated to alanine in 3D with the contact map rebuilt",
-      "mean": -0.018446216146297146,
+      "mean": 0.018446216146297146,
       "sd": 2.5523082820202068,
       "n": 729
     },

@@ -3,9 +3,9 @@ Task-specific ranking scores
 
 Epitope ranking and TCR ranking are different tasks and do not share a score.
 :mod:`tcren.ranking` owns the **epitope-ranking** score, where the peptide varies while the
-receptor and MHC are held fixed. The TCR-ranking score is not shipped: on the recorded
-evaluation arms no combination of the available components beats the generator's own ipTM on a
-pooled aggregate, so there is nothing to promote yet.
+receptor and MHC are held fixed. The primary :doc:`screening` route supports both
+tasks with separate frozen references. For receptor ranking it keeps ipTM primary
+and reports the structural components alongside the combination.
 
 The score
 ---------
@@ -15,14 +15,16 @@ Two components, each standardized against a frozen reference and averaged with e
 .. math::
 
    S \;=\; \tfrac{1}{2}\Bigl(
-       \frac{-\Delta\Phi_{TP} - \mu_{E}}{\sigma_{E}}
+       \frac{-(\Delta\Phi_{TP} - \mu_{E})}{\sigma_{E}}
      + \frac{\mathrm{ipTM} - \mu_{C}}{\sigma_{C}}
    \Bigr)
 
 where :math:`\Delta\Phi_{TP}` is the **structural** poly-alanine reference difference on the
 TCR:peptide interface — the epitope positions truncated to alanine in 3D with the contact map
 rebuilt, from ``scoring --delta --reference-mode structural`` — and ipTM is the generator's
-interface pTM, supplied by the caller. :math:`\mu` and :math:`\sigma` are frozen constants.
+interface pTM, supplied by the caller. :math:`\mu_E` is the mean of the raw
+alanine difference, before changing its sign; :math:`\mu_C` is the raw ipTM
+mean. Both positive scales are frozen standard deviations of the same raw columns.
 
 The energy enters negated because lower :math:`\Phi` is the more favourable interface, so higher
 :math:`S` is always the more binder-like model. :math:`S` is dimensionless and unbounded: a

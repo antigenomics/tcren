@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 180" role="img" aria-labelledby="title desc">
+<title id="title">Structural alanine reference</title><desc id="desc">Score real coordinates, truncate the varying side to alanine retaining backbone and beta carbon, rebuild contacts, and subtract reference energy from real energy.</desc>
+<defs><marker id="a" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0L8 4L0 8Z" fill="#536373"/></marker></defs><rect width="900" height="180" rx="12" fill="#f6f8fa"/>
+<g font-family="Arial,Helvetica,sans-serif" text-anchor="middle" fill="#203044" font-size="16">
+<rect x="15" y="25" width="190" height="90" rx="9" fill="#e4edf5" stroke="#53799a"/><text x="110" y="57" font-weight="bold">Real coordinates</text><text x="110" y="86">Score Φ(real)</text>
+<rect x="245" y="25" width="220" height="90" rx="9" fill="#fff" stroke="#53799a"/><text x="355" y="57" font-weight="bold">Truncate varying side</text><text x="355" y="86">Retain backbone + Cβ</text>
+<rect x="505" y="25" width="185" height="90" rx="9" fill="#fff" stroke="#438a7a"/><text x="597" y="57" font-weight="bold">Rebuild contacts</text><text x="597" y="86">Same 5 Å cutoff</text>
+<rect x="730" y="25" width="155" height="90" rx="9" fill="#e5f1ed" stroke="#438a7a"/><text x="807" y="57" font-weight="bold">Reference energy</text><text x="807" y="86">Score Φ(Ala)</text>
+<g stroke="#536373" stroke-width="2" marker-end="url(#a)"><path d="M205 70H240"/><path d="M465 70H500"/><path d="M690 70H725"/></g>
+<text x="450" y="153" font-size="19">ΔΦ = Φ(real) − Φ(Ala) · a structural difference, with contacts rebuilt</text>
+</g></svg>

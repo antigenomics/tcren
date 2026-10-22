@@ -61,10 +61,31 @@ and the structure sets ``fetch-data`` populates in ``data/`` (``Native2026``, ``
 ``$TCREN_DATA_DIR`` overrides the ``data/`` subdirectory on its own
 (:func:`tcren.paths.data_dir`).
 
-Command line
-------------
+Rank a cohort
+-------------
 
-End-to-end candidate-epitope scoring from a structure:
+Once the annotation references are available, start with separately modelled
+candidate complexes for one ranking task:
+
+.. code-block:: console
+
+   $ tcren screen -s models.tar.gz -o scores.tsv
+   $ tcren screen -s models.tar.gz --confidence confidence.tsv -o scores.tsv
+
+A cohort fixes either the receptor or the pMHC. ``screen`` detects which side varies
+from the annotated peptide and CDR3 pair and applies its task-matched reference.
+Keep the MHC background consistent. The optional confidence table carries unique
+``complex.id`` and ``iptm`` columns; otherwise the set's metadata supplies ipTM.
+Zero-contact models are discarded from scoring, retained with reasons, and excluded
+from the default 30-model floor. Smaller cohorts report components alone.
+
+Continue with :doc:`screening` for formulas and output semantics, or :doc:`kit`
+for interpretation and component inspection.
+
+Thread peptides on one fixed template
+-------------------------------------
+
+Use this separate protocol when candidates share a template contact map:
 
 .. code-block:: console
 

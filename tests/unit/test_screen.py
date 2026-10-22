@@ -456,3 +456,11 @@ def test_flag_responses_preserve_discarded_rows_and_the_cohort_floor(response):
 def test_cohort_flag_uses_the_scorable_floor():
     t = _table(MIN_COHORT, n_contacts_tp=[0] + [20] * (MIN_COHORT - 1))
     assert cohort_flags(t, bundled_reference(CohortKind.TCR_RANKING))["small_cohort"] is True
+
+
+@pytest.mark.parametrize("mean", [float("nan"), float("inf"), -float("inf")])
+def test_nonfinite_reference_means_are_rejected(mean):
+    reference = bundled_reference(CohortKind.TCR_RANKING)
+    reference["components"][0]["mean"] = mean
+    with pytest.raises(ValueError, match="nonfinite mean"):
+        screen_scores(_table(), reference)

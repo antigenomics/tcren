@@ -7,36 +7,33 @@ description: tcren — TCR-pMHC contact potential (TCRen) pipeline; conventions 
 
 ## Primary entry point — `tcren screen`
 
-`screen -s models.tar.gz -o scores.tsv` is where a user starts; everything else is a toolkit.
-It takes a COHORT, one side held fixed across every structure, works out which side varies from
-the annotated peptide and the annotated CDR3 pair, and refuses a set that is neither, naming what
-differs. Same receptor with varying peptides is EPITOPE RANKING; same pMHC with varying receptors
-is TCR RANKING. The structural alanine reference follows the side that VARIES -- the epitope via
-`reference_delta(..., structure=)`, the contacted CDRs via `receptor_reference(..., structure=)` --
-and topology is carried only for TCR ranking, its direction being inverted on peptide ranking.
+`screen -s models.tar.gz -o scores.tsv` ranks a cohort of separately modelled αβ
+TCR:pMHC candidates. Automatic identity uses the annotated peptide and CDR3 pair:
+fixed receptor/varying peptides is epitope ranking; fixed peptide/varying receptors
+is TCR ranking. Keep one MHC background; mixed sets and sets where nothing varies
+are refused. ipTM comes from metadata.tsv or `--confidence`, never from tcren.
 
-Components are standardized against a frozen bundled reference per task and combined by weighted
-Stouffer, `sum(w z)/sqrt(sum w^2)`. The confidence weight lives IN the reference because it is
-task-specific: 0.8 for TCR ranking where ipTM dominates, 0.5 for epitope ranking where the energy
-is stronger. Symmetric pooling -- Fisher, equal-weight Stouffer, logit-sum, geometric mean, min
-percentile -- was measured and scores below ipTM alone on every receptor arm.
+The structural alanine reference follows the varying side: epitope
+`reference_delta(..., structure=)` or contacted-CDR
+`receptor_reference(..., structure=)`, both rebuilding the contact map. The TCR
+combination carries energy, `sc_shape`, `g_cyclo_frac` and confidence; epitope
+ranking carries energy and confidence. Components use raw-column frozen means
+and scales, then direction correction. Weighted Stouffer is
+`sum(w*z)/sqrt(sum(w*w))` over observed components. Confidence weight is 0.8 for
+TCR ranking (structure shares 0.2) and 0.5 for epitope ranking. These empirical
+reference dependencies are not query-derived or fitted at scoring time.
 
-Four label-free cohort flags ship with it: `small_cohort`, `low_confidence` (cohort mean ipTM
-below 0.7237, the 20th percentile of the training pool's per-epitope means), `forced_pose` (mean
-`strain_z` above 0.5586, ABSTAINING unless the strain was standardized against the same
-population as the cut), and `confidence_disagrees`. The flags report by default and do not withhold the score on either task. In the recorded
-pre-discard evaluation, `low_confidence` fires on 3 of 29 TCR cohorts, all below chance;
-that observation does not establish a default intervention. `--on-flag` picks the response: report (default), structure (drop ipTM, cannot invert), geometry, withhold or reverse. Over 29 TCR cohorts reverse gives pooled ROC 0.7410 against 0.7250 and halves the cohorts below chance, but a misfire inverts a good cohort 0.9735 to 0.0265; structure gives 0.7296 with a worst misfire of 0.0510. report is the default because the only evidence for acting comes from the panels the score is reported against, and why ipTM inverts is still an open question. A cohort-level reweighting was
-measured and rejected: it moved the aggregate by at most +0.013 while making two of the four
-worst cohorts worse.
+Zero-contact models retain output rows/reasons but no score and do not count
+toward the default 30-model floor. Smaller cohorts retain components alone.
+Flags report by default; `--on-flag` explicitly selects report, structure,
+geometry, withhold or reverse. Responses cannot restore unavailable scores or
+erase their original reasons. Reversal is not recommended as a modelling correction.
 
-Models with zero TCR:peptide contacts are DISCARDED -- the receptor was never placed on the groove, so their components are computed over an empty interface -- and they do not count toward the floor. Below 30 SCORABLE models the combined score is WITHHELD and components are reported alone, because
-per-cohort margin noise follows 0.0765/sqrt(n) + 0.0019 and then exceeds any effect the
-combination produces. ipTM comes from the set's `metadata.tsv` or `--confidence`; without either
-the structure components are scored alone and the summary says so. Nothing is fitted at scoring
-time and nothing is normalized against the query cohort, so batch and single-row scoring agree;
-the cohort governs only whether a score is emitted, never its value. API: `screen.screen_scores`,
-`screen.cohort_signature`, `screen.stouffer`; equations and limits: `docs/screening.rst`.
+Keep ipTM primary for receptor ranking and inspect the separate components,
+missingness, flags and provenance sidecar. No universal improvement, affinity,
+calibrated probability or receptor-specific discrimination follows from a score.
+API: `screen.screen_scores`, `screen.cohort_signature`, `screen.stouffer`.
+Equations and diagrams: `docs/screening.rst`; resource dependencies: `SOURCES`.
 
 ## Epitope-ranking score
 
