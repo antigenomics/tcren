@@ -11,7 +11,7 @@
 [![tests](https://github.com/antigenomics/tcren/actions/workflows/tests.yml/badge.svg)](https://github.com/antigenomics/tcren/actions/workflows/tests.yml)
 [![docs](https://github.com/antigenomics/tcren/actions/workflows/docs.yml/badge.svg)](https://docs.isalgo.dev/tcren/)
 ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)
-[![GPLv3](https://img.shields.io/badge/license-GPLv3-green)](LICENSE)
+[![GPLv3](https://img.shields.io/badge/license-GPLv3-green)](https://github.com/antigenomics/tcren/blob/master/LICENSE)
 
 tcren ranks candidate αβ TCR:peptide–MHC structures and exposes the evidence behind
 the ranking: generator confidence, structural contact energy, interface geometry
@@ -63,7 +63,7 @@ background and verify experimental identities before joining labels. A mixed set
 or a set where nothing varies is refused. Missing ipTM is reported; tcren reads it
 from metadata or the confidence table and does not calculate generator confidence.
 
-![Task-matched screening workflow](docs/_static/screening-workflow.svg)
+![Task-matched screening workflow](https://raw.githubusercontent.com/antigenomics/tcren/master/docs/_static/screening-workflow.svg)
 
 The structural reference truncates side chains to alanine in three dimensions,
 retains backbone and Cβ atoms, and rebuilds contacts. It is not a virtual identity
@@ -124,7 +124,7 @@ experimental contact layers and supported historical reproduction APIs.
 Historical `recognize`, `assess` and fitted Potts readouts retain their dependencies
 and reproduction contracts; they are not the current screen. The integral/GLM
 commands were withdrawn. See [reference dependencies](https://docs.isalgo.dev/tcren/fit-free.html)
-and [SOURCES](SOURCES) for parameter provenance and resource identities.
+and [SOURCES](https://github.com/antigenomics/tcren/blob/master/SOURCES) for parameter provenance and resource identities.
 
 ## Development and verification
 
@@ -138,6 +138,6 @@ make -C docs html SPHINXOPTS=-W
 Use `.venv/bin/python -m pytest -m 'not slow'` for the non-slow suite; scientific
 benchmarks are separate from software checks. Rebuild the editable install after
 native changes. Scientific campaigns, old results and publication figures are
-maintained with the benchmark and manuscript repositories. [CHANGELOG.md](CHANGELOG.md)
-records software changes. [AGENTS.md](AGENTS.md) and the
-[API skill](skills/tcren/SKILL.md) own repository and API guidance.
+maintained with the benchmark and manuscript repositories. [CHANGELOG.md](https://github.com/antigenomics/tcren/blob/master/CHANGELOG.md)
+records software changes. [AGENTS.md](https://github.com/antigenomics/tcren/blob/master/AGENTS.md) and the
+[API skill](https://github.com/antigenomics/tcren/blob/master/skills/tcren/SKILL.md) own repository and API guidance.
