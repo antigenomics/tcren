@@ -55,6 +55,27 @@ def bundled_reference(task: CohortKind) -> dict:
     return reference
 
 
+def template_coverage(peptide: str, metadata: Path) -> dict:
+    """Epitope-level crystal availability from an explicit, hash-recorded metadata TSV.
+
+    The caller supplies a native-crystal inventory (for example Native2026), not
+    model metadata. Membership is case-insensitive; it does not establish matching
+    MHC, construct correspondence or pose accuracy. No network lookup is performed.
+    """
+    raw = Path(metadata).read_bytes()
+    table = pl.read_csv(raw, separator="\t", infer_schema_length=None)
+    if "epitope" not in table.columns:
+        raise ValueError("template metadata needs an epitope column")
+    epitopes = set(table["epitope"].drop_nulls().cast(pl.String)
+                   .str.strip_chars().str.to_uppercase().to_list()) - {""}
+    peptide = peptide.strip().upper()
+    if not peptide or not epitopes:
+        raise ValueError("template metadata and peptide must be nonempty")
+    return {"native_template": peptide in epitopes, "epitope": peptide,
+            "n_epitopes": len(epitopes),
+            "metadata_sha256": hashlib.sha256(raw).hexdigest()}
+
+
 def _validate(reference: dict) -> list[dict]:
     if reference.get("format") != FORMAT:
         raise ValueError(f"unsupported reference format: {reference.get('format')!r}")
@@ -71,7 +92,42 @@ def _validate(reference: dict) -> list[dict]:
             raise ValueError(f"component {c['name']!r} has a nonfinite mean")
         if not np.isfinite(c["sd"]) or c["sd"] <= 0:
             raise ValueError(f"component {c['name']!r} has a nonpositive scale")
+        rho = c.get("confidence_rho")
+        if rho is not None:
+            if c["name"] == "confidence":
+                raise ValueError("the confidence component cannot be orthogonalized against itself")
+            if not np.isfinite(rho) or not -1.0 < float(rho) < 1.0:
+                raise ValueError(f"component {c['name']!r} confidence_rho must lie in (-1, 1)")
+    if (any(c.get("confidence_rho") is not None for c in components)
+            and not any(c["name"] == "confidence" for c in components)):
+        raise ValueError("confidence_rho needs a confidence component to orthogonalize against")
     return components
+
+
+def orthogonalize(z: np.ndarray, z_confidence: np.ndarray, rho: float) -> np.ndarray:
+    r"""Remove the confidence-explained part of a standardized component and restore unit scale.
+
+    .. math::  z^{\perp} = \frac{z - \rho\, z_{\mathrm{conf}}}{\sqrt{1 - \rho^{2}}}
+
+    :math:`\rho` is a caller-supplied frozen coefficient. If both variables have
+    unit variance and rho is their correlation in the same frozen reference
+    population, the result is uncorrelated with confidence and has unit variance
+    in that population. Frozen global scales do not imply unit within-cohort
+    variances, and uncorrelated quantities need not be independent.
+
+    This is an explicit change of basis, not new evidence. With fixed weights,
+    subtraction and rescaling can change rankings; neither operation guarantees
+    a predictive improvement. The bundled references carry no such coefficient.
+
+    Rows whose confidence is missing keep ``z`` unchanged -- there is nothing to project out of
+    them -- rather than being dropped or imputed.
+    """
+    z, c = np.asarray(z, float), np.asarray(z_confidence, float)
+    rho = float(rho)
+    if not -1.0 < rho < 1.0:
+        raise ValueError("rho must lie in (-1, 1)")
+    corrected = (z - rho * c) / np.sqrt(1.0 - rho * rho)
+    return np.where(np.isfinite(c), corrected, z)
 
 
 def stouffer(z: np.ndarray, weights: np.ndarray) -> np.ndarray:
@@ -363,6 +419,7 @@ def screen_scores(
     reference: dict,
     *,
     weight: float | None = None,
+    native_template: bool | None = None,
     min_cohort: int = MIN_COHORT,
     suppress: str | None = None,
 ) -> pl.DataFrame:
@@ -374,6 +431,10 @@ def screen_scores(
         reference: a frozen reference dict, normally from :func:`bundled_reference`.
         weight: confidence weight in the Stouffer combination, in ``[0, 1]``. ``None`` takes the
             reference's own ``default_weight``, which is task-specific.
+        native_template: optional TCR-ranking applicability gate. False uses confidence
+            alone; True uses the requested weight. None keeps historical behavior.
+            Components remain visible regardless of the gate. This is crystal
+            availability, not a pose-quality judgement.
         min_cohort: below this many **scorable** rows the combined score is withheld. Models
             with no TCR:peptide interface are discarded and do not count toward it.
         suppress: when set, withhold the combined score for every row and record this as the
@@ -392,6 +453,11 @@ def screen_scores(
         weight = float(reference.get("default_weight", DEFAULT_WEIGHT))
     if not np.isfinite(weight) or not 0.0 <= weight <= 1.0:
         raise ValueError("weight must lie in [0, 1]")
+    if native_template is not None:
+        if not isinstance(native_template, bool) or reference.get("task") != "tcr":
+            raise ValueError("native_template must be a boolean for a TCR-ranking reference")
+        if not native_template:
+            weight = 1.0
     if "complex.id" not in table.columns:
         raise ValueError("complex.id column required")
     ids = table["complex.id"]
@@ -401,17 +467,14 @@ def screen_scores(
     if absent:
         raise ValueError(f"missing component columns: {absent}")
 
-    out = {"complex.id": ids}
-    z_cols, weights = [], []
+    raw, z_cols, weights = [], [], []
     for c in components:
         x = np.asarray(table[c["column"]].cast(pl.Float64), dtype=float)
         if np.isinf(x).any():
             raise ValueError(f"infinite values in {c['column']}")
         seen = np.isfinite(x)
         z = c["direction"] * (x - c["mean"]) / c["sd"]
-        out[c["column"]] = x
-        out[f"z_{c['name']}"] = np.where(seen, z, np.nan)
-        out[f"missing_{c['name']}"] = ~seen
+        raw.append(x)
         z_cols.append(np.where(seen, z, np.nan))
         # The confidence block carries `weight`; the structural components share the remainder.
         weights.append(weight if c["name"] == "confidence" else 0.0)
@@ -419,9 +482,33 @@ def screen_scores(
     for i in structural:
         weights[i] = (1.0 - weight) / len(structural)
 
+    # A reference may carry a frozen `confidence_rho` per structural component. Where it does,
+    # the component enters the combination orthogonal to confidence and back on unit scale, so
+    # the fixed weights buy independent evidence rather than a second helping of ipTM. A
+    # reference without the key leaves every z exactly as it was, so the shipped behaviour and
+    # every score computed under it are unchanged.
+    conf = next((i for i, c in enumerate(components) if c["name"] == "confidence"), None)
+    applied = np.zeros(table.height, dtype=bool)
+    orthogonalized = [c.get("confidence_rho") is not None for c in components]
+    if conf is not None:
+        for i, c in enumerate(components):
+            if not orthogonalized[i]:
+                continue
+            z_cols[i] = orthogonalize(z_cols[i], z_cols[conf], c["confidence_rho"])
+            applied |= np.isfinite(z_cols[conf]) & np.isfinite(z_cols[i])
+
+    out = {"complex.id": ids}
+    for i, c in enumerate(components):
+        out[c["column"]] = raw[i]
+        out[f"z_{c['name']}"] = z_cols[i]
+        out[f"missing_{c['name']}"] = ~np.isfinite(raw[i])
+    if any(orthogonalized):
+        out["confidence_orthogonalized"] = applied
+
     Z = np.column_stack(z_cols)
     observed = np.isfinite(Z).sum(axis=1).astype(np.int16)
     score = stouffer(Z, np.asarray(weights))
+    no_weighted = ~np.isfinite(score)
     # A model with no TCR:peptide contact is not a TCR:pMHC complex -- the receptor was not
     # placed on the groove. Every structural component for it is computed over an empty
     # interface, so it is DISCARDED rather than scored, and it does not count toward the cohort
@@ -439,13 +526,18 @@ def screen_scores(
         np.where(small,
                  f"cohort of {n_scorable} scorable models is smaller than the minimum "
                  f"of {min_cohort}",
-                 np.where(observed == 0, "no component observed", suppress if suppress else "")))
+                 np.where(observed == 0, "no component observed",
+                          np.where(no_weighted, "no weighted component observed",
+                                   suppress if suppress else ""))))
     out["n_components"] = observed
     out["no_interface"] = no_interface
     series = pl.Series(score)
     out["screen_score"] = series.set(
-        pl.Series((observed == 0) | small | no_interface | bool(suppress)), None)
+        pl.Series(no_weighted | small | no_interface | bool(suppress)), None)
     out["score_unavailable"] = pl.Series(reason).set(pl.Series(reason == ""), None)
+    if native_template is not None:
+        out["native_template"] = [native_template] * table.height
+        out["confidence_weight"] = [weight] * table.height
     return pl.DataFrame(out)
 
 

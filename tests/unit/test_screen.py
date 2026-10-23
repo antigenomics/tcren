@@ -7,7 +7,8 @@ import pytest
 
 from tcren.screen import (
     FLAGS, FORMAT, MIN_COHORT, WITHHOLDING_FLAGS, CohortKind, FlagResponse, apply_flag_response,
-    bundled_reference, cohort_flags, cohort_signature, screen_scores, stouffer, withhold_reason,
+    bundled_reference, cohort_flags, cohort_signature, orthogonalize, screen_scores, stouffer,
+    withhold_reason,
 )
 
 
@@ -464,3 +465,125 @@ def test_nonfinite_reference_means_are_rejected(mean):
     reference["components"][0]["mean"] = mean
     with pytest.raises(ValueError, match="nonfinite mean"):
         screen_scores(_table(), reference)
+
+
+# --- confidence orthogonalization -------------------------------------------------------------
+
+def _rho_reference(**rhos):
+    """The bundled TCR reference with a frozen confidence_rho on the named components."""
+    import copy
+
+    reference = copy.deepcopy(bundled_reference(CohortKind.TCR_RANKING))
+    for c in reference["components"]:
+        if c["name"] in rhos:
+            c["confidence_rho"] = rhos[c["name"]]
+    return reference
+
+
+def test_orthogonalize_removes_the_confidence_part_and_restores_unit_scale():
+    rng = np.random.default_rng(7)
+    conf = rng.normal(size=20000)
+    rho = 0.6
+    z = rho * conf + np.sqrt(1 - rho ** 2) * rng.normal(size=20000)
+    out = orthogonalize(z, conf, rho)
+    assert abs(float(np.corrcoef(out, conf)[0, 1])) < 0.02
+    assert abs(float(out.std()) - 1.0) < 0.02
+
+
+def test_orthogonalize_leaves_rows_whose_confidence_is_missing_alone():
+    z = np.array([1.0, 2.0, 3.0])
+    conf = np.array([0.5, np.nan, -0.5])
+    out = orthogonalize(z, conf, 0.4)
+    assert out[1] == 2.0
+    assert out[0] != 1.0 and out[2] != 3.0
+
+
+def test_orthogonalize_rejects_a_degenerate_rho():
+    for bad in (1.0, -1.0, 1.5):
+        with pytest.raises(ValueError, match="rho must lie"):
+            orthogonalize(np.zeros(3), np.zeros(3), bad)
+
+
+def test_a_reference_without_confidence_rho_scores_exactly_as_before():
+    table = _table()
+    plain = screen_scores(table, bundled_reference(CohortKind.TCR_RANKING))
+    assert "confidence_orthogonalized" not in plain.columns
+    # A rho of zero is the identity, so it must reproduce the untouched score bit-for-bit.
+    zeroed = screen_scores(table, _rho_reference(energy=0.0, geometry=0.0, topology=0.0))
+    assert zeroed["screen_score"].to_list() == plain["screen_score"].to_list()
+
+
+def test_orthogonalized_reference_changes_the_score_and_reports_that_it_applied():
+    table = _table()
+    plain = screen_scores(table, bundled_reference(CohortKind.TCR_RANKING))
+    orth = screen_scores(table, _rho_reference(energy=-0.3, geometry=0.25))
+    assert orth["confidence_orthogonalized"].all()
+    assert orth["screen_score"].to_list() != plain["screen_score"].to_list()
+    # Raw components and the untouched topology z are unchanged; only the corrected z move.
+    assert orth["dFT_tcr_pep_cdr"].to_list() == plain["dFT_tcr_pep_cdr"].to_list()
+    assert orth["z_topology"].to_list() == plain["z_topology"].to_list()
+    assert orth["z_energy"].to_list() != plain["z_energy"].to_list()
+
+
+def test_a_row_with_no_confidence_is_not_reported_as_orthogonalized():
+    n = MIN_COHORT
+    iptm = list(np.random.default_rng(1).uniform(0.6, 0.95, n))
+    iptm[0] = None
+    orth = screen_scores(_table(iptm=iptm), _rho_reference(energy=-0.3))
+    assert not orth["confidence_orthogonalized"][0]
+    assert orth["confidence_orthogonalized"][1:].all()
+
+
+def test_confidence_cannot_be_orthogonalized_against_itself():
+    with pytest.raises(ValueError, match="against itself"):
+        screen_scores(_table(), _rho_reference(confidence=0.5))
+
+
+def test_an_out_of_range_confidence_rho_is_refused():
+    with pytest.raises(ValueError, match="confidence_rho must lie"):
+        screen_scores(_table(), _rho_reference(energy=1.0))
+
+
+def test_confidence_only_without_iptm_has_explicit_unavailability():
+    t = _table(1, iptm=[None])
+    result = screen_scores(t, bundled_reference(CohortKind.TCR_RANKING),
+                           weight=1.0, min_cohort=1)
+    assert result["screen_score"][0] is None
+    assert result["score_unavailable"][0] == "no weighted component observed"
+    assert np.isfinite(result["z_energy"][0])
+
+
+def test_template_gate_uses_confidence_only_but_keeps_components():
+    t = _table(3, iptm=[0.6, None, 0.9], n_contacts_tp=[20, 20, 0])
+    ref = bundled_reference(CohortKind.TCR_RANKING)
+    gated = screen_scores(t, ref, weight=0.6, native_template=False, min_cohort=1)
+    assert gated["confidence_weight"].to_list() == [1.0] * 3
+    assert gated["native_template"].to_list() == [False] * 3
+    assert gated["screen_score"][0] == pytest.approx(gated["z_confidence"][0])
+    assert gated["screen_score"][1] is None
+    assert gated["screen_score"][2] is None
+    assert gated["missing_confidence"].to_list() == [False, True, False]
+    assert np.isfinite(gated["z_energy"].to_numpy()).all()
+    covered = screen_scores(t, ref, weight=0.6, native_template=True, min_cohort=1)
+    plain = screen_scores(t, ref, weight=0.6, min_cohort=1)
+    np.testing.assert_allclose(covered["screen_score"].to_numpy(),
+                               plain["screen_score"].to_numpy(), equal_nan=True)
+    assert covered["screen_score"][1] is not None
+    small = screen_scores(t, ref, weight=0.6, native_template=False, min_cohort=3)
+    assert small["screen_score"].null_count() == 3
+
+
+def test_template_metadata_is_explicit_hashed_and_validated(tmp_path):
+    from tcren.screen import template_coverage
+    import hashlib
+
+    path = tmp_path / "metadata.tsv"
+    path.write_text("epitope\tpdb.id\n aaa \tx\nAAA\ty\nBBB\tz\n")
+    coverage = template_coverage("aaa", path)
+    assert coverage["native_template"] is True
+    assert coverage["n_epitopes"] == 2
+    assert coverage["metadata_sha256"] == hashlib.sha256(path.read_bytes()).hexdigest()
+    assert template_coverage("CCC", path)["native_template"] is False
+    path.write_text("epitope\n\n")
+    with pytest.raises(ValueError, match="nonempty"):
+        template_coverage("AAA", path)

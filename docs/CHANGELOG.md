@@ -3,6 +3,27 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
+## [4.2.0] — 2026-10-23
+
+### Added
+
+- Explicit experimental TCR template-availability gate: `screen
+  --template-metadata Native2026/metadata.tsv --weight VALUE` uses the requested
+  confidence weight for covered epitopes and standardized ipTM alone otherwise.
+  The output retains every structural component, flags, missingness, zero-contact
+  discard and cohort floor; provenance records the inventory hash and effective
+  weight. The existing task references and default weights are unchanged.
+- Documented the separate roles of CDR:peptide energy, TCR:MHC orientation,
+  receptor-free pMHC topography and surface complementarity. Geometry and topology
+  are not assumed independent channels or calibrated significance evidence.
+- Optional frozen confidence orthogonalization for custom screen references;
+  bundled references carry no correlations and retain their previous scores.
+
+### Fixed
+
+- A row with no observed positively weighted component now has a null score and
+  an explicit reason, including missing ipTM when confidence weight is one.
+
 ## [4.1.0] — 2026-10-22
 
 ### Fixed
