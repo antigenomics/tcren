@@ -3,6 +3,30 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
+## [4.3.0] — 2026-10-24
+
+### Changed
+
+- Bundled TCR screening uses `(6 * ipTM + T) / 7`, with `T` the original
+  CDR:pMHC graph cycle fraction. Raw inputs and the default score lie in [0,1].
+  Energy, geometry and frozen z-scores remain diagnostic outputs. Missing active
+  channels are omitted and weights renormalized. Epitope scoring and legacy
+  custom references keep their Stouffer combination.
+- Confidence weight defaults to 6/7 for the bundled TCR reference; the explicit
+  template gate uses raw ipTM alone for uncovered epitopes. Provenance records
+  the score method.
+
+### Added
+
+- Optional explicit groove frame in `surface_map` for chain-specific maps in
+  the intact complex's projection; default frame construction is unchanged.
+
+### Removed
+
+- Rejected confidence orthogonalization; references carrying `confidence_rho`
+  fail explicitly. Unreleased topology and surface-transport exploration APIs
+  were removed before release.
+
 ## [4.2.0] — 2026-10-23
 
 ### Added
@@ -16,8 +40,8 @@ All notable changes to `tcren` are recorded here. Format follows
 - Documented the separate roles of CDR:peptide energy, TCR:MHC orientation,
   receptor-free pMHC topography and surface complementarity. Geometry and topology
   are not assumed independent channels or calibrated significance evidence.
-- Optional frozen confidence orthogonalization for custom screen references;
-  bundled references carry no correlations and retain their previous scores.
+- Optional frozen confidence orthogonalization for custom references was added
+  in this release and subsequently retired (see 4.3.0).
 
 ### Fixed
 

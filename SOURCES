@@ -342,16 +342,6 @@ The resources remain frozen during release verification. SHA-256 identities:
 - `screen_reference_epitope.json`: `a42d1c06d19f41725905b63ed45cec03c1a4899735caa4525e692171a3e26366`
 - `screen_reference_tcr.json`: `5c55a250e6a4f10a54fd6fd611307f3f0077fbb732435adc28f9e3084f26a225`
 
-Optional orthogonalization key, 23 October 2026: the `tcren-screen-1` format now admits
-`confidence_rho` on a structural component, applied as `(z - rho*z_conf)/sqrt(1 - rho^2)`.
-NEITHER BUNDLED REFERENCE CARRIES IT, so the three SHA-256 identities above and every score
-computed under them are unchanged; a reference without the key takes the original code path.
-The key is a caller-supplied frozen coefficient, an estimated reference dependency.
-If interpreted as a correlation, it must describe the same frozen population in which
-both standardized variables have unit variance; global standardization does not ensure
-unit within-cohort variance or independent evidence. No label is required to estimate it. Any resource that does carry one is an external file with its own hash and
-its own provenance record; this registry covers bundled tables only.
-
 Release review correction: the epitope-rank energy mean is stored in the raw
 `dPhi_tcr_pep` convention, matching the screen reference and the producer. Its
 previous sign-corrected mean was incompatible with `direction * (x - mean) / sd`.
@@ -365,3 +355,13 @@ native-crystal epitope inventory, recording its SHA-256 rather than bundling a n
 antigen set. The requested weight is explicit; uncovered epitopes use confidence
 alone. The diagnostic 0.6 weight is evaluation-selected and is not a shipped default.
 The three frozen resource hashes above remain unchanged.
+
+Author-approved TCR combination, 24 October 2026 (4.3.0):
+S = (6 * iptm + g_cyclo_frac) / 7. Raw bounded inputs; confidence weight 6/7,
+topology structural_fraction 1, energy/geometry structural_fraction 0.
+Frozen moments, directions and membership remain unchanged and supply diagnostic
+z-scores. The coefficient is an evaluation-informed author choice, not a fitted
+or prospectively validated parameter. Epitope scoring is unchanged. Missing
+active channels renormalize over observed weights. Historical hashes above
+identify their original resources. Current screen_reference_tcr.json SHA256:
+b04689aee51e37dbd47f5339def84353bac6ec272018bb5dc9949f20ea774618

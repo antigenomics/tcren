@@ -4,8 +4,8 @@ Peptide ranking fixes a receptor and varies epitopes; receptor ranking fixes a
 pMHC and varies receptors. The structural alanine reference follows the varying
 side. Topology is included only for the receptor-ranking task.
 
-The weighted Stouffer readout combines direction-corrected standardized
-components against a frozen task reference. ipTM is caller-supplied and remains
+The bundled TCR readout is (6 * ipTM + cycle fraction) / 7. Epitope and legacy
+references combine standardized components with weighted Stouffer. ipTM is caller-supplied and remains
 the primary receptor-ranking comparator. The combined score is dimensionless,
 not a calibrated probability or a physical binding free energy.
 
@@ -92,42 +92,25 @@ def _validate(reference: dict) -> list[dict]:
             raise ValueError(f"component {c['name']!r} has a nonfinite mean")
         if not np.isfinite(c["sd"]) or c["sd"] <= 0:
             raise ValueError(f"component {c['name']!r} has a nonpositive scale")
-        rho = c.get("confidence_rho")
-        if rho is not None:
-            if c["name"] == "confidence":
-                raise ValueError("the confidence component cannot be orthogonalized against itself")
-            if not np.isfinite(rho) or not -1.0 < float(rho) < 1.0:
-                raise ValueError(f"component {c['name']!r} confidence_rho must lie in (-1, 1)")
-    if (any(c.get("confidence_rho") is not None for c in components)
-            and not any(c["name"] == "confidence" for c in components)):
-        raise ValueError("confidence_rho needs a confidence component to orthogonalize against")
+        fraction = c.get("structural_fraction")
+        if fraction is not None and (
+                c["name"] == "confidence" or not np.isfinite(fraction) or not 0 <= fraction <= 1):
+            raise ValueError("structural_fraction must lie in [0, 1] on structural components")
+        if "confidence_rho" in c:
+            raise ValueError("confidence_rho is retired; remove it from the reference")
+    method = reference.get("score_method", "stouffer")
+    if method not in {"stouffer", "raw_weighted_mean"}:
+        raise ValueError("unknown score_method")
+    if method == "raw_weighted_mean":
+        active = {c["name"]: c for c in components
+                  if c["name"] == "confidence" or c.get("structural_fraction", 1) != 0}
+        if (reference.get("task") != "tcr" or set(active) != {"confidence", "topology"}
+                or active["confidence"]["column"] != "iptm"
+                or active["topology"]["column"] != "g_cyclo_frac"
+                or any(c["direction"] != 1 for c in active.values())
+                or active["topology"].get("structural_fraction") != 1):
+            raise ValueError("raw_weighted_mean requires raw ipTM and cycle fraction only")
     return components
-
-
-def orthogonalize(z: np.ndarray, z_confidence: np.ndarray, rho: float) -> np.ndarray:
-    r"""Remove the confidence-explained part of a standardized component and restore unit scale.
-
-    .. math::  z^{\perp} = \frac{z - \rho\, z_{\mathrm{conf}}}{\sqrt{1 - \rho^{2}}}
-
-    :math:`\rho` is a caller-supplied frozen coefficient. If both variables have
-    unit variance and rho is their correlation in the same frozen reference
-    population, the result is uncorrelated with confidence and has unit variance
-    in that population. Frozen global scales do not imply unit within-cohort
-    variances, and uncorrelated quantities need not be independent.
-
-    This is an explicit change of basis, not new evidence. With fixed weights,
-    subtraction and rescaling can change rankings; neither operation guarantees
-    a predictive improvement. The bundled references carry no such coefficient.
-
-    Rows whose confidence is missing keep ``z`` unchanged -- there is nothing to project out of
-    them -- rather than being dropped or imputed.
-    """
-    z, c = np.asarray(z, float), np.asarray(z_confidence, float)
-    rho = float(rho)
-    if not -1.0 < rho < 1.0:
-        raise ValueError("rho must lie in (-1, 1)")
-    corrected = (z - rho * c) / np.sqrt(1.0 - rho * rho)
-    return np.where(np.isfinite(c), corrected, z)
 
 
 def stouffer(z: np.ndarray, weights: np.ndarray) -> np.ndarray:
@@ -429,8 +412,9 @@ def screen_scores(
         table: descriptor table keyed by a unique nonempty ``complex.id``, carrying every
             component column the reference names.
         reference: a frozen reference dict, normally from :func:`bundled_reference`.
-        weight: confidence weight in the Stouffer combination, in ``[0, 1]``. ``None`` takes the
-            reference's own ``default_weight``, which is task-specific.
+        weight: confidence weight in the reference combination, in ``[0, 1]``. ``None`` takes the
+            reference's own ``default_weight``, which is task-specific. Structural weights
+            are ``(1 - weight) * structural_fraction``; omitted fractions share equally.
         native_template: optional TCR-ranking applicability gate. False uses confidence
             alone; True uses the requested weight. None keeps historical behavior.
             Components remain visible regardless of the gate. This is crystal
@@ -476,38 +460,33 @@ def screen_scores(
         z = c["direction"] * (x - c["mean"]) / c["sd"]
         raw.append(x)
         z_cols.append(np.where(seen, z, np.nan))
-        # The confidence block carries `weight`; the structural components share the remainder.
+        # Confidence carries `weight`; the reference declares each structural fraction.
         weights.append(weight if c["name"] == "confidence" else 0.0)
     structural = [i for i, c in enumerate(components) if c["name"] != "confidence"]
     for i in structural:
-        weights[i] = (1.0 - weight) / len(structural)
-
-    # A reference may carry a frozen `confidence_rho` per structural component. Where it does,
-    # the component enters the combination orthogonal to confidence and back on unit scale, so
-    # the fixed weights buy independent evidence rather than a second helping of ipTM. A
-    # reference without the key leaves every z exactly as it was, so the shipped behaviour and
-    # every score computed under it are unchanged.
-    conf = next((i for i, c in enumerate(components) if c["name"] == "confidence"), None)
-    applied = np.zeros(table.height, dtype=bool)
-    orthogonalized = [c.get("confidence_rho") is not None for c in components]
-    if conf is not None:
-        for i, c in enumerate(components):
-            if not orthogonalized[i]:
-                continue
-            z_cols[i] = orthogonalize(z_cols[i], z_cols[conf], c["confidence_rho"])
-            applied |= np.isfinite(z_cols[conf]) & np.isfinite(z_cols[i])
+        weights[i] = (1.0 - weight) * components[i].get("structural_fraction", 1.0 / len(structural))
 
     out = {"complex.id": ids}
     for i, c in enumerate(components):
         out[c["column"]] = raw[i]
         out[f"z_{c['name']}"] = z_cols[i]
         out[f"missing_{c['name']}"] = ~np.isfinite(raw[i])
-    if any(orthogonalized):
-        out["confidence_orthogonalized"] = applied
 
     Z = np.column_stack(z_cols)
     observed = np.isfinite(Z).sum(axis=1).astype(np.int16)
-    score = stouffer(Z, np.asarray(weights))
+    if reference.get("score_method") == "raw_weighted_mean":
+        values = np.column_stack(raw)
+        active = np.asarray(weights) > 0
+        if np.any(np.isfinite(values[:, active]) &
+                  ((values[:, active] < 0) | (values[:, active] > 1))):
+            raise ValueError("raw weighted components must lie in [0, 1]")
+        seen = np.isfinite(values)
+        denominator = (seen * weights).sum(axis=1)
+        numerator = (np.where(seen, values, 0) * weights).sum(axis=1)
+        score = np.divide(numerator, denominator, out=np.full(len(values), np.nan),
+                          where=denominator > 0)
+    else:
+        score = stouffer(Z, np.asarray(weights))
     no_weighted = ~np.isfinite(score)
     # A model with no TCR:peptide contact is not a TCR:pMHC complex -- the receptor was not
     # placed on the groove. Every structural component for it is computed over an empty

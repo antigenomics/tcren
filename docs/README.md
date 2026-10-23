@@ -79,12 +79,12 @@ flags and a provenance sidecar containing the frozen-reference identity.
 - **Geometry:** height-field Pearson complementarity, `sc_shape`.
 - **Topology:** CDR:pMHC graph cycle fraction, `g_cyclo_frac`; carried for TCR ranking.
 
-Components use frozen raw-column means and scales, then a declared direction.
-Weighted Stouffer combines the observed standardized components. TCR ranking gives
-confidence weight 0.8 and shares 0.2 across the structural components; epitope
-ranking gives energy and confidence equal weights. These empirical reference
-constants are estimated dependencies, not query-derived parameters. Nothing is
-fitted or normalized against the query cohort.
+TCR ranking uses `S = (6 * ipTM + T) / 7`, where `T = g_cyclo_frac`.
+Both inputs and the default score lie in [0,1]; this is not a binding probability.
+Energy and geometry remain separate readouts. Frozen standardized components
+remain diagnostic columns. Epitope ranking retains weighted Stouffer with
+confidence and energy weighted equally. Nothing is fitted or normalized against
+the query cohort. Legacy custom references retain their Stouffer rule.
 
 Models with zero TCR:peptide contacts remain in output with a discard reason and
 no score. They do not count toward the default floor of 30 models with an

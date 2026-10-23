@@ -65,7 +65,7 @@ def test_screen_cli_discards_zero_contact_models_and_reports_flags(task, gate, m
         assert provenance["template_gate"]["native_template"] is gate
         assert provenance["effective_weight"] == (0.6 if gate else 1.0)
         if not gate:
-            assert table["screen_score"][1] == pytest.approx(table["z_confidence"][1])
+            assert table["screen_score"][1] == pytest.approx(table["iptm"][1])
 
 
 def test_gate_requires_explicit_weight_before_loading_structures(tmp_path):

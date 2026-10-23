@@ -1,7 +1,7 @@
 {
   "format": "tcren-screen-1",
   "task": "tcr",
-  "default_weight": 0.8,
+  "default_weight": 0.8571428571428571,
   "cohort_confidence": {
     "mean": 0.74562,
     "sd": 0.035717,
@@ -34,7 +34,8 @@
       "sd": 2.444885363934208,
       "n": 729,
       "pool_raw_roc": 0.353922,
-      "pool_verdict": "confirms"
+      "pool_verdict": "confirms",
+      "structural_fraction": 0.0
     },
     {
       "name": "geometry",
@@ -45,7 +46,8 @@
       "sd": 0.13090298332746947,
       "n": 728,
       "pool_raw_roc": 0.492762,
-      "pool_verdict": "undetermined"
+      "pool_verdict": "undetermined",
+      "structural_fraction": 0.0
     },
     {
       "name": "topology",
@@ -56,7 +58,8 @@
       "sd": 0.06009944543413727,
       "n": 711,
       "pool_raw_roc": 0.537915,
-      "pool_verdict": "undetermined"
+      "pool_verdict": "undetermined",
+      "structural_fraction": 1.0
     }
   ],
   "standardization": "means and scales frozen on a held-out training pool of 729 models over 14 off-panel epitopes; no label was read to produce them, so this is a change of units and not a fit",
@@ -64,5 +67,6 @@
   "excluded_epitopes": [
     "KLGGALQAK"
   ],
-  "combination": "weighted Stouffer over the standardized components, sum(w z)/sqrt(sum w^2); the confidence block carries default_weight and the structural components share the remainder equally"
+  "combination": "(6 * iptm + g_cyclo_frac) / 7; energy and geometry are reporting-only. Missing active components are omitted and remaining weights renormalized.",
+  "score_method": "raw_weighted_mean"
 }

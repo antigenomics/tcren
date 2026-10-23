@@ -100,10 +100,26 @@ direction. It is dimensionless and unbounded, not a binding free energy or a
 calibrated probability. Dependence among components is not a claim of independent
 evidence or a calibrated Stouffer significance test.
 
-The bundled references use confidence weight 0.8 for TCR ranking; energy, geometry
-and topology share the remaining 0.2 equally. Epitope ranking uses confidence and
-energy with weights 0.5 each. ``--weight`` explicitly changes the confidence weight
-within [0,1]; the structural components share the remainder.
+The bundled TCR reference instead combines raw bounded inputs:
+
+.. math::
+
+   S = \frac{\mathrm{ipTM}+T/6}{7/6}
+     = \frac{6\,\mathrm{ipTM}+T}{7}, \qquad T=g_{\mathrm{cyclo}}.
+
+Both inputs and the resulting score lie in [0,1]. This is not a calibrated binding
+probability. Frozen z-scores remain diagnostic columns; they do not enter this
+TCR combination. Energy and geometry have zero combination weight.
+``--weight`` changes the confidence coefficient (default 6/7); topology receives
+its complement. Missing active values are omitted and remaining weights
+renormalized; no observed active input yields no score. Out-of-range active
+raw inputs fail explicitly. Reporting-only components cannot restore a score.
+
+Epitope ranking retains Stouffer confidence and energy with weights 0.5 each.
+Custom references without ``score_method`` retain Stouffer combination; the
+bundled TCR reference declares ``raw_weighted_mean``. Structural fractions
+multiply ``1 - weight``; omitted fractions share equally in legacy references.
+Frozen reference means and scales are unchanged.
 
 Means and scales are empirical reference dependencies estimated on a held-out pool
 of 729 models over 14 off-panel epitopes, without reading labels for those moments.
@@ -127,7 +143,7 @@ contribution without changing its components or frozen scales:
 
 ``--template-metadata`` requires an ``epitope`` column and an explicit ``--weight``.
 An epitope present in that inventory uses the requested confidence weight; an
-absent epitope uses weight 1 (standardized ipTM alone). Membership strips outer
+absent epitope uses weight 1 (raw ipTM alone with the bundled TCR reference). Membership strips outer
 whitespace and ignores case. The inventory's SHA256, epitope, membership and
 requested/effective weights are recorded; ``native_template`` and
 ``confidence_weight`` accompany the rows. Pin the inventory revision as well as
@@ -136,11 +152,11 @@ template match. Availability is epitope-level: it does not establish matching
 MHC, construct correspondence or an accurate predicted pose.
 
 The example's 0.6 is an evaluation-selected diagnostic, not a bundled default or
-an independently validated coefficient. The unchanged TCR default remains 0.8;
+an independently validated coefficient. The bundled TCR default is 6/7;
 the gate is opt-in. The epitope-ranking path does not accept this gate.
 No gate is selected from a query's labels or its descriptor distribution.
 
-The observed-channel Stouffer denominator still applies. If ipTM is absent when
+The reference combination renormalizes over observed active channels. If ipTM is absent when
 the gate selects confidence alone, the score is null with
 ``no weighted component observed``; structural values stay visible but cannot
 silently restore that score. A covered epitope with missing ipTM can still score
@@ -167,34 +183,6 @@ confidence and structural directions motivate a standardized sum, but do not
 make its denominator a calibrated significance test. Inspect the individual
 channels, their missingness, the target surface and docking geometry with flags
 before interpreting a ranking.
-
-Optional confidence orthogonalization
--------------------------------------
-
-A reference may carry a frozen ``confidence_rho`` on a structural component. Where
-it does, that component enters the combination with its confidence-explained part
-removed and an explicit rescaling applied:
-
-.. math::
-
-   z_i^{\perp}=\frac{z_i-\rho_i z_{\mathrm{conf}}}{\sqrt{1-\rho_i^{2}}},
-   \qquad \rho_i\in(-1,1).
-
-:math:`\rho_i` is a caller-supplied frozen coefficient. If both standardized
-variables have unit variance and :math:`\rho_i` is their correlation in the same
-frozen reference population, the residual is uncorrelated with confidence and
-the division restores unit variance in that population. Global frozen scales do
-not ensure unit variance within each cohort, and uncorrelated channels need not
-be independent. Do not estimate this coefficient from query rows.
-
-This is an explicit change of basis, not new evidence. Keeping the same weights
-can change rankings after subtraction or rescaling; neither guarantees predictive
-improvement. The reference must document the coefficient's population and meaning.
-
-Rows whose confidence is missing keep :math:`z_i` unchanged — there is nothing to
-project out of them — and ``confidence_orthogonalized`` reports per row whether the
-correction was applied. The column is emitted only by a reference that carries the
-key. The bundled references do not, so their scores are unchanged.
 
 Discard and cohort floor
 ------------------------

@@ -7,7 +7,7 @@ import pytest
 
 from tcren.screen import (
     FLAGS, FORMAT, MIN_COHORT, WITHHOLDING_FLAGS, CohortKind, FlagResponse, apply_flag_response,
-    bundled_reference, cohort_flags, cohort_signature, orthogonalize, screen_scores, stouffer,
+    bundled_reference, cohort_flags, cohort_signature, screen_scores, stouffer,
     withhold_reason,
 )
 
@@ -127,12 +127,31 @@ def test_unrelated_rows_never_move_an_existing_score():
                        screen_scores(extra, ref)["screen_score"].to_numpy()[:t.height])
 
 
-def test_a_more_favourable_energy_scores_higher():
+def test_default_tcr_ranking_uses_only_confidence_and_topology_at_accepted_ratio():
     ref = bundled_reference(CohortKind.TCR_RANKING)
-    t = _table(MIN_COHORT)
-    low = t.with_columns(pl.Series("dFT_tcr_pep_cdr", [-8.0] + [0.0] * (t.height - 1)))
-    s = screen_scores(low, ref)["screen_score"].to_numpy()
-    assert s[0] > s[1]
+    t = _table()
+    got = screen_scores(t, ref)
+    expected = (6 * t["iptm"].to_numpy() + t["g_cyclo_frac"].to_numpy()) / 7
+    np.testing.assert_allclose(got["screen_score"].to_numpy(), expected)
+    changed = t.with_columns(dFT_tcr_pep_cdr=pl.lit(-100.0), sc_shape=pl.lit(None))
+    np.testing.assert_array_equal(screen_scores(changed, ref)["screen_score"].to_numpy(),
+                                  got["screen_score"].to_numpy())
+    assert got["z_energy"].is_finite().all() and got["z_geometry"].is_finite().all()
+
+
+def test_reporting_components_cannot_restore_missing_tcr_ranking_channels():
+    got = screen_scores(_table(1, iptm=[None], g_cyclo_frac=[None]),
+                        bundled_reference(CohortKind.TCR_RANKING), min_cohort=1)
+    assert got["screen_score"][0] is None
+    assert got["score_unavailable"][0] == "no weighted component observed"
+
+
+@pytest.mark.parametrize("fraction", [-0.1, 1.1, float("nan")])
+def test_invalid_structural_fraction_is_rejected(fraction):
+    ref = bundled_reference(CohortKind.TCR_RANKING)
+    ref["components"][1]["structural_fraction"] = fraction
+    with pytest.raises(ValueError, match="structural_fraction"):
+        screen_scores(_table(), ref)
 
 
 def test_a_missing_component_is_flagged_and_excluded_rather_than_imputed():
@@ -221,16 +240,16 @@ def test_the_two_tasks_substitute_different_sides():
 
 def test_confidence_carries_the_declared_weight():
     ref = bundled_reference(CohortKind.TCR_RANKING)
-    # at weight 1 the score is the confidence z alone, up to the Stouffer normalisation
+    # At weight 1 the bundled TCR score is raw confidence alone.
     got = screen_scores(_table(MIN_COHORT), ref, weight=1.0)
-    assert np.allclose(got["screen_score"].to_numpy(), got["z_confidence"].to_numpy())
+    assert np.allclose(got["screen_score"].to_numpy(), got["iptm"].to_numpy())
 
 
 @pytest.mark.parametrize("task, expected", [
     # The right weight is task-specific: ipTM is much the strongest input for TCR ranking, while
     # the energy is stronger for epitope ranking, where equal weight reproduces the shipped
     # rank-epitopes result.
-    (CohortKind.TCR_RANKING, 0.8),
+    (CohortKind.TCR_RANKING, 6 / 7),
     (CohortKind.EPITOPE_RANKING, 0.5),
 ])
 def test_each_reference_declares_its_own_default_weight(task, expected):
@@ -467,81 +486,11 @@ def test_nonfinite_reference_means_are_rejected(mean):
         screen_scores(_table(), reference)
 
 
-# --- confidence orthogonalization -------------------------------------------------------------
-
-def _rho_reference(**rhos):
-    """The bundled TCR reference with a frozen confidence_rho on the named components."""
-    import copy
-
-    reference = copy.deepcopy(bundled_reference(CohortKind.TCR_RANKING))
-    for c in reference["components"]:
-        if c["name"] in rhos:
-            c["confidence_rho"] = rhos[c["name"]]
-    return reference
-
-
-def test_orthogonalize_removes_the_confidence_part_and_restores_unit_scale():
-    rng = np.random.default_rng(7)
-    conf = rng.normal(size=20000)
-    rho = 0.6
-    z = rho * conf + np.sqrt(1 - rho ** 2) * rng.normal(size=20000)
-    out = orthogonalize(z, conf, rho)
-    assert abs(float(np.corrcoef(out, conf)[0, 1])) < 0.02
-    assert abs(float(out.std()) - 1.0) < 0.02
-
-
-def test_orthogonalize_leaves_rows_whose_confidence_is_missing_alone():
-    z = np.array([1.0, 2.0, 3.0])
-    conf = np.array([0.5, np.nan, -0.5])
-    out = orthogonalize(z, conf, 0.4)
-    assert out[1] == 2.0
-    assert out[0] != 1.0 and out[2] != 3.0
-
-
-def test_orthogonalize_rejects_a_degenerate_rho():
-    for bad in (1.0, -1.0, 1.5):
-        with pytest.raises(ValueError, match="rho must lie"):
-            orthogonalize(np.zeros(3), np.zeros(3), bad)
-
-
-def test_a_reference_without_confidence_rho_scores_exactly_as_before():
-    table = _table()
-    plain = screen_scores(table, bundled_reference(CohortKind.TCR_RANKING))
-    assert "confidence_orthogonalized" not in plain.columns
-    # A rho of zero is the identity, so it must reproduce the untouched score bit-for-bit.
-    zeroed = screen_scores(table, _rho_reference(energy=0.0, geometry=0.0, topology=0.0))
-    assert zeroed["screen_score"].to_list() == plain["screen_score"].to_list()
-
-
-def test_orthogonalized_reference_changes_the_score_and_reports_that_it_applied():
-    table = _table()
-    plain = screen_scores(table, bundled_reference(CohortKind.TCR_RANKING))
-    orth = screen_scores(table, _rho_reference(energy=-0.3, geometry=0.25))
-    assert orth["confidence_orthogonalized"].all()
-    assert orth["screen_score"].to_list() != plain["screen_score"].to_list()
-    # Raw components and the untouched topology z are unchanged; only the corrected z move.
-    assert orth["dFT_tcr_pep_cdr"].to_list() == plain["dFT_tcr_pep_cdr"].to_list()
-    assert orth["z_topology"].to_list() == plain["z_topology"].to_list()
-    assert orth["z_energy"].to_list() != plain["z_energy"].to_list()
-
-
-def test_a_row_with_no_confidence_is_not_reported_as_orthogonalized():
-    n = MIN_COHORT
-    iptm = list(np.random.default_rng(1).uniform(0.6, 0.95, n))
-    iptm[0] = None
-    orth = screen_scores(_table(iptm=iptm), _rho_reference(energy=-0.3))
-    assert not orth["confidence_orthogonalized"][0]
-    assert orth["confidence_orthogonalized"][1:].all()
-
-
-def test_confidence_cannot_be_orthogonalized_against_itself():
-    with pytest.raises(ValueError, match="against itself"):
-        screen_scores(_table(), _rho_reference(confidence=0.5))
-
-
-def test_an_out_of_range_confidence_rho_is_refused():
-    with pytest.raises(ValueError, match="confidence_rho must lie"):
-        screen_scores(_table(), _rho_reference(energy=1.0))
+def test_retired_confidence_coefficient_is_rejected():
+    reference = bundled_reference(CohortKind.TCR_RANKING)
+    reference["components"][1]["confidence_rho"] = 0.0
+    with pytest.raises(ValueError, match="confidence_rho is retired"):
+        screen_scores(_table(), reference)
 
 
 def test_confidence_only_without_iptm_has_explicit_unavailability():
@@ -559,7 +508,7 @@ def test_template_gate_uses_confidence_only_but_keeps_components():
     gated = screen_scores(t, ref, weight=0.6, native_template=False, min_cohort=1)
     assert gated["confidence_weight"].to_list() == [1.0] * 3
     assert gated["native_template"].to_list() == [False] * 3
-    assert gated["screen_score"][0] == pytest.approx(gated["z_confidence"][0])
+    assert gated["screen_score"][0] == pytest.approx(gated["iptm"][0])
     assert gated["screen_score"][1] is None
     assert gated["screen_score"][2] is None
     assert gated["missing_confidence"].to_list() == [False, True, False]
@@ -587,3 +536,19 @@ def test_template_metadata_is_explicit_hashed_and_validated(tmp_path):
     path.write_text("epitope\n\n")
     with pytest.raises(ValueError, match="nonempty"):
         template_coverage("AAA", path)
+
+
+def test_raw_score_bounds_missingness_and_legacy_reference():
+    ref = bundled_reference(CohortKind.TCR_RANKING)
+    t = _table(4, iptm=[0., 1., None, .7], g_cyclo_frac=[0., 1., .3, None])
+    np.testing.assert_allclose(screen_scores(t, ref, min_cohort=1)["screen_score"],
+                               [0., 1., .3, .7])
+    for column in ("iptm", "g_cyclo_frac"):
+        with pytest.raises(ValueError, match=r"must lie in \[0, 1\]"):
+            screen_scores(t.with_columns(pl.lit(1.1).alias(column)), ref, min_cohort=1)
+    legacy = dict(ref)
+    legacy.pop("score_method")
+    got = screen_scores(_table(), legacy)
+    expected = stouffer(np.column_stack([got["z_confidence"], got["z_topology"]]),
+                        np.array([6 / 7, 1 / 7]))
+    np.testing.assert_allclose(got["screen_score"], expected)

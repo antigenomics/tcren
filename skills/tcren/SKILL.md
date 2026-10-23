@@ -16,12 +16,14 @@ are refused. ipTM comes from metadata.tsv or `--confidence`, never from tcren.
 The structural alanine reference follows the varying side: epitope
 `reference_delta(..., structure=)` or contacted-CDR
 `receptor_reference(..., structure=)`, both rebuilding the contact map. The TCR
-combination carries energy, `sc_shape`, `g_cyclo_frac` and confidence; epitope
-ranking carries energy and confidence. Components use raw-column frozen means
-and scales, then direction correction. Weighted Stouffer is
-`sum(w*z)/sqrt(sum(w*w))` over observed components. Confidence weight is 0.8 for
-TCR ranking (structure shares 0.2) and 0.5 for epitope ranking. These empirical
-reference dependencies are not query-derived or fitted at scoring time.
+output carries energy, `sc_shape`, `g_cyclo_frac` and confidence; only topology
+and confidence enter its default combination; epitope
+ranking carries energy and confidence. Bundled TCR scoring is
+`S = (6 * iptm + g_cyclo_frac) / 7`, a raw weighted mean in [0,1], not a binding
+probability. Confidence weight defaults to 6/7, topology to 1/7. Frozen z-scores
+remain diagnostic. Missing active channels are omitted and weights renormalized.
+Epitope ranking and custom references without `score_method` retain weighted
+Stouffer. The bundled TCR reference declares `raw_weighted_mean`.
 
 Zero-contact models retain output rows/reasons but no score and do not count
 toward the default 30-model floor. Smaller cohorts retain components alone.
@@ -33,16 +35,7 @@ Keep ipTM primary for receptor ranking and inspect the separate components,
 missingness, flags and provenance sidecar. No universal improvement, affinity,
 calibrated probability or receptor-specific discrimination follows from a score.
 
-A custom reference may carry frozen `confidence_rho` on a structural component;
-it enters as `(z - rho*z_conf)/sqrt(1 - rho^2)`. This gives an uncorrelated,
-unit-variance residual only when both unit variances and the correlation refer
-to the same frozen population. Global scales do not imply unit within-cohort
-variances or independent evidence. Fixed weights can change rankings under this
-change of basis; no predictive gain follows algebraically. Missing confidence
-leaves the structural z unchanged; `confidence_orthogonalized` reports application.
-Bundled references carry no coefficient and retain their previous scores.
-API: `screen.screen_scores`, `screen.cohort_signature`, `screen.stouffer`,
-`screen.orthogonalize`.
+API: `screen.screen_scores`, `screen.cohort_signature`, `screen.stouffer`.
 Equations and diagrams: `docs/screening.rst`; resource dependencies: `SOURCES`.
 
 ## Explicit experimental template gate (4.2.0)
@@ -50,7 +43,7 @@ Equations and diagrams: `docs/screening.rst`; resource dependencies: `SOURCES`.
 `screen --template-metadata Native2026/metadata.tsv --weight VALUE` gates only
 TCR ranking. `screen.template_coverage(peptide, metadata)` reads the explicit
 native-crystal `epitope` inventory and returns case-insensitive membership and
-its hash. `screen_scores(..., native_template=False)` uses standardized ipTM
+its hash. `screen_scores(..., native_template=False)` uses raw ipTM with the bundled TCR reference
 alone; True uses the requested weight; None retains historical behavior.
 Components remain visible; missing ipTM under the confidence-only gate yields
 null with `no weighted component observed`. Zero contacts, cohort floor and
@@ -58,7 +51,7 @@ explicit flag responses retain their policies. TSV columns `native_template`
 and `confidence_weight`, plus gate/reference provenance, expose the choice.
 
 The diagnostic 0.6 weight was selected on evaluation panels: it is not a bundled
-default. No frozen scale, coefficient, correlation or reference resource changes.
+default. The gate does not alter the reference moments.
 Near-orthogonal confidence/structure motivates the sum; geometry/topology still
 share packing information. Keep chemistry energy, TCR:MHC orientation and
 receptor-free pMHC relief distinct from sc_shape complementarity. Inspect them
@@ -2211,4 +2204,3 @@ the same full observed Cartesian inventory. Physical multiplicities survive
 chemical-equivalence pooling. Unsupported opportunities abstain for the whole
 edge. `contact-compare` retains the `inventory_pattern` arm. See
 `docs/INVENTORY_PATTERN_SPEC.md` for equations and explicit independence assumptions.
-
