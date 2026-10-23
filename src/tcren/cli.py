@@ -251,6 +251,7 @@ def screen(
     min_cohort: int = typer.Option(SCREEN_MIN_COHORT, "--min-cohort", help="below this many models the combined score is withheld and only components are reported"),
     on_flag: str = typer.Option("report", "--on-flag", help="what to do when a cohort is flagged low_confidence: report (default, change nothing) | structure (drop ipTM, score on structure alone) | geometry (geometry component alone) | withhold | reverse. All but report are opt-in because the only evidence that acting helps comes from the evaluation panels themselves."),
     weight: float = typer.Option(None, "--weight", help="confidence weight in the Stouffer combination, in [0, 1]; default: the reference's own, which is task-specific"),
+    template_metadata: Path = typer.Option(None, "--template-metadata", help="experimental TCR gate: native-crystal TSV with epitope column; absent epitopes use ipTM alone. Requires explicit --weight for covered epitopes"),
     organism: str = typer.Option("human", "--organism"),
     threads: int = typer.Option(1, "-t", "--threads", help="CPU budget: 1 serial, 0 all allocated, or a positive count"),
 ) -> None:
@@ -268,10 +269,10 @@ def screen(
     topology is carried only for TCR ranking, because its direction inverts on peptide ranking.
 
     \b
-    The generator's confidence stays primary: on every recorded receptor-ranking arm ipTM is the
-    strongest single input, and this combines it with the structural components by weighted
-    Stouffer at a confidence weight of 0.8, chosen so the worst observed outcome on the
-    evaluation panels is within those panels' own resolution.
+    Keep generator ipTM alongside the energy and structural components. The default
+    TCR combination uses weighted Stouffer with confidence weight 0.8. An explicit
+    --template-metadata and --weight enable an experimental epitope-availability
+    gate; neither template availability nor a flag establishes pose accuracy.
 
     Below a cohort of 30 models the combined score is WITHHELD and the components are reported
     alone, because per-cohort margin noise then exceeds any effect the combination can produce.
@@ -282,11 +283,14 @@ def screen(
     """
     from .screen import (
         FLAGS as FLAG_TEXT, CohortKind, FlagResponse, apply_flag_response, bundled_reference,
-        cohort_flags, cohort_signature, identities, read_reference, screen_scores, withhold_reason,
+        cohort_flags, cohort_signature, identities, read_reference, screen_scores,
+        template_coverage, withhold_reason,
     )
 
     if task not in ("auto", "epitope", "tcr"):
         raise typer.BadParameter("--task must be auto, epitope or tcr")
+    if template_metadata is not None and weight is None:
+        raise typer.BadParameter("--template-metadata requires explicit --weight")
     n_threads = resolve_threads(threads)
     structs = _typed_batch(structures, organism, threads=n_threads)
     if not structs:
@@ -300,6 +304,15 @@ def screen(
             f"{summary['n_distinct_peptides']} distinct peptides and "
             f"{summary['n_distinct_receptors']} distinct receptors across "
             f"{summary['n_structures']} structures")
+
+    coverage = None
+    if template_metadata is not None:
+        if detected is not CohortKind.TCR_RANKING:
+            raise typer.BadParameter("--template-metadata applies only to TCR ranking")
+        try:
+            coverage = template_coverage(peptides[0], template_metadata)
+        except ValueError as exc:
+            raise typer.BadParameter(str(exc)) from exc
 
     table = _screen_descriptors(structs, detected, organism=organism, threads=n_threads)
     iptm = _screen_confidence(confidence, structures)
@@ -317,7 +330,8 @@ def screen(
         raise typer.BadParameter(
             f"--on-flag must be one of {', '.join(r.value for r in FlagResponse)}") from exc
     suppress = withhold_reason(flags, detected)
-    result = screen_scores(table, ref, weight=weight, min_cohort=min_cohort, suppress=suppress)
+    result = screen_scores(table, ref, weight=weight, min_cohort=min_cohort, suppress=suppress,
+                           native_template=coverage["native_template"] if coverage else None)
     # Act on a flag only if asked, and never on a cohort whose score was already withheld for
     # size -- rewriting a score that does not exist would only confuse the reason column.
     acted = None
@@ -343,6 +357,10 @@ def screen(
                                         "reference_sha256": ref["reference_sha256"],
                                         "weight": weight if weight is not None
                                         else ref.get("default_weight"),
+                                        "template_gate": coverage,
+                                        "effective_weight": 1.0 if coverage and not
+                                        coverage["native_template"] else weight if weight is not None
+                                        else ref.get("default_weight"),
                                         "min_cohort": min_cohort,
                                         "cohort": summary})
     scored = int(result["screen_score"].is_not_null().sum())
@@ -356,7 +374,7 @@ def screen(
            if flags.get("cohort_confidence_z") == flags.get("cohort_confidence_z") else "")
         + (f"; {discarded} discarded with no TCR:peptide interface" if discarded else "")
         + (f"; flags: {', '.join(raised)}" if raised else "; no flags")
-        + ("" if iptm is not None else "; no ipTM supplied, structure components only"))
+        + ("" if iptm is not None else "; no ipTM supplied"))
     if acted and response is not FlagResponse.WITHHOLD:
         typer.echo(f"--on-flag {response.value} applied — {acted}")
     if scored:

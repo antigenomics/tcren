@@ -32,8 +32,37 @@ erase their original reasons. Reversal is not recommended as a modelling correct
 Keep ipTM primary for receptor ranking and inspect the separate components,
 missingness, flags and provenance sidecar. No universal improvement, affinity,
 calibrated probability or receptor-specific discrimination follows from a score.
-API: `screen.screen_scores`, `screen.cohort_signature`, `screen.stouffer`.
+
+A custom reference may carry frozen `confidence_rho` on a structural component;
+it enters as `(z - rho*z_conf)/sqrt(1 - rho^2)`. This gives an uncorrelated,
+unit-variance residual only when both unit variances and the correlation refer
+to the same frozen population. Global scales do not imply unit within-cohort
+variances or independent evidence. Fixed weights can change rankings under this
+change of basis; no predictive gain follows algebraically. Missing confidence
+leaves the structural z unchanged; `confidence_orthogonalized` reports application.
+Bundled references carry no coefficient and retain their previous scores.
+API: `screen.screen_scores`, `screen.cohort_signature`, `screen.stouffer`,
+`screen.orthogonalize`.
 Equations and diagrams: `docs/screening.rst`; resource dependencies: `SOURCES`.
+
+## Explicit experimental template gate (4.2.0)
+
+`screen --template-metadata Native2026/metadata.tsv --weight VALUE` gates only
+TCR ranking. `screen.template_coverage(peptide, metadata)` reads the explicit
+native-crystal `epitope` inventory and returns case-insensitive membership and
+its hash. `screen_scores(..., native_template=False)` uses standardized ipTM
+alone; True uses the requested weight; None retains historical behavior.
+Components remain visible; missing ipTM under the confidence-only gate yields
+null with `no weighted component observed`. Zero contacts, cohort floor and
+explicit flag responses retain their policies. TSV columns `native_template`
+and `confidence_weight`, plus gate/reference provenance, expose the choice.
+
+The diagnostic 0.6 weight was selected on evaluation panels: it is not a bundled
+default. No frozen scale, coefficient, correlation or reference resource changes.
+Near-orthogonal confidence/structure motivates the sum; geometry/topology still
+share packing information. Keep chemistry energy, TCR:MHC orientation and
+receptor-free pMHC relief distinct from sc_shape complementarity. Inspect them
+alongside flags and ipTM rather than treating gate membership as pose validation.
 
 ## Epitope-ranking score
 
