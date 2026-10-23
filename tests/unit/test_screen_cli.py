@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import polars as pl
 import pytest
 from typer.testing import CliRunner
+from click import unstyle
 
 from tcren.screen import CohortKind
 
@@ -72,4 +73,4 @@ def test_gate_requires_explicit_weight_before_loading_structures(tmp_path):
     result = CliRunner().invoke(cli.app, ["screen", "-s", "missing",
         "--template-metadata", str(tmp_path / "missing.tsv")])
     assert result.exit_code != 0
-    assert "requires explicit --weight" in result.output
+    assert "requires explicit --weight" in unstyle(result.output)
