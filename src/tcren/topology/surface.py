@@ -360,6 +360,7 @@ def surface_map(
     probe: float = 1.4,
     smooth: bool = True,
     side: str = "pmhc",
+    frame: tuple[np.ndarray, np.ndarray] | None = None,
 ) -> SurfaceMap:
     """Build the TCR-facing height + chemistry map of one pMHC, or the TCR face that meets it.
 
@@ -382,6 +383,8 @@ def surface_map(
             groove frame, i.e. the receptor's underside. Both maps carry the same grid, extent and
             frame, so they register cell-for-cell and can be compared by
             :func:`surface_complementarity`.
+        frame: optional ``(origin, basis)`` from the intact complex's groove frame,
+            used to keep chain-specific maps in the same physical projection.
 
     Returns:
         A :class:`SurfaceMap`.
@@ -397,7 +400,15 @@ def surface_map(
     if side not in ("pmhc", "tcr"):
         raise ValueError(f"side must be 'pmhc' or 'tcr', got {side!r}")
     xyz, radii, residues, sources = (_surface_atoms if side == "pmhc" else _tcr_atoms)(structure)
-    origin, basis = _groove_frame(structure)
+    if frame is None:
+        origin, basis = _groove_frame(structure)
+    else:
+        origin, basis = (np.asarray(v, dtype=float) for v in frame)
+        if (origin.shape != (3,) or basis.shape != (3, 3)
+                or not np.isfinite(origin).all() or not np.isfinite(basis).all()
+                or not np.allclose(basis @ basis.T, np.eye(3), atol=1e-8, rtol=0)
+                or not np.isclose(np.linalg.det(basis), 1, atol=1e-8, rtol=0)):
+            raise ValueError("frame requires a finite origin and right-handed orthonormal basis")
     local = (xyz - origin) @ basis.T
     # The ray cast always keeps the topmost surface. Flipping z turns it into a cast from below,
     # which is what the TCR underside is; the heights are flipped back into the groove frame after.

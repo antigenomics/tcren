@@ -250,7 +250,7 @@ def screen(
     reference: Path = typer.Option(None, "--reference", help="frozen reference JSON (default: the bundled one for the detected task)"),
     min_cohort: int = typer.Option(SCREEN_MIN_COHORT, "--min-cohort", help="below this many models the combined score is withheld and only components are reported"),
     on_flag: str = typer.Option("report", "--on-flag", help="what to do when a cohort is flagged low_confidence: report (default, change nothing) | structure (drop ipTM, score on structure alone) | geometry (geometry component alone) | withhold | reverse. All but report are opt-in because the only evidence that acting helps comes from the evaluation panels themselves."),
-    weight: float = typer.Option(None, "--weight", help="confidence weight in the Stouffer combination, in [0, 1]; default: the reference's own, which is task-specific"),
+    weight: float = typer.Option(None, "--weight", help="confidence weight in the reference combination, in [0, 1]; default: the reference's own, which is task-specific"),
     template_metadata: Path = typer.Option(None, "--template-metadata", help="experimental TCR gate: native-crystal TSV with epitope column; absent epitopes use ipTM alone. Requires explicit --weight for covered epitopes"),
     organism: str = typer.Option("human", "--organism"),
     threads: int = typer.Option(1, "-t", "--threads", help="CPU budget: 1 serial, 0 all allocated, or a positive count"),
@@ -270,7 +270,7 @@ def screen(
 
     \b
     Keep generator ipTM alongside the energy and structural components. The default
-    TCR combination uses weighted Stouffer with confidence weight 0.8. An explicit
+    TCR combination uses (6 * ipTM + cycle fraction) / 7. An explicit
     --template-metadata and --weight enable an experimental epitope-availability
     gate; neither template availability nor a flag establishes pose accuracy.
 
@@ -351,6 +351,7 @@ def screen(
     result.write_csv(out, separator="\t")
     from .provenance import stamp
     stamp(out, command="screen", extra={"task": detected.value, "format": ref["format"],
+                                        "score_method": ref.get("score_method", "stouffer"),
                                         "flags": {k: v for k, v in flags.items()},
                                         "on_flag": response.value,
                                         "flag_response_applied": acted is not None,
