@@ -542,3 +542,48 @@ def test_confidence_cannot_be_orthogonalized_against_itself():
 def test_an_out_of_range_confidence_rho_is_refused():
     with pytest.raises(ValueError, match="confidence_rho must lie"):
         screen_scores(_table(), _rho_reference(energy=1.0))
+
+
+def test_confidence_only_without_iptm_has_explicit_unavailability():
+    t = _table(1, iptm=[None])
+    result = screen_scores(t, bundled_reference(CohortKind.TCR_RANKING),
+                           weight=1.0, min_cohort=1)
+    assert result["screen_score"][0] is None
+    assert result["score_unavailable"][0] == "no weighted component observed"
+    assert np.isfinite(result["z_energy"][0])
+
+
+def test_template_gate_uses_confidence_only_but_keeps_components():
+    t = _table(3, iptm=[0.6, None, 0.9], n_contacts_tp=[20, 20, 0])
+    ref = bundled_reference(CohortKind.TCR_RANKING)
+    gated = screen_scores(t, ref, weight=0.6, native_template=False, min_cohort=1)
+    assert gated["confidence_weight"].to_list() == [1.0] * 3
+    assert gated["native_template"].to_list() == [False] * 3
+    assert gated["screen_score"][0] == pytest.approx(gated["z_confidence"][0])
+    assert gated["screen_score"][1] is None
+    assert gated["screen_score"][2] is None
+    assert gated["missing_confidence"].to_list() == [False, True, False]
+    assert np.isfinite(gated["z_energy"].to_numpy()).all()
+    covered = screen_scores(t, ref, weight=0.6, native_template=True, min_cohort=1)
+    plain = screen_scores(t, ref, weight=0.6, min_cohort=1)
+    np.testing.assert_allclose(covered["screen_score"].to_numpy(),
+                               plain["screen_score"].to_numpy(), equal_nan=True)
+    assert covered["screen_score"][1] is not None
+    small = screen_scores(t, ref, weight=0.6, native_template=False, min_cohort=3)
+    assert small["screen_score"].null_count() == 3
+
+
+def test_template_metadata_is_explicit_hashed_and_validated(tmp_path):
+    from tcren.screen import template_coverage
+    import hashlib
+
+    path = tmp_path / "metadata.tsv"
+    path.write_text("epitope\tpdb.id\n aaa \tx\nAAA\ty\nBBB\tz\n")
+    coverage = template_coverage("aaa", path)
+    assert coverage["native_template"] is True
+    assert coverage["n_epitopes"] == 2
+    assert coverage["metadata_sha256"] == hashlib.sha256(path.read_bytes()).hexdigest()
+    assert template_coverage("CCC", path)["native_template"] is False
+    path.write_text("epitope\n\n")
+    with pytest.raises(ValueError, match="nonempty"):
+        template_coverage("AAA", path)

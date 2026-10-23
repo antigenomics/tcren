@@ -346,9 +346,10 @@ Optional orthogonalization key, 23 October 2026: the `tcren-screen-1` format now
 `confidence_rho` on a structural component, applied as `(z - rho*z_conf)/sqrt(1 - rho^2)`.
 NEITHER BUNDLED REFERENCE CARRIES IT, so the three SHA-256 identities above and every score
 computed under them are unchanged; a reference without the key takes the original code path.
-The key is a frozen within-cohort correlation between two already-standardized quantities, so
-it is the same class of estimated reference dependency as the means and scales beside it, and
-no label enters it. Any resource that does carry one is an external file with its own hash and
+The key is a caller-supplied frozen coefficient, an estimated reference dependency.
+If interpreted as a correlation, it must describe the same frozen population in which
+both standardized variables have unit variance; global standardization does not ensure
+unit within-cohort variance or independent evidence. No label is required to estimate it. Any resource that does carry one is an external file with its own hash and
 its own provenance record; this registry covers bundled tables only.
 
 Release review correction: the epitope-rank energy mean is stored in the raw
@@ -358,3 +359,9 @@ This repairs a serialization convention, not a new fit. Previous resource SHA-25
 `815b40dc7147fb9199e9f23915fd719b8787462fd28ed14e26e22ed0ff05ba88` is archived with the manuscript release record. Complete-component
 rows change by a constant; rows with different missingness patterns need the new
 resource identity and must not be compared as though their old scores were unchanged.
+
+Experimental template gate, 4.2.0: `screen --template-metadata` reads a caller-supplied
+native-crystal epitope inventory, recording its SHA-256 rather than bundling a new
+antigen set. The requested weight is explicit; uncovered epitopes use confidence
+alone. The diagnostic 0.6 weight is evaluation-selected and is not a shipped default.
+The three frozen resource hashes above remain unchanged.

@@ -55,6 +55,27 @@ def bundled_reference(task: CohortKind) -> dict:
     return reference
 
 
+def template_coverage(peptide: str, metadata: Path) -> dict:
+    """Epitope-level crystal availability from an explicit, hash-recorded metadata TSV.
+
+    The caller supplies a native-crystal inventory (for example Native2026), not
+    model metadata. Membership is case-insensitive; it does not establish matching
+    MHC, construct correspondence or pose accuracy. No network lookup is performed.
+    """
+    raw = Path(metadata).read_bytes()
+    table = pl.read_csv(raw, separator="\t", infer_schema_length=None)
+    if "epitope" not in table.columns:
+        raise ValueError("template metadata needs an epitope column")
+    epitopes = set(table["epitope"].drop_nulls().cast(pl.String)
+                   .str.strip_chars().str.to_uppercase().to_list()) - {""}
+    peptide = peptide.strip().upper()
+    if not peptide or not epitopes:
+        raise ValueError("template metadata and peptide must be nonempty")
+    return {"native_template": peptide in epitopes, "epitope": peptide,
+            "n_epitopes": len(epitopes),
+            "metadata_sha256": hashlib.sha256(raw).hexdigest()}
+
+
 def _validate(reference: dict) -> list[dict]:
     if reference.get("format") != FORMAT:
         raise ValueError(f"unsupported reference format: {reference.get('format')!r}")
@@ -88,15 +109,15 @@ def orthogonalize(z: np.ndarray, z_confidence: np.ndarray, rho: float) -> np.nda
 
     .. math::  z^{\perp} = \frac{z - \rho\, z_{\mathrm{conf}}}{\sqrt{1 - \rho^{2}}}
 
-    :math:`\rho` is the frozen within-cohort slope of ``z`` on ``z_confidence``, both already
-    standardized by the reference's own mean and scale, so it is a correlation rather than a
-    regression coefficient in raw units. Subtraction alone would shrink the component's spread;
-    the divide puts it back on the scale the fixed Stouffer weights were chosen for, which is the
-    whole point -- a weight of 0.2 should buy 0.2 of *independent* structural evidence, and
-    without the rescale it buys :math:`0.2\sqrt{1-\rho^{2}}`.
+    :math:`\rho` is a caller-supplied frozen coefficient. If both variables have
+    unit variance and rho is their correlation in the same frozen reference
+    population, the result is uncorrelated with confidence and has unit variance
+    in that population. Frozen global scales do not imply unit within-cohort
+    variances, and uncorrelated quantities need not be independent.
 
-    This is a change of basis, not new evidence: ``z`` and ``z_confidence`` span the same space
-    before and after. What it changes is what the fixed weights mean.
+    This is an explicit change of basis, not new evidence. With fixed weights,
+    subtraction and rescaling can change rankings; neither operation guarantees
+    a predictive improvement. The bundled references carry no such coefficient.
 
     Rows whose confidence is missing keep ``z`` unchanged -- there is nothing to project out of
     them -- rather than being dropped or imputed.
@@ -398,6 +419,7 @@ def screen_scores(
     reference: dict,
     *,
     weight: float | None = None,
+    native_template: bool | None = None,
     min_cohort: int = MIN_COHORT,
     suppress: str | None = None,
 ) -> pl.DataFrame:
@@ -409,6 +431,10 @@ def screen_scores(
         reference: a frozen reference dict, normally from :func:`bundled_reference`.
         weight: confidence weight in the Stouffer combination, in ``[0, 1]``. ``None`` takes the
             reference's own ``default_weight``, which is task-specific.
+        native_template: optional TCR-ranking applicability gate. False uses confidence
+            alone; True uses the requested weight. None keeps historical behavior.
+            Components remain visible regardless of the gate. This is crystal
+            availability, not a pose-quality judgement.
         min_cohort: below this many **scorable** rows the combined score is withheld. Models
             with no TCR:peptide interface are discarded and do not count toward it.
         suppress: when set, withhold the combined score for every row and record this as the
@@ -427,6 +453,11 @@ def screen_scores(
         weight = float(reference.get("default_weight", DEFAULT_WEIGHT))
     if not np.isfinite(weight) or not 0.0 <= weight <= 1.0:
         raise ValueError("weight must lie in [0, 1]")
+    if native_template is not None:
+        if not isinstance(native_template, bool) or reference.get("task") != "tcr":
+            raise ValueError("native_template must be a boolean for a TCR-ranking reference")
+        if not native_template:
+            weight = 1.0
     if "complex.id" not in table.columns:
         raise ValueError("complex.id column required")
     ids = table["complex.id"]
@@ -477,6 +508,7 @@ def screen_scores(
     Z = np.column_stack(z_cols)
     observed = np.isfinite(Z).sum(axis=1).astype(np.int16)
     score = stouffer(Z, np.asarray(weights))
+    no_weighted = ~np.isfinite(score)
     # A model with no TCR:peptide contact is not a TCR:pMHC complex -- the receptor was not
     # placed on the groove. Every structural component for it is computed over an empty
     # interface, so it is DISCARDED rather than scored, and it does not count toward the cohort
@@ -494,13 +526,18 @@ def screen_scores(
         np.where(small,
                  f"cohort of {n_scorable} scorable models is smaller than the minimum "
                  f"of {min_cohort}",
-                 np.where(observed == 0, "no component observed", suppress if suppress else "")))
+                 np.where(observed == 0, "no component observed",
+                          np.where(no_weighted, "no weighted component observed",
+                                   suppress if suppress else ""))))
     out["n_components"] = observed
     out["no_interface"] = no_interface
     series = pl.Series(score)
     out["screen_score"] = series.set(
-        pl.Series((observed == 0) | small | no_interface | bool(suppress)), None)
+        pl.Series(no_weighted | small | no_interface | bool(suppress)), None)
     out["score_unavailable"] = pl.Series(reason).set(pl.Series(reason == ""), None)
+    if native_template is not None:
+        out["native_template"] = [native_template] * table.height
+        out["confidence_weight"] = [weight] * table.height
     return pl.DataFrame(out)
 
 

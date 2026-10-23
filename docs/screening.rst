@@ -114,29 +114,82 @@ and :doc:`fit-free` for the dependency contract. Query rows never re-estimate
 these constants, so a row's numerical combination does not depend on its neighbours.
 The cohort governs whether that score is emitted.
 
+Experimental template-availability gate
+---------------------------------------
+
+For TCR ranking, an explicit native-crystal inventory can gate the structural
+contribution without changing its components or frozen scales:
+
+.. code-block:: console
+
+   $ tcren screen -s models.tar.gz --confidence confidence.tsv \
+       --template-metadata Native2026/metadata.tsv --weight 0.6 -o diagnostic.tsv
+
+``--template-metadata`` requires an ``epitope`` column and an explicit ``--weight``.
+An epitope present in that inventory uses the requested confidence weight; an
+absent epitope uses weight 1 (standardized ipTM alone). Membership strips outer
+whitespace and ignores case. The inventory's SHA256, epitope, membership and
+requested/effective weights are recorded; ``native_template`` and
+``confidence_weight`` accompany the rows. Pin the inventory revision as well as
+its hash when reproducing a result. There is no implicit download or inferred
+template match. Availability is epitope-level: it does not establish matching
+MHC, construct correspondence or an accurate predicted pose.
+
+The example's 0.6 is an evaluation-selected diagnostic, not a bundled default or
+an independently validated coefficient. The unchanged TCR default remains 0.8;
+the gate is opt-in. The epitope-ranking path does not accept this gate.
+No gate is selected from a query's labels or its descriptor distribution.
+
+The observed-channel Stouffer denominator still applies. If ipTM is absent when
+the gate selects confidence alone, the score is null with
+``no weighted component observed``; structural values stay visible but cannot
+silently restore that score. A covered epitope with missing ipTM can still score
+on observed, positively weighted structural channels. Zero-contact discard,
+the cohort floor and reporting-only flags continue to apply. Explicit flag
+responses remain separate user choices and are recorded in the output.
+
+Energy, orientation and target relief
+-------------------------------------
+
+Keep the structural alanine energy alongside ipTM and the aggregate: it measures
+CDR:peptide chemistry for receptor ranking and peptide chemistry for epitope
+ranking. A gate that omits energy from one aggregate does not invalidate its
+separate readout or establish that confidence is always stronger.
+
+The geometry component ``sc_shape`` measures receptor--pMHC height-field
+complementarity. TCR:MHC orientation (crossing angle, docking torsion and height)
+and receptor-free pMHC topography (surface relief, accessible peptide and surface
+chemistry) remain distinct toolkit outputs; they are not additional terms in
+this aggregate. ``pitch`` is excluded as generator-confidence leakage.
+The graph topology and surface geometry can both describe packing and interface
+size, so their presence does not establish independent evidence. Near-orthogonal
+confidence and structural directions motivate a standardized sum, but do not
+make its denominator a calibrated significance test. Inspect the individual
+channels, their missingness, the target surface and docking geometry with flags
+before interpreting a ranking.
+
 Optional confidence orthogonalization
 -------------------------------------
 
 A reference may carry a frozen ``confidence_rho`` on a structural component. Where
 it does, that component enters the combination with its confidence-explained part
-removed and its scale restored:
+removed and an explicit rescaling applied:
 
 .. math::
 
    z_i^{\perp}=\frac{z_i-\rho_i z_{\mathrm{conf}}}{\sqrt{1-\rho_i^{2}}},
    \qquad \rho_i\in(-1,1).
 
-:math:`\rho_i` is the frozen within-cohort Pearson correlation between the
-standardized component and the standardized confidence, both already on the
-reference's own scale, so it is dimensionless and no label enters it. The subtraction
-alone would shrink the component's spread; the divide puts it back on the scale the
-fixed weights were chosen for. Without it a nominal structural weight of 0.2 buys
-:math:`0.2\sqrt{1-\rho^{2}}` of independent evidence rather than 0.2.
+:math:`\rho_i` is a caller-supplied frozen coefficient. If both standardized
+variables have unit variance and :math:`\rho_i` is their correlation in the same
+frozen reference population, the residual is uncorrelated with confidence and
+the division restores unit variance in that population. Global frozen scales do
+not ensure unit variance within each cohort, and uncorrelated channels need not
+be independent. Do not estimate this coefficient from query rows.
 
-This is a change of basis, not new evidence: :math:`z_i` and
-:math:`z_{\mathrm{conf}}` span the same space before and after, so no ranking
-follows from the subtraction by itself. What changes is what the fixed weights mean,
-and therefore what a given weight is worth.
+This is an explicit change of basis, not new evidence. Keeping the same weights
+can change rankings after subtraction or rescaling; neither guarantees predictive
+improvement. The reference must document the coefficient's population and meaning.
 
 Rows whose confidence is missing keep :math:`z_i` unchanged — there is nothing to
 project out of them — and ``confidence_orthogonalized`` reports per row whether the
