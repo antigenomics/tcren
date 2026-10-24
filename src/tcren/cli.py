@@ -576,6 +576,15 @@ def derive_potential(
              "re-solved complex counts once while a novel receptor on a common epitope "
              "still counts (requires --structure-dir)",
     ),
+    weight_column: str | None = typer.Option(
+        None, "--weight-column",
+        help="explicit finite nonnegative per-contact weights in the input table; multiplied "
+             "with --balance weights when both are supplied",
+    ),
+    drop_cys: bool | None = typer.Option(
+        None, "--drop-cys/--keep-cys",
+        help="override variant cysteine policy (classic drops receptor Cys; am keeps it)",
+    ),
     loo: bool = typer.Option(False, "--loo", help="NOT USED FOR TCRen2. emit leave-one-out potentials instead"),
     contacts_out: Path | None = typer.Option(
         None, "--contacts-out",
@@ -667,12 +676,29 @@ def derive_potential(
             raise typer.BadParameter("--balance requires markup (use --structure-dir)")
         weights = balanced_weights(markup, axes=axes)
 
+    if weight_column is not None:
+        if weight_column not in contacts.columns:
+            raise typer.BadParameter(f"missing weight column: {weight_column}")
+        try:
+            votes = contacts[weight_column].cast(pl.Float64)
+        except pl.exceptions.InvalidOperationError as exc:
+            raise typer.BadParameter("contact weights must be finite nonnegative numbers") from exc
+        selected_votes = (votes.filter(contacts["pdb.id"].is_in(include))
+                          if include is not None else votes)
+        if (votes.null_count() or not votes.is_finite().all()
+                or (votes < 0).any() or not (selected_votes > 0).any()):
+            raise typer.BadParameter(
+                "contact weights must be finite nonnegative numbers with at least one positive weight")
+    if loo and (weight_column is not None or drop_cys is not None):
+        raise typer.BadParameter("--loo does not support --weight-column or cysteine overrides")
+
     if loo:
         ids = include or contacts["pdb.id"].unique().to_list()
         derive_tcren_loo(contacts, ids, variant=variant, pseudocount=pseudocount).write_csv(str(out))
     else:
         pot = derive_tcren(contacts, include=include, variant=variant,
-                           pseudocount=pseudocount, weights=weights)
+                           pseudocount=pseudocount, weights=weights,
+                           weight_col=weight_column, drop_cys=drop_cys)
         pot.to_csv(out)
     typer.echo(f"wrote {out}")
 
@@ -687,7 +713,8 @@ def derive_potential(
         stamp(contacts_out, command="derive-potential --contacts-out",
               extra={"structures_kept": int(n_kept),
                      "structures_with_contacts": int(used["pdb.id"].n_unique()),
-                     "contacts": int(used.height), "balance": balance, "variant": variant})
+                     "contacts": int(used.height), "balance": balance, "variant": variant,
+                     "weight_column": weight_column, "drop_cys": drop_cys})
         typer.echo(f"wrote {contacts_out} ({used.height} contacts over "
                    f"{used['pdb.id'].n_unique()} of {n_kept} kept structures) -- the table the "
                    f"matrix was derived from, for any downstream count")
