@@ -3,6 +3,17 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
+## [4.3.2] — 2026-10-24
+
+### Added
+
+- Candidate score and score-receptors accept an explicit --potential-map TSV
+  assigning a frozen bundled potential or CSV to each scored template.
+  Annotation remains one batch; existing workers apply the assigned matrices.
+  IDs require exact coverage, relative CSV paths resolve beside the TSV, and
+  conflicting/missing assignments fail.
+- Default scores, potential resources and derivation policies are unchanged.
+
 ## [4.3.1] — 2026-10-24
 
 ### Added

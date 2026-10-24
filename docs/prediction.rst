@@ -291,6 +291,15 @@ and return results in the original template order. Default ``-t 0`` uses all
 allocated CPUs, ``-t 1`` selects serial execution, and positive N selects a bounded
 budget. Native kernels stay serial inside workers. A pool failure is propagated.
 
+Both ``score`` and ``score-receptors`` accept ``--potential-map potentials.tsv``
+instead of ``--potential``. The TSV requires ``complex.id`` and ``potential``:
+each scored template has exactly one row, with a bundled potential name or CSV.
+IDs are case-insensitive; CSV paths are relative to the TSV directory. Missing,
+duplicate or extra template IDs fail. No default matrix fills an absent row.
+This permits frozen leave-one-out/leave-cluster-out matrices in one annotation
+batch. The CLI applies the supplied matrices; it does not infer exclusions or
+validate the scientific independence of their derivation populations.
+
 Keep candidate identities and multiplicities fixed for potential comparisons.
 ``rank`` generates another background and is not a replacement for scoring a
 frozen legacy pool. Residue-sequence threading does not supply physical mutant

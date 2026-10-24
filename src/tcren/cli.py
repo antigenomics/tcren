@@ -144,6 +144,32 @@ def _load_potential(spec: str | None) -> Potential:
     )
 
 
+def _load_template_potentials(
+    spec: str | None, mapping: Path | None, ids: list[str],
+) -> Potential | dict[str, Potential]:
+    """Resolve an explicit frozen potential for every scored template."""
+    if mapping is None:
+        return _load_potential(spec)
+    if spec is not None:
+        raise typer.BadParameter("--potential-map and --potential are mutually exclusive")
+    table = pl.read_csv(mapping, separator="\t", infer_schema=False)
+    if not {"complex.id", "potential"} <= set(table.columns) or table.is_empty():
+        raise typer.BadParameter("--potential-map requires nonempty complex.id and potential columns")
+    table = table.select("complex.id", "potential")
+    if any(table[c].null_count() or (table[c].str.strip_chars() == "").any() for c in table.columns):
+        raise typer.BadParameter("--potential-map requires nonempty IDs and potentials")
+    table = table.with_columns(pl.col("complex.id").str.to_lowercase())
+    if table["complex.id"].n_unique() != table.height or len(ids) != len(set(ids)):
+        raise typer.BadParameter("--potential-map requires unique template IDs")
+    if set(table["complex.id"]) != set(ids):
+        raise typer.BadParameter("--potential-map IDs must match scored template IDs exactly")
+    loaded, result = {}, {}
+    for ident, value in table.iter_rows():
+        key = value if value in _BUNDLED_POTENTIALS else str((mapping.parent / value).resolve())
+        if key not in loaded:
+            loaded[key] = _load_potential(key)
+        result[ident] = loaded[key]
+    return result
 
 
 def _read_candidates(path: Path) -> list[str] | dict[str, list[str]]:
@@ -925,10 +951,11 @@ def _reference_energy(structure, cm, potential, interface, regions, mode, refere
 
 def _candidate_score_chunk(work):
     """Score a coarse contiguous template chunk without annotation searches."""
-    entries, pot, options = work
+    entries, potentials, options = work
     interface, regions, cutoff, intra_weight, drop_untyped, position_scheme, soft, delta, reference, reference_aa = options
     frames = []
     for s, mine in entries:
+        pot = potentials[str(s.pdb_id).lower()] if isinstance(potentials, dict) else potentials
         cm = ContactMap.from_structure(s, cutoff=cutoff, peptide_internal=bool(intra_weight))
         if soft:
             from .energetics.rotamers import contact_probabilities
@@ -951,6 +978,7 @@ def score(
     structures: list[str] = typer.Option(..., "-s", "--structures", help="structure file(s), directory, .tar.gz, glob, or a .txt manifest of paths; repeatable and comma-separable"),
     candidates: Path = typer.Option(..., "-c", "--candidates", help="candidate epitopes file"),
     potential: str | None = typer.Option(None, "-p", "--potential", help="potential: bundled name (tcren2|tcren2_em|karnaukhov2022|mj|keskin) or CSV path (default: tcren2)"),
+    potential_map: Path | None = typer.Option(None, "--potential-map", exists=True, dir_okay=False, help="TSV: complex.id,potential; frozen bundled name or CSV per scored template; mutually exclusive with --potential"),
     out: Path = typer.Option("candidate_epitopes_TCRen.csv", "-o", "--out"),
     interface: str = typer.Option("tcr_peptide", "--interface"),
     regions: str = typer.Option("all", "--regions", help="TCR regions on the TCR side: all|cdr|cdr+fr (default: all)"),
@@ -1001,7 +1029,6 @@ def score(
         raise typer.BadParameter(f"--position-weights must be one of {'|'.join(POSITION_SCHEMES)}")
     if reference not in ("structural", "virtual"):
         raise typer.BadParameter("--reference must be structural or virtual")
-    pot = _load_potential(potential)
     cands = _read_candidates(candidates)
     pools = cands if isinstance(cands, dict) else None
     threads = resolve_threads(threads)
@@ -1011,6 +1038,7 @@ def score(
         mine = pools.get(str(s.pdb_id).lower()) if pools is not None else cands
         if mine:
             entries.append((s, mine))
+    pot = _load_template_potentials(potential, potential_map, [str(s.pdb_id).lower() for s, _ in entries])
     options = (interface, regions, cutoff, intra_weight, drop_untyped, position_scheme,
                soft, delta, reference, reference_aa)
     count = min(threads, len(entries))
@@ -1024,10 +1052,11 @@ def score(
 
 def _receptor_score_chunk(work):
     """Thread paired observed receptor regions onto physical TRA/TRB contacts."""
-    entries, pot, cutoff, receptor_region = work
+    entries, potentials, cutoff, receptor_region = work
     frames = []
     alphabet = set("ACDEFGHIKLMNPQRSTVWY")
     for structure, candidates in entries:
+        pot = potentials[str(structure.pdb_id).lower()] if isinstance(potentials, dict) else potentials
         peptides = structure.by_type("PEPTIDE")
         if (len(peptides) != 1 or not peptides[0].residues or
                 not set(peptides[0].sequence()) <= alphabet):
@@ -1099,6 +1128,7 @@ def score_receptors(
     structures: list[str] = typer.Option(..., "-s", "--structures"),
     candidates: Path = typer.Option(..., "-c", "--candidates", help="TSV: complex.id,candidate.id and cdr3a/cdr3b or junctiona/junctionb"),
     potential: str | None = typer.Option(None, "-p", "--potential"),
+    potential_map: Path | None = typer.Option(None, "--potential-map", exists=True, dir_okay=False, help="TSV: complex.id,potential; frozen bundled name or CSV per scored template; mutually exclusive with --potential"),
     out: Path = typer.Option("candidate_receptors_TCRen.csv", "-o", "--out"),
     organism: str = typer.Option("human", "--organism"),
     cutoff: float = typer.Option(5.0, "--cutoff"),
@@ -1140,7 +1170,7 @@ def score_receptors(
         raise typer.BadParameter(f"candidate templates not found: {', '.join(sorted(missing))}")
     entries = [(s, frame.filter(pl.col("complex.id") == str(s.pdb_id).lower())) for s in typed]
     entries = [(s, rows) for s, rows in entries if not rows.is_empty()]
-    pot = _load_potential(potential)
+    pot = _load_template_potentials(potential, potential_map, [str(s.pdb_id).lower() for s, _ in entries])
     count = min(threads, len(entries))
     work = [(entries[i*len(entries)//count:(i+1)*len(entries)//count], pot, cutoff, receptor_region)
             for i in range(count)]
