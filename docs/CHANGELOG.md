@@ -3,6 +3,17 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
+## [4.3.1] — 2026-10-24
+
+### Added
+
+- `derive-potential --weight-column NAME` exposes the existing per-contact
+  weighting API. Weights must be finite, nonnegative and include a positive
+  contribution. They multiply any explicitly selected redundancy weights.
+- `--drop-cys/--keep-cys` exposes the existing cysteine-policy override for
+  exact historical potential reproduction. Defaults and bundled scores are
+  unchanged; unsupported leave-one-out combinations fail explicitly.
+
 ## [4.3.0] — 2026-10-24
 
 ### Changed
