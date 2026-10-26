@@ -32,11 +32,13 @@ matched statistics help explain both routes.
 
 | Question | Route | Worked guide |
 |---|---|---|
-| Which peptides rank highest for this TCR? | `score` for fixed-template threading; `screen --task epitope` for separately modelled poses | [Epitope ranking](https://docs.isalgo.dev/tcren/ranking.html) |
-| Which modelled receptors rank highest for this pMHC? | `screen --task tcr`: ipTM, Betti fraction and enrichment | [Receptor screening](https://docs.isalgo.dev/tcren/screening.html) |
+| Rank epitopes for one receptor | `score` for fixed-template threading; `screen --task epitope` for separately modelled poses | [Epitope ranking](https://docs.isalgo.dev/tcren/ranking.html) |
+| Rank a cohort of modelled receptors for one pMHC | `screen --task tcr`: ipTM, Betti fraction and enrichment | [Receptor screening](https://docs.isalgo.dev/tcren/screening.html) |
+| Rank paired receptor sequence candidates on a fixed template | `score-receptors`: fixed-contact CDR3 or observed-junction threading | [Candidate receptor scoring](https://docs.isalgo.dev/tcren/prediction.html) |
 | How do structural scores relate to affinity or response magnitude? | Join measured endpoints, then `evaluate --kind continuous` | [Matched evaluation](https://docs.isalgo.dev/tcren/evaluation.html) |
 | How do contacts and mechanics relate to kinetics? | `md`, `mechanics`, then matched endpoint evaluation | [Dynamics and kinetics](https://docs.isalgo.dev/tcren/md-validation.html) |
-| Why does a model receive this score? | `features`, `contacts`, `export`, `surface`, `superimpose` | [Inspect a model](https://docs.isalgo.dev/tcren/kit.html) |
+| Explore contacts, their contributions and enrichment | `contacts`, `export`, frozen motif readouts and residue-level attribution | [Contact evidence](https://docs.isalgo.dev/tcren/motif-confidence.html) |
+| Why does a model receive this score? | `features`, `surface`, `superimpose` and geometry diagnostics | [Inspect a model](https://docs.isalgo.dev/tcren/kit.html) |
 | How can I render or compare the evidence? | PyMOL scenes, contact maps, `associate`, `evaluate` | [Visualization gallery](https://docs.isalgo.dev/tcren/gallery.html) |
 
 ## Install and rank a receptor cohort
@@ -84,7 +86,9 @@ S = (1 - 0.41*q - 0.22*(1-q))*ipTM + 0.41*q*B + 0.22*(1-q)*M
 | `M` | All-six-CDR/peptide local contact-cycle evidence, calibrated against 2,056 whole mock graphs |
 | `q` | Inclusive percentile of unlabelled cohort-mean pLDDT against five frozen reference means |
 
-The weights are nonnegative and sum to one. Mock histograms and compressed
+The weights are shared across a cohort: `q = F_ref(mean(plddt)/100)`, using
+the frozen five-cohort confidence CDF. Individual ipTM, Betti and enrichment
+values still vary between models. The weights are nonnegative and sum to one. Mock histograms and compressed
 whole-control calibration ship with the package; scoring fits no new parameters.
 Missing active values use flagged frozen training imputation. Read `screen_score`,
 component values, weights, missingness and availability reasons together.
@@ -118,6 +122,7 @@ Keep matched populations, component readouts and every cohort gain or loss visib
 |---|---|
 | [Confidence-motif score notebook](https://github.com/antigenomics/tcren/blob/master/notebooks/confidence_motif_score.ipynb) | Self-contained frozen-score example, components and confidence contexts |
 | [TCRvdb frozen-score reproduction](https://github.com/antigenomics/tcren/blob/master/notebooks/tcrvdb_frozen_score_reproduction.ipynb) | Accepted-score replay and matched comparisons from a supplied retained input bundle |
+| [TTD contact exploration](https://github.com/antigenomics/tcren/blob/master/notebooks/ttd_contact_exploration.ipynb) | Inspect supplied TTDPSFLGRY models: contact chemistry, energy attribution and frozen enrichment |
 | [Contacts and interaction types](https://github.com/antigenomics/tcren/blob/master/notebooks/contact_thresholds_and_bondtypes.ipynb) | Atom/residue contacts and chemical interaction labels |
 | [Canonical molecular figures](https://github.com/antigenomics/tcren/blob/master/notebooks/pymol_canonical_figures.ipynb) | Reusable PyMOL scenes and canonical views |
 | [Surface topology](https://github.com/antigenomics/tcren/blob/master/notebooks/surface_topology.ipynb) | Geometry and receptor-free pMHC surface readouts |

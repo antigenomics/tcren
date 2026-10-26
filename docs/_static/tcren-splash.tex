@@ -28,8 +28,8 @@
  flow/.style={line width=.75pt,-{Stealth[length=1.7mm,width=1.2mm]}},
  branch/.style={line width=.65pt},
  atom/.style={circle,minimum size=2.1mm,inner sep=0pt,fill=paper,line width=.8pt}]
-\useasboundingbox (0,0) rectangle (220,-164);
-\fill[paper] (0,0) rectangle (220,-164);
+\useasboundingbox (0,0) rectangle (220,-190);
+\fill[paper] (0,0) rectangle (220,-190);
 \node[title] at (110,-10) {TCRen};
 \node[text=muted,font=\fontsize{12}{15}\selectfont] at (110,-20)
  {From molecular contacts to receptor recognition};
@@ -58,7 +58,7 @@
 \draw[energy,branch] (56,-89) .. controls (56,-94) and (8,-91) .. (8,-97) -- (8,-124);
 \foreach \y in {-100,-112,-124}{\draw[energy,branch] (8,\y)--(12,\y);}
 \foreach \y in {-100,-112,-124}{\fill[energy] (12,\y) circle (.65mm);}
-\node[anchor=west] at (16,-100) {Epitope ranking};
+\node[anchor=west] at (16,-100) {Rank epitopes for one receptor};
 \node[anchor=west] at (16,-112) {Affinity and response associations};
 \node[anchor=west] at (16,-124) {Dissociation kinetics associations};
 \node[route,text=motif] at (166,-62) {Confidence and contact organisation};
@@ -66,12 +66,12 @@
  {$S=w_I I+w_B B+w_M M$};
 \node[font=\fontsize{9}{11}\selectfont] at (166,-80)
  {$w_B=0.41q,\quad w_M=0.22(1-q),\quad w_I=1-w_B-w_M$};
-\node[sub] at (166,-87) {$q$: cohort-mean pLDDT percentile};
+\node[sub] at (166,-87) {$q=F_{\rm ref}(\overline{\mathrm{pLDDT}}/100)$: cohort context};
 \draw[motif,branch] (166,-92) .. controls (166,-98) and (120,-94) .. (120,-100) -- (120,-115);
 \foreach \y in {-103,-115}{\draw[motif,branch] (120,\y)--(124,\y);}
 \foreach \y in {-103,-115}{\fill[motif] (124,\y) circle (.65mm);}
-\node[anchor=west] at (128,-103) {Rank binders vs non-binders};
-\node[anchor=west] at (128,-115) {Rank binders vs mock controls};
+\node[anchor=west] at (128,-103) {Rank a receptor cohort};
+\node[anchor=west] at (128,-115) {Binder/non-binder; binder/mock};
 \node[sub] at (166,-126) {Same pMHC; candidate receptors};
 % Colour carries the component identity, without implying independent evidence.
 \node[font=\fontsize{9}{11}\selectfont] at (166,-134)
@@ -81,7 +81,16 @@
 \draw[rule,branch] (20,-145)--(70,-145);
 \draw[rule,branch] (150,-145)--(200,-145);
 \node[sub] at (40,-155) {Geometry and surfaces};
-\node[sub] at (110,-155) {Contacts and topology};
+\node[sub] at (110,-155) {Contact contributions and enrichment};
 \node[sub] at (183,-155) {Plots and matched statistics};
+\draw[rule,line width=.35pt] (8,-162)--(212,-162);
+\node[font=\fontsize{9}{11}\selectfont] at (56,-170)
+ {$B=\beta_1/E=(E-V+C)/E\quad(E>0)$};
+\node[font=\fontsize{9}{11}\selectfont] at (166,-170)
+ {$F=-2\sum_r\ln p_r$};
+\node[font=\fontsize{9}{11}\selectfont] at (110,-178)
+ {$\displaystyle M=1-\frac{1+\#\{j:F_j\geq F\}}{N_{\rm mock}+1},\qquad N_{\rm mock}=2{,}056$};
+\node[sub,font=\fontsize{8}{10}\selectfont] at (110,-186)
+ {$E$: contact edges; $V$: engaged residues; $C$: components; $p_r$: local mock tail; $F_j$: whole-mock Fisher evidence.};
 \end{tikzpicture}
 \end{document}
