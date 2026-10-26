@@ -19,5 +19,3 @@ def test_alignment_bounding_and_exact_tied_ap():
         ap_columns(y, s), [average_precision_score(y, s[:, i]) for i in range(2)]
     )
     np.testing.assert_allclose(ap_columns(y, s), ap_columns(y, 3 * s + 7))
-
-

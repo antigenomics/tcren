@@ -42,4 +42,3 @@ def ap_columns(y, scores):
     endidx = np.minimum.accumulate(np.where(ends, indices, len(y))[::-1], axis=0)[::-1]
     precision = np.take_along_axis(tp, endidx, axis=0) / (endidx + 1)
     return (precision * ys).sum(0) / y.sum()
-
