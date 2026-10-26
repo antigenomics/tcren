@@ -664,11 +664,12 @@ byte-identical):
 The term's potential defaults to MJ, not TCRen: TCRen is derived from TCR↔peptide contacts and says
 nothing about the contacts a chain makes with itself.
 
-Scores
-------
+Historical score APIs
+---------------------
 
-``tcren recognize --features`` turns a feature table into the scores the method proposes. Every one
-of them is fit-free and defined for a single structure.
+``tcren recognize --features`` exposes historical reference-estimated readouts
+for a single structure. Their frozen dependencies differ from the current
+:doc:`screening` rule; they are not recommended substitutes for its default score.
 
 .. list-table::
    :header-rows: 1
@@ -678,30 +679,31 @@ of them is fit-free and defined for a single structure.
      - What it discriminates
      - Model
    * - ``S``
-     - Binder vs non-binder, and a real interface vs a manufactured one. **The recommended score**
+     - Binder vs non-binder, and a real interface vs a manufactured one. **Historical aggregate**
        (:doc:`reliability`).
      - :func:`tcren.reliability.s_score`: three directional blocks against the Native2026 crystals,
        each divided by that block's native spread, added. No cohort, no EM, no label.
    * - ``Q``
      - Interface quality for a **single** structure, against the shipped crystal reference.
-     - Fit-free :func:`tcren.cohort.q_score`: whitened distance from the native descriptor
+     - Reference-estimated :func:`tcren.cohort.q_score`: whitened distance from the native descriptor
        manifold. Carries no fitted coefficient and needs no negative set.
    * - ``T``
      - Footprint shape, free of footprint size — the channel that holds up when the generator had
        no template to copy.
-     - Fit-free :func:`tcren.reliability.t_score`, directional against the same crystals.
+     - Reference-estimated :func:`tcren.reliability.t_score`, directional against the same crystals.
    * - ``strain_z``
      - Crystal-natural against generated-forced pose. Not a column: 2.26.0 removed the
        ``s_strain`` output with every other frozen-coefficient composite, and the function stayed.
-     - Fit-free :func:`tcren.cohort.strain_z`: signed z of the strain terms, grading
+     - Reference-estimated :func:`tcren.cohort.strain_z`: signed z of the strain terms, grading
        crystal < generated-real < generated-decoy.
 
 .. note::
 
    **Cohort-relative scores live in** :mod:`tcren.cohort` and are computed by ``tcren``, not
-   downstream: pass the whole cohort you are ranking. Evaluation is the other side of that line —
-   ROC/PR, bootstrap intervals, and anything that consumes a binding label stay outside the
-   library, because this package is built to score without one.
+   downstream: pass the whole declared cohort when that API requires cohort context.
+   Scoring does not require outcome labels. Explicit :doc:`evaluation` commands
+   accept supplied outcomes to reproduce matched metrics and declared historical
+   statistical protocols; they do not fit or replace the default score.
 
 CPU ownership
 -------------

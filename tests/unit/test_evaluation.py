@@ -72,3 +72,11 @@ def test_all_missing_scores_keep_membership_and_zero_count():
     assert set(result["metrics"]["n_used"]) == {0}
     with pytest.raises(ValueError, match="numeric"):
         evaluate_scores(rows.with_columns(pl.lit("broken").alias("x")), {"x": 1})
+
+
+def test_single_positive_rank_endpoints_preserve_ties_and_strict_negatives():
+    from tcren.evaluation import candidate_ranks
+    rows = pl.DataFrame({"y": [1, 0, 0, 0], "energy": [2., 1., 2., 3.]})
+    ranks = candidate_ranks(rows, {"energy": -1})
+    assert dict(ranks.select("metric", "value").iter_rows()) == {
+        "rank_percent": 100/3, "rank_first": 2., "rank_last": 3., "rank_midpoint": 2.5}

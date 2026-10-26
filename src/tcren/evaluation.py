@@ -117,6 +117,31 @@ def evaluate_scores(rows, scores, *, groups=(), keys=("id",), endpoint="y", kind
     return output
 
 
+def candidate_ranks(rows, scores, *, groups=(), endpoint="y"):
+    """Established single-positive strict ranks; ties retain first/last/midpoint."""
+    result = []
+    partitions = rows.group_by(list(groups), maintain_order=True) if groups else [((), rows)]
+    for group, part in partitions:
+        context = dict(zip(groups, group))
+        y = np.asarray(part[endpoint], float)
+        for score, direction in scores.items():
+            x = direction * np.asarray(part[score], float)
+            used = np.isfinite(y) & np.isfinite(x)
+            yy, xx = y[used], x[used]
+            values = dict.fromkeys(['rank_percent', 'rank_first', 'rank_last', 'rank_midpoint'])
+            if (yy == 1).sum() == 1:
+                positive = xx[yy == 1][0]
+                better, tied = int((xx > positive).sum()), int((xx == positive).sum())
+                values.update(rank_first=better+1, rank_last=better+tied,
+                              rank_midpoint=better+(tied+1)/2)
+                if (yy == 0).any():
+                    values['rank_percent'] = 100*int((xx[yy == 0] > positive).sum())/int((yy == 0).sum())
+            result.extend({**context, 'score': score, 'metric': metric, 'n_rows': part.height,
+                'n_used': int(used.sum()), 'n_positive': int((yy == 1).sum()), 'value': value}
+                for metric, value in values.items())
+    return pl.DataFrame(result, infer_schema_length=None)
+
+
 def command(
     results: Path = typer.Option(..., exists=True, dir_okay=False),
     scores: Path = typer.Option(..., exists=True, dir_okay=False, help="JSON {score_column: +1|-1}"),
@@ -129,6 +154,7 @@ def command(
     reference: str | None = typer.Option(None),
     baseline_scores: Path | None = typer.Option(None, exists=True, dir_okay=False),
     curves: bool = typer.Option(False, help="Export existing tied-threshold PR/ROC points"),
+    rank_endpoints: bool = typer.Option(False, help="Export established single-positive strict rank endpoints"),
     pearson_test: bool = typer.Option(False, help="Explicit two-sided Pearson zero-correlation test"),
 ):
     """Report matched ranking or continuous-outcome metrics without fitting scores."""
@@ -142,10 +168,15 @@ def command(
                       baseline_scores=json.loads(baseline_scores.read_text()) if baseline_scores else None,
                       curves=curves, pearson_test=pearson_test)
     tables = evaluate_scores(read_table(results), json.loads(scores.read_text()), **parameters)
+    if rank_endpoints:
+        if kind != "binary":
+            raise ValueError("Rank endpoints require binary outcomes")
+        tables["ranks"] = candidate_ranks(read_table(results), json.loads(scores.read_text()),
+            groups=parameters["groups"], endpoint=endpoint)
     output.mkdir(parents=True)
     for name, table in tables.items():
         table.write_csv(output / f"{name}.tsv", separator="\t")
     sources = [results, scores, *([baseline_scores] if baseline_scores else [])]
     (output / "SOURCES.json").write_text(json.dumps({"version": __version__, "parameters": parameters,
         "inputs": {str(p): _sha256(p) for p in sources}, "precision_at_recall": "maximum precision at recall >= target",
-        "test_null": "Pearson correlation equals zero" if pearson_test else None}, indent=2)+"\n")
+        "test_null": "Pearson correlation equals zero" if pearson_test else None, "rank_endpoints": rank_endpoints}, indent=2)+"\n")

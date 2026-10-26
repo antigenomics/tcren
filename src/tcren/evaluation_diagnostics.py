@@ -67,9 +67,13 @@ def backbone_deformation(rows, groups):
 
 def grouped_summary(rows, columns, groups, statistic='mean'):
     """Explicit group aggregates or within-group centering with observed-value means."""
-    if not groups or not columns or statistic not in {'mean', 'median', 'min', 'max', 'center'}:
-        raise ValueError('Explicit groups, columns and mean/median/min/max/center required')
+    if not groups or not columns or statistic not in {'mean', 'median', 'min', 'max', 'center', 'standardize'}:
+        raise ValueError('Explicit groups, columns and mean/median/min/max/center/standardize required')
     expressions = [pl.col(c).cast(pl.Float64).fill_nan(None) for c in columns]
+    if statistic == 'standardize':
+        return rows.with_columns([pl.when(expr.is_null().any().over(groups))
+            .then(float('nan')).otherwise((expr-expr.mean().over(groups))/expr.std(ddof=1).over(groups))
+            .alias(name) for name, expr in zip(columns, expressions)])
     if statistic == 'center':
         return rows.with_columns([(expr-expr.mean().over(groups)).alias(name)
                                   for name, expr in zip(columns, expressions)])

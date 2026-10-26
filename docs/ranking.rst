@@ -4,8 +4,9 @@ Task-specific ranking scores
 Epitope ranking and TCR ranking are different tasks and do not share a score.
 :mod:`tcren.ranking` owns the **epitope-ranking** score, where the peptide varies while the
 receptor and MHC are held fixed. The primary :doc:`screening` route supports both
-tasks with separate frozen references. For receptor ranking it keeps ipTM primary
-and reports the structural components alongside the combination.
+tasks with separate frozen references. Receptor ranking uses the bounded
+ipTM/recognition-topology/motif mixture with cohort-mean pLDDT context; its raw
+components remain available alongside the combined score.
 
 The score
 ---------

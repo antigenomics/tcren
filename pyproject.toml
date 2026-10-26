@@ -82,7 +82,8 @@ sdist.include = ["/docs/README.md"]
 sdist.exclude = [
     "/notebooks", "/tests", "/docs", "/data", "/assets", "/scripts", "/skills",
     "/.github", "/setup.sh", "/STATUS.md", "/BENCHMARKS.md",
-    "/appendix", "/.claude", "/.DS_Store", "/attic", "/audit", "/AUDIT.md",
+    "/appendix", "/.claude", "/.codex", "/.agents", "/.DS_Store",
+    "/attic", "/archive", "/audit", "/*.md",
 ]
 # The ext is built once at install; do NOT rebuild on import (that needs cmake on PATH at
 # import time and breaks under pytest / CI where the build-env cmake is gone). Re-run

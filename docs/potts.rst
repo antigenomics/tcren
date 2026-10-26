@@ -2,7 +2,7 @@ Historical contact-map Potts model
 ==================================
 
 These fitted models and their empirical outputs are retained for historical and
-methodological reproduction. They are excluded from final fit-free scoring.
+methodological reproduction. They are excluded from the current default screening score.
 The local benchmark contact GLM is distinct from this coupled model.
 
 Every scoring path elsewhere in ``tcren`` reads a contact map that a structure *has*. This one

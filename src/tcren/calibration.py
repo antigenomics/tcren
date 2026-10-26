@@ -217,6 +217,7 @@ def command(
     metadata: Path = typer.Option(..., exists=True, dir_okay=False),
     chemistry: Path = typer.Option(..., exists=True, dir_okay=False, help="Explicit source-verified chemical exclusions"),
     output: Path = typer.Option(..., "--output", "-o"),
+    comparison_energies: Path | None = typer.Option(None, exists=True, dir_okay=False),
     previous_pooled: Path = typer.Option(..., exists=True, dir_okay=False),
     previous_replay: Path = typer.Option(..., exists=True, dir_okay=False),
 ):
@@ -416,6 +417,13 @@ def command(
     )
 
     script = files("tcren.data").joinpath("cutoff_summary.R")
+    if comparison_energies is not None:
+        comparison_script = Path(str(files("tcren.data").joinpath("calibration_compare.R")))
+        subprocess.run([rscript, str(comparison_script), str(comparison_energies),
+                        str(output / "energies.tsv"), str(output)], check=True)
+        (output / "comparison_sources.json").write_text(json.dumps({
+            "inputs": {str(comparison_energies): hashlib.sha256(comparison_energies.read_bytes()).hexdigest()},
+            "resource_sha256": hashlib.sha256(comparison_script.read_bytes()).hexdigest()}, indent=2)+"\n")
     command_line = [rscript, str(script), str(output), str(previous_pooled), str(previous_replay)]
     with (output / "summary.log").open("w") as log:
         subprocess.run(command_line, stdout=log, stderr=subprocess.STDOUT, check=True, timeout=600)

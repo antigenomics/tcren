@@ -53,3 +53,11 @@ def test_rank_selection_retains_first_tie():
     row=rank_selection(rows,['group'],'x','y').row(0,named=True)
     assert row['selected_rank']==0 and row['best_rank']==1
     np.testing.assert_allclose(row['loss_to_best'],.6)
+
+
+def test_group_standardization_uses_sample_sd_and_preserves_missing():
+    from tcren.evaluation_diagnostics import grouped_summary
+    rows=pl.DataFrame({'g':['a','a','a','b','b','c'],'v':[1.,2.,3.,4.,4.,None]})
+    result=grouped_summary(rows,['v'],['g'],'standardize')['v'].to_numpy()
+    np.testing.assert_allclose(result[:3],[-1,0,1])
+    assert np.isnan(result[3:]).all()
