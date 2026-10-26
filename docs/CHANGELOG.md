@@ -3,7 +3,7 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
-## [4.4.0] — Unreleased
+## [4.4.0] — 2026-10-26
 
 ### Added
 
@@ -64,6 +64,8 @@ All notable changes to `tcren` are recorded here. Format follows
 
 ### Fixed
 
+- Historical candidate lookup preserves numeric-looking structure identifiers and
+  leading zeros across CSV, compressed TSV and Parquet inputs.
 - Contact summaries retain zero-contact models when the entire contact TSV is
   header-only; numeric empty columns no longer inherit CSV string types.
 

@@ -12,7 +12,12 @@ from .potential.redundancy import alphabeta_ids
 AA = 'LFIMVWYCHAGPTSQNDERK'
 
 
-def read_table(path):
+def read_table(path, *, schema_overrides=None):
+    if schema_overrides is not None:
+        if Path(path).suffix == '.parquet':
+            return _read_table(path).cast(schema_overrides)
+        return pl.read_csv(path, separator='\t' if str(path).endswith(('.tsv', '.tsv.gz')) else ',',
+                           infer_schema_length=None, schema_overrides=schema_overrides)
     return pl.read_csv(path, separator='\t', infer_schema_length=None) if str(path).endswith('.tsv.gz') else _read_table(path)
 
 
@@ -135,10 +140,10 @@ def generate_candidates(protocol, spec):
                 append(templates[key], pep, int(pep in spec['positive_peptides']))
     elif protocol == 'observed-union':
         candidates = read_table(Path(spec['observations']))[spec['peptide_column']].to_list()
-        cognates = read_table(Path(spec['cognates']))
-        cognate = dict(cognates.select(spec['id_column'], spec['cognate_column']).iter_rows())
+        cognates = read_table(Path(spec['cognates']), schema_overrides={spec['id_column']: pl.String})
+        cognate = {str(pid): peptide for pid, peptide in cognates.select(spec['id_column'], spec['cognate_column']).iter_rows()}
         for pid in spec['ids']:
-            cog = cognate[pid]
+            cog = cognate[str(pid)]
             for pep in sorted(set(candidates) | {cog}):
                 if set(pep) <= set(AA):
                     append(pid, pep, int(pep == cog))

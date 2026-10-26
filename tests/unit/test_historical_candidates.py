@@ -27,3 +27,28 @@ def test_observed_union_keeps_cognate_once_and_labels_exactly(tmp_path):
     assert rows.select('peptide','y').rows()==[('AAAA',1),('CCCC',0)]
     with pytest.raises(ValueError,match='Unknown'):
         generate_candidates('new-control',{})
+
+
+@pytest.mark.parametrize('suffix', ['.csv', '.tsv.gz', '.parquet'])
+def test_observed_union_preserves_numeric_looking_ids_and_protocol_order(tmp_path, suffix):
+    import gzip
+
+    observations=tmp_path/'observations.csv'
+    pl.DataFrame({'peptide':['AAAA','DDDD','bad']}).write_csv(observations)
+    cognates=tmp_path/('cognates'+suffix)
+    table=pl.DataFrame({'id':['26990','002'],'cognate':['AAAA','CCCC']})
+    if suffix == '.parquet':
+        table.write_parquet(cognates)
+    elif suffix == '.tsv.gz':
+        cognates.write_bytes(gzip.compress(table.write_csv(separator='\t').encode()))
+    else:
+        table.write_csv(cognates)
+    spec=dict(observations=str(observations),cognates=str(cognates),peptide_column='peptide',
+              id_column='id',cognate_column='cognate',ids=['002','26990'])
+    rows,_=generate_candidates('observed-union',spec)
+    assert rows.rows()==[
+        ('002','0','AAAA',0),('002','1','CCCC',1),('002','2','DDDD',0),
+        ('26990','3','AAAA',1),('26990','4','DDDD',0)]
+    spec['ids']=[26990]
+    rows,_=generate_candidates('observed-union',spec)
+    assert rows.rows()==[(26990,'0','AAAA',1),(26990,'1','DDDD',0)]
