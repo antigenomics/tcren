@@ -8,13 +8,12 @@ version = "4.4.1"
 description = "TCR-pMHC ranking with contact potentials, interface confidence and contact enrichment"
 readme = "docs/README.md"
 requires-python = ">=3.10"
-license = { text = "GPL-3.0-or-later" }
+license = { file = "LICENSE" }
 authors = [{ name = "ISALGO laboratory", email = "mikhail.shugay@gmail.com" }]
 keywords = ["TCR", "immunology", "structural-biology", "epitope", "MHC", "bioinformatics"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
     "Programming Language :: Python :: 3",
     "Programming Language :: C++",
     "Topic :: Scientific/Engineering :: Bio-Informatics",

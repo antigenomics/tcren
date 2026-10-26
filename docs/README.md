@@ -4,7 +4,6 @@
 [![Tests](https://github.com/antigenomics/tcren/actions/workflows/tests.yml/badge.svg)](https://github.com/antigenomics/tcren/actions/workflows/tests.yml)
 [![Documentation](https://github.com/antigenomics/tcren/actions/workflows/docs.yml/badge.svg)](https://docs.isalgo.dev/tcren/)
 ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)
-[![GPLv3](https://img.shields.io/badge/license-GPLv3-green)](https://github.com/antigenomics/tcren/blob/master/LICENSE)
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/antigenomics/tcren/master/docs/_static/tcren-splash-dark.svg">
@@ -183,3 +182,7 @@ make -C docs html SPHINXOPTS=-W
 [Changelog](https://github.com/antigenomics/tcren/blob/master/docs/CHANGELOG.md) ·
 [API skill](https://github.com/antigenomics/tcren/blob/master/skills/tcren/SKILL.md) ·
 [Editable splash source](https://github.com/antigenomics/tcren/blob/master/docs/_static/tcren-splash.tex)
+
+## License
+
+TCRen is distributed under the [ISALGO LAB Academic and Non-Commercial Research License, version 1.0](https://github.com/antigenomics/tcren/blob/master/LICENSE).
