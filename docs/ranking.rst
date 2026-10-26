@@ -20,8 +20,11 @@ evaluates the statistical contact potential on that template's contact map:
 
 For separately modelled peptide complexes against one fixed receptor, use
 ``screen --task epitope`` with supplied generator confidence. The frozen
-epitope score combines the structural alanine-reference difference with ipTM,
-as defined below. ``rank-epitopes`` applies that same rule to an existing table.
+epitope screen combines the structural alanine-reference difference with ipTM
+using the reference and Stouffer normalization in :doc:`screening`.
+``rank-epitopes`` consumes an existing table using the arithmetic mean and
+frozen reference defined below. Each command records its own reference identity;
+the numerical score scales differ.
 Keep these two structural protocols explicit when comparing candidate rankings.
 
 For supplied affinity, response or kinetic measurements, join the structural

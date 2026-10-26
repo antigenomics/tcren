@@ -86,6 +86,14 @@ S = (1 - 0.41*q - 0.22*(1-q))*ipTM + 0.41*q*B + 0.22*(1-q)*M
 | `M` | All-six-CDR/peptide local contact-cycle evidence, calibrated against 2,056 whole mock graphs |
 | `q` | Inclusive percentile of unlabelled cohort-mean pLDDT against five frozen reference means |
 
+For local enrichment, `r` indexes a tested CDR or peptide residue. Its statistic
+is `c_r = m_r - k_r`: physical atom-pair contacts minus distinct partner residues.
+`a_r` separately counts distinct contacted atoms. The default includes observed
+backbone and side-chain heavy atoms; side-chain-only counting is available for
+separate contact diagnostics.
+The diagram sketches two contacted side-chain atoms making four contacts to two
+peptide residues. The three inspection insets reuse public 1AO7 examples.
+
 The weights are shared across a cohort: `q = F_ref(mean(plddt)/100)`, using
 the frozen five-cohort confidence CDF. Individual ipTM, Betti and enrichment
 values still vary between models. The weights are nonnegative and sum to one. Mock histograms and compressed

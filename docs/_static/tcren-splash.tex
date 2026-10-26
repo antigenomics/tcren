@@ -3,9 +3,10 @@
 % Dark: latexmk -pdf -jobname=tcren-splash-dark tcren-splash.tex
 % Export with pdftocairo -svg input.pdf output.svg; PNG fallback: rsvg-convert -w 1800 input.svg -o output.png.
 \documentclass[border=0pt]{standalone}
-\usepackage{tikz,amsmath,amssymb,helvet}
+\usepackage{tikz,amsmath,amssymb,helvet,graphicx}
 \usetikzlibrary{arrows.meta,calc}
 \renewcommand{\familydefault}{\sfdefault}
+\graphicspath{{docs/_static/}{./}}
 \ifnum\pdfstrcmp{\jobname}{tcren-splash-dark}=0\def\darkmode{1}\fi
 \ifdefined\darkmode
   \definecolor{paper}{HTML}{101B27}\definecolor{ink}{HTML}{E6EFF7}
@@ -28,8 +29,8 @@
  flow/.style={line width=.75pt,-{Stealth[length=1.7mm,width=1.2mm]}},
  branch/.style={line width=.65pt},
  atom/.style={circle,minimum size=2.1mm,inner sep=0pt,fill=paper,line width=.8pt}]
-\useasboundingbox (0,0) rectangle (220,-190);
-\fill[paper] (0,0) rectangle (220,-190);
+\useasboundingbox (0,0) rectangle (220,-279);
+\fill[paper] (0,0) rectangle (220,-279);
 \node[title] at (110,-10) {TCRen};
 \node[text=muted,font=\fontsize{12}{15}\selectfont] at (110,-20)
  {From molecular contacts to receptor recognition};
@@ -83,14 +84,71 @@
 \node[sub] at (40,-155) {Geometry and surfaces};
 \node[sub] at (110,-155) {Contact contributions and enrichment};
 \node[sub] at (183,-155) {Plots and matched statistics};
-\draw[rule,line width=.35pt] (8,-162)--(212,-162);
-\node[font=\fontsize{9}{11}\selectfont] at (56,-170)
- {$B=\beta_1/E=(E-V+C)/E\quad(E>0)$};
-\node[font=\fontsize{9}{11}\selectfont] at (166,-170)
- {$F=-2\sum_r\ln p_r$};
-\node[font=\fontsize{9}{11}\selectfont] at (110,-178)
- {$\displaystyle M=1-\frac{1+\#\{j:F_j\geq F\}}{N_{\rm mock}+1},\qquad N_{\rm mock}=2{,}056$};
-\node[sub,font=\fontsize{8}{10}\selectfont] at (110,-186)
- {$E$: contact edges; $V$: engaged residues; $C$: components; $p_r$: local mock tail; $F_j$: whole-mock Fisher evidence.};
+
+% Existing public 1AO7 gallery examples; no structure calculation is performed here.
+\node at (40,-177) {\includegraphics[width=32mm,height=32mm,keepaspectratio]{gallery/surface.png}};
+\node at (110,-177) {\includegraphics[width=32mm,height=32mm,keepaspectratio]{gallery/importance.png}};
+\node[sub,font=\fontsize{8}{10}\selectfont] at (40,-197) {1AO7: groove surface};
+\node[sub,font=\fontsize{8}{10}\selectfont] at (110,-197) {1AO7: residue energy attribution};
+% Verbatim recorded TCR:peptide type counts from public contact_thresholds_and_bondtypes.ipynb, cell 8 output.
+% This existing illustrative example uses that notebook's nearest-atom classification.
+% All three nonzero TCR:peptide classes are shown; salt bridge, aromatic and other counts are zero.
+\begin{scope}[shift={(155,-166)}]
+ \node[sub,font=\fontsize{8}{10}\selectfont,anchor=west] at (0,4) {1AO7: contact-type counts};
+ \foreach \y/\label/\n/\col in {0/H-bond-compatible/8/conf,-8/Hydrophobic/5/betti,-16/Polar/16/motif}{
+  \node[font=\fontsize{8}{10}\selectfont,anchor=west] at (0,\y) {\label};
+  \fill[\col] (0,\y-2) rectangle (\n*2,\y-5);
+  \node[font=\fontsize{8}{10}\selectfont,anchor=west] at (\n*2+1,\y-3.5) {\n};}
+\end{scope}
+\node[sub,font=\fontsize{8}{10}\selectfont] at (183,-197) {Recorded descriptive example};
+\draw[rule,line width=.35pt] (8,-204)--(212,-204);
+\node[font=\bfseries\fontsize{10}{12}\selectfont] at (56,-211) {Betti: closed residue-contact paths};
+\node[font=\bfseries\fontsize{10}{12}\selectfont] at (166,-211) {Enrichment: repeated atom contacts};
+% A triangle is the smallest three-interface residue cycle.
+\begin{scope}[shift={(56,-226)}]
+ \coordinate (t) at (-13,5);\coordinate (p) at (13,5);\coordinate (h) at (0,-8);
+ \draw[rule,line width=.8pt] (t)--(p)--(h);
+ \draw[betti,line width=1.2pt] (h)--(t);
+ \node[circle,fill=energy,minimum size=2.8mm,inner sep=0pt] at (t) {};
+ \node[circle,fill=motif,minimum size=2.8mm,inner sep=0pt] at (p) {};
+ \node[circle,fill=muted,minimum size=2.8mm,inner sep=0pt] at (h) {};
+ \node[sub,anchor=east,text=energy] at (-16,5) {TCR};
+ \node[sub,anchor=west,text=motif] at (16,5) {Peptide};
+ \node[sub] at (0,-13) {MHC};
+ \node[sub,text=betti,font=\fontsize{8}{10}\selectfont] at (0,0) {cycle};
+\end{scope}
+% Focal Ser-like side-chain subset; internal backbone atoms/bonds are omitted.
+% Solid lines are covalent links; dashed lines are four atom-pair contacts to two partner residues.
+\begin{scope}[shift={(166,-231)}]
+ \draw[energy,line width=.55pt,rounded corners=2mm] (-28,-8) rectangle (-8,10);
+ \draw[motif,line width=.55pt,rounded corners=1.5mm] (0,2) rectangle (11,10);
+ \draw[motif,line width=.55pt,rounded corners=1.5mm] (0,-10) rectangle (11,-2);
+ \draw[rule,line width=.8pt] (-24,0)--(-18,0)--(-12,0);
+ \draw[rule,line width=.8pt] (3,6)--(8,6) (3,-6)--(8,-6);
+ \draw[motif,dashed,line width=.65pt] (-18,0)--(3,6) (-18,0)--(3,-6) (-12,0)--(8,6) (-12,0)--(8,-6);
+ \node[atom,draw=energy] at (-24,0) {};
+ \foreach \x in {-18,-12}{\node[atom,draw=energy,fill=energy] at (\x,0) {};}
+ \foreach \x in {3,8}{\foreach \y in {-6,6}{\node[atom,draw=motif,fill=motif] at (\x,\y) {};}}
+ \node[sub,text=energy,font=\fontsize{8}{10}\selectfont] at (-18,13) {TCR residue $r$};
+ \node[sub,font=\fontsize{7.5}{9}\selectfont] at (-24,-4) {C$\alpha$};
+ \node[sub,font=\fontsize{7.5}{9}\selectfont] at (-18,-4) {C$\beta$};
+ \node[sub,font=\fontsize{7.5}{9}\selectfont] at (-12,-4) {O$\gamma$};
+ \node[sub,text=motif,anchor=west,font=\fontsize{8}{10}\selectfont] at (14,6) {Peptide residue 1};
+ \node[sub,text=motif,anchor=west,font=\fontsize{8}{10}\selectfont] at (14,-6) {Peptide residue 2};
+\end{scope}
+\node[font=\fontsize{9}{11}\selectfont] at (56,-245)
+ {$B=\beta_1/E=(E-V+C)/E;\quad\text{here }B=1/3$};
+\node[font=\fontsize{9}{11}\selectfont] at (166,-245)
+ {$a_r=2,\quad m_r=4,\quad k_r=2,\quad c_r=m_r-k_r=2$};
+\node[sub,font=\fontsize{8}{10}\selectfont] at (56,-252)
+ {$E$: residue-contact edges; $V$: residues; $C$: components.};
+\node[sub,font=\fontsize{8}{10}\selectfont] at (166,-252)
+ {$a_r$: contacted atoms; $m_r$: atom pairs; $k_r$: partner residues.};
+\node[font=\fontsize{9}{11}\selectfont] at (110,-261)
+ {$\displaystyle F=-2\sum_r\ln p_r,\qquad M=1-\frac{1+\#\{j:F_j\geq F\}}{N_{\rm mock}+1},\qquad N_{\rm mock}=2{,}056$};
+\node[sub,font=\fontsize{8}{10}\selectfont] at (110,-269)
+ {$r$: tested CDR or peptide residue; $p_r$: empirical mock upper tail of $c_r$; $F_j$: whole-mock Fisher evidence.};
+\node[sub,font=\fontsize{8}{10}\selectfont] at (110,-276)
+ {Default: all observed heavy atoms. Sketch omits some backbone atoms; side-chain-only counts are a separate diagnostic.};
 \end{tikzpicture}
 \end{document}
