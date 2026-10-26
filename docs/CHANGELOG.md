@@ -18,7 +18,6 @@ All notable changes to `tcren` are recorded here. Format follows
 - Batched peptide substitution and source-backed modified-residue restoration
   expose existing coordinate operations through the CLI.
 
-
 - Experimental all-six-CDR/epitope `residue-surprise-*` and `motif-fisher`
   commands retain all eligible negative controls, count covalent-residue contact
   cycles, and calibrate Fisher motif sums against whole control graphs.
@@ -49,7 +48,6 @@ All notable changes to `tcren` are recorded here. Format follows
   interpretation. Historical development notes and local maintenance tools are
   archived outside the public package.
 
-
 - TCR screening now combines ipTM, recognition beta1/E and all-loop contact
   enrichment with frozen coefficients 0.41/0.22 and the empirical percentile of
   unlabelled cohort-mean pLDDT. Bundled mock histograms and compressed whole-control
@@ -61,6 +59,11 @@ All notable changes to `tcren` are recorded here. Format follows
 - Epitope scoring, zero-contact discard, cohort floor and reporting-only flags
   keep their established behavior. New topology diagnostic standardization is
   identity; confidence, energy and geometry reference moments are preserved.
+
+### Fixed
+
+- Contact summaries retain zero-contact models when the entire contact TSV is
+  header-only; numeric empty columns no longer inherit CSV string types.
 
 ## [4.3.2] — 2026-10-24
 
@@ -209,7 +212,6 @@ All notable changes to `tcren` are recorded here. Format follows
   component and 0.823253 for ipTM alone. No TCR-ranking score is shipped: no combination of the
   available components beats ipTM there on a pooled aggregate.
 
-
 - `atom-inventory` export and `contact-class-audit`: complete selected protein
   heavy-atom context, class-exclusive/shared residue and atom contact sets,
   composition-opportunity denominators, equal-complex/case summaries and
@@ -236,7 +238,6 @@ All notable changes to `tcren` are recorded here. Format follows
   potentials, and migrate angular priors to contact-marginals-2.
 - Optional frozen native opportunity-stratum reference partitions for geometry
   increments, with source/version/class checks and unchanged original scores.
-
 
 - Multiplicity-conditioned native/external reference ranks and frozen weighted
   TCRen, with unchanged matrix baselines, bounded scoring and signed cohort diagnostics.
@@ -538,7 +539,6 @@ All notable changes to `tcren` are recorded here. Format follows
   cosine correlates with the real one at Pearson **0.81** and keeps ROC-AUC 0.68–0.79. Glycine is
   not a special case — this is where a Cβ *would* sit, so there is no missing value to encode.
 
-
 - **Where `g_orient` pays is a crystal, not a drawn geometry.** Held out by structure over 24
   crystals, read on the complex's **own** Cα the map improves on both placement and discrimination —
   Jensen–Shannon similarity **0.7052 → 0.7290** and contact ROC-AUC **0.9599 → 0.9691**, with the
@@ -551,7 +551,6 @@ All notable changes to `tcren` are recorded here. Format follows
   that a drawn backbone carries the *population's* typical orientation rather than this receptor's:
   `cos_cb` is a deterministic function of the Cα trace, so it can only be as receptor-specific as
   the trace is. Use it when you hold coordinates.
-
 
 - **`tcren potts predict --chain-prior`**, plus `--geometry-draws` and `--beta`.
 
@@ -656,7 +655,6 @@ All notable changes to `tcren` are recorded here. Format follows
   in 33 s: a leave-one-out geometry prior, a TSV of six loop sequences and a peptide, `tcren potts
   predict --sequences --ensemble`, and `tcren potts agreement` against the crystal the prior was
   held out of. It exits non-zero if the predicted geometry does not read below the crystal's own.
-
 
 - `tcren.potts.map_agreement` and `tcren potts agreement` — score a contact map against the one a
   structure actually made, reporting the **level** (`ratio` = Σp/Σσ) and the **placement** (`js`,

@@ -321,6 +321,19 @@ def test_contact_summary_keeps_zero_models_and_composition_ties():
         summarize_contacts(table, ledger.with_columns(pl.lit(1).alias('n_rows')))
 
 
+
+def test_contact_summary_accepts_header_only_csv():
+    from tcren.topology.contact_context import summarize_contacts
+    table = exports.export_structure(typed_structure(), 'contact-context', classic(), mj())
+    empty = pl.read_csv(table.head(0).write_csv(separator="\t").encode(), separator="\t")
+    ledger = pl.DataFrame({'pdb.id': ['a', 'b'], 'status': ['ok', 'ok'], 'n_rows': [0, 0]})
+    result = summarize_contacts(empty, ledger)
+    assert result['pdb.id'].to_list() == ['a', 'b']
+    assert all(value == 0 for row in result.drop('pdb.id').rows() for value in row)
+    with pytest.raises(ValueError, match='accounting'):
+        summarize_contacts(empty, ledger.with_columns(pl.lit(1).alias('n_rows')))
+
+
 def test_recognition_graph_ladder():
     from types import SimpleNamespace
     import numpy as np
