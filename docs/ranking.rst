@@ -8,6 +8,29 @@ tasks with separate frozen references. Receptor ranking uses the bounded
 ipTM/recognition-topology/motif mixture with cohort-mean pLDDT context; its raw
 components remain available alongside the combined score.
 
+Choose the structural comparison
+--------------------------------
+
+For candidate peptides threaded onto one fixed TCR–pMHC template, ``score``
+evaluates the statistical contact potential on that template's contact map:
+
+.. code-block:: console
+
+   $ tcren score -s template.pdb -c candidates.txt --potential tcren2 -o ranked.csv
+
+For separately modelled peptide complexes against one fixed receptor, use
+``screen --task epitope`` with supplied generator confidence. The frozen
+epitope score combines the structural alanine-reference difference with ipTM,
+as defined below. ``rank-epitopes`` applies that same rule to an existing table.
+Keep these two structural protocols explicit when comparing candidate rankings.
+
+For supplied affinity, response or kinetic measurements, join the structural
+readouts to the measured endpoints by exact complex identity and retain their
+original units and transformations. :doc:`evaluation` describes continuous
+Pearson/Spearman comparisons and matched membership; :doc:`md-validation`
+describes the separate trajectory and mechanical readouts. Such associations
+do not convert a contact potential into a calibrated affinity or rate predictor.
+
 The score
 ---------
 
@@ -57,10 +80,14 @@ Using it
 
 .. code-block:: console
 
-   $ tcren scoring -s models.txt --delta --reference-mode structural -o energies.csv
+   $ tcren scoring -s models.txt --full-ids --delta --reference-mode structural -o energies.csv
    $ tcren rank-epitopes --features descriptors.tsv -o scores.tsv
 
 ``--features`` needs ``complex.id``, ``dPhi_tcr_pep`` and ``iptm``.
+Prepare ``descriptors.tsv`` by joining the exported ``pdb.id`` to the supplied
+confidence identifiers, naming the joined key ``complex.id``. Check unique IDs
+and exact row membership before scoring. For a complete raw-coordinate protocol,
+follow :doc:`reproduction`; for contact-level interpretation, see :doc:`gallery`.
 
 .. autofunction:: tcren.ranking.epitope_rank
 .. autofunction:: tcren.ranking.bundled_reference

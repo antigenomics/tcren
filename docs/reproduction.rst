@@ -49,8 +49,8 @@ Reproduce other structural quantities
 
 .. code-block:: console
 
-   $ tcren scoring -s models.txt --delta --reference-mode structural -o peptide-energy.csv
-   $ tcren export -s models.txt --quantity receptor-reference --reference-mode structural -o receptor-energy.tsv
+   $ tcren scoring -s models.txt --full-ids --delta --reference-mode structural --tcr-peptide-potential tcren2 -o peptide-energy.csv
+   $ tcren export -s models.txt --quantity receptor-reference --reference-mode structural --potential tcren2 -o receptor-energy.tsv
    $ tcren export -s models.txt --quantity recognition-betti -o graph.tsv
    $ tcren export -s models.txt --quantity contact-atoms --interface tcr_peptide -o contacts.parquet
    $ tcren export -s models.txt --quantity atom-inventory --interface all -o atoms.parquet
@@ -83,6 +83,12 @@ Use continuous evaluation for a measured continuous endpoint:
 .. code-block:: console
 
    $ tcren evaluate --results rows.tsv --scores directions.json --groups dataset,epitope --endpoint response --kind continuous --mask common -o correlations
+
+For affinity or kinetic measurements, retain the source's declared units and
+scale in the endpoint column; record any supplied logarithmic transformation.
+Keep response, affinity and rate panels separate. A continuous association is
+evidence about those paired observations, not calibration of the ranking score
+into a physical affinity or rate.
 
 Request ``--pearson-test`` only when reproducing an analysis that includes that
 test. A rank score is not a binding probability, and an adaptive development

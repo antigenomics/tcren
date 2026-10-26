@@ -1,163 +1,163 @@
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/antigenomics/tcren/master/assets/tcren_dark.png">
-    <img alt="tcren" src="https://raw.githubusercontent.com/antigenomics/tcren/master/assets/tcren_light.png" width="340">
-  </picture>
-</p>
-
-# tcren — rank and inspect TCR–pMHC models
+# TCRen — structural evidence for T-cell recognition
 
 [![PyPI](https://img.shields.io/pypi/v/tcren)](https://pypi.org/project/tcren/)
-[![tests](https://github.com/antigenomics/tcren/actions/workflows/tests.yml/badge.svg)](https://github.com/antigenomics/tcren/actions/workflows/tests.yml)
-[![docs](https://github.com/antigenomics/tcren/actions/workflows/docs.yml/badge.svg)](https://docs.isalgo.dev/tcren/)
+[![Tests](https://github.com/antigenomics/tcren/actions/workflows/tests.yml/badge.svg)](https://github.com/antigenomics/tcren/actions/workflows/tests.yml)
+[![Documentation](https://github.com/antigenomics/tcren/actions/workflows/docs.yml/badge.svg)](https://docs.isalgo.dev/tcren/)
 ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)
 [![GPLv3](https://img.shields.io/badge/license-GPLv3-green)](https://github.com/antigenomics/tcren/blob/master/LICENSE)
 
-tcren ranks candidate αβ TCR:peptide–MHC structures and exposes the evidence behind
-the ranking: generator confidence, structural contact energy, interface geometry
-and contact topology. Start with a cohort of separately modelled candidates, or
-use the toolkit to inspect one structure or score peptides on a fixed template.
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/antigenomics/tcren/master/docs/_static/tcren-splash-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/antigenomics/tcren/master/docs/_static/tcren-splash-light.svg">
+  <img alt="TCRen contact graphs branch into a statistical-potential route for peptide ranking and measured affinity, response and kinetic associations, and an ipTM–Betti–enrichment route for binder/non-binder and binder/mock ranking. Geometry, visualization and statistics support both routes." src="https://raw.githubusercontent.com/antigenomics/tcren/master/docs/_static/tcren-splash.png" width="100%">
+</picture>
 
-The scores are dimensionless structural readouts. They are not binding free
-energies, calibrated binding probabilities or affinity estimates. For receptor
-ranking, retain ipTM and the structural components alongside the combined score;
-performance depends on the task and evaluation population.
+TCRen turns TCR–peptide–MHC structures into **contact-based scores, receptor
+rankings and interpretable structural readouts**. It brings two approaches into
+one Python library and command-line toolkit:
 
-## Install
+- **Residue statistical potentials** rank candidate epitopes for a fixed TCR and
+  support studies of measured binding affinity, response magnitude and kinetics.
+  Contact energies, structural alanine references and mechanical readouts retain
+  their separate definitions.
+- **ipTM + Betti fraction + contact enrichment** rank candidate receptors against
+  one pMHC, including binder/non-binder and binder/mock comparisons. The default
+  combines generator confidence with global contact organisation and local
+  evidence calibrated against frozen mock structures.
+
+Geometry, surface chemistry, contact attribution, molecular visualization and
+matched statistics help explain both routes.
+
+## Start with your question
+
+| Question | Route | Worked guide |
+|---|---|---|
+| Which peptides rank highest for this TCR? | `score` for fixed-template threading; `screen --task epitope` for separately modelled poses | [Epitope ranking](https://docs.isalgo.dev/tcren/ranking.html) |
+| Which modelled receptors rank highest for this pMHC? | `screen --task tcr`: ipTM, Betti fraction and enrichment | [Receptor screening](https://docs.isalgo.dev/tcren/screening.html) |
+| How do structural scores relate to affinity or response magnitude? | Join measured endpoints, then `evaluate --kind continuous` | [Matched evaluation](https://docs.isalgo.dev/tcren/evaluation.html) |
+| How do contacts and mechanics relate to kinetics? | `md`, `mechanics`, then matched endpoint evaluation | [Dynamics and kinetics](https://docs.isalgo.dev/tcren/md-validation.html) |
+| Why does a model receive this score? | `features`, `contacts`, `export`, `surface`, `superimpose` | [Inspect a model](https://docs.isalgo.dev/tcren/kit.html) |
+| How can I render or compare the evidence? | PyMOL scenes, contact maps, `associate`, `evaluate` | [Visualization gallery](https://docs.isalgo.dev/tcren/gallery.html) |
+
+## Install and rank a receptor cohort
 
 ```sh
 pip install tcren
 tcren build-mhc-ref
+
+tcren screen -s models.tar.gz --task tcr \
+  --confidence confidence.tsv -o scores.tsv
 ```
 
-Binary wheels contain five native extensions. The runtime dependency
-[arda-mapper](https://github.com/antigenomics/arda) annotates TCR chains and fetches
-its reference/search backend on first use. The MHC allele reference is built from
-IMGT on demand. See the [installation guide](https://docs.isalgo.dev/tcren/getting-started.html)
-for reference data, supported environments and first-run behavior.
+Supply separately modelled candidate receptors for **one peptide and MHC
+background**. `confidence.tsv` contains unique `complex.id`, `iptm` on [0,1] and
+`plddt` on [0,100]; IDs match the structure stems. TCRen reads generator
+confidence from metadata or this table. Annotation is batched internally, and
+`-t 0` selects the allocated CPU budget by default.
 
-For development, use the repository's isolated environment:
+Wheels include five native extensions. [ARDA](https://github.com/antigenomics/arda)
+provides TCR annotation and its first-use reference/search setup; the MHC
+reference is built on demand. The [installation tutorial](https://docs.isalgo.dev/tcren/getting-started.html)
+covers raw structures, input formats and first-run setup.
+
+For peptides threaded onto one fixed template:
 
 ```sh
-bash setup.sh
-source .venv/bin/activate
+tcren score -s template.pdb -c peptides.txt --potential tcren2 -o energies.csv
 ```
 
-## Start with one ranking task
+For separately modelled peptides, use `screen --task epitope`. Its structural
+alanine reference truncates peptide side chains in three dimensions and rebuilds
+contacts before combining the energy difference with ipTM. Fixed-template
+threading and separately modelled poses are different protocols.
 
-```sh
-tcren screen -s models.tar.gz -o scores.tsv
-# Optional table with unique complex.id, iptm and plddt columns:
-tcren screen -s models.tar.gz --confidence confidence.tsv -o scores.tsv
-```
-
-A cohort holds one side fixed:
-
-| Task | Fixed side | Varying side | Structural alanine reference |
-|---|---|---|---|
-| Epitope ranking | receptor | peptide | epitope positions |
-| TCR ranking | pMHC | receptor | contacted CDR residues |
-
-Automatic detection reads the annotated peptide and CDR3 pair. Keep one MHC
-background and verify experimental identities before joining labels. Automatic mode refuses mixed sets or sets where nothing varies; the explicit
-single-model route below declares its task. Missing ipTM is reported; tcren reads it
-from metadata or the confidence table and does not calculate generator confidence.
-
-![Task-matched screening workflow](https://raw.githubusercontent.com/antigenomics/tcren/master/docs/_static/screening-workflow.svg)
-
-The structural reference truncates side chains to alanine in three dimensions,
-retains backbone and Cβ atoms, and rebuilds contacts. It is not a virtual identity
-substitution on a fixed contact map. The selected side follows the ranking task.
-
-## Read the evidence and the score
-
-`screen` reports raw components, standardized contributions, missingness, cohort
-flags and a provenance sidecar containing the frozen-reference identity.
-
-- **Confidence:** the generator's `iptm`.
-- **Enrichment:** all-six-CDR/peptide contact-cycle evidence against frozen mocks.
-- **Energy:** the structural alanine difference on the TCR:peptide interface.
-- **Geometry:** height-field Pearson complementarity, `sc_shape`.
-- **Topology:** three-interface CDR:peptide + peptide:MHC + CDR:MHC graph cycle fraction,
-  `g_recognition_cyclo_frac`; carried for TCR ranking.
-
-TCR ranking uses the frozen confidence-dependent motif score:
+## Read the receptor score
 
 ```text
 S = (1 - 0.41*q - 0.22*(1-q))*ipTM + 0.41*q*B + 0.22*(1-q)*M
 ```
 
-`B` is the recognition graph cycle fraction; `M` is whole-mock-calibrated
-contact enrichment from all six CDR loops and the peptide. `q` is the inclusive
-percentile of the unlabelled cohort mean pLDDT against five frozen reference
-means. Supply generator `plddt` on the 0–100 scale alongside `iptm`. Missing
-values use flagged frozen training imputation. All weights and the score are
-bounded in [0,1]; the score is not a binding probability. The packaged compressed
-mock reference requires no download or fitting at scoring time.
+| Component | Structural meaning |
+|---|---|
+| `ipTM` | Generator interface confidence |
+| `B` | Recognition graph cycle fraction, β₁/E, over CDR:peptide, peptide:MHC and CDR:MHC contacts |
+| `M` | All-six-CDR/peptide local contact-cycle evidence, calibrated against 2,056 whole mock graphs |
+| `q` | Inclusive percentile of unlabelled cohort-mean pLDDT against five frozen reference means |
 
-Cohort-mean confidence remains the default: changing the supplied cohort can
-change its weights. Template status is recorded without choosing a different
-coefficient. Energy and geometry remain diagnostics; epitope ranking and legacy
-custom references retain their existing rules. The preceding two-weight TCR
-reference is retained as `screen_reference_tcr_v44.json` for reproduction.
+The weights are nonnegative and sum to one. Mock histograms and compressed
+whole-control calibration ship with the package; scoring fits no new parameters.
+Missing active values use flagged frozen training imputation. Read `screen_score`,
+component values, weights, missingness and availability reasons together.
 
-Models with zero TCR:peptide contacts remain in output with a discard reason and
-no score. They do not count toward the default floor of 30 models with an
-interface. Smaller cohorts report components alone. Flags report by default.
-`--on-flag` explicitly selects `report`, `structure`, `geometry`, `withhold` or
-`reverse`; responses cannot restore unavailable scores. Reversal is not recommended
-as a correction for modelling failures.
-
-For one model, explicitly select a representative pLDDT context:
+**Cohort mean remains the default.** Models without TCR:peptide contacts retain a
+reason and no combined score; they do not count towards the default 30-model
+floor. For one structure, explicitly select a representative confidence context:
 
 ```sh
 tcren screen -s model.pdb --task tcr --confidence confidence.tsv \
   --confidence-context nearest-plddt --min-cohort 1 -o score.tsv
 ```
 
-Use `nearest-mean-plddt` for a declared small same-pMHC set. These opt-in modes
-select the nearest frozen pLDDT representative and report the observed count and
-distance. They do not estimate a binding probability or replace cohort scoring.
-Missing pLDDT withholds the proxy score. See [confidence contexts](https://docs.isalgo.dev/tcren/motif-confidence.html).
+`nearest-mean-plddt` uses a small same-pMHC set's observed mean. Both alternatives
+report support and distance to the selected frozen representative. See
+[confidence contexts](https://docs.isalgo.dev/tcren/motif-confidence.html).
+Supplied MHC names retain their declared resolution, separately from sequence
+representatives; exact allele identity is not a term in the default score.
 
-The [worked notebook](https://docs.isalgo.dev/tcren/notebooks/confidence_motif_score.html)
-introduces the score on a small reproducible example. The [installation how-to](https://docs.isalgo.dev/tcren/getting-started.html)
-walks through a raw-structure run.
+**Interpretation.** These are structural rankings and measured-endpoint
+associations. Statistical contact energy is not physical binding free energy;
+the combined receptor score is development-selected and is not a calibrated
+binding probability. Representative confidence bins approximate cohort context.
+Keep matched populations, component readouts and every cohort gain or loss visible.
+[Score definitions](https://docs.isalgo.dev/tcren/screening.html) and
+[reference dependencies](https://docs.isalgo.dev/tcren/fit-free.html) give the full contracts.
 
-The [screening guide](https://docs.isalgo.dev/tcren/screening.html) defines every
-component, its units, the combination equations, missingness and output fields.
-The [inspection guide](https://docs.isalgo.dev/tcren/kit.html) explains how to read
-those outputs. Keep MHC class, epitope and template coverage explicit when making
-comparisons. High peptide-ranking accuracy alone does not establish receptor
-specificity across epitopes.
+## Explore an application or reproduce a comparison
 
-## Use the toolkit for a particular quantity
-
-| Need | Entry point |
+| Example | What you can reproduce |
 |---|---|
-| Rank from an existing structural epitope-energy/ipTM table | `tcren rank-epitopes` |
-| Thread candidate peptides on one fixed structure | `tcren score` |
-| Structural alanine difference for candidate poses | `tcren scoring --delta --reference-mode structural` |
-| Structural contacted-CDR reference | `tcren export --quantity receptor-reference --reference-mode structural` |
-| Individual geometry, topology and energy descriptors | `tcren features` |
-| Chain/region annotation and residue contacts | `tcren annotate`, `tcren contacts` |
-| Canonical MHC frame | `tcren superimpose` |
-| pMHC surface relief, charge and hydropathy | `tcren surface` |
-| Pose/confidence diagnostics and matched comparisons | `tcren inspect-models`, `tcren associate` |
-| Trajectory and mechanical readouts | `tcren md`, `tcren mechanics` |
+| [Confidence-motif score notebook](https://github.com/antigenomics/tcren/blob/master/notebooks/confidence_motif_score.ipynb) | Self-contained frozen-score example, components and confidence contexts |
+| [TCRvdb frozen-score reproduction](https://github.com/antigenomics/tcren/blob/master/notebooks/tcrvdb_frozen_score_reproduction.ipynb) | Accepted-score replay and matched comparisons from a supplied retained input bundle |
+| [Contacts and interaction types](https://github.com/antigenomics/tcren/blob/master/notebooks/contact_thresholds_and_bondtypes.ipynb) | Atom/residue contacts and chemical interaction labels |
+| [Canonical molecular figures](https://github.com/antigenomics/tcren/blob/master/notebooks/pymol_canonical_figures.ipynb) | Reusable PyMOL scenes and canonical views |
+| [Surface topology](https://github.com/antigenomics/tcren/blob/master/notebooks/surface_topology.ipynb) | Geometry and receptor-free pMHC surface readouts |
+| [CLI reproduction guide](https://docs.isalgo.dev/tcren/reproduction.html) | Raw coordinates → exported components → matched binary or continuous evaluation |
 
-Fixed-template threading and separately modelled candidates are distinct protocols.
-`features` retains historical fixed-map `dPhi` columns; use the explicit structural
-scoring/export routes above for the current alanine reference. The full
-[API reference](https://docs.isalgo.dev/tcren/modules.html) documents library calls,
-experimental contact layers and supported historical reproduction APIs.
+The TCRvdb input bundle is supplied separately and is not distributed with the
+package. Frozen-feature replay and raw-coordinate reproduction are distinct
+checks. Public structure notebooks document their reference-data prerequisites;
+PyMOL examples additionally need the PyMOL executable. For scientific comparisons,
+pin the installed artifact and reference identities, preserve original labels and
+report exact membership alongside the metrics. [SOURCES](https://github.com/antigenomics/tcren/blob/master/SOURCES)
+records the bundled parameter provenance.
 
-Historical `recognize`, `assess` and fitted Potts readouts retain their dependencies
-and reproduction contracts; they are not the current screen. Withdrawn integral commands remain unavailable; explicitly named experimental
-contact GLMs have separate reproduction contracts. See [reference dependencies](https://docs.isalgo.dev/tcren/fit-free.html)
-and [SOURCES](https://github.com/antigenomics/tcren/blob/master/SOURCES) for parameter provenance and resource identities.
+## Runtime and batching
 
-## Development and verification
+One public 1AO7 structure (4,848 coordinate records), exporting 143 feature
+columns on an Apple M3 Max with one compute CPU and existing annotation
+references, took **7.70 seconds**. The matched pre-optimization observation took
+8.65 seconds; outputs were byte-identical. Each timing is one unprofiled run.
+Sampled process-tree RSS was 1.12 GB after the change and can double-count shared
+pages. [Recorded workload and reference hashes](https://github.com/antigenomics/tcren/blob/master/docs/_static/runtime-1ao7.json)
+make the scope explicit.
+
+Pass a whole cohort in one command. Annotation searches and coarse descriptor
+workers use separate bounded phases; avoid an outer pool of all-core commands.
+Reference acquisition/index construction is separate setup work. See
+[performance](https://docs.isalgo.dev/tcren/performance.html) for CPU budgets,
+measurement and memory guidance; this single-structure example does not estimate
+cohort throughput.
+
+## Documentation and development
+
+- **Learn:** [installation and first run](https://docs.isalgo.dev/tcren/getting-started.html),
+  [worked score notebook](https://docs.isalgo.dev/tcren/notebooks/confidence_motif_score.html).
+- **Do a task:** [ranking](https://docs.isalgo.dev/tcren/ranking.html),
+  [inspection](https://docs.isalgo.dev/tcren/kit.html), [reproduction](https://docs.isalgo.dev/tcren/reproduction.html).
+- **Look up a definition:** [score contract](https://docs.isalgo.dev/tcren/screening.html),
+  [features](https://docs.isalgo.dev/tcren/features.html), [API](https://docs.isalgo.dev/tcren/modules.html).
+- **Understand the evidence:** [reference dependencies](https://docs.isalgo.dev/tcren/fit-free.html),
+  [confidence contexts](https://docs.isalgo.dev/tcren/motif-confidence.html).
 
 ```sh
 ./setup.sh --tests
@@ -166,8 +166,6 @@ source .venv/bin/activate
 make -C docs html SPHINXOPTS=-W
 ```
 
-Use `.venv/bin/python -m pytest -m 'not slow'` for the non-slow suite; scientific
-benchmarks are separate from software checks. Rebuild the editable install after
-native changes. Scientific campaigns, old results and publication figures are
-maintained with the benchmark and manuscript repositories. [CHANGELOG.md](https://github.com/antigenomics/tcren/blob/master/docs/CHANGELOG.md)
-records software changes. The [API skill](https://github.com/antigenomics/tcren/blob/master/skills/tcren/SKILL.md) owns API guidance.
+[Changelog](https://github.com/antigenomics/tcren/blob/master/docs/CHANGELOG.md) ·
+[API skill](https://github.com/antigenomics/tcren/blob/master/skills/tcren/SKILL.md) ·
+[Editable splash source](https://github.com/antigenomics/tcren/blob/master/docs/_static/tcren-splash.tex)

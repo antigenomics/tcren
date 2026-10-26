@@ -51,7 +51,7 @@ Inspect the components
    $ tcren features -s models.tar.gz -i interface,topology,energetics -o features.tsv
    $ tcren contacts -s models.tar.gz --interface tcr_peptide -o contacts.csv
    $ tcren scoring -s models.tar.gz --delta --reference-mode structural -o energies.csv
-   $ tcren export -s models.tar.gz --quantity receptor-reference --reference-mode structural -o receptor.tsv
+   $ tcren export -s models.tar.gz --quantity receptor-reference --reference-mode structural --potential tcren2 -o receptor.tsv
 
 ``features`` provides individual descriptors; its existing ``dPhi`` columns use
 the historical fixed-map route. For the structural epitope alanine difference use

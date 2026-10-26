@@ -1,21 +1,30 @@
-tcren: rank and inspect TCR–pMHC models
-=======================================
+tcren: structure, recognition and ranking
+=========================================
 
-Rank modelled TCR–pMHC complexes and inspect the confidence, contact enrichment
-and topology behind each score. Start with one fixed pMHC and candidate receptors,
-or one fixed receptor and candidate peptides. These are separate ranking tasks.
+TCRen provides two routes from TCR–pMHC structures to experimental comparisons:
+
+* **Statistical contact potentials:** rank candidate epitopes and relate structural
+  readouts to measured affinity, response or kinetic endpoints. Start with
+  :doc:`ranking`; use :doc:`evaluation` for matched experimental comparisons.
+* **Confidence, topology and enrichment:** combine ipTM, recognition graph cycles
+  and mock-calibrated contact enrichment to rank candidate receptors against one
+  fixed pMHC. Evaluate supplied binder/nonbinder or binder/mock labels on the
+  declared population. Start with :doc:`getting-started` and :doc:`screening`.
+
+The inspection toolbox exports contact chemistry, residue contributions, geometry
+and pMHC surfaces. Use :doc:`kit` to interpret a model, :doc:`features` to choose
+an export, and :doc:`gallery` for molecular views.
 
 .. code-block:: console
 
    $ tcren screen -s models.tar.gz --confidence confidence.tsv -o scores.tsv
 
-The default TCR score uses ipTM, recognition graph cycles and mock-calibrated
-contact enrichment. Its weights depend on the unlabelled cohort mean pLDDT.
-Scores are dimensionless ranking readouts, not affinity estimates or binding
-probabilities. See :doc:`screening` for the complete contract.
+The default TCR score's weights depend on the unlabelled cohort mean pLDDT.
+Ranking scores are dimensionless; experimental associations do not calibrate
+them into binding probabilities, affinities or kinetic rates.
 
-.. image:: _static/screening-workflow.svg
-   :alt: Choose the ranking task, calculate components, then check score availability.
+.. image:: _static/tcren-splash-light.svg
+   :alt: Statistical contact potentials and confidence-context receptor ranking share structural diagnostics and evaluation tools.
    :width: 100%
 
 Learn with a worked example

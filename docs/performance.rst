@@ -26,6 +26,10 @@ linear speedup, particularly for a single structure. Canonical orientation,
 shape calculations and raw structural exports have different costs; compare
 like-for-like commands and output quantities.
 
+Buried-surface descriptors use detached chain copies while retaining the same
+SASA calculation. Avoiding parent-hierarchy copies reduces bookkeeping work;
+it does not change the requested structural quantity.
+
 Memory depends on input atom counts, references and active workers. There is no
 fixed workstation-size assumption or universal per-model memory claim. Select
 inputs before loading, keep archives compressed, and avoid retaining duplicate
@@ -37,7 +41,8 @@ Measure the actual workload
 ---------------------------
 
 Record the installed wheel/version, reference identities, exact command, input
-count, CPU allocation, wall time and peak process-tree memory. Sum-of-process
+count and atom counts, hardware/operating system, CPU allocation, wall time and
+peak process-tree memory. Sum-of-process
 RSS can double-count shared pages; label it accordingly. Measure live thread
 counts as well as active compute threads to detect nested oversubscription.
 Compare serial and bounded execution on the same raw input and check exact
@@ -47,6 +52,11 @@ Reference acquisition/index construction is setup work and should be reported
 separately from steady reference-backed scoring. Fresh scientific reproduction
 still rebuilds calculated descriptors from raw sources. A faster frozen-feature
 replay is a different operation and cannot stand in for end-to-end timing.
+
+In each timing receipt, state whether references already existed, count
+failed/withheld rows, and identify the exported feature families. A single public
+structure is useful for checking output identity and a local bottleneck; its
+runtime alone does not establish cohort throughput or multi-CPU scaling.
 
 Use :doc:`reproduction` for complete calculation/provenance boundaries and
 :doc:`getting-started` for reference setup. Timing claims should name the actual
