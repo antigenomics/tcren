@@ -37,12 +37,11 @@ def oriented_contacts(contacts):
     if c.select(reverse.any()).item():
         if "chain.type.to" not in c.columns:
             raise ValueError("Reversed contacts require paired chain.type endpoint columns")
-        fields = [name[:-5] for name in c.columns
-                  if name.endswith(".from") and name[:-5] + ".to" in c.columns]
+        pairs = [(name, name.replace(".from", ".to")) for name in c.columns
+                 if ".from" in name and name.replace(".from", ".to") in c.columns]
         c = c.with_columns(*[
-            pl.when(reverse).then(pl.col(field + "." + other))
-            .otherwise(pl.col(field + "." + side)).alias(field + "." + side)
-            for field in fields for side, other in [("from", "to"), ("to", "from")]])
+            pl.when(reverse).then(pl.col(other)).otherwise(pl.col(side)).alias(side)
+            for left, right in pairs for side, other in [(left, right), (right, left)]])
     return c
 
 

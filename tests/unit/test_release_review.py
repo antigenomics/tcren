@@ -9,7 +9,7 @@ from polars.testing import assert_frame_equal
 
 from test_contact_observations import complex_fixture
 from test_motif_screen import table
-from tcren.contacts.additive import contact_counts
+from tcren.contacts.additive import contact_counts, oriented_contacts
 from tcren.contacts.glm import atom_totals
 from tcren.contacts.observations import contact_observations, select_conformer
 from tcren.screen import CohortKind, bundled_reference, screen_scores
@@ -19,6 +19,8 @@ def test_contact_counts_accept_both_physical_endpoint_orders():
     structure = complex_fixture()
     reverse = contact_observations(structure, interface="tcr_peptide")
     assert reverse["role.from"].unique().to_list() == ["peptide"]
+    oriented = oriented_contacts(reverse)
+    assert oriented["theta.from_rad"].equals(reverse["theta.to_rad"].rename("theta.from_rad"))
     forward_structure = replace(structure, chains=[
         replace(c, chain_id={"T": "A", "P": "Z"}.get(c.chain_id, c.chain_id))
         for c in structure.chains])
