@@ -518,8 +518,13 @@ def screen_scores(
         wi = result["w_I"].to_numpy()
         if override_weight is not None:
             structural_total = wb + wm
-            wb, wm = ((1 - weight) * wb / structural_total,
-                      (1 - weight) * wm / structural_total)
+            if weight == 1.0:
+                wb, wm = np.zeros_like(wb), np.zeros_like(wm)
+            else:
+                if np.any(structural_total == 0):
+                    raise ValueError("Nonzero structural weight requires a defined Betti:motif ratio")
+                wb, wm = ((1 - weight) * wb / structural_total,
+                          (1 - weight) * wm / structural_total)
             wi = np.full(table.height, weight)
         x = table.select(pl.col("iptm", "g_recognition_cyclo_frac", "enrichment")
                          .cast(pl.Float64)).to_numpy()

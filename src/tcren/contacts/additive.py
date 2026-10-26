@@ -26,15 +26,29 @@ FEATURES = (
 WEIGHTS = np.array([0.0] + [m * 10.0**e for e in range(-5, 2) for m in (1, 2, 5)])
 
 
+def oriented_contacts(contacts):
+    """Select peptide contacts and orient every paired endpoint field TCR→peptide."""
+    c = contacts.filter(pl.col("interface") == "tcr_peptide")
+    forward = (pl.col("role.from") == "tcr") & (pl.col("role.to") == "peptide")
+    reverse = (pl.col("role.from") == "peptide") & (pl.col("role.to") == "tcr")
+    if (not c.select((forward | reverse).fill_null(False).all()).item()
+            or c["dist"].null_count() or not c["dist"].is_between(0, 5).all()):
+        raise ValueError("Expected TCR/peptide heavy-atom contacts at 5 Angstrom")
+    if c.select(reverse.any()).item():
+        if "chain.type.to" not in c.columns:
+            raise ValueError("Reversed contacts require paired chain.type endpoint columns")
+        fields = [name[:-5] for name in c.columns
+                  if name.endswith(".from") and name[:-5] + ".to" in c.columns]
+        c = c.with_columns(*[
+            pl.when(reverse).then(pl.col(field + "." + other))
+            .otherwise(pl.col(field + "." + side)).alias(field + "." + side)
+            for field in fields for side, other in [("from", "to"), ("to", "from")]])
+    return c
+
+
 def contact_counts(contacts, ids):
     """Count physical pairs and unique endpoint atoms across either CDR chain."""
-    c = contacts.filter(pl.col("interface") == "tcr_peptide")
-    if c.height and (
-        set(c["role.from"]) != {"tcr"}
-        or set(c["role.to"]) != {"peptide"}
-        or not c["dist"].is_between(0, 5).all()
-    ):
-        raise ValueError("Expected oriented heavy-atom contacts at 5 Angstrom")
+    c = oriented_contacts(contacts)
     keys = ["pdb.id"] + [
         f"{k}.{s}" for s in ("from", "to") for k in ("chain.id", "residue.index", "atom")
     ]
@@ -195,7 +209,7 @@ def command(
         pl.read_parquet(contacts), b.select(pl.col("id").alias("pdb.id"))
     ).rename({"pdb.id": "id"})
     g = (
-        pl.read_csv(topology, separator="\t")
+        pl.read_csv(topology, separator="\t", schema_overrides={"pdb.id": pl.String})
         .filter(pl.col("graph") == "tp_pm_tm")
         .select(
             pl.col("pdb.id").alias("id"),

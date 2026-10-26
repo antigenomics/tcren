@@ -16,7 +16,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
 import typer
 
-from .additive import contact_counts, metrics
+from .additive import contact_counts, metrics, oriented_contacts
 from .profile import digest
 
 COUNTS = ["peptide_atoms", "alpha_atoms", "beta_atoms"]
@@ -24,8 +24,8 @@ COUNTS = ["peptide_atoms", "alpha_atoms", "beta_atoms"]
 
 def atom_totals(contacts, ids):
     """Unique endpoint atoms and unique residue edges across TRA/TRB at 5 Å."""
-    result = contact_counts(contacts, ids).select("pdb.id", "peptide_atoms")
-    c = contacts.filter(pl.col("interface") == "tcr_peptide")
+    c = oriented_contacts(contacts)
+    result = contact_counts(c, ids).select("pdb.id", "peptide_atoms")
     totals = c.group_by("pdb.id").agg(
         *[
             pl.struct("chain.id.from", "residue.index.from", "atom.from")

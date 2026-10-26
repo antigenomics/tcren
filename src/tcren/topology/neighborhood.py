@@ -12,6 +12,7 @@ from ..clashes import BONDI_RADII
 from ..contact_types import classify_contacts, stacked_pairs, _charged, _elem
 from ..contacts.geometry import BACKBONE_ATOMS
 from ..contactmap import ContactMap
+from ..contacts.observations import select_conformer
 
 SEVERE_OVERLAP_A = 0.6
 CHARGE_DISTANCE_A = 4.0
@@ -86,25 +87,31 @@ def neighborhood_counts(atoms: pl.DataFrame, *, stacking=None) -> dict:
     return result
 
 
-def neighborhood_atoms(structure, *, cutoff=5.0) -> pl.DataFrame:
-    """Fresh raw-structure reduction, using all atoms on both complete interfaces."""
+def _neighborhood_context(structure, *, cutoff=5.0):
+    """Select one conformer for both physical contacts and stacking chemistry."""
     if cutoff != 5.0:
         raise ValueError('experimental neighborhood rules use the fixed 5 Angstrom cutoff')
+    structure = select_conformer(structure)
     cm = ContactMap.from_structure(structure, cutoff=cutoff, atom_pairs=True)
     frames = [cm.interface(interface).filter(pl.col('region.type.from')=='CDR3')
               .with_columns(pl.lit(name).alias('interface'))
               for name,interface in [('peptide','tcr_peptide'),('mhc','tcr_mhc')]]
-    return pl.concat(frames)
+    return structure, pl.concat(frames)
+
+
+def neighborhood_atoms(structure, *, cutoff=5.0) -> pl.DataFrame:
+    """Fresh conformer-selected atoms on both complete peptide/MHC interfaces."""
+    return _neighborhood_context(structure, cutoff=cutoff)[1]
 
 
 def neighborhood_features(structure, *, cutoff=5.0) -> dict:
-    atoms = neighborhood_atoms(structure, cutoff=cutoff)
+    structure, atoms = _neighborhood_context(structure, cutoff=cutoff)
     return {'pdb.id':structure.pdb_id, **neighborhood_counts(atoms, stacking=stacked_pairs(structure))}
 
 
 def neighborhood_contacts(structure, *, cutoff=5.0) -> pl.DataFrame:
     """All CDR3 atom witnesses, complete peptide/MHC interfaces, v2 chemistry."""
-    atoms = neighborhood_atoms(structure, cutoff=cutoff)
+    structure, atoms = _neighborhood_context(structure, cutoff=cutoff)
     return classify_contacts(atoms, scheme='v2', stacking=stacked_pairs(structure)).with_columns(
         (~pl.col('atom.from').is_in(BACKBONE_ATOMS)).alias('sidechain.from'))
 

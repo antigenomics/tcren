@@ -143,17 +143,13 @@ def score_saturation(rows: pl.DataFrame, reference: dict) -> tuple[pl.DataFrame,
 
 def residue_saturation(structure) -> pl.DataFrame:
     """Fresh inventory and atom contacts; all CDR3 residues remain in the output."""
-    from dataclasses import replace
-    from .observations import atom_inventory, _residue_atoms
+    from .observations import atom_inventory, select_conformer
     from .geometry import BACKBONE_ATOMS
     from ..contactmap import ContactMap
     from ..exports import residue_identity
     inv = atom_inventory(structure).filter(pl.col('chain.type').is_in(['TRA','TRB']) & (pl.col('region.type')=='CDR3'))
     # Reuse the inventory's conformer policy on both endpoints, retaining whole MHC.
-    selected={c.chain_id:[] for c in structure.chains}
-    for chain,residue,_,_,_,_,_,kept in _residue_atoms(structure):
-        selected[chain.chain_id].append(replace(residue,atoms=tuple(a for _,a in kept)))
-    contact_structure=replace(structure,chains=[replace(c,residues=selected[c.chain_id]) for c in structure.chains])
+    contact_structure = select_conformer(structure)
     cm = ContactMap.from_structure(contact_structure,cutoff=5.,atom_pairs=True)
     hits = pl.concat([cm.interface(name).filter(pl.col('region.type.from')=='CDR3')
         .with_columns(pl.lit(label).alias('interface'))
