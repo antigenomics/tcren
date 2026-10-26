@@ -1,7 +1,7 @@
 """One joint Gaussian per class; every read-out is a projection of it.
 
 The whole model is `(mu_c, Sigma_c)` for c in {non-binder, binder}, estimated once on the
-hold-out in the transformed descriptor space. Everything the author asked for is then a linear
+hold-out in the transformed descriptor space. Each read-out is then a linear
 algebra operation on that one object, with no further fitting:
 
 * **posterior**            `P(1|x) = pi_1 N(x; mu_1, S_1) / sum_c pi_c N(x; mu_c, S_c)`
@@ -14,8 +14,7 @@ algebra operation on that one object, with no further fitting:
 * **one-class anomaly**    `A(x) = sum_{k<K} (u_k'(x - mu_1))^2 / lam_k` over the stiffest binder
   directions -- its moments use binders, while the frozen coordinate transform uses both classes.
 
-**There is no Jacobian in any of this.** The author's note asked to back-transform
-`P(binder|PCA) -> Jacobian * P(binder|descriptors)`. For a POSTERIOR the Jacobian cancels: PCA is
+For a POSTERIOR the Jacobian cancels under an invertible transformation: PCA is
 affine, `|det dz/dx|` is a constant independent of x, and it appears identically in numerator and
 denominator. `P(c|z) == P(c|x)` exactly whenever W is square and invertible, and
 ``tests/unit/test_score.py`` asserts it to 1e-9 rather than taking it on faith. The Jacobian is real for

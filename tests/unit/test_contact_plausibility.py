@@ -1,4 +1,4 @@
-"""Frozen marginal updating and the author's finite penalty menu."""
+"""Frozen marginal updating and the explicit finite penalty menu."""
 import numpy as np
 import polars as pl
 from scipy.stats import t

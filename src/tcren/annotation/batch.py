@@ -70,7 +70,8 @@ def iter_annotated_set(struct_dir: str | Path, on_error: str = "skip", *, thread
             continue
         yield s
 def annotate_structure_set(
-    struct_dir: str | Path, on_error: str = "skip", count_atoms: bool = False
+    struct_dir: str | Path, on_error: str = "skip", count_atoms: bool = False,
+    *, interface: str = "tcr_peptide", threads: int = 1,
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
     """Run the tcren pipeline over a folder of PDBs → ``(contacts, markup)`` tables.
 
@@ -82,6 +83,10 @@ def annotate_structure_set(
     per-call process overhead dominates, so dataset-level batching is far faster than
     per-structure annotation).
 
+    ``interface="tcr_mhc"`` additionally annotates every MHC in one batched
+    search and selects complete directed TCR–MHC contacts with physical chain IDs.
+    ``threads`` controls the existing native searches; no per-structure search pool.
+
     When ``count_atoms`` is set, each contact row carries an ``n_atom_contacts``
     heavy-atom-pair count (needed for atomic-weighted scoring).
     """
@@ -89,11 +94,18 @@ def annotate_structure_set(
     # at the top would close the cycle this module was split out to open. Local, as everywhere else.
     from ..paper.helpers import contact_table  # noqa: PLC0415
 
+    if interface not in {"tcr_peptide", "tcr_mhc", "peptide_mhc"}:
+        raise ValueError("derivation interface must be tcr_peptide, tcr_mhc or peptide_mhc")
+    structures = iter_annotated_set(struct_dir, on_error=on_error, threads=threads)
+    if interface != "tcr_peptide":
+        from ..mhc import annotate_mhc_batch
+        structures = list(structures)
+        annotate_mhc_batch(structures, threads=threads)
     contacts, markup = [], []
-    for s in iter_annotated_set(struct_dir, on_error=on_error):
+    for s in structures:
         pdb_id = s.pdb_id
         try:
-            ct = contact_table(s, count_atoms=count_atoms)
+            ct = contact_table(s, count_atoms=count_atoms, interface=interface)
             if ct.height:
                 contacts.append(ct)
 

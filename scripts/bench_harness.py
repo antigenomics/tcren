@@ -40,8 +40,8 @@ from tcren.ddg import alanine_scan
 from tcren.paths import reference_structure_path
 from tcren.potential import Potential, derive_tcren, derive_tcren_loo
 
-# --- manuscript oracle CSVs (absolute, as supplied by the task) -----------------------
-_ORACLE = Path("/Users/mikesh/vcs/manuscripts/2026-tcren2/data/oracle")
+# --- historical oracle CSVs (relative to the working directory) -----------------------
+_ORACLE = Path("data/oracle")
 N199_CSV = _ORACLE / "plots" / "lj_coul_tcren_mj.csv"
 AS_CSV = _ORACLE / "as" / "total_energy_summary.csv"
 DDG_CSV = _ORACLE / "ddg_direct" / "ddg_direct_deltas.csv"

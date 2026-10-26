@@ -1,86 +1,97 @@
-tcren: rank and inspect TCR–pMHC models
-=======================================
+tcren: structure, recognition and ranking
+=========================================
 
-Start with a cohort of modelled αβ TCR:peptide–MHC complexes. ``tcren screen``
-identifies the ranking task, computes a structural alanine reference on the side
-that varies, and reports generator confidence alongside energy, geometry and topology.
-The frozen task-matched combination is a dimensionless ranking readout.
-It is not an affinity estimate or a calibrated binding probability.
+TCRen provides two routes from TCR–pMHC structures to experimental comparisons:
 
-.. image:: _static/screening-workflow.svg
-   :alt: Cohort input branches into peptide or receptor ranking, followed by structural reference, component reporting and cohort checks.
-   :width: 100%
+* **Statistical contact potentials:** rank candidate epitopes and relate structural
+  readouts to measured affinity, response or kinetic endpoints. Start with
+  :doc:`ranking`; use :doc:`evaluation` for matched experimental comparisons.
+* **Confidence, topology and enrichment:** combine ipTM, recognition graph cycles
+  and mock-calibrated contact enrichment to rank candidate receptors against one
+  fixed pMHC. Evaluate supplied binder/nonbinder or binder/mock labels on the
+  declared population. Start with :doc:`getting-started` and :doc:`screening`.
 
-Start with the ranking task
----------------------------
-
-* **One receptor, candidate peptides:** use ``screen`` for separately modelled
-  candidate complexes, or ``score`` to thread candidates on one fixed template.
-  These are different structural protocols. ``rank-epitopes`` accepts an existing
-  structural-energy/ipTM table for the single-task frozen readout.
-* **One pMHC, candidate receptors:** use ``screen``. Keep ipTM primary and inspect
-  the separate structural components, cohort flags and missingness.
-* **A heterogeneous set or one model:** use ``features``, ``contacts`` or
-  ``scoring`` to inspect its quantities. A set without a fixed side is not a ranking
-  cohort; small cohorts retain components without a combined score.
+The inspection toolbox exports contact chemistry, residue contributions, geometry
+and pMHC surfaces. Use :doc:`kit` to interpret a model, :doc:`features` to choose
+an export, and :doc:`gallery` for molecular views.
 
 .. code-block:: console
 
-   $ tcren screen -s models.tar.gz -o scores.tsv
+   $ tcren screen -s models.tar.gz --confidence confidence.tsv -o scores.tsv
 
-ipTM is supplied by the generator's metadata or ``--confidence``; tcren does not
-compute it. Frozen references ship with the package. No parameter is fitted to a
-query cohort. Models with no TCR:peptide contact remain in output with a discard
-reason and do not count toward the default 30-model floor.
+The default TCR score's weights depend on the unlabelled cohort mean pLDDT.
+Ranking scores are dimensionless; experimental associations do not calibrate
+them into binding probabilities, affinities or kinetic rates.
 
-Read :doc:`getting-started` for installation and input formats, :doc:`screening`
-for the component equations and output contract, and :doc:`kit` for inspection
-and interpretation. :doc:`fit-free` documents estimated reference dependencies
-and distinguishes current scoring from historical fitted readouts.
+.. image:: _static/tcren-splash-light.svg
+   :alt: Statistical contact potentials and confidence-context receptor ranking share structural diagnostics and evaluation tools.
+   :width: 100%
+
+Learn with a worked example
+---------------------------
 
 .. toctree::
-   :maxdepth: 2
-   :caption: Start and rank
+   :maxdepth: 1
+
+   notebooks/confidence_motif_score
+   gallery
+
+Complete a task
+---------------
+
+.. toctree::
+   :maxdepth: 1
 
    getting-started
-   screening
+   reproduction
    ranking
-   kit
+   md-validation
+   performance
+
+Understand the result
+---------------------
 
 .. toctree::
-   :maxdepth: 2
-   :caption: Inspect structures and explain scores
+   :maxdepth: 1
 
+   kit
+   fit-free
+   motif-confidence
+   motif-mixture
+   residue-surprise
+   beyond-the-contact-sum
+   background
+
+Look up definitions and APIs
+----------------------------
+
+.. toctree::
+   :maxdepth: 1
+
+   screening
+   mhc-annotation
    features
    descriptor_table
    potentials
    contact-penalties
    prediction
    associations
-   md-validation
-   beyond-the-contact-sum
-   background
-   gallery
-   performance
+   evaluation
    modules
-
-.. toctree::
-   :maxdepth: 2
-   :caption: Reference dependencies and reproduction
-
-   fit-free
+   cdr3-neighborhood
    ATOM_PATTERN_SPEC
    INVENTORY_PATTERN_SPEC
    CHEMICAL_CORE_SPEC
-   reproduction
+   experimental-ranking
    oracle
    assess
    potts
    reliability
 
 .. toctree::
-   :maxdepth: 1
-   :caption: Tutorials
+   :hidden:
+
+   notebooks/tcrvdb_frozen_score_reproduction
 
    notebooks/complementarity_map_2d
    notebooks/pocket_cdr_3d
@@ -90,9 +101,6 @@ and distinguishes current scoring from historical fitted readouts.
    notebooks/mhc_pseudosequence_mps
    notebooks/example_gil_a02_rs_motif
    notebooks/surface_topology
-
-Indices
--------
 
 * :ref:`genindex`
 * :ref:`modindex`

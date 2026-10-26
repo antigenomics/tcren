@@ -1,0 +1,46 @@
+{
+  "purpose": "Public single-fixture software performance observation, not a scientific evaluation or scaling estimate.",
+  "date": "2026-10-26",
+  "version": "4.4.0",
+  "hardware": {
+    "cpu": "Apple M3 Max",
+    "logical_cpus": 16,
+    "physical_memory_bytes": 51539607552
+  },
+  "fixture": {
+    "path": "tests/assets/pdb/1ao7.pdb",
+    "url": "https://raw.githubusercontent.com/antigenomics/tcren/master/tests/assets/pdb/1ao7.pdb",
+    "sha256": "0502f947f3d825e510c738a54b82aa8d0d03d8803e1bc6fa0dc76cc75ecd75c2",
+    "coordinate_records": 4848,
+    "structures": 1
+  },
+  "command": "tcren features -s tests/assets/pdb/1ao7.pdb -i placement,interface,topology,energetics --radii 7,8 --no-metadata -t 1 -o features.tsv",
+  "cpu_budget": 1,
+  "reference_setup_included": false,
+  "measurements_per_implementation": 1,
+  "before": {
+    "equivalent_public_commit": "432aa0f",
+    "wall_seconds": 8.654177832999267
+  },
+  "after": {
+    "equivalent_public_commit": "dccd8dc",
+    "wall_seconds": 7.70347333396785,
+    "peak_sampled_process_tree_rss_bytes": 1115160576,
+    "peak_sampled_os_threads": 9,
+    "rss_sampling_seconds": 0.05
+  },
+  "output": {
+    "columns": 143,
+    "rows": 1,
+    "byte_identical": true,
+    "sha256": "4aecd20ef9e1843176cbe07b4f3ddf1282fb006dd2bd243a5ce53bf8e6a563ca"
+  },
+  "reference_identities": {
+    "descriptor_registry_sha256": "222b4733759b81c4b26dd8024ae3517732a4875b4a83809168b60eadde96285b",
+    "tcr_human_fasta_sha256": "80288fb956934678442393c82024bf772b9ed6efe74af3fdf235eb62c1c2de5b",
+    "tcr_mouse_fasta_sha256": "2f3ef660ab13124886130131c86f2078c92be679226522acaf2f6eb44093cd41",
+    "mhc_database_sha256": "465a635194c9f589e5de886257fe4767f84101d28c619186bfc2cb7b0edb26ad",
+    "mmseqs_version": "18-8cc5c"
+  },
+  "interpretation": "Single observations include TCRen import, annotation and feature computation with existing references. Summed process RSS may double-count shared pages; OS threads include idle runtime threads. No cohort throughput, scaling or universal speedup is inferred."
+}

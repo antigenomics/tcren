@@ -24,9 +24,12 @@ _CONTACT_COLS = [
 
 def contact_table(
     structure: Structure, cutoff: float = 5.0, count_atoms: bool = False,
-    contact_types: bool = False,
+    contact_types: bool = False, *, interface: str = "tcr_peptide",
 ) -> pl.DataFrame:
     """TCR↔peptide contact table for an annotated structure (the mir-replacement).
+
+    ``interface="tcr_mhc"`` selects directed TCR→complete-MHC contacts, retaining
+    physical chain IDs so class-II alpha/beta edges cannot collapse together.
 
     The structure must already be chain-typed (``classify_chains``) and MHC-annotated
     (``annotate_mhc``). Returns the columns the R benchmarks use:
@@ -41,19 +44,25 @@ def contact_table(
     Without it a cached contact table cannot be typed after the fact — ``atom.from``, ``atom.to``
     and ``dist`` are all dropped here — which is what blocked a type-aware potential derivation.
     """
+    if interface not in {"tcr_peptide", "tcr_mhc", "peptide_mhc"}:
+        raise ValueError("derivation interface must be tcr_peptide, tcr_mhc or peptide_mhc")
     tp = ContactMap.from_structure(
         structure, cutoff=cutoff, count_atoms=count_atoms
-    ).tcr_peptide()
+    ).interface(interface)
     cols = list(_CONTACT_COLS)
+    if interface != "tcr_peptide":
+        cols += ["chain.id.from", "chain.id.to", "chain.type.to", "region.type.to"]
     if count_atoms:
         cols.append("n_atom_contacts")
     out = tp.select(cols).unique()
     if contact_types:
         from ..contact_types import residue_pair_types
-        typed = residue_pair_types(structure, "tcr_peptide", cutoff=cutoff).select(
+        typed = residue_pair_types(structure, interface, cutoff=cutoff).select(
             "chain.id.from", "residue.index.from", "chain.id.to", "residue.index.to",
             "contact.type")
         keys = ["residue.index.from", "residue.index.to"]
+        if interface != "tcr_peptide":
+            keys += ["chain.id.from", "chain.id.to"]
         out = out.join(typed.select(keys + ["contact.type"]).unique(subset=keys),
                        on=keys, how="left")
     return out

@@ -1,0 +1,29 @@
+{
+  "schema": "tcren-confidence-motif-1",
+  "gate": "cohort-plddt",
+  "parameters": {
+    "b": 0.41,
+    "m": 0.22
+  },
+  "imputation": [
+    0.7975785268276251,
+    0.3876522190184367,
+    0.6175799479153883
+  ],
+  "plddt_imputation": 93.32430931590982,
+  "formula": "S=(1-b*q-m*(1-q))*ipTM+b*q*Betti+m*(1-q)*enrichment",
+  "cohort_keys": [
+    "dataset",
+    "stratum",
+    "epitope"
+  ],
+  "rank_confidence": true,
+  "confidence_cdf": [
+    0.9179320394646805,
+    0.92612607434279,
+    0.9299804672775766,
+    0.9312745381105264,
+    0.9497418534263323
+  ],
+  "interpretation": "Frozen development-selected coefficients; cohort confidence uses unlabelled rows. Dimensionless score, not a binding probability."
+}

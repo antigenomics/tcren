@@ -25,7 +25,7 @@ from .potential import Potential
 
 RECEPTOR_REGIONS = {"all": None, "cdr": ("CDR1", "CDR2", "CDR3"),
                     "cdr12": ("CDR1", "CDR2"), "cdr3": ("CDR3",)}
-QUANTITIES = ("receptor-reference", "position", "residue", "contacts", "contact-context", "contact-atoms", "atom-inventory", "placement", "contact-topology", "backbone", "pmhc", "pmhc-cells", "contact-exposure", "surface-contacts")
+QUANTITIES = ("cdr3-neighborhood", "cdr3-contacts", "receptor-reference", "position", "residue", "contacts", "contact-context", "contact-atoms", "atom-inventory", "placement", "contact-topology", "recognition-topology", "recognition-betti", "weighted-recognition-topology", "persistence", "backbone", "pmhc", "pmhc-cells", "contact-exposure", "surface-contacts")
 
 
 def receptor_reference(contact_map: ContactMap, peptide_potential: Potential,
@@ -191,9 +191,85 @@ def contact_topology(contact_map: ContactMap) -> pl.DataFrame:
     return pl.DataFrame(rows)
 
 
+def recognition_betti(contact_map: ContactMap) -> pl.DataFrame:
+    """Raw complex cycle fraction, keeping receptor-contact availability separate."""
+    from .topology.graph import recognition_graph_features
+    row = recognition_graph_features(contact_map)
+    edges = row["g_recognition_edges"]
+    row["complex_cyclo_frac"] = row["g_recognition_beta1"] / edges if edges else float("nan")
+    row["receptor_contacts_available"] = bool(np.isfinite(row["g_recognition_cyclo_frac"]))
+    return pl.DataFrame([row])
+
+
+def _recognition_graphs(structure, contact_map, *, cutoff=5.0):
+    """Shared physical edge ladder; preserve the released graph definitions."""
+    from .contacts.geometry import all_atom_contacts
+    from .structure.model import Structure
+    from .topology.graph import _recognition_contact_edges
+
+    # Reuse the native contact search on peptide atoms only. No sequence-distance
+    # exclusion: adjacent residues qualify only through side-chain heavy atoms.
+    internal = all_atom_contacts(Structure("peptide", structure.by_type("PEPTIDE")),
+                                 cutoff=cutoff, scope="intra", sidechain=True)
+    internal = internal.filter(pl.col("n_sc_pairs") > 0)
+    peptide_contacts = {tuple(sorted(((a, int(i)), (b, int(j)))))
+                        for a, i, b, j in internal.select(
+                            "chain.id.from", "residue.index.from",
+                            "chain.id.to", "residue.index.to").iter_rows()}
+
+    parts = _recognition_contact_edges(contact_map)
+    sequence = set()
+    missing = 0
+    for chain in structure.by_type("PEPTIDE"):
+        for left, right in zip(chain.residues, chain.residues[1:]):
+            c = next((a.coord for a in left.atoms if a.name == "C"), None)
+            n = next((a.coord for a in right.atoms if a.name == "N"), None)
+            if (right.seq_index != left.seq_index + 1 or c is None or n is None
+                    or not 0 < np.linalg.norm(c-n) <= 1.8):
+                missing += 1
+                continue
+            sequence.add(tuple(sorted(((chain.chain_id, left.seq_index),
+                                       (chain.chain_id, right.seq_index)))))
+    tp, tm, pm = (parts[n] for n in ("tcr_peptide", "tcr_mhc", "peptide_mhc"))
+    graphs = (("released", tp | tm), ("tp_pm", tp | pm),
+                        ("tp_pm_sequence", tp | pm | sequence),
+                        ("tp_pm_sequence_tm", tp | pm | sequence | tm),
+                        ("tp_pm_sidechain", tp | pm | peptide_contacts),
+                        ("tp_pm_sidechain_tm", tp | pm | peptide_contacts | tm),
+                        ("tp_pm_tm", tp | pm | tm))
+    return graphs, parts, sequence, peptide_contacts, missing
+
+
+def recognition_topology(structure, contact_map: ContactMap, *, cutoff: float = 5.0) -> pl.DataFrame:
+    """Fixed exploratory graph ladder; beta1/E is redundancy, not rupture energy.
+
+    Peptide sequence edges connect consecutive observed residues only when their
+    backbone C--N distance is <=1.8 Angstrom. Missing atoms/breaks remain explicit.
+    All nodes have physical chain/index keys. No TCR or MHC backbone edges.
+    """
+    from .topology.graph import _clique_homology, _contact_graph_counts
+
+    graphs, parts, sequence, peptide_contacts, missing = _recognition_graphs(
+        structure, contact_map, cutoff=cutoff)
+    tp, tm, pm = (parts[n] for n in ("tcr_peptide", "tcr_mhc", "peptide_mhc"))
+    rows = []
+    for name, edges in graphs:
+        e, v, components, beta1 = _contact_graph_counts(edges)
+        homology = _clique_homology(edges, beta1)
+        rows.append(dict(graph=name, vertices=v, edges=e, beta0=components,
+                         beta1=beta1, cyclo_frac=beta1/e if e else None,
+                         tcr_peptide_edges=len(tp), tcr_mhc_edges=len(tm),
+                         peptide_mhc_edges=len(pm), sequence_edges=len(sequence),
+                         peptide_sidechain_edges=len(peptide_contacts),
+                         sequence_breaks=missing, available=bool(tp or tm), **homology))
+    return pl.DataFrame(rows)
+
+
 def export_structure(structure, quantity: str, peptide_potential: Potential,
                      mhc_potential: Potential, *, cutoff: float = 5.0,
-                     interface: str = "tcr_peptide", reference_mode: str = "virtual") -> pl.DataFrame:
+                     interface: str = "tcr_peptide", reference_mode: str = "virtual",
+                     pmhc_potential: Potential | None = None,
+                     graph_weighting="positive", graph_beta=1.0) -> pl.DataFrame:
     """Export one annotated structure using the exact existing scientific APIs."""
     from .energetics.scoring import position_profile
     from .viz.pymol import residue_importance
@@ -238,9 +314,27 @@ def export_structure(structure, quantity: str, peptide_potential: Potential,
     if quantity == "contact-atoms":
         from .contacts.observations import contact_observations
         return contact_observations(structure, cutoff=cutoff, interface=interface)
+    if quantity == "cdr3-contacts":
+        from .topology.neighborhood import neighborhood_contacts
+        return neighborhood_contacts(structure, cutoff=cutoff)
+    if quantity == "cdr3-neighborhood":
+        from .topology.neighborhood import neighborhood_features
+        return pl.DataFrame([neighborhood_features(structure, cutoff=cutoff)])
     cm = ContactMap.from_structure(structure, cutoff=cutoff)
     if quantity == "contact-topology":
         return contact_topology(cm)
+    if quantity == "recognition-betti":
+        return recognition_betti(cm)
+    if quantity == "recognition-topology":
+        return recognition_topology(structure, cm, cutoff=cutoff)
+    if quantity == "weighted-recognition-topology":
+        from .topology.weighted import weighted_graph_features
+        return weighted_graph_features(structure, cm, cutoff=cutoff,
+            peptide_potential=peptide_potential, mhc_potential=mhc_potential,
+            pmhc_potential=pmhc_potential, weighting=graph_weighting, beta=graph_beta)
+    if quantity == "persistence":
+        from .topology.persistence import persistence_features
+        return pl.DataFrame([persistence_features(structure, contact_map=cm)])
     potential = peptide_potential if interface == "tcr_peptide" else mhc_potential
     if quantity == "receptor-reference":
         return pl.DataFrame([receptor_reference(cm, peptide_potential, mhc_potential,
@@ -315,7 +409,8 @@ from .runtime import resolve_threads, single_threaded
 def export_batch(sources, output, *, quantity, peptide_potential, mhc_potential,
                  cutoff=5.0, interface="tcr_peptide", organisms=("human", "mouse"), threads=1,
                  command="tcren export", reference_mode="virtual", register_reference_id=None,
-                 register_p1=None, peptide_selection=None):
+                 register_p1=None, peptide_selection=None, pmhc_potential=None,
+                 graph_weighting="positive", graph_beta=1.0):
     """Write exact tables plus complete per-input accounting and residue assignments.
 
     Inputs are files, directories, tar archives, globs or text manifests. Errors remain in the
@@ -346,7 +441,7 @@ def export_batch(sources, output, *, quantity, peptide_potential, mhc_potential,
     if not organisms or set(organisms) - {"human", "mouse"}:
         raise ValueError("positive threads and human/mouse organisms are required")
     if (quantity not in QUANTITIES or interface not in {"tcr_peptide", "tcr_mhc", "peptide_mhc", "all"}
-            or (interface == "all" and quantity not in {"contact-atoms", "atom-inventory"})):
+            or (interface == "all" and quantity not in {"contact-atoms", "atom-inventory", "cdr3-neighborhood", "cdr3-contacts"})):
         raise ValueError("invalid export quantity or interface")
     if not math.isfinite(cutoff) or cutoff <= 0:
         raise ValueError("cutoff must be finite and positive")
@@ -389,6 +484,10 @@ def export_batch(sources, output, *, quantity, peptide_potential, mhc_potential,
             parse_one(path, ids[str(path)], str(path))
     if len({row["pdb.id"] for row in accounting}) != len(accounting):
         raise ValueError("duplicate structure IDs in export inputs or archive members")
+    if quantity == "weighted-recognition-topology":
+        from .potential import mj, tcren2
+        peptide_potential = peptide_potential if peptide_potential is not None else tcren2()
+        mhc_potential = mhc_potential if mhc_potential is not None else mj()
     lineage, registers = {}, []
     if register_reference_id is not None and register_reference_id not in {s.pdb_id for s, _ in parsed}:
         raise ValueError("register reference must be included in the same input batch")
@@ -433,7 +532,8 @@ def export_batch(sources, output, *, quantity, peptide_potential, mhc_potential,
                     else:
                         table = export_structure(structure, quantity, peptide_potential, mhc_potential,
                                                  cutoff=cutoff, interface=interface,
-                                                 reference_mode=reference_mode)
+                                                 reference_mode=reference_mode, pmhc_potential=pmhc_potential,
+                                                 graph_weighting=graph_weighting, graph_beta=graph_beta)
                     if "pdb.id" not in table.columns:
                         table = table.with_columns(pl.lit(structure.pdb_id).alias("pdb.id"))
                     tables.append(table)
@@ -467,7 +567,7 @@ def export_batch(sources, output, *, quantity, peptide_potential, mhc_potential,
         (pl.concat(registers) if registers else pl.DataFrame(schema={"pdb.id": pl.String})).write_csv(
             str(output) + ".registers.tsv", separator="\t")
     potentials = {}
-    for label, potential in (() if quantity in {"pmhc", "pmhc-cells", "contact-topology", "backbone", "contact-atoms", "atom-inventory", "contact-exposure", "surface-contacts"} else (("peptide", peptide_potential), ("mhc", mhc_potential))):
+    for label, potential in (() if quantity in {"pmhc", "pmhc-cells", "contact-topology", "recognition-topology", "recognition-betti", "cdr3-neighborhood", "cdr3-contacts", "persistence", "backbone", "contact-atoms", "atom-inventory", "contact-exposure", "surface-contacts"} else (("peptide", peptide_potential), ("mhc", mhc_potential))):
         path = Path(str(output) + f".{label}.potential.tsv")
         potential.matrix.write_csv(path, separator="\t")
         potentials[label] = {"name": potential.name, "sha256": _sha256(path),
@@ -475,6 +575,12 @@ def export_batch(sources, output, *, quantity, peptide_potential, mhc_potential,
                                        else "dimensionless MJ table scale" if potential.name == "MJ"
                                        else "input table units (not declared by Potential)"),
                              "thermodynamic_calibration": "none; not kcal/mol"}
+    if pmhc_potential is not None and quantity == "weighted-recognition-topology":
+        path = Path(str(output) + ".pmhc.potential.tsv")
+        pmhc_potential.matrix.write_csv(path, separator="\t")
+        potentials["pmhc"] = {"name": pmhc_potential.name, "sha256": _sha256(path),
+                              "units": "input table units; see supplied derivation",
+                              "thermodynamic_calibration": "none; not kcal/mol"}
     succeeded = sum(row["status"] == "ok" for row in accounting)
     from importlib.resources import files
     manifest_text = files("tcren.data").joinpath("potentials.json").read_text()
@@ -485,12 +591,25 @@ def export_batch(sources, output, *, quantity, peptide_potential, mhc_potential,
         "custom_potential_derivation": "not inferred; supplied matrix is exported and hashed",
         "n_input": len(accounting), "n_ok": succeeded,
         "n_error": len(accounting) - succeeded, "sources": [str(p) for p in paths],
+        "weighted_topology": ({"goodness": "exp(-beta*energy)" if graph_weighting == "boltzmann" else "max(-energy,0)",
+                              "weighting": graph_weighting, "beta": graph_beta,
+                              "orientation": ("TCR to peptide; TCR to MHC; peptide to MHC" if pmhc_potential is not None
+                                              else "TCR/MHC to peptide; TCR to MHC"),
+                              "per_vertex": "E/V and W/V; bounded E/(E+V), W/(W+V); V incident residues",
+                              "missing": "edge retained, weighted descriptors withheld",
+                              "internal_peptide": "unweighted; missing_weight incremented"}
+                             if quantity == "weighted-recognition-topology" else None),
+        "persistence": ({"backend": "gudhi", "field": "GF(2)", "max_edge_A": 12.,
+                         "skeleton": 2, "atoms": "CA and CB; Gly CA fallback",
+                         "censoring": "finite bars only; infinite counts retained"}
+                        if quantity == "persistence" else None),
         "reference_semantics": ("directed conserved surface allocation; intact target; separate endpoint areas; no score" if quantity == "surface-contacts"
                                 else "atom SASA in isolated binder/intact pMHC/bound complex; unchanged coordinates; no energy" if quantity == "contact-exposure"
                                 else "selected observed heavy atoms across full protein components; zero-contact atoms retained; no energy" if quantity == "atom-inventory"
                                 else "observed heavy-atom pairs; no energy or fitted model" if quantity == "contact-atoms"
+                                else "all heavy-atom CDR3 peptide and complete MHC contacts; fixed v2 chemistry, Bondi overlaps, separate interfaces; no fitted potential" if quantity in {"cdr3-neighborhood", "cdr3-contacts"}
                                 else "intrinsic C-alpha geometry; not a strain score" if quantity == "backbone"
-                                else "separate residue-contact graphs; CDR-only receptor; no fitted score" if quantity == "contact-topology"
+                                else "separate residue-contact graphs; CDR-only receptor; no fitted score" if quantity in {"contact-topology", "recognition-topology", "recognition-betti"}
                                 else "pMHC only; supplied conformation; no potential or receptor coordinates" if quantity in {"pmhc", "pmhc-cells"}
                                 else "structural alanine truncation; contacts rebuilt" if reference_mode == "structural"
                                 else "virtual receptor identities on unchanged contact map"),

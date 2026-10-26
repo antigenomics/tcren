@@ -1,6 +1,37 @@
 Figure gallery
 ==============
 
+Notebook prerequisites
+----------------------
+
+Use a kernel from the installed TCRen environment with the ``notebooks`` extra.
+Public structure examples require ``tcren fetch-data`` and annotation references
+(``tcren build-mhc-ref`` plus ARDA's first-use setup). Dataset paths resolve
+through ``tcren.paths`` and honour ``TCREN_HOME``/``TCREN_DATA_DIR``; they do not
+require the source checkout as the working directory. PyMOL examples additionally
+require the optional PyMOL executable.
+
+The TCRvdb frozen-score replay is an optional supplied-data reproduction: its
+retained input bundle is not distributed with the package. Start with the
+self-contained confidence-motif example when those inputs are unavailable.
+
+TTD contact exploration
+-----------------------
+
+Inspect atomic/residue contacts, chemical types, potential contributions,
+structural alanine contrasts and frozen all-six-CDR local enrichment for a
+supplied TTDPSFLGRY TCR–pMHC model. This parameterized tutorial requires an
+authorized coordinate file; it does not distribute one. Optional recorded
+cohort scores and an explicitly selected singleton context remain separate.
+
+.. toctree::
+   :maxdepth: 1
+
+   notebooks/ttd_contact_exploration
+
+Molecular views
+---------------
+
 Every panel below is one call to :func:`tcren.viz.pymol.render` on a scene from the same module,
 ray-traced by a headless PyMOL. They are library functions rather than notebook snippets, so a
 figure in a paper, in a notebook and in a script are the same figure.

@@ -71,9 +71,17 @@ def read_metadata(structures: str | Path) -> pl.DataFrame | None:
     f = find_metadata(structures)
     if f is None:
         return None
-    t = pl.read_csv(f, separator="\t", infer_schema_length=None)
+    t = pl.read_csv(f, separator="\t", infer_schema_length=None,
+                    schema_overrides={"id": pl.String, "complex.id": pl.String})
+    if "id" in t.columns and "complex.id" in t.columns:
+        if t.filter(pl.col("id").ne_missing(pl.col("complex.id"))).height:
+            raise ValueError(f"{f} has conflicting id and complex.id columns")
+    if "id" not in t.columns and "complex.id" in t.columns:
+        t = t.rename({"complex.id": "id"})
     if "id" not in t.columns:
         raise ValueError(f"{f} has no 'id' column; it cannot be joined to a feature table")
+    if t["id"].null_count():
+        raise ValueError(f"{f} has null ids; the join key must be present")
     if t["id"].n_unique() != t.height:
         raise ValueError(f"{f} has duplicate ids; the join key must be unique")
     return t

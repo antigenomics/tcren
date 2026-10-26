@@ -4,8 +4,8 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "tcren"
-version = "4.3.2"
-description = "Structure-based prediction of TCR recognition of epitopes via residue-level statistical potentials"
+version = "4.4.0"
+description = "TCR-pMHC ranking with contact potentials, interface confidence and contact enrichment"
 readme = "docs/README.md"
 requires-python = ">=3.10"
 license = { text = "GPL-3.0-or-later" }
@@ -36,6 +36,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+topology = ["gudhi>=3.10,<4"]
 # pillow is listed explicitly even though matplotlib already pulls it in: viz.pymol.composite
 # imports it directly, and a dependency that is satisfied only through another package's
 # transitive tree is one upstream change away from disappearing.
@@ -81,7 +82,8 @@ sdist.include = ["/docs/README.md"]
 sdist.exclude = [
     "/notebooks", "/tests", "/docs", "/data", "/assets", "/scripts", "/skills",
     "/.github", "/setup.sh", "/STATUS.md", "/BENCHMARKS.md",
-    "/appendix", "/.claude", "/.DS_Store", "/attic", "/audit", "/AUDIT.md",
+    "/appendix", "/.claude", "/.codex", "/.agents", "/.DS_Store",
+    "/attic", "/archive", "/audit", "/*.md",
 ]
 # The ext is built once at install; do NOT rebuild on import (that needs cmake on PATH at
 # import time and breaks under pytest / CI where the build-env cmake is gone). Re-run

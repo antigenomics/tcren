@@ -42,12 +42,100 @@ import polars as pl
 from ..contactmap import ContactMap
 from ..structure.model import MHC_TYPES, PEPTIDE_TYPE, Structure
 
+
+def _recognition_contact_edges(contact_map: ContactMap) -> dict[str, set]:
+    """Physical residue edges; TCR endpoints are restricted to CDR1/2/3."""
+    parts = {}
+    for name in ("tcr_peptide", "tcr_mhc", "peptide_mhc"):
+        frame = contact_map.interface(name)
+        if name.startswith("tcr_"):
+            frame = frame.filter(pl.col("region.type.from").is_in(["CDR1", "CDR2", "CDR3"]))
+        parts[name] = {tuple(sorted(((a, int(i)), (b, int(j)))))
+                       for a, i, b, j in frame.select(
+                           "chain.id.from", "residue.index.from",
+                           "chain.id.to", "residue.index.to").iter_rows()}
+    return parts
+
+
+def _contact_graph_counts(edges: set) -> tuple[int, int, int, int]:
+    """E, incident V, component count and graph beta1 for a simple contact graph."""
+    from scipy.sparse import coo_matrix
+    from scipy.sparse.csgraph import connected_components
+    vertices = sorted({v for edge in edges for v in edge})
+    e, v = len(edges), len(vertices)
+    if not e:
+        return 0, 0, 0, 0
+    index = {key: i for i, key in enumerate(vertices)}
+    pairs = np.array([(index[a], index[b]) for a, b in sorted(edges)])
+    graph = coo_matrix((np.ones(e), (pairs[:, 0], pairs[:, 1])), shape=(v, v))
+    c = int(connected_components(graph, directed=False, return_labels=False))
+    return e, v, c, e-v+c
+
+
+def recognition_graph_features(contact_map: ContactMap) -> dict[str, float]:
+    """CDR:peptide + peptide:MHC + CDR:MHC cycle redundancy, with no internal edges.
+
+    ContactMap owns the heavy-atom cutoff (5 Angstrom for screen). Empty graphs
+    or graphs without receptor contacts have no supported recognition fraction.
+    """
+    parts = _recognition_contact_edges(contact_map)
+    e, v, c, b = _contact_graph_counts(set().union(*parts.values()))
+    available = bool(parts["tcr_peptide"] or parts["tcr_mhc"])
+    return dict(g_recognition_edges=e, g_recognition_vertices=v, g_recognition_components=c,
+                g_recognition_beta1=b, g_recognition_cyclo_frac=b/e if e and available else float("nan"))
+
+
+def _clique_homology(edges: set, graph_beta1: int) -> dict[str, int]:
+    """Exact H1/H2 over GF(2), including all tetrahedral boundaries.
+
+    Input is a simple undirected graph with canonical sorted endpoint pairs;
+    graph_beta1 is E-V+C on its incident vertices. Higher simplices cannot
+    change H1/H2. Reuses the footprint's vectorized GF(2) elimination.
+    """
+    from itertools import combinations
+    from .footprint import _gf2_rank
+
+    ordered = sorted(edges)
+    forward = {}
+    for a, b in ordered:
+        if a >= b:
+            raise ValueError("clique edges must have distinct, sorted endpoints")
+        forward.setdefault(a, set()).add(b)
+        forward.setdefault(b, set())
+    triangles = [(a, b, c) for a, b in ordered
+                 for c in sorted(forward[a] & forward[b])]
+    tetrahedra = [(a, b, c, d) for a, b, c in triangles
+                  for d in sorted(forward[a] & forward[b] & forward[c])]
+
+    def boundary_rank(simplices, faces):
+        if not simplices:
+            return 0
+        # One uint8 boundary matrix at a time; fail before a large allocation.
+        # ponytail: dense elimination, use sparse native reduction if this cap is reached.
+        if len(simplices) * len(faces) > 64_000_000:
+            raise ValueError("clique boundary exceeds 64 MB; sparse reduction required")
+        indices = {face: i for i, face in enumerate(faces)}
+        boundary = np.zeros((len(simplices), len(faces)), dtype=np.uint8)
+        for i, simplex in enumerate(simplices):
+            boundary[i, [indices[face] for face in combinations(simplex, len(simplex)-1)]] = 1
+        return _gf2_rank(boundary)
+
+    rank2 = boundary_rank(triangles, ordered)
+    rank3 = boundary_rank(tetrahedra, triangles)
+    b1, b2 = graph_beta1-rank2, len(triangles)-rank2-rank3
+    if b1 < 0 or b2 < 0:
+        raise ValueError("invalid clique homology ranks or graph cycle count")
+    return dict(simplicial_beta1=b1, simplicial_beta2=b2,
+                triangles=len(triangles), tetrahedra=len(tetrahedra),
+                boundary2_rank=rank2, boundary3_rank=rank3)
+
 __all__ = [
     "GRAPH_FEATURES",
     "MATRIX_FEATURES",
     "MHC_HELIX_REGIONS",
     "PROMOTED_POSE_FEATURES",
     "graph_features",
+    "recognition_graph_features",
     "matrix_features",
 ]
 
@@ -273,7 +361,7 @@ def _promoted_degree(structure: Structure, cutoff: float) -> dict[str, float]:
 #     ca_cb_agreement_tm   rho -0.354    83.5%
 #     m_erank_tp           rho -0.518    73.1%
 #
-# The peptide-facing spectral columns carry length, and the mechanism is the author's (2026-09-01):
+# The peptide-facing spectral columns carry length:
 # in class I the groove is closed at both ends, so a longer peptide must BULGE, and a bulged peptide
 # sits closer to the receptor and presents more independent approach modes. That is a real property
 # an end user asks about -- is this a bulged epitope -- not an artefact to normalise away. It is

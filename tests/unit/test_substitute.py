@@ -69,3 +69,43 @@ def test_length_mismatch_and_bad_aa_raise():
         substitute_peptide(s, "AGX")
     with pytest.raises(ValueError, match="no PEPTIDE chain"):
         substitute_peptide(Structure("x", [Chain("A", [], chain_type="TRA")]), "AAA")
+
+
+def test_substitution_cli_batches_annotation_and_matches_api(tmp_path, monkeypatch):
+    from typer.testing import CliRunner
+    from tcren.cli import app
+    from tcren.structure.io import parse_structure, write_structure
+    import polars as pl
+    calls=[]
+    base=_structure()
+    raw=tmp_path/'template.pdb';raw.write_text('raw fixture')
+    monkeypatch.setattr('tcren.structure.io.iter_structures',lambda *a,**kw:iter([('test',base)]))
+    monkeypatch.setattr('tcren.annotation.batch.annotate_batch',lambda ss,**kw:(calls.append(len(ss)) or [{} for _ in ss]))
+    monkeypatch.setattr('tcren.annotation.classify_chains',lambda *a,**kw:None)
+    variants=tmp_path/'variants.tsv'
+    variants.write_text('template\tid\tpeptide\ntest\tv1\tAAA\ntest\tv2\tGGG\n')
+    out=tmp_path/'out'
+    result=CliRunner().invoke(app,['substitute-peptides','-s',str(raw),'--variants',str(variants),'-o',str(out),'-t','1'])
+    assert result.exit_code==0,result.output
+    assert calls==[1]
+    assert pl.read_csv(out/'accounting.tsv',separator='\t').height==2
+    expected=substitute_peptide(base,'AAA');expected.pdb_id='v1'
+    expected_path=tmp_path/'expected.cif';write_structure(expected,expected_path)
+    assert (out/'v1.cif').read_bytes()==expected_path.read_bytes()
+    assert parse_structure(out/'v2.cif').chain('C').sequence()=='GGG'
+    variants.write_text('template\tid\tpeptide\ntest\t../bad\tAAA\n')
+    result=CliRunner().invoke(app,['substitute-peptides','-s',str(raw),'--variants',str(variants),'-o',str(tmp_path/'bad')])
+    assert result.exit_code!=0 and not (tmp_path/'bad').exists()
+
+
+def test_substitution_cli_rejects_unknown_template_and_duplicate_ids(tmp_path, monkeypatch):
+    from typer.testing import CliRunner
+    from tcren.cli import app
+    raw=tmp_path/'template.pdb';raw.write_text('raw fixture')
+    monkeypatch.setattr('tcren.structure.io.iter_structures',lambda *a,**kw:iter([('test',_structure())]))
+    variants=tmp_path/'variants.tsv'
+    for index,body in enumerate(['missing\tv1\tAAA\n','test\tv1\tAAA\ntest\tv1\tGGG\n','test\tv1\tAXA\n']):
+        variants.write_text('template\tid\tpeptide\n'+body)
+        out=tmp_path/f'bad{index}'
+        result=CliRunner().invoke(app,['substitute-peptides','-s',str(raw),'--variants',str(variants),'-o',str(out)])
+        assert result.exit_code!=0 and not out.exists()

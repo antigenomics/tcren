@@ -3,6 +3,72 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
+## [4.4.0] — 2026-10-26
+
+### Added
+
+- Explicit nearest-pLDDT representative contexts for individual structures and
+  small same-pMHC sets; cohort-mean context and its default floor remain unchanged.
+- Supplied MHC metadata retains its declared resolution, separately from sequence
+  representatives, support and search-list truncation. Exact allele identity is
+  not required by the default score.
+- Matched evaluation, descriptive diagnostics and explicit historical reproduction
+  commands own scientific calculations previously performed by external scripts.
+  Specialized R-based protocols declare their optional runtime requirements.
+- Batched peptide substitution and source-backed modified-residue restoration
+  expose existing coordinate operations through the CLI.
+
+- Experimental all-six-CDR/epitope `residue-surprise-*` and `motif-fisher`
+  commands retain all eligible negative controls, count covalent-residue contact
+  cycles, and calibrate Fisher motif sums against whole control graphs.
+  `recognition-betti`, `motif-mixture-fit` and `motif-mixture-score` expose a
+  nonnegative ipTM/complex-Betti/enrichment weighted sum and explicit grouped
+  held-out tables. Global fits need no folds; `motif-mixture-fit-cohorts` fits
+  independent triplets by dataset/template status. `motif-mixture-diagnose`
+  separates within-fold rankings from coefficient-induced score shifts.
+  `motif-confidence-*` add simple confidence-dependent proportions, frozen score
+  replay and complete comparisons; `motif-residue-audit` maps contact evidence
+  and recorded V-alignment boundaries. The selected frozen rule now owns TCR screening.
+
+- Experimental `contact-engagement-evaluate` for grouped held-out contact
+  additions to a fixed ipTM/Betti baseline: empirical residue-type tails,
+  endpoint likelihoods, conditional logistic and smooth-AP objectives, and
+  training-only score-scale mapping. Full comparisons and parameters remain
+  separate from screening defaults.
+- Experimental `saturation-export` and `saturation-score` commands for CDR3
+  side-chain atom completeness, native full-contact frequencies and conditional
+  binomial surprisal. Raw bits, bounded summaries and residue contributions stay
+  separate from screening defaults; missing atoms and native overlap are explicit.
+
+### Changed
+
+- Screening reuses its annotated batch instead of repeating TCR/MHC searches;
+  its default CPU budget is now all allocated CPUs (`-t 0`).
+- Buried-surface descriptors copy detached chain subtrees instead of their parent
+  hierarchy, reducing calculation overhead while preserving descriptor values.
+- Ranking documentation separates worked examples, task guides, definitions and
+  interpretation. Historical development notes and local maintenance tools are
+  archived outside the public package.
+
+- TCR screening now combines ipTM, recognition beta1/E and all-loop contact
+  enrichment with frozen coefficients 0.41/0.22 and the empirical percentile of
+  unlabelled cohort-mean pLDDT. Bundled mock histograms and compressed whole-control
+  calibration values avoid score-time fitting or downloads. Missing values use
+  flagged frozen training imputation. Cohort composition determines weights.
+- Template context remains explicit but does not select different default
+  coefficients. The preceding two-weight reference is preserved as
+  `screen_reference_tcr_v44.json`; the 4.3 reference remains available.
+- Epitope scoring, zero-contact discard, cohort floor and reporting-only flags
+  keep their established behavior. New topology diagnostic standardization is
+  identity; confidence, energy and geometry reference moments are preserved.
+
+### Fixed
+
+- Historical candidate lookup preserves numeric-looking structure identifiers and
+  leading zeros across CSV, compressed TSV and Parquet inputs.
+- Contact summaries retain zero-contact models when the entire contact TSV is
+  header-only; numeric empty columns no longer inherit CSV string types.
+
 ## [4.3.2] — 2026-10-24
 
 ### Added
@@ -150,7 +216,6 @@ All notable changes to `tcren` are recorded here. Format follows
   component and 0.823253 for ipTM alone. No TCR-ranking score is shipped: no combination of the
   available components beats ipTM there on a pooled aggregate.
 
-
 - `atom-inventory` export and `contact-class-audit`: complete selected protein
   heavy-atom context, class-exclusive/shared residue and atom contact sets,
   composition-opportunity denominators, equal-complex/case summaries and
@@ -177,7 +242,6 @@ All notable changes to `tcren` are recorded here. Format follows
   potentials, and migrate angular priors to contact-marginals-2.
 - Optional frozen native opportunity-stratum reference partitions for geometry
   increments, with source/version/class checks and unchanged original scores.
-
 
 - Multiplicity-conditioned native/external reference ranks and frozen weighted
   TCRen, with unchanged matrix baselines, bounded scoring and signed cohort diagnostics.
@@ -479,7 +543,6 @@ All notable changes to `tcren` are recorded here. Format follows
   cosine correlates with the real one at Pearson **0.81** and keeps ROC-AUC 0.68–0.79. Glycine is
   not a special case — this is where a Cβ *would* sit, so there is no missing value to encode.
 
-
 - **Where `g_orient` pays is a crystal, not a drawn geometry.** Held out by structure over 24
   crystals, read on the complex's **own** Cα the map improves on both placement and discrimination —
   Jensen–Shannon similarity **0.7052 → 0.7290** and contact ROC-AUC **0.9599 → 0.9691**, with the
@@ -492,7 +555,6 @@ All notable changes to `tcren` are recorded here. Format follows
   that a drawn backbone carries the *population's* typical orientation rather than this receptor's:
   `cos_cb` is a deterministic function of the Cα trace, so it can only be as receptor-specific as
   the trace is. Use it when you hold coordinates.
-
 
 - **`tcren potts predict --chain-prior`**, plus `--geometry-draws` and `--beta`.
 
@@ -597,7 +659,6 @@ All notable changes to `tcren` are recorded here. Format follows
   in 33 s: a leave-one-out geometry prior, a TSV of six loop sequences and a peptide, `tcren potts
   predict --sequences --ensemble`, and `tcren potts agreement` against the crystal the prior was
   held out of. It exits non-zero if the predicted geometry does not read below the crystal's own.
-
 
 - `tcren.potts.map_agreement` and `tcren potts agreement` — score a contact map against the one a
   structure actually made, reporting the **level** (`ratio` = Σp/Σσ) and the **placement** (`js`,
@@ -1385,7 +1446,7 @@ written by 2.28.0 or earlier. Recompute with `tcren features`.
 
 ## [2.28.0] — 2026-09-01
 
-**Every out-of-fold-fitted read-out is removed.** The author's ruling: leave-one-epitope-out
+**Every out-of-fold-fitted read-out is removed.** The release decision: leave-one-epitope-out
 fitting was the mechanism behind the defects in the discarded `P_native`, the current
 implementations are not trusted, and the analysis will be rewritten rather than patched. Nothing
 tcren returns is now fitted against a binding label.
@@ -1441,7 +1502,7 @@ directional score over the 374 Native2026 crystals, divided by that block's nati
 ## [2.26.0] — 2026-09-01
 
 **Every fitted composite is gone, `F` is `Phi`, and a generated table now says which catalogue
-produced it.** The author's ruling: discard, do not deprecate, and rebuild from a recompute.
+produced it.** The release decision: discard, do not deprecate, and rebuild from a recompute.
 
 ### Removed
 - **`P_native` and `cohort.p_native`**, with `P_NATIVE_CHANNELS` / `_POOL` / `_ORIENT` /
@@ -2731,3 +2792,11 @@ Initial PyPI release setup (publish workflow, `arda-mapper` dependency, lean sdi
 - Export receptor-independent `pmhc-cells` and an exact spatial-summary sidecar:
   vectorized height/ridge-excess hydropathy covariances, component means and
   common-cell accounting, retaining existing grid/chemistry/ridge definitions.
+
+### Experimental mock occupancy reference
+
+- Added `saturation-mock`: raw and epitope/CDR3-balanced mock references with
+  benchmark-epitope and exact-chain exclusions, preserving native scoring defaults.
+- Added conditional binomial upper-tail occupancy and its bounded bit sum.
+- Added opportunity-normalized upper-tail occupancy, including complete
+  noncontacting residues in the denominator and exact zero information for Ala.
