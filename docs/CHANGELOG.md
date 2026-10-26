@@ -3,6 +3,17 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
+## [4.4.1] — 2026-10-27
+
+### Fixed
+
+- `screen` assigns score **0** to models with zero TCR–peptide contacts at the
+  5 Å heavy-atom cutoff, retaining `no_interface` and the structural rejection
+  reason. The CLI warns with the affected count. This prevents finite-score
+  exporters from replacing an unavailable structural composite with high raw
+  ipTM. The zero survives cohort floors, missing components and explicit flag
+  responses. Contact-bearing scores, frozen coefficients and references are unchanged.
+
 ## [4.4.0] — 2026-10-26
 
 ### Added

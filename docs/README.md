@@ -101,8 +101,9 @@ whole-control calibration ship with the package; scoring fits no new parameters.
 Missing active values use flagged frozen training imputation. Read `screen_score`,
 component values, weights, missingness and availability reasons together.
 
-**Cohort mean remains the default.** Models without TCR:peptide contacts retain a
-reason and no combined score; they do not count towards the default 30-model
+**Cohort mean remains the default.** Models without TCR:peptide contacts receive
+score **0**, `no_interface=true`, a retained reason and a CLI warning. Never replace
+this zero with raw ipTM. They do not count towards the default 30-model
 floor. For one structure, explicitly select a representative confidence context:
 
 ```sh

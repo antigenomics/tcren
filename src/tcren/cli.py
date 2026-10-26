@@ -468,9 +468,13 @@ def screen(
         f"{summary['n_distinct_peptides']} peptide(s), {summary['n_distinct_receptors']} receptor(s)"
         + (f"; mean ipTM {flags['mean_iptm']:.3f} (z {flags['cohort_confidence_z']:+.2f})"
            if flags.get("cohort_confidence_z") == flags.get("cohort_confidence_z") else "")
-        + (f"; {discarded} discarded with no TCR:peptide interface" if discarded else "")
+        + (f"; {discarded} zero-contact models scored 0" if discarded else "")
         + (f"; flags: {', '.join(raised)}" if raised else "; no flags")
         + ("" if iptm is not None else "; no ipTM supplied"))
+    if discarded:
+        typer.echo(
+            f"WARNING: {discarded} model(s) have zero TCR:peptide contacts; screen_score=0 "
+            "(no binding interface in the supplied model; no_interface=true).", err=True)
     if acted and response is not FlagResponse.WITHHOLD:
         typer.echo(f"--on-flag {response.value} applied — {acted}")
     if scored:

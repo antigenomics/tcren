@@ -10,7 +10,7 @@ references combine standardized components with weighted Stouffer. ipTM is calle
 the primary receptor-ranking comparator. The combined score is dimensionless,
 not a calibrated probability or a physical binding free energy.
 
-Models with no TCR:peptide contacts are retained with discard reasons and do not
+Models with no TCR:peptide contacts receive score zero with explicit reasons and do not
 count toward the cohort floor. Below the default 30-model floor, components are
 reported without a combined score. Cohort flags report by default; explicit
 responses preserve discarded and withheld rows. The default TCR gate uses the supplied unlabelled cohort mean pLDDT;
@@ -396,11 +396,13 @@ def apply_flag_response(
         if geometry is None:
             raise ValueError("this reference carries no geometry component")
         out = scored.with_columns(screen_score=pl.col(f"z_{geometry}"))
-    # A response cannot restore a discarded/withheld score or erase its original reason.
+    # Flag responses preserve structural rejection zeros and unavailable scores/reasons.
     unavailable = scored["screen_score"].is_null()
+    protected = unavailable | scored["no_interface"]
     return out.with_columns(
-        pl.when(unavailable).then(None).otherwise(pl.col("screen_score")).alias("screen_score"),
-        pl.when(unavailable).then(scored["score_unavailable"])
+        pl.when(protected).then(scored["screen_score"])
+        .otherwise(pl.col("screen_score")).alias("screen_score"),
+        pl.when(protected).then(scored["score_unavailable"])
         .otherwise(pl.col("score_unavailable")).alias("score_unavailable"),
         flag_response=pl.lit(response.value),
                             flag_response_reason=pl.lit(reason))
@@ -467,10 +469,10 @@ def screen_scores(
     Returns:
         Per model: each component's raw value, its standardized contribution and a missingness
         flag, ``n_components``, ``no_interface``, ``screen_score`` and ``score_unavailable``. A
-        row scores null rather than taking a neutral default when it has no observed component,
-        when its receptor was never modelled on the groove, or when the cohort has fewer than
-        ``min_cohort`` scorable models. Discarded rows are kept in the output so that nothing
-        disappears silently.
+        row scores null rather than taking a neutral default when it has no observed component
+        or when the cohort has fewer than ``min_cohort`` scorable models. Zero TCR:peptide
+        contacts instead force score zero, retaining ``no_interface`` and the structural
+        rejection reason in ``score_unavailable``, even below the cohort floor.
     """
     components = _validate(reference)
     override_weight = weight
@@ -603,7 +605,8 @@ def screen_scores(
     out["no_interface"] = no_interface
     series = pl.Series(score)
     out["screen_score"] = series.set(
-        pl.Series(no_weighted | (observed == 0) | small | no_interface | bool(suppress)), None)
+        pl.Series(no_weighted | (observed == 0) | small | bool(suppress)), None
+    ).set(pl.Series(no_interface), 0.0)
     out["score_unavailable"] = pl.Series(reason).set(pl.Series(reason == ""), None)
     if not motif:
         out["confidence_weight"] = [weight] * table.height
