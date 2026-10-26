@@ -44,6 +44,8 @@ All notable changes to `tcren` are recorded here. Format follows
 
 - Screening reuses its annotated batch instead of repeating TCR/MHC searches;
   its default CPU budget is now all allocated CPUs (`-t 0`).
+- Buried-surface descriptors copy detached chain subtrees instead of their parent
+  hierarchy, reducing calculation overhead while preserving descriptor values.
 - Ranking documentation separates worked examples, task guides, definitions and
   interpretation. Historical development notes and local maintenance tools are
   archived outside the public package.
