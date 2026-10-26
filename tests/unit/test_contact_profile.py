@@ -50,3 +50,14 @@ def test_contact_states_keep_endpoint_masses_and_gaps():
     x = ordered_matrix(pl.DataFrame(dict(id=["zero", "partial", "full", "gap"])), wide, names)
     np.testing.assert_array_equal(x[:3], [[0, 0, 0], [1, 0, 0.5], [1, 1, 0]])
     assert np.isnan(x[3]).all()
+
+
+def test_digest_supports_python310_and_streams_all_blocks(tmp_path, monkeypatch):
+    import hashlib
+    from tcren.contacts.profile import digest
+
+    monkeypatch.delattr(hashlib, "file_digest", raising=False)
+    payload = b"contact-reference" * 70000
+    path = tmp_path / "reference.bin"
+    path.write_bytes(payload)
+    assert digest(str(path)) == hashlib.sha256(payload).hexdigest()

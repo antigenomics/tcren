@@ -6,7 +6,6 @@ All fitted transforms and mixture choices are confined to outer training folds.
 
 from pathlib import Path
 import gzip
-import hashlib
 import json
 import time
 import warnings
@@ -27,8 +26,9 @@ BACKBONE = ["N", "CA", "C", "O", "OXT"]
 
 
 def digest(path):
-    with Path(path).open("rb") as stream:
-        return hashlib.file_digest(stream, "sha256").hexdigest()
+    from ..exports import _sha256
+
+    return _sha256(Path(path))
 
 
 def save_flat(table, path):
