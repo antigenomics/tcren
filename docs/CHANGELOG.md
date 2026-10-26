@@ -7,6 +7,18 @@ All notable changes to `tcren` are recorded here. Format follows
 
 ### Added
 
+- Explicit nearest-pLDDT representative contexts for individual structures and
+  small same-pMHC sets; cohort-mean context and its default floor remain unchanged.
+- Supplied MHC metadata retains its declared resolution, separately from sequence
+  representatives, support and search-list truncation. Exact allele identity is
+  not required by the default score.
+- Matched evaluation, descriptive diagnostics and explicit historical reproduction
+  commands own scientific calculations previously performed by external scripts.
+  Specialized R-based protocols declare their optional runtime requirements.
+- Batched peptide substitution and source-backed modified-residue restoration
+  expose existing coordinate operations through the CLI.
+
+
 - Experimental all-six-CDR/epitope `residue-surprise-*` and `motif-fisher`
   commands retain all eligible negative controls, count covalent-residue contact
   cycles, and calibrate Fisher motif sums against whole control graphs.
@@ -30,6 +42,13 @@ All notable changes to `tcren` are recorded here. Format follows
   separate from screening defaults; missing atoms and native overlap are explicit.
 
 ### Changed
+
+- Screening reuses its annotated batch instead of repeating TCR/MHC searches;
+  its default CPU budget is now all allocated CPUs (`-t 0`).
+- Ranking documentation separates worked examples, task guides, definitions and
+  interpretation. Historical development notes and local maintenance tools are
+  archived outside the public package.
+
 
 - TCR screening now combines ipTM, recognition beta1/E and all-loop contact
   enrichment with frozen coefficients 0.41/0.22 and the empirical percentile of
@@ -1425,7 +1444,7 @@ written by 2.28.0 or earlier. Recompute with `tcren features`.
 
 ## [2.28.0] — 2026-09-01
 
-**Every out-of-fold-fitted read-out is removed.** The author's ruling: leave-one-epitope-out
+**Every out-of-fold-fitted read-out is removed.** The release decision: leave-one-epitope-out
 fitting was the mechanism behind the defects in the discarded `P_native`, the current
 implementations are not trusted, and the analysis will be rewritten rather than patched. Nothing
 tcren returns is now fitted against a binding label.
@@ -1481,7 +1500,7 @@ directional score over the 374 Native2026 crystals, divided by that block's nati
 ## [2.26.0] — 2026-09-01
 
 **Every fitted composite is gone, `F` is `Phi`, and a generated table now says which catalogue
-produced it.** The author's ruling: discard, do not deprecate, and rebuild from a recompute.
+produced it.** The release decision: discard, do not deprecate, and rebuild from a recompute.
 
 ### Removed
 - **`P_native` and `cohort.p_native`**, with `P_NATIVE_CHANNELS` / `_POOL` / `_ORIENT` /

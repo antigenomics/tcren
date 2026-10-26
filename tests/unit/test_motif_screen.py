@@ -127,3 +127,21 @@ def test_raw_structure_residue_pipeline_exact_physical_counts():
     assert rows["complete"].all()
     result = bundled_enrichment(rows)
     assert result.height == 2 and result["enrichment"][0] == result["enrichment"][1]
+
+
+def test_nearest_screen_context_preserves_floor_and_missingness():
+    ref = bundled_reference(CohortKind.TCR_RANKING)
+    data = table((90., 96.))
+    per_model = screen_scores(data, ref, min_cohort=1, confidence_context="nearest-plddt")
+    assert per_model["gate_q"].to_list() == [.2, 1.]
+    grouped = screen_scores(data, ref, min_cohort=1, confidence_context="nearest-mean-plddt")
+    assert grouped["gate_q"].to_list() == [.6, .6]
+    assert grouped["proxy_context_n"].to_list() == [2, 2]
+    assert grouped["cohort_mean_plddt"].to_list() == [93., 93.]
+    assert screen_scores(data, ref, confidence_context="nearest-plddt")["screen_score"].null_count() == 2
+    missing = screen_scores(table((None, 93.)), ref, min_cohort=1, confidence_context="nearest-plddt")
+    assert missing["screen_score"][0] is None
+    assert "no observed pLDDT" in missing["score_unavailable"][0]
+    assert missing["screen_score"][1] is not None
+    with pytest.raises(ValueError, match="requires the TCR"):
+        screen_scores(data, bundled_reference(CohortKind.EPITOPE_RANKING), confidence_context="nearest-plddt")

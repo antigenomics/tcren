@@ -1,8 +1,85 @@
-Confidence gates and local contact motifs
-=========================================
+Choose the confidence context
+=============================
 
-These development commands extend :doc:`motif-mixture` without changing screening
-defaults. All eligible source-labelled mocks remain, without caps or receptor
+The default ``screen`` uses measured unlabelled cohort-mean pLDDT to set the
+frozen ipTM/Betti/motif weights. It requires no fitting or mock download:
+
+.. code-block:: console
+
+   $ tcren screen -s models.tar.gz --confidence confidence.tsv -o scores.tsv
+
+Use the full same-pMHC candidate set, including ambiguous outcomes. The default
+30-model floor and missing-value policy are defined in :doc:`screening`. For one
+model or a small set, explicitly choose the representative context below.
+
+Optional single-structure and small-set context
+-----------------------------------------------
+
+For one model, use its generator pLDDT to choose the nearest of the five frozen
+cohort-pLDDT representatives::
+
+   tcren screen -s model.pdb --task tcr --confidence confidence.tsv --confidence-context nearest-plddt --min-cohort 1 -o score.tsv
+
+The confidence table supplies ``complex.id``, ``iptm`` on [0,1] and ``plddt``
+on [0,100]. The command computes contact descriptors and mock enrichment from
+the structure. ``--task tcr`` explicitly declares the singleton task;
+``--min-cohort 1`` explicitly relaxes the usual 30-model floor. Ordinary
+``screen`` retains its full-cohort mean and floor. A no-contact model remains
+unscored, and missing pLDDT withholds the nearest-context score.
+
+``nearest-plddt`` chooses a representative separately for each model. For a few
+models of the same pMHC, ``--confidence-context nearest-mean-plddt`` first takes
+the mean of their observed pLDDTs and chooses one shared representative. The
+peptide and observed MHC chain sequences must agree; arbitrary best-hit allele
+names do not define that check. Missing pLDDTs do not contribute to the mean,
+and a set without any observed pLDDT remains unscored. Neither option changes
+ipTM, Betti, motif enrichment or the frozen 0.41/0.22 score coefficients.
+
+Representatives are the existing five reference means, in ascending order.
+Nearest selection places boundaries at their midpoints, chooses the lower
+representative at an exact tie, and maps values outside the range to its nearest
+endpoint. The selected representative then enters the unchanged inclusive CDF.
+This is an explicit representative-bin approximation, not a learned prediction
+of the unavailable cohort mean. No binding labels, fitting, threshold search
+or smoothing parameter is involved.
+
+Output distinguishes ``cohort_mean_plddt`` (the actual supplied observed mean)
+from ``proxy_mean_plddt`` (the selected representative), and reports
+``proxy_observed_mean_plddt``, ``proxy_representative_bin`` (one-based),
+``proxy_distance_plddt`` (0–100 pLDDT points), ``proxy_context_n`` (number of
+observed input values) and ``proxy_missing_context``. Individual mode has support
+one or zero; grouped mode counts observed models, not independent receptors or
+reference-training examples.
+
+When component tables already exist, use::
+
+   tcren motif-confidence-proxy --features components.tsv --context nearest-plddt -o scores.tsv
+   tcren motif-confidence-proxy --features components.tsv --context nearest-plddt --group-column cohort -o scores.tsv
+
+These routes require ``plddt``, ``iptm``, ``betti`` and ``enrichment``. The optional
+``cohort`` column is caller-declared and nonmissing; it is never inferred from
+labels. APIs: ``contacts.confidence_proxy.nearest_confidence`` and
+``screen.screen_scores(..., confidence_context="nearest-plddt")``.
+
+The existing alternative ``motif-confidence-proxy --features components.tsv
+--context allele --fields 2 -o scores.tsv`` uses a frozen MHC lookup instead of
+measured pLDDT. It requires explicit ``mhc`` plus the three score components.
+One field means A*02 and two means A*02:01. Unknown alleles use the flagged global
+fallback, with reference support counts. The packaged lookup uses the complete
+unlabelled reference; leave-epitope-out evaluation is separate. It does not use a
+query's ipTM to choose its context; ipTM remains a score component.
+
+Earlier confidence-target diagnostics do not establish a reliable learned
+single-model bin predictor. The recorded ipTM-bin and linear confidence
+alternatives, MHC lookup and direct single-model CDF route remain distinct from
+the nearest-representative option. No benchmark-based selection or equivalence
+to a full cohort is claimed for the new option.
+
+Historical development APIs
+---------------------------
+
+The following explicitly invoked development commands reproduce alternative
+reference/weight fits; they do not replace packaged screening resources implicitly. All eligible source-labelled mocks remain, without caps or receptor
 collapse. Accuracy is a full-fit development readout.
 
 The smallest confidence gate is
@@ -106,10 +183,10 @@ are exported; sparse strata imply coarse empirical probabilities. No stratum is
 capped or discarded. This option changes the background comparison, not the
 number of fitted score coefficients.
 
-Frozen score and interpretation
--------------------------------
+Historical fit and frozen replay
+--------------------------------
 
-Fit the complementary cohort-confidence route with::
+To reproduce a separately requested historical fit and apply its resource::
 
    tcren motif-confidence-fit --features components.parquet --metadata confidence.tsv --gate cohort-plddt --complementary --rank-confidence -t 0 -o fit
    tcren motif-confidence-score --features fit/predictions.parquet --resource fit/weights.json -o scores.tsv
@@ -126,23 +203,3 @@ marks the V-aligned part of CDR3 using recorded AIRR V-start/end boundaries.
 Structure residue indices are zero-based; AIRR sequence boundaries are one-based
 and inclusive. Unknown boundaries stay unknown. Definite V-encoded CDR1/2 loops
 remain marked, without guessing a fixed CDR3 germline prefix.
-
-Optional individual-complex context
------------------------------------
-
-``motif-confidence-proxy --features components.tsv --fields 2 -o scores.tsv``
-applies the frozen allele confidence lookup to individual complexes or small
-sets. Required columns are ``mhc``, ``iptm``, ``betti`` and ``enrichment``. One
-field means the HLA allele group (for example A*02), two means A*02:01. Unknown
-alleles use an explicitly flagged global fallback; support counts are exported.
-The lookup predicts cohort-mean confidence, not binding labels. The packaged
-lookup uses the complete unlabelled reference; leave-epitope-out evaluation is
-reported separately. This command is opt-in; ordinary screening retains measured
-cohort-mean pLDDT and its existing minimum cohort size.
-
-In the recorded held-out exploration, allele context gives TCRvdb macro AP
-0.759925 versus 0.768183 for the accepted cohort default, over five epitopes and
-1,782 classified models. Both allele resolutions agree on this reference because
-each represented first field has one second-field subtype. Individual-model
-confidence gates performed worse. This is a practical substitute with documented
-losses, not an equivalent reconstruction of an unavailable cohort.

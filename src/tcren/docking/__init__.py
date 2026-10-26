@@ -1,5 +1,6 @@
 """Canonical TCR-pMHC orientation: MHC-frame superposition + chain renaming."""
 
+from ._transform import kabsch
 from .chains import CHAIN_RENAME, rename_chains, select_primary_complex
 from .angles import (
     DockingAngles,
@@ -22,6 +23,7 @@ from .superimpose import superimpose
 from .tcrdock_geometry import DockingGeometry, docking_geometry
 
 __all__ = [
+    "kabsch",
     "CanonResult", "canonical_frame", "build_canonical_frame",
     "detect_reverse_dock", "CHAIN_RENAME", "select_primary_complex", "rename_chains",
     "canonicalize_structure", "align_to_canonical", "check_oriented_complex", "run_folder",

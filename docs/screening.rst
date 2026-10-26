@@ -17,15 +17,18 @@ A cohort holds one side fixed: one receptor with varying peptides is epitope
 ranking; one pMHC with varying receptors is TCR ranking. Automatic detection uses
 the annotated peptide sequence and CDR3 pair. Keep the MHC background consistent;
 this identity check does not establish experimental restriction or binding.
-A mixed set, or a set in which neither side varies, is refused with a diagnostic.
-``--task epitope`` or ``--task tcr`` declares a task but does not override that check.
+A mixed set is refused with a diagnostic. Automatic mode also refuses a set in
+which neither side varies. For a single model, explicitly use ``--task tcr`` with
+``--confidence-context nearest-plddt --min-cohort 1``. The
+``nearest-mean-plddt`` option uses the observed mean of a declared small same-pMHC
+set; see :doc:`motif-confidence` for support and missing-value rules.
 
 .. image:: _static/screening-workflow.svg
    :alt: Two ranking tasks select different structural references, followed by component reporting and a scorable-cohort check.
    :width: 100%
 
-The four exposed components
----------------------------
+Components and diagnostics
+--------------------------
 
 **Confidence:** ``iptm`` is the generator's interface predicted TM score, supplied
 from the input set's metadata or a unique ``complex.id``/``iptm`` table passed with
@@ -83,24 +86,8 @@ peptide edges are excluded. ``g_cyclo_frac`` retains the older CDR:pMHC definiti
 This dimensionless graph quantity is carried in the TCR-ranking combination;
 topology is excluded from the epitope-ranking combination.
 
-Frozen standardization and combination
---------------------------------------
-
-For each observed component :math:`i`, its frozen mean :math:`\mu_i`, positive
-scale :math:`\sigma_i`, declared direction :math:`d_i\in\{-1,+1\}` and fixed weight
-:math:`w_i\geq0` give
-
-.. math::
-
-   z_i=d_i\frac{x_i-\mu_i}{\sigma_i}, \qquad
-   S=\frac{\sum_{i\in\mathcal O}w_i z_i}{\sqrt{\sum_{i\in\mathcal O}w_i^2}}.
-
-:math:`x_i` is the raw value and :math:`\mathcal O` contains the observed components.
-Missing values are omitted from both sums. The combination is unavailable when
-no weighted contribution remains. Higher :math:`S` is the declared favourable
-direction. It is dimensionless and unbounded, not a binding free energy or a
-calibrated probability. Dependence among components is not a claim of independent
-evidence or a calibrated Stouffer significance test.
+Default TCR combination
+-----------------------
 
 The bundled TCR reference uses three bounded components:
 
@@ -132,17 +119,32 @@ See :doc:`motif-confidence` and :doc:`motif-mixture` for the definitions.
 
 Nothing is fitted when scoring. Cohort composition does affect the measured mean
 and therefore its weights; an isolated model is a different context. The two
-coefficients were selected using TCRvdb labels. The accepted development macro AP
-is 0.768183 over five epitopes and 1,782 classified models; template-absent VDJdb
-macro AP is 0.561450 across 16 cohorts and 738 models, versus 0.572973 for the
-preceding prepared baseline. These are recorded development/transfer results,
-not an untouched test. All per-cohort gains and losses remain in the development
-record. Scores are not calibrated binding probabilities.
+coefficients were selected during labelled development; frozen application is
+not an independent validation. Scores are not calibrated binding probabilities.
 
 Epitope ranking retains Stouffer confidence and energy with equal weights.
 Custom references without ``score_method`` retain Stouffer combination. Historical
 TCR resources ``screen_reference_tcr_v43.json`` and
 ``screen_reference_tcr_v44.json`` preserve their original formulas.
+
+Epitope and legacy standardization
+----------------------------------
+
+For each observed component :math:`i`, its frozen mean :math:`\mu_i`, positive
+scale :math:`\sigma_i`, declared direction :math:`d_i\in\{-1,+1\}` and fixed weight
+:math:`w_i\geq0` give
+
+.. math::
+
+   z_i=d_i\frac{x_i-\mu_i}{\sigma_i}, \qquad
+   S=\frac{\sum_{i\in\mathcal O}w_i z_i}{\sqrt{\sum_{i\in\mathcal O}w_i^2}}.
+
+:math:`x_i` is the raw value and :math:`\mathcal O` contains the observed components.
+Missing values are omitted from both sums. The combination is unavailable when
+no weighted contribution remains. Higher :math:`S` is the declared favourable
+direction. It is dimensionless and unbounded, not a binding free energy or a
+calibrated probability. Dependence among components is not a claim of independent
+evidence or a calibrated Stouffer significance test.
 
 Template availability and effective weight
 ------------------------------------------
@@ -173,9 +175,8 @@ and receptor-free pMHC topography (surface relief, accessible peptide and surfac
 chemistry) remain distinct toolkit outputs; they are not additional terms in
 this aggregate. ``pitch`` is excluded as generator-confidence leakage.
 The graph topology and surface geometry can both describe packing and interface
-size, so their presence does not establish independent evidence. Near-orthogonal
-confidence and structural directions motivate a standardized sum, but do not
-make its denominator a calibrated significance test. Inspect the individual
+size. Their association does not establish independent evidence; the default
+TCR score is the bounded mixture defined above, not a significance test. Inspect the individual
 channels, their missingness, the target surface and docking geometry with flags
 before interpreting a ranking.
 
@@ -226,9 +227,9 @@ flags, ``n_components``, ``screen_score`` and ``score_unavailable``. Cohort flag
 confidence statistics and zero-contact counts accompany each row. The provenance
 sidecar records the task, reference hash, confidence weight, floor and flag response.
 
-For receptor ranking, keep ipTM primary and read the structural components beside
-it. The combination is complementary evidence, not an established universal
-improvement. Report template coverage separately. Peptide-intrinsic surface
+For receptor ranking, sort by ``screen_score`` with higher values first and retain
+ipTM and the structural components for interpretation. Performance depends on
+the evaluation population; the combination is not a binding decision. Report template coverage separately. Peptide-intrinsic surface
 properties and a high CPL ranking alone do not establish receptor specificity.
 Scientific evaluation, figures and historical results belong to the manuscript
 and benchmark records; this page specifies the software's current behavior.
@@ -238,127 +239,3 @@ Library API
 
 .. automodule:: tcren.screen
    :members:
-
-Exploratory contact-profile evaluation
---------------------------------------
-
-``tcren contact-profile-evaluate --contacts contacts.parquet --atoms atoms.parquet
---baseline baseline.parquet -o evaluation -t 0`` evaluates residue involvement
-from fresh ``export --quantity contact-atoms --interface tcr_peptide`` and
-``export --quantity atom-inventory --interface all`` exports at 5 Angstrom.
-The baseline requires unique ``id``, ``epitope``, binary ``y``, ``iptm``,
-``prepared`` and ``matched`` columns. This experiment is separate from the
-released/default screening score.
-
-Flat atom-pair, residue-pair and zero-inclusive residue tables retain observed
-TCR/CDR3 and peptide sequences. Counts are distinct observed heavy atoms,
-including backbone; occupation divides contacted by observed available atoms.
-It does not assert canonical completeness or polar chemical satisfaction.
-Profiles use anchor-excluded CDR3 positions padded after residue 3 and peptide
-positions, separately by chain. Missing positions have explicit indicators.
-Separate alpha-only and beta-only CDR3 arms accompany the joint profiles.
-The state-aware arm retains contacted atom count, any-contact and full-contact
-indicators, and occupation restricted to partially contacted residues (zero
-otherwise). This separates masses at zero and one without fitting a density.
-
-Five outer folds and three inner folds keep transitive components sharing either
-exact CDR3 chain together. Inner folds select ridge regularization, profile family
-and nonnegative mixture weights using mean AP on the two priority epitopes named
-in the experimental implementation. Imputation and scaling use training rows
-only. Outputs retain all five epitope metrics, the no-contact mixture, fitted
-parameters, folds and additive logit contributions. The convex mixture is bounded
-in [0,1], not an experimentally calibrated binding probability. Descriptive
-Mann--Whitney P-values are uncorrected and model-level; related receptors may be
-dependent. These outputs are internal exploratory validation, not independent
-external validation or automatic promotion of a fitted score.
-
-Contact engagement additions
-----------------------------
-
-``tcren contact-engagement-evaluate`` compares engagement additions against a
-supplied, fixed ``prepared`` ipTM/Betti baseline. It takes fresh ``--contacts``,
-``--atoms`` and ``--baseline`` tables, plus corresponding ``--mock-contacts``,
-``--mock-atoms`` and ``--mock-baseline`` inputs. Baselines additionally identify
-``dataset`` and ``stratum``; ambiguous outcomes remain in the raw benchmark
-inventory for reference exclusion but do not enter classification.
-
-The mock reference excludes benchmark epitopes, either exact CDR3 chain and
-coordinate duplicates (the caller checks coordinate hashes before export).
-Reference residues receive equal-epitope/equal-CDR3 model weights. Inclusive
-amino-acid-specific empirical tails retain zero contacts and use one tail
-pseudocount. Zero-contact information is exactly zero. Contributions never
-divide by residue atom capacity. Raw counts and endpoint profiles remain
-separate candidates; signed categorical likelihood ratios preserve zero,
-partial, full and missing-position states. These are composite ranking scores,
-without independent-residue or calibrated-probability claims.
-
-Five outer/three inner exact-chain-grouped folds choose regularization and
-``S=(1-lambda)*prepared+lambda*contact``. ``--policy priority`` shares the
-TTD/NLV-priority choice across epitopes. ``safeguard`` chooses by each epitope's
-inner AP, retaining the fixed baseline as a candidate. ``ranking`` additionally
-fits a smoothed AP objective anchored to the baseline log odds. Its aggregate
-families include an explicit ipTM-minus-baseline contrast, allowing the
-confidence/topology balance to change without treating the inputs as
-independent evidence. Imputation, indicators and scaling use training rows.
-``--policy stable`` retains those AP candidates but admits an addition for a
-cohort only when its AP does not fall below the fixed baseline in any of the
-three inner folds. This is a selection-stability rule, not a significance test
-or a guarantee about outer-fold performance.
-``--policy transport`` uses empirical quantiles from each fitted model's training
-scores to map its contact output monotonically into the training baseline's
-score units before mixture selection. Ties use midrank percentiles. This mapping
-uses neither held-out labels nor a query-cohort distribution; its saved knots
-are part of the fitted model. It changes score scale, not the physical
-per-residue contact definition or residue atom capacity.
-``--policy shared`` also considers a compact conditional model trained across
-the TCRvdb training cohorts: absolute contacted-atom, engaged-residue and
-full-contact totals for each chain/region, four separate type-tail sums and a
-confidence contrast. It uses the same grouped splits and training-only mapping.
-VDJdb never enters its training or selection.
-``--policy bagged`` averages the three fitted member probabilities from the
-existing inner training partitions instead of refitting one outer-training
-model. Members retain their own imputation, scaling, score mapping and feature
-contributions. All members exclude the outer test components; no new split or
-bootstrap control is introduced.
-
-Outputs retain all five TCRvdb comparisons, complete precision--recall curves,
-fold parameters, feature logit contributions and reference-only VDJdb results
-within each template stratum. Exact VDJdb chains are excluded from transfer
-training. A positive AP delta does not establish precision dominance at every
-recall. Repeated panel-guided development remains exploratory; no default
-screening score is replaced by this command.
-
-Exploratory additive contact search
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-``python -m tcren.contacts.additive --contacts contacts.parquet --atoms atoms.parquet
---topology topology.tsv --baseline baseline.parquet -o evaluation -t 0``
-compares maximum TRA/TRB atom-pair counts, maximum distinct contacted TCR atoms,
-distinct contacted peptide atoms, and both maxima divided by the peptide atom
-count. Inputs are fresh ``export`` outputs at 5 Angstrom (``contact-atoms``,
-``atom-inventory``, ``recognition-topology``); receptor contacts cover CDR1/2/3.
-Zero-contact counts and ratios are zero. Betti means the existing recognition
-``beta1/E`` on CDR:peptide + peptide:MHC + CDR:MHC, without internal edges.
-
-The explicit exploratory score is ``iptm + a*betti + b*contact``. Shared and
-separate nonnegative coefficients use zero and 1, 2, 5 times powers of ten
-from 1e-5 to 50. Equal-epitope mean average precision selects coefficients;
-separation p-values never select a model. Five folds keep receptors sharing
-either exact chain together. Held-out scores and both baselines receive the
-same training-only, within-epitope midrank transform before pooled evaluation.
-Full-fit and held-out outputs remain separate. Two-sided Mann--Whitney tests
-report equal-distribution separation with signed rank-biserial effects; these
-are exploratory, not external validation or evidence of affinity calibration.
-
-In-sample contact GLMs
-~~~~~~~~~~~~~~~~~~~~~~
-
-``python -m tcren.contacts.glm --contacts contacts.parquet --topology topology.tsv
---baseline baseline.parquet -o glm`` fits two pooled, unpenalized binomial GLMs
-on all called models with finite ipTM and betti. Here ``betti`` is the previous
-prepared score, not the isolated graph cycle fraction. The five predictors are
-ipTM, betti and distinct contacted peptide, TRA and TRB heavy-atom counts.
-The second fit divides each atom count by the total number of unique
-TCR--peptide residue-contact edges; zero-contact densities are zero.
-Standardization is numerical only; exported coefficients use input units.
-These are deliberately in-sample fits, without held-out accuracy claims.

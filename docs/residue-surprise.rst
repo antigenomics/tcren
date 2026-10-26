@@ -4,7 +4,7 @@ Residue contact motifs above background
 This experimental CLI workflow uses all six CDR loops and the epitope. It does
 not change released screening scores. A repertoire motif can be compared with
 control rearrangements; here a local paratope--epitope contact graph is compared
-with mock contact graphs. This is the author's fine-structure/fractal analogy,
+with mock contact graphs. This is a local contact-subgraph analogy,
 without an assumption of formal self-similarity.
 
 Residue-side diagnostic

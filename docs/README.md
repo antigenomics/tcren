@@ -20,8 +20,8 @@ use the toolkit to inspect one structure or score peptides on a fixed template.
 
 The scores are dimensionless structural readouts. They are not binding free
 energies, calibrated binding probabilities or affinity estimates. For receptor
-ranking, keep ipTM primary and inspect the structural components alongside it;
-the combination is not an established universal improvement over ipTM.
+ranking, retain ipTM and the structural components alongside the combined score;
+performance depends on the task and evaluation population.
 
 ## Install
 
@@ -59,8 +59,8 @@ A cohort holds one side fixed:
 | TCR ranking | pMHC | receptor | contacted CDR residues |
 
 Automatic detection reads the annotated peptide and CDR3 pair. Keep one MHC
-background and verify experimental identities before joining labels. A mixed set
-or a set where nothing varies is refused. Missing ipTM is reported; tcren reads it
+background and verify experimental identities before joining labels. Automatic mode refuses mixed sets or sets where nothing varies; the explicit
+single-model route below declares its task. Missing ipTM is reported; tcren reads it
 from metadata or the confidence table and does not calculate generator confidence.
 
 ![Task-matched screening workflow](https://raw.githubusercontent.com/antigenomics/tcren/master/docs/_static/screening-workflow.svg)
@@ -75,6 +75,7 @@ substitution on a fixed contact map. The selected side follows the ranking task.
 flags and a provenance sidecar containing the frozen-reference identity.
 
 - **Confidence:** the generator's `iptm`.
+- **Enrichment:** all-six-CDR/peptide contact-cycle evidence against frozen mocks.
 - **Energy:** the structural alanine difference on the TCR:peptide interface.
 - **Geometry:** height-field Pearson complementarity, `sc_shape`.
 - **Topology:** three-interface CDR:peptide + peptide:MHC + CDR:MHC graph cycle fraction,
@@ -107,6 +108,22 @@ interface. Smaller cohorts report components alone. Flags report by default.
 `reverse`; responses cannot restore unavailable scores. Reversal is not recommended
 as a correction for modelling failures.
 
+For one model, explicitly select a representative pLDDT context:
+
+```sh
+tcren screen -s model.pdb --task tcr --confidence confidence.tsv \
+  --confidence-context nearest-plddt --min-cohort 1 -o score.tsv
+```
+
+Use `nearest-mean-plddt` for a declared small same-pMHC set. These opt-in modes
+select the nearest frozen pLDDT representative and report the observed count and
+distance. They do not estimate a binding probability or replace cohort scoring.
+Missing pLDDT withholds the proxy score. See [confidence contexts](https://docs.isalgo.dev/tcren/motif-confidence.html).
+
+The [worked notebook](https://docs.isalgo.dev/tcren/notebooks/confidence_motif_score.html)
+introduces the score on a small reproducible example. The [installation how-to](https://docs.isalgo.dev/tcren/getting-started.html)
+walks through a raw-structure run.
+
 The [screening guide](https://docs.isalgo.dev/tcren/screening.html) defines every
 component, its units, the combination equations, missingness and output fields.
 The [inspection guide](https://docs.isalgo.dev/tcren/kit.html) explains how to read
@@ -136,8 +153,8 @@ scoring/export routes above for the current alanine reference. The full
 experimental contact layers and supported historical reproduction APIs.
 
 Historical `recognize`, `assess` and fitted Potts readouts retain their dependencies
-and reproduction contracts; they are not the current screen. The integral/GLM
-commands were withdrawn. See [reference dependencies](https://docs.isalgo.dev/tcren/fit-free.html)
+and reproduction contracts; they are not the current screen. Withdrawn integral commands remain unavailable; explicitly named experimental
+contact GLMs have separate reproduction contracts. See [reference dependencies](https://docs.isalgo.dev/tcren/fit-free.html)
 and [SOURCES](https://github.com/antigenomics/tcren/blob/master/SOURCES) for parameter provenance and resource identities.
 
 ## Development and verification

@@ -110,6 +110,8 @@ def _typed_batch(structures, organism: str, mhc: bool = True, *, threads: int = 
     if structs and mhc:
         from .mhc import annotate_mhc_batch
         annotate_mhc_batch(structs, threads=threads)
+        from .mhc.metadata import apply_metadata
+        apply_metadata(structs, structures)
     return structs
 
 
@@ -230,7 +232,7 @@ def _screen_descriptors(structs: list, task, *, organism: str, threads: int, mot
     # recognition_table takes (id, structure) pairs; _typed_batch hands back bare Structures.
     shape = pl.DataFrame(recognition_table(
         [(s.pdb_id, s) for s in structs], organism=organism,
-        include=("interface", "topology"), threads=threads))
+        include=("interface", "topology"), threads=threads, annotate=False))
     key = "complex.id" if "complex.id" in shape.columns else "pdb.id"
     keep = [c for c in ("sc_shape", "g_cyclo_frac") if c in shape.columns]
     table = shape.select(pl.col(key).alias("complex.id"), *keep)
@@ -306,14 +308,15 @@ def screen(
     out: Path = typer.Option("screen.tsv", "-o", "--out", help="per-model score table (TSV)"),
     task: str = typer.Option("auto", "--task", help="auto|epitope|tcr; a declared task is verified against the structures"),
     confidence: Path = typer.Option(None, "--confidence", help="table of complex.id, iptm and optional plddt (0–100); defaults to metadata.tsv"),
+    confidence_context: str = typer.Option("cohort", "--confidence-context", help="cohort (default) | nearest-plddt (each model) | nearest-mean-plddt (supplied same-pMHC set); proxy modes require --task tcr and keep --min-cohort"),
     reference: Path = typer.Option(None, "--reference", help="frozen reference JSON (default: the bundled one for the detected task)"),
     min_cohort: int = typer.Option(SCREEN_MIN_COHORT, "--min-cohort", help="below this many models the combined score is withheld and only components are reported"),
     on_flag: str = typer.Option("report", "--on-flag", help="what to do when a cohort is flagged low_confidence: report (default, change nothing) | structure (drop ipTM, score on structure alone) | geometry (geometry component alone) | withhold | reverse. All but report are opt-in because the only evidence that acting helps comes from the evaluation panels themselves."),
     weight: float = typer.Option(None, "--weight", help="confidence weight in the reference combination, in [0, 1]; default: the reference's own, which is task-specific"),
-    template_metadata: Path = typer.Option(None, "--template-metadata", help="TCR template inventory TSV with epitope column; absent epitopes use the absent-template weight"),
+    template_metadata: Path = typer.Option(None, "--template-metadata", help="TCR template inventory TSV with epitope column; records context (legacy references may select a weight)"),
     template_status: str = typer.Option(None, "--template-status", help="present|absent; explicit TCR template availability instead of an inventory"),
     organism: str = typer.Option("human", "--organism"),
-    threads: int = typer.Option(1, "-t", "--threads", help="CPU budget: 1 serial, 0 all allocated, or a positive count"),
+    threads: int = typer.Option(0, "-t", "--threads", help="CPU budget: 1 serial, 0 all allocated, or a positive count"),
 ) -> None:
     """Rank a COHORT of modelled complexes — start here.
 
@@ -334,8 +337,9 @@ def screen(
     motif enrichment. Its frozen weights depend on the unlabelled cohort mean
     pLDDT; provide generator plddt (0–100) alongside iptm in --confidence.
 
-    Below a cohort of 30 models the combined score is WITHHELD and the components are reported
-    alone, because per-cohort margin noise then exceeds any effect the combination can produce.
+    The default cohort floor withholds the combined score below 30 contact-bearing models.
+    For explicit small-set proxy scoring choose --task tcr, --confidence-context and
+    --min-cohort 1; missing context and zero-contact models still withhold scores.
 
     Everything else in this package is a toolkit: `annotate` and `contacts` for markup and
     contact listing, `superimpose` for canonical orientation, `surface` for pMHC topography,
@@ -349,6 +353,11 @@ def screen(
 
     if task not in ("auto", "epitope", "tcr"):
         raise typer.BadParameter("--task must be auto, epitope or tcr")
+    if confidence_context not in ("cohort", "nearest-plddt", "nearest-mean-plddt"):
+        raise typer.BadParameter("--confidence-context must be cohort, nearest-plddt or nearest-mean-plddt")
+    proxy_context = confidence_context != "cohort"
+    if proxy_context and task != "tcr":
+        raise typer.BadParameter("nearest confidence context requires explicit --task tcr")
     if template_status not in (None, "present", "absent"):
         raise typer.BadParameter("--template-status must be present or absent")
     if template_status is not None and template_metadata is not None:
@@ -359,7 +368,16 @@ def screen(
         raise typer.BadParameter(f"no structures found in {structures!r}")
 
     peptides, receptors = identities(structs)
-    detected, summary = cohort_signature(peptides, receptors)
+    if proxy_context:
+        mhc_sequences = [tuple(sorted((c.chain_type, c.sequence()) for c in s.chains
+                                      if c.chain_type in {"MHCa", "MHCb"})) for s in structs]
+        if len(set(peptides)) != 1 or any(not value for value in mhc_sequences) or len(set(mhc_sequences)) != 1:
+            raise typer.BadParameter("nearest confidence context requires one peptide and matching observed MHC chain sequences")
+    if proxy_context and len(set(peptides)) == len(set(receptors)) == 1:
+        detected = CohortKind.TCR_RANKING
+        summary = {"n_structures": len(structs), "n_distinct_peptides": 1, "n_distinct_receptors": 1}
+    else:
+        detected, summary = cohort_signature(peptides, receptors)
     if task != "auto" and CohortKind(task) is not detected:
         raise typer.BadParameter(
             f"--task {task} was declared but the structures are a {detected.value} cohort: "
@@ -383,6 +401,8 @@ def screen(
 
     ref = bundled_reference(detected) if reference is None else read_reference(reference)
     use_motif = ref.get("score_method") == "confidence_motif"
+    if proxy_context and not use_motif:
+        raise typer.BadParameter("nearest confidence context requires the TCR confidence-motif reference")
     table = _screen_descriptors(structs, detected, organism=organism, threads=n_threads,
                                 motif=use_motif)
     iptm = _screen_confidence(confidence, structures)
@@ -396,7 +416,7 @@ def screen(
     if (template_metadata is not None and weight is None
             and "template_absent_weight" not in ref and not use_motif):
         raise typer.BadParameter("legacy --template-metadata requires explicit --weight")
-    flags = cohort_flags(table, ref, min_cohort=min_cohort)
+    flags = cohort_flags(table, ref, min_cohort=min_cohort, confidence_context=confidence_context)
     # Flags report by default; changing the score requires an explicit --on-flag response.
     try:
         response = FlagResponse(on_flag)
@@ -405,14 +425,16 @@ def screen(
             f"--on-flag must be one of {', '.join(r.value for r in FlagResponse)}") from exc
     suppress = withhold_reason(flags, detected)
     result = screen_scores(table, ref, weight=weight, min_cohort=min_cohort, suppress=suppress,
-                           native_template=coverage["native_template"] if coverage else None)
+                           native_template=coverage["native_template"] if coverage else None,
+                           confidence_context=confidence_context)
     # Act on a flag only if asked, and never on a cohort whose score was already withheld for
     # size -- rewriting a score that does not exist would only confuse the reason column.
     acted = None
     if (response is not FlagResponse.REPORT and flags.get("low_confidence") is True
             and not flags.get("small_cohort")):
         acted = f"low_confidence: {FLAG_TEXT['low_confidence']}"
-        result = apply_flag_response(result, table, ref, response=response, reason=acted)
+        result = apply_flag_response(result, table, ref, response=response, reason=acted,
+                                     confidence_context=confidence_context)
     for name in ("small_cohort", "no_interface", "forced_pose", "low_confidence",
                  "confidence_disagrees"):
         result = result.with_columns(pl.lit(flags.get(name)).alias(f"flag_{name}"))
@@ -435,6 +457,7 @@ def screen(
                                         "template_gate": coverage,
                                         "effective_weight": result["confidence_weight"][0],
                                         "min_cohort": min_cohort,
+                                        "confidence_context": confidence_context,
                                         "cohort": summary})
     scored = int(result["screen_score"].is_not_null().sum())
     discarded = int(result["no_interface"].sum()) if "no_interface" in result.columns else 0
@@ -3357,6 +3380,36 @@ app.command("motif-confidence-score", rich_help_panel=_P_SCORE)(motif_confidence
 from .contacts.confidence_proxy import score_command as motif_confidence_proxy
 app.command("motif-confidence-proxy", rich_help_panel=_P_SCORE)(motif_confidence_proxy)
 app.command("motif-confidence-report", rich_help_panel=_P_SCORE)(motif_confidence_report)
+
+from .evaluation import command as evaluate_command
+app.command("evaluate", rich_help_panel=_P_SCORE)(evaluate_command)
+from .evaluation_diagnostics import command as evaluate_diagnostics_command
+app.command("evaluate-diagnostics", rich_help_panel=_P_SCORE)(evaluate_diagnostics_command)
+from .refine.substitute_cli import command as substitute_peptides_command
+app.command("substitute-peptides", rich_help_panel=_P_ORIENT)(substitute_peptides_command)
+
+from .calibration import command as cutoff_calibration_command
+from .structure.repair import command as restore_modified_peptides_command
+app.command("cutoff-calibration", rich_help_panel=_P_DATA)(cutoff_calibration_command)
+app.command("restore-modified-peptides", rich_help_panel=_P_DATA)(restore_modified_peptides_command)
+
+@app.command("potential-clusters", rich_help_panel=_P_DATA)
+def potential_clusters(
+    contacts: Path = typer.Option(..., exists=True, dir_okay=False),
+    markup: Path = typer.Option(..., exists=True, dir_okay=False),
+    output: Path = typer.Option(..., "--output", "-o"),
+    distance: float = typer.Option(6.),
+):
+    """Export historical alpha-beta membership and complete-linkage sequence clusters."""
+    from .potential.redundancy import cluster_command
+    cluster_command(contacts, markup, output, distance)
+
+from .ranking_summary import command as ranking_summary_command
+app.command("ranking-summary", rich_help_panel=_P_SCORE)(ranking_summary_command)
+
+from .historical_candidates import command as historical_candidates_command, markup_command as historical_markup_command
+app.command("historical-candidates", rich_help_panel=_P_DATA)(historical_candidates_command)
+app.command("historical-markup", rich_help_panel=_P_DATA)(historical_markup_command)
 
 # The __main__ guard belongs at the VERY END of the module, below the last @app.command.
 # It has been moved twice for the same reason. It first sat just after `main()`, two thirds up,

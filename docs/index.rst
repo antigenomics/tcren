@@ -1,90 +1,88 @@
 tcren: rank and inspect TCR–pMHC models
 =======================================
 
-Start with a cohort of modelled αβ TCR:peptide–MHC complexes. ``tcren screen``
-identifies the ranking task, computes a structural alanine reference on the side
-that varies, and reports generator confidence alongside energy, geometry and topology.
-The frozen task-matched combination is a dimensionless ranking readout.
-It is not an affinity estimate or a calibrated binding probability.
-
-.. image:: _static/screening-workflow.svg
-   :alt: Cohort input branches into peptide or receptor ranking, followed by structural reference, component reporting and cohort checks.
-   :width: 100%
-
-Start with the ranking task
----------------------------
-
-* **One receptor, candidate peptides:** use ``screen`` for separately modelled
-  candidate complexes, or ``score`` to thread candidates on one fixed template.
-  These are different structural protocols. ``rank-epitopes`` accepts an existing
-  structural-energy/ipTM table for the single-task frozen readout.
-* **One pMHC, candidate receptors:** use ``screen``. Keep ipTM primary and inspect
-  the separate structural components, cohort flags and missingness.
-* **A heterogeneous set or one model:** use ``features``, ``contacts`` or
-  ``scoring`` to inspect its quantities. A set without a fixed side is not a ranking
-  cohort; small cohorts retain components without a combined score.
+Rank modelled TCR–pMHC complexes and inspect the confidence, contact enrichment
+and topology behind each score. Start with one fixed pMHC and candidate receptors,
+or one fixed receptor and candidate peptides. These are separate ranking tasks.
 
 .. code-block:: console
 
-   $ tcren screen -s models.tar.gz -o scores.tsv
+   $ tcren screen -s models.tar.gz --confidence confidence.tsv -o scores.tsv
 
-ipTM is supplied by the generator's metadata or ``--confidence``; tcren does not
-compute it. Frozen references ship with the package. No parameter is fitted to a
-query cohort. Models with no TCR:peptide contact remain in output with a discard
-reason and do not count toward the default 30-model floor.
+The default TCR score uses ipTM, recognition graph cycles and mock-calibrated
+contact enrichment. Its weights depend on the unlabelled cohort mean pLDDT.
+Scores are dimensionless ranking readouts, not affinity estimates or binding
+probabilities. See :doc:`screening` for the complete contract.
 
-Read :doc:`getting-started` for installation and input formats, :doc:`screening`
-for the component equations and output contract, and :doc:`kit` for inspection
-and interpretation. :doc:`fit-free` documents estimated reference dependencies
-and distinguishes current scoring from historical fitted readouts.
+.. image:: _static/screening-workflow.svg
+   :alt: Choose the ranking task, calculate components, then check score availability.
+   :width: 100%
+
+Learn with a worked example
+---------------------------
 
 .. toctree::
-   :maxdepth: 2
-   :caption: Start and rank
+   :maxdepth: 1
+
+   notebooks/confidence_motif_score
+   gallery
+
+Complete a task
+---------------
+
+.. toctree::
+   :maxdepth: 1
 
    getting-started
-   screening
-   residue-surprise
-   motif-mixture
-   motif-confidence
+   reproduction
    ranking
-   kit
+   md-validation
+   performance
+
+Understand the result
+---------------------
 
 .. toctree::
-   :maxdepth: 2
-   :caption: Inspect structures and explain scores
+   :maxdepth: 1
 
+   kit
+   fit-free
+   motif-confidence
+   motif-mixture
+   residue-surprise
+   beyond-the-contact-sum
+   background
+
+Look up definitions and APIs
+----------------------------
+
+.. toctree::
+   :maxdepth: 1
+
+   screening
+   mhc-annotation
    features
    descriptor_table
    potentials
    contact-penalties
    prediction
    associations
-   md-validation
-   beyond-the-contact-sum
-   background
-   gallery
-   performance
+   evaluation
    modules
-
-.. toctree::
-   :maxdepth: 2
-   :caption: Reference dependencies and reproduction
-
-   fit-free
    cdr3-neighborhood
    ATOM_PATTERN_SPEC
    INVENTORY_PATTERN_SPEC
    CHEMICAL_CORE_SPEC
-   reproduction
+   experimental-ranking
    oracle
    assess
    potts
    reliability
 
 .. toctree::
-   :maxdepth: 1
-   :caption: Tutorials
+   :hidden:
+
+   notebooks/tcrvdb_frozen_score_reproduction
 
    notebooks/complementarity_map_2d
    notebooks/pocket_cdr_3d
@@ -94,11 +92,6 @@ and distinguishes current scoring from historical fitted readouts.
    notebooks/mhc_pseudosequence_mps
    notebooks/example_gil_a02_rs_motif
    notebooks/surface_topology
-   notebooks/confidence_motif_score
-   notebooks/tcrvdb_frozen_score_reproduction
-
-Indices
--------
 
 * :ref:`genindex`
 * :ref:`modindex`

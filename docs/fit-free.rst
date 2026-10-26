@@ -1,15 +1,20 @@
-Final fit-free calculations
-===========================
+Reference dependencies and historical models
+============================================
 
-The final scoring boundary permits fixed empirical statistical-potential tables.
-Their observed contact counts, pseudocounts, weighting and reference convention
-remain estimated dependencies and must accompany the table identity. No Gaussian,
-GLM, fitted Potts or fitted transition readout belongs to the final specification.
-Q/T/S also use estimated reference moments or correlation weights and remain
-historical. These APIs and their measured results are preserved.
+The default TCR screen uses a frozen confidence-dependent mixture of ipTM,
+recognition topology and mock-calibrated contact enrichment. Its two coefficients
+were selected during labelled development, and its local histograms, whole-mock
+calibration and confidence representatives are estimated reference dependencies.
+Nothing is fitted to the query, but the default is not a fit-free model.
+See :doc:`screening` for the current formula and missing-value policy.
+
+Fixed empirical contact potentials retain their own contact counts, pseudocounts,
+weighting and structural/virtual reference conventions. Historical Gaussian,
+GLM, fitted Potts and transition readouts remain distinct APIs. Their availability
+does not make them components of the current screen.
 
 Searched annotation references
---------------------------------
+------------------------------
 
 ARDA 2.36.2 or later validates the source reference and actual MMseqs database
 payloads by content, preserving legacy indexes as evidence. Source-root discovery
@@ -57,8 +62,8 @@ peptide references require alanine and use the selected cutoff and contact weigh
 The peptide reference contact map is built once per structure and reused across
 both peptide interfaces. Potential sums then operate on the contact tables;
 SASA and coordinate-based descriptors still require their structural calculations.
-When running multiple outer workers, set ``POLARS_MAX_THREADS=1`` and the BLAS
-thread limit before starting Python to avoid nested thread pools.
+Use the command's ``--threads`` CPU budget and batch all structures in one call.
+Do not wrap internally threaded annotation calls in an outer worker pool.
 
 The receptor export substitutes alanine in all, CDR, CDR1/2 or CDR3 receptor
 positions, separately for TCR:peptide and TCR:MHC and their explicit sum.

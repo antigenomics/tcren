@@ -33,8 +33,12 @@ def test_screen_cli_discards_zero_contact_models_and_reports_flags(task, gate, m
     if task is CohortKind.EPITOPE_RANKING:
         peps, tcrs = ["AAA", "BBB"], [("a", "b")] * 2
     monkeypatch.setattr(screen, "identities", lambda s: (peps, tcrs))
-    monkeypatch.setattr(recognition, "recognition_table", lambda *a, **kw: [
-        {"complex.id": s.pdb_id, "sc_shape": 0.6, "g_cyclo_frac": 0.2} for s in structures])
+    def descriptors_without_reannotation(*args, **kwargs):
+        assert kwargs["annotate"] is False
+        return [{"complex.id": s.pdb_id, "sc_shape": 0.6, "g_cyclo_frac": 0.2}
+                for s in structures]
+
+    monkeypatch.setattr(recognition, "recognition_table", descriptors_without_reannotation)
     monkeypatch.setattr(contactmap.ContactMap, "from_structure", lambda s, **kw:
         SimpleNamespace(tcr_peptide=lambda: pl.DataFrame({"edge": list(range(
             0 if s.pdb_id == "m0" else 20))})))
@@ -44,7 +48,7 @@ def test_screen_cli_discards_zero_contact_models_and_reports_flags(task, gate, m
     monkeypatch.setattr(cli, "_screen_confidence", lambda *a, **kw:
         pl.DataFrame({"complex.id": ["m0", "m1"], "iptm": [0.4, 0.5], "plddt": [93., 93.]}))
     out = tmp_path / "screen.tsv"
-    args = ["screen", "-s", "models", "-o", str(out), "--min-cohort", "1"]
+    args = ["screen", "-s", "models", "-o", str(out), "--min-cohort", "1", "-t", "1"]
     if gate is not None:
         native = tmp_path / "native.tsv"
         native.write_text("epitope\n" + ("AAA" if gate else "CCC") + "\n")
@@ -100,3 +104,29 @@ def test_screen_confidence_merges_inputs_and_rejects_conflicts(monkeypatch):
     assert _screen_confidence(None, ["one", "two", "one"]).height == 2
     with pytest.raises(Exception, match="conflicting confidence metadata"):
         _screen_confidence(None, ["one", "conflict"])
+
+
+def test_single_structure_nearest_context_is_explicit_and_checks_pmhc(monkeypatch, tmp_path):
+    import tcren.cli as cli
+    import tcren.screen as screen
+
+    structs = [SimpleNamespace(pdb_id="one", chains=[SimpleNamespace(chain_type="MHCa", sequence=lambda: "MHC")])]
+    monkeypatch.setattr(cli, "_typed_batch", lambda *a, **kw: structs)
+    monkeypatch.setattr(screen, "identities", lambda s: (["AAA"] * len(s), [("a", "b")] * len(s)))
+    monkeypatch.setattr(cli, "_screen_descriptors", lambda *a, **kw: pl.DataFrame({
+        "complex.id": ["one"], "g_recognition_cyclo_frac": [.4], "enrichment": [.6],
+        "dFT_tcr_pep_cdr": [0.], "sc_shape": [.5], "n_contacts_tp": [10]}))
+    monkeypatch.setattr(cli, "_screen_confidence", lambda *a, **kw: pl.DataFrame({"complex.id": ["one"], "iptm": [.8], "plddt": [93.]}))
+    output = tmp_path / "single.tsv"
+    args = ["screen", "-s", "one.pdb", "--task", "tcr", "-o", str(output)]
+    default = CliRunner().invoke(cli.app, args)
+    assert default.exit_code != 0 and not output.exists()
+    explicit = CliRunner().invoke(cli.app, args + ["--confidence-context", "nearest-plddt", "--min-cohort", "1"])
+    assert explicit.exit_code == 0, explicit.output
+    result = pl.read_csv(output, separator="\t")
+    assert result["screen_score"][0] == pytest.approx(.666*.8 + .246*.4 + .088*.6)
+    assert result["proxy_context_n"].to_list() == [1]
+    assert result["confidence_context"].to_list() == ["nearest-plddt"]
+    structs.append(SimpleNamespace(pdb_id="two", chains=[SimpleNamespace(chain_type="MHCa", sequence=lambda: "OTHER")]))
+    mixed = CliRunner().invoke(cli.app, args + ["--confidence-context", "nearest-mean-plddt", "--min-cohort", "1"])
+    assert mixed.exit_code != 0 and "MHC" in unstyle(mixed.output) and "sequences" in unstyle(mixed.output)

@@ -93,3 +93,42 @@ def test_proxy_invalid_reference_and_absent_components(tmp_path):
         True,
         True,
     )
+
+
+def test_nearest_representative_midpoints_missing_and_small_groups():
+    from tcren.contacts.confidence_proxy import nearest_confidence
+
+    model = {"confidence_cdf": [0.90, 0.94]}
+    result = nearest_confidence([89.0, 92.0, 93.0, 98.0, None], model=model)
+    assert result["representative_bin"].to_list() == [1, 1, 2, 2, None]
+    assert result["mean_plddt"].to_list() == [90.0, 90.0, 94.0, 94.0, None]
+    assert result["context_n"].to_list() == [1, 1, 1, 1, 0]
+    group = nearest_confidence([90.0, 94.0, None], ["one"] * 3, model)
+    assert group["context_n"].to_list() == [2, 2, 2]
+    assert group["mean_plddt"].to_list() == [90.0] * 3
+    assert group["observed_mean_plddt"].to_list() == [92.0] * 3
+    for invalid in [-1.0, 101.0, float("inf")]:
+        with pytest.raises(ValueError, match="plddt"):
+            nearest_confidence([invalid], model=model)
+    with pytest.raises(ValueError, match="nonmissing"):
+        nearest_confidence([90.0], [None], model)
+
+
+def test_nearest_component_cli_preserves_missing_context(tmp_path):
+    from tcren.contacts.confidence_proxy import score_command
+
+    source, output = tmp_path / "features.tsv", tmp_path / "scores.tsv"
+    pl.DataFrame(
+        {"iptm": [0.8, 0.7], "betti": [0.3, 0.4], "enrichment": [0.6, 0.5], "plddt": [90.0, None]}
+    ).write_csv(source, separator="\t")
+    score_command(source, output, 2, None, "nearest-plddt")
+    result = pl.read_csv(output, separator="\t")
+    assert result["gate_q"].to_list() == [0.2, None]
+    assert result["score"][0] is not None and result["score"][1] is None
+    assert result["w_I"][1] is None
+    assert result["proxy_context_n"].to_list() == [1, 0]
+
+
+def test_class_ii_allele_groups():
+    assert allele_group(["HLA-DRB1*04:01", "DQA1*01:02:01"], 1).tolist() == ["DRB1*04", "DQA1*01"]
+    assert allele_group(["HLA-DRB1*04:01", "DQA1*01:02:01"], 2).tolist() == ["DRB1*04:01", "DQA1*01:02"]

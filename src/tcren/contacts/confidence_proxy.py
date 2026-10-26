@@ -24,7 +24,7 @@ def allele_group(values, fields):
     if fields not in (1, 2):
         raise ValueError("MHC resolution must be one or two fields")
     pattern = (
-        r"^(?:HLA-)?([A-Z]+\*\d{2,3}" + (r":\d{2,3}" if fields == 2 else "") + r")(?:[:A-Z].*)?$"
+        r"^(?:HLA-)?([A-Z]+[0-9]*\*\d{2,3}" + (r":\d{2,3}" if fields == 2 else "") + r")(?:[:A-Z].*)?$"
     )
     return pl.Series(values).str.extract(pattern, 1).to_numpy()
 
@@ -119,16 +119,72 @@ def allele_confidence(mhc, fields=2, reference=None):
     return out
 
 
+def nearest_confidence(plddt, groups=None, model=None):
+    """Choose the nearest frozen cohort-pLDDT representative (midpoint ties lower).
+
+    Optional explicit groups use their observed mean before choosing a bin.
+    Support is the count of observed input confidences, never reference support.
+    Empty-confidence groups abstain. No model is fitted or smoothed.
+    """
+    if model is None:
+        model = json.loads(
+            files("tcren.data").joinpath("motif_confidence_reference.json").read_bytes()
+        )
+    reference = 100 * np.asarray(model["confidence_cdf"], dtype=float)
+    if (
+        reference.ndim != 1
+        or not len(reference)
+        or not np.isfinite(reference).all()
+        or np.any(np.diff(reference) <= 0)
+        or np.any((reference < 0) | (reference > 100))
+    ):
+        raise ValueError("Distinct sorted bounded confidence representatives required")
+    value = pl.Series("observed_mean_plddt", plddt, dtype=pl.Float64).fill_nan(None)
+    if value.drop_nulls().is_infinite().any() or not value.drop_nulls().is_between(0, 100).all():
+        raise ValueError("Generator plddt must be finite or missing and lie in [0,100]")
+    table = pl.DataFrame(value).with_columns(
+        pl.col("observed_mean_plddt").is_not_null().cast(pl.Int64).alias("context_n")
+    )
+    if groups is not None:
+        group = pl.Series("_group", groups)
+        if len(group) != len(value) or group.null_count():
+            raise ValueError("One nonmissing explicit group per confidence is required")
+        table = (
+            table.with_columns(group)
+            .with_columns(
+                pl.col("observed_mean_plddt").mean().over("_group"),
+                pl.col("context_n").sum().over("_group"),
+            )
+            .drop("_group")
+        )
+    observed = table["observed_mean_plddt"].to_numpy()
+    index = np.searchsorted((reference[:-1] + reference[1:]) / 2, observed, side="left")
+    return table.with_columns(
+        pl.Series("mean_plddt", reference[index]),
+        pl.Series("representative_bin", index + 1),
+        pl.Series("distance_plddt", np.abs(observed - reference[index])),
+        (pl.col("context_n") == 0).alias("missing_context"),
+    ).with_columns(
+        [
+            pl.when(pl.col("missing_context")).then(None).otherwise(pl.col(name)).alias(name)
+            for name in ("mean_plddt", "representative_bin", "distance_plddt")
+        ]
+    )
+
+
 def score_command(
     features: Path = typer.Option(..., exists=True),
     output: Path = typer.Option(..., "--output", "-o"),
     fields: int = typer.Option(2, min=1, max=2),
     reference: Path | None = typer.Option(None, exists=True),
+    context: str = "allele",
+    group_column: str | None = None,
 ):
-    """Score individual complexes with explicit, optional MHC confidence context.
+    """Apply an explicit allele or nearest-plddt context to score components.
 
-    Requires mhc, iptm, betti and enrichment columns. Cohort-mean screening remains
-    the default; this command applies the frozen allele proxy without fitting.
+    Requires iptm, betti and enrichment, plus mhc for allele or plddt for
+    nearest-plddt. --group-column explicitly averages nearest-plddt context.
+    Ordinary screening retains its cohort mean; no fit is performed here.
     """
     if output.exists():
         raise ValueError("Output exists")
@@ -137,14 +193,39 @@ def score_command(
         if features.suffix == ".parquet"
         else pl.read_csv(features, separator="\t")
     )
-    ref = None if reference is None else pl.read_csv(reference, separator="\t")
-    context = allele_confidence(rows["mhc"], fields, ref)
+    if context not in ("allele", "nearest-plddt"):
+        raise ValueError("--context must be allele or nearest-plddt")
     model = json.loads(files("tcren.data").joinpath("motif_confidence_reference.json").read_bytes())
+    if context == "allele":
+        if group_column is not None:
+            raise ValueError("--group-column applies only to nearest-plddt context")
+        ref = None if reference is None else pl.read_csv(reference, separator="\t")
+        context_rows = allele_confidence(rows["mhc"], fields, ref)
+        context_name = "allele_proxy_full_reference"
+    else:
+        if reference is not None:
+            raise ValueError("--reference applies only to the allele lookup")
+        context_rows = nearest_confidence(
+            rows["plddt"], None if group_column is None else rows[group_column], model
+        )
+        context_name = (
+            "nearest_frozen_plddt" if group_column is None else "nearest_group_mean_plddt"
+        )
     features_only = rows.select("iptm", "betti", "enrichment").with_columns(
-        pl.Series("plddt", context["mean_plddt"])
+        pl.Series("plddt", context_rows["mean_plddt"])
     )
-    # Each row receives a frozen allele context, never the current batch mean.
+    # Each row receives the explicitly selected context; the score formula stays frozen.
     scored = apply_confidence_score(features_only, {**model, "gate": "complex-plddt"})
+    if "missing_context" in context_rows.columns:
+        scored = scored.with_columns(
+            [
+                pl.when(context_rows["missing_context"])
+                .then(None)
+                .otherwise(pl.col(name))
+                .alias(name)
+                for name in ("score", "gate_q", "w_I", "w_B", "w_M")
+            ]
+        )
     output_columns = [
         "score",
         "gate_q",
@@ -156,9 +237,9 @@ def score_command(
         "missing_enrichment",
     ]
     rows.with_columns(
-        *context.rename({c: "proxy_" + c for c in context.columns}).get_columns(),
+        *context_rows.rename({c: "proxy_" + c for c in context_rows.columns}).get_columns(),
         *scored.select(output_columns).get_columns(),
-        pl.lit("allele_proxy_full_reference").alias("confidence_context"),
+        pl.lit(context_name).alias("confidence_context"),
     ).write_csv(output, separator="\t")
 
 

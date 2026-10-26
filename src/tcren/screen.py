@@ -237,6 +237,7 @@ def cohort_flags(
     min_cohort: int = MIN_COHORT,
     strain: np.ndarray | None = None,
     calibrated: bool = False,
+    confidence_context: str = "cohort",
 ) -> dict:
     """Label-free warnings about the cohort as a whole. **Advisory, never applied to the score.**
 
@@ -310,7 +311,7 @@ def cohort_flags(
 
     # Do the two blocks of evidence even agree about this cohort? If they rank it oppositely, at
     # most one of them is right, and the reader should know before trusting either.
-    scored = screen_scores(table, reference, min_cohort=1)
+    scored = screen_scores(table, reference, min_cohort=1, confidence_context=confidence_context)
     conf = np.asarray(scored["z_confidence"].cast(pl.Float64), float)
     structural = [c["name"] for c in _validate(reference) if c["name"] != "confidence"]
     if structural and np.isfinite(conf).sum() > 2:
@@ -369,6 +370,7 @@ def apply_flag_response(
     *,
     response: FlagResponse,
     reason: str,
+    confidence_context: str = "cohort",
 ) -> pl.DataFrame:
     """Rewrite ``screen_score`` according to ``response``, recording what was done and why.
 
@@ -388,7 +390,7 @@ def apply_flag_response(
     elif response is FlagResponse.STRUCTURE:
         out = scored.with_columns(
             screen_score=screen_scores(table, reference, weight=0.0,
-                                       min_cohort=1)["screen_score"])
+                                       min_cohort=1, confidence_context=confidence_context)["screen_score"])
     else:
         geometry = next((c["name"] for c in _validate(reference) if c["name"] == "geometry"), None)
         if geometry is None:
@@ -439,6 +441,7 @@ def screen_scores(
     native_template: bool | None = None,
     min_cohort: int = MIN_COHORT,
     suppress: str | None = None,
+    confidence_context: str = "cohort",
 ) -> pl.DataFrame:
     """Score one cohort, one row per model, in input order.
 
@@ -454,6 +457,10 @@ def screen_scores(
             absent-template rule. Crystal availability is not a pose-quality judgement.
         min_cohort: below this many **scorable** rows the combined score is withheld. Models
             with no TCR:peptide interface are discarded and do not count toward it.
+        confidence_context: ``cohort`` retains the default mean-pLDDT rule.
+            ``nearest-plddt`` selects a frozen representative per observed model;
+            ``nearest-mean-plddt`` selects one from this explicit cohort's observed mean.
+            The minimum cohort floor and missing-context withholding still apply.
         suppress: when set, withhold the combined score for every row and record this as the
             reason. Used to act on a cohort flag -- see :func:`withhold_reason`.
 
@@ -468,6 +475,10 @@ def screen_scores(
     components = _validate(reference)
     override_weight = weight
     motif = reference.get("score_method") == "confidence_motif"
+    if confidence_context not in {"cohort", "nearest-plddt", "nearest-mean-plddt"}:
+        raise ValueError("Unknown confidence context")
+    if confidence_context != "cohort" and not motif:
+        raise ValueError("Nearest confidence context requires the TCR confidence-motif score")
     if motif and native_template is not None and not isinstance(native_template, bool):
         raise ValueError("native_template must be a boolean for a TCR-ranking reference")
     weight = (0.0 if motif and weight is None else
@@ -504,6 +515,7 @@ def screen_scores(
 
     Z = np.column_stack(z_cols)
     observed = np.isfinite(Z).sum(axis=1).astype(np.int16)
+    missing_context = np.zeros(table.height, dtype=bool)
     if motif:
         from .contacts.motif_optimize import apply_confidence_score
 
@@ -513,7 +525,20 @@ def screen_scores(
         inputs = table.with_columns(
             pl.col("g_recognition_cyclo_frac").alias("betti"),
             *[pl.lit("screen").alias(key) for key in model["cohort_keys"]])
+        if confidence_context != "cohort":
+            from .contacts.confidence_proxy import nearest_confidence
+            context_rows = nearest_confidence(table["plddt"],
+                ["screen"] * table.height if confidence_context == "nearest-mean-plddt" else None,
+                model)
+            missing_context = context_rows["missing_context"].to_numpy()
+            inputs = inputs.with_columns(pl.Series("plddt", context_rows["mean_plddt"]))
+            model = {**model, "gate": "complex-plddt"}
+            out.update({"proxy_" + c: context_rows[c] for c in context_rows.columns})
         result = apply_confidence_score(inputs, model)
+        if missing_context.any():
+            result = result.with_columns([
+                pl.when(pl.Series(missing_context)).then(None).otherwise(pl.col(name)).alias(name)
+                for name in ("gate_q", "w_I", "w_B", "w_M")])
         wb, wm = result["w_B"].to_numpy(), result["w_M"].to_numpy()
         wi = result["w_I"].to_numpy()
         if override_weight is not None:
@@ -531,11 +556,14 @@ def screen_scores(
         no_active_components = ~np.isfinite(x).any(axis=1)
         x = np.where(np.isfinite(x), x, model["imputation"])
         score = wi * x[:, 0] + wb * x[:, 1] + wm * x[:, 2]
-        score[no_active_components] = np.nan
+        score[no_active_components | missing_context] = np.nan
         out.update(gate_q=result["gate_q"], plddt=table["plddt"],
                    missing_plddt=~np.isfinite(table["plddt"].cast(pl.Float64).to_numpy()),
-                   cohort_mean_plddt=[result["plddt"].mean()] * table.height,
-                   confidence_weight=wi, topology_weight=wb, motif_weight=wm)
+                   cohort_mean_plddt=[result["plddt"].mean() if confidence_context == "cohort"
+                                      else table["plddt"].cast(pl.Float64).fill_nan(None).mean()] * table.height,
+                   confidence_context=[confidence_context] * table.height,
+                   confidence_weight=pl.Series(wi).fill_nan(None),
+                   topology_weight=pl.Series(wb).fill_nan(None), motif_weight=pl.Series(wm).fill_nan(None))
     elif reference.get("score_method") == "raw_weighted_mean":
         values = np.column_stack(raw)
         active = np.asarray(weights) > 0
@@ -568,8 +596,9 @@ def screen_scores(
                  f"cohort of {n_scorable} scorable models is smaller than the minimum "
                  f"of {min_cohort}",
                  np.where(observed == 0, "no component observed",
-                          np.where(no_weighted, "no weighted component observed",
-                                   suppress if suppress else ""))))
+                          np.where(missing_context, "no observed pLDDT for the selected confidence context",
+                            np.where(no_weighted, "no weighted component observed",
+                                   suppress if suppress else "")))))
     out["n_components"] = observed
     out["no_interface"] = no_interface
     series = pl.Series(score)

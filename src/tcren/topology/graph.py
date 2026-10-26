@@ -361,7 +361,7 @@ def _promoted_degree(structure: Structure, cutoff: float) -> dict[str, float]:
 #     ca_cb_agreement_tm   rho -0.354    83.5%
 #     m_erank_tp           rho -0.518    73.1%
 #
-# The peptide-facing spectral columns carry length, and the mechanism is the author's (2026-09-01):
+# The peptide-facing spectral columns carry length:
 # in class I the groove is closed at both ends, so a longer peptide must BULGE, and a bulged peptide
 # sits closer to the receptor and presents more independent approach modes. That is a real property
 # an end user asks about -- is this a bulged epitope -- not an artefact to normalise away. It is
