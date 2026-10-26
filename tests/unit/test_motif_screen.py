@@ -10,7 +10,9 @@ import pytest
 
 from tcren.contacts.motif import bundled_enrichment
 from tcren.contacts.motif_optimize import apply_confidence_score
-from tcren.screen import CohortKind, bundled_reference, confidence_weight, screen_scores
+from tcren.screen import (
+    CohortKind, FlagResponse, apply_flag_response, bundled_reference, confidence_weight, screen_scores,
+)
 
 
 def table(plddt=(92.612607434279, 92.612607434279)):
@@ -18,6 +20,30 @@ def table(plddt=(92.612607434279, 92.612607434279)):
                          "g_recognition_cyclo_frac": [.4, .3], "enrichment": [.6, .5],
                          "plddt": plddt, "dFT_tcr_pep_cdr": [0., 0.],
                          "sc_shape": [.5, .5], "n_contacts_tp": [10, 10]})
+
+
+@pytest.mark.parametrize("response", list(FlagResponse))
+def test_no_contacts_stay_zero_with_missing_components_small_cohort_and_flag_response(response):
+    ref = bundled_reference(CohortKind.TCR_RANKING)
+    inputs = table().with_columns(
+        pl.Series("n_contacts_tp", [0, 10]),
+        pl.when(pl.col("complex.id") == "a").then(None).otherwise(pl.col("iptm")).alias("iptm"),
+        pl.when(pl.col("complex.id") == "a").then(None)
+        .otherwise(pl.col("g_recognition_cyclo_frac")).alias("g_recognition_cyclo_frac"),
+        pl.when(pl.col("complex.id") == "a").then(None).otherwise(pl.col("enrichment")).alias("enrichment"))
+    for floor in (1, 30):
+        scored = screen_scores(inputs, ref, min_cohort=floor)
+        assert scored["screen_score"][0] == 0.
+        assert scored["no_interface"][0]
+        assert scored["score_unavailable"][0].startswith("no TCR:peptide interface")
+        if floor == 30:
+            assert scored["screen_score"][1] is None
+        if response is FlagResponse.GEOMETRY:
+            # The motif reference's geometry is reporting-only but remains available.
+            assert "z_geometry" in scored.columns
+        out = apply_flag_response(scored, inputs, ref, response=response, reason="low confidence")
+        assert out["screen_score"][0] == 0.
+        assert out["score_unavailable"][0] == scored["score_unavailable"][0]
 
 
 def test_selected_formula_and_inclusive_confidence_ties():
@@ -39,7 +65,7 @@ def test_selected_formula_and_inclusive_confidence_ties():
                             for c in ["iptm", "g_recognition_cyclo_frac", "enrichment"]])
     assert screen_scores(absent_active, ref, min_cohort=1)["screen_score"].null_count() == 2
     discarded = table().with_columns(pl.Series("n_contacts_tp", [0, 10]))
-    assert screen_scores(discarded, ref, min_cohort=1)["screen_score"][0] is None
+    assert screen_scores(discarded, ref, min_cohort=1)["screen_score"][0] == 0.
 
 
 def test_cohort_context_missingness_and_invalid_confidence():

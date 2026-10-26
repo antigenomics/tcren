@@ -158,8 +158,8 @@ Outputs record ``confidence_weight``, ``topology_weight``, ``motif_weight`` and
 
 The historical two-weight reference retains 0.55 present/unspecified and 0.90
 absent confidence weights; older custom references retain their original gate.
-Epitope ranking does not accept template status. Zero-contact discard, cohort
-floor and reporting-only flags retain their existing policies.
+Epitope ranking does not accept template status. Zero-contact rejection, cohort
+floor and reporting-only flags apply to both tasks.
 
 Energy, orientation and target relief
 -------------------------------------
@@ -180,14 +180,23 @@ TCR score is the bounded mixture defined above, not a significance test. Inspect
 channels, their missingness, the target surface and docking geometry with flags
 before interpreting a ranking.
 
-Discard and cohort floor
-------------------------
+Zero-contact rejection and cohort floor
+---------------------------------------
 
-Models with zero TCR:peptide contacts remain in output with ``no_interface`` true
-and a reason in ``score_unavailable``, but no score. They do not count toward
-``--min-cohort`` (default 30). Below the floor every row retains its component
-readouts without a combined score. A flag response cannot restore discarded or
-withheld scores or erase their original unavailability reasons.
+Models with zero TCR:peptide residue contacts at the 5 Å heavy-atom cutoff receive
+``screen_score=0``: no peptide contact means no binding interface in the supplied
+model. They remain in output with ``no_interface`` true and the structural
+rejection reason in ``score_unavailable``. The CLI emits a warning with the exact
+number of zero-contact models. A high ipTM cannot override this rejection;
+downstream exports must retain zero rather than substitute raw ipTM.
+
+Zero-contact models do not count toward ``--min-cohort`` (default 30). Below the
+floor their scores remain zero; other rows retain components without a combined
+score. Explicit flag responses preserve these zeros and their original reasons.
+Zero is the lower bound of the default TCR and raw ipTM/Betti scores. With a
+historical standardized reference it is a rejection marker, not necessarily the
+lowest numerical score. This behavior applies from version 4.4.1 onward; older
+versions withheld the zero-contact score.
 
 Generator confidence reports pose quality; a binder-labelled pair may still have
 an off-groove prediction. Reversing such a score would reward modelling failure.

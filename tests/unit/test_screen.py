@@ -433,7 +433,7 @@ def test_report_is_the_default_response():
 
 # --- models the generator never placed on the groove -------------------------------------------
 
-def test_a_model_with_no_interface_is_discarded_not_scored():
+def test_a_model_with_no_interface_gets_zero():
     """Zero TCR:peptide contacts means the receptor was docked elsewhere. Every structural
     component for such a model is computed over an empty interface and carries no information."""
     ref = historical_reference(CohortKind.TCR_RANKING)
@@ -441,7 +441,7 @@ def test_a_model_with_no_interface_is_discarded_not_scored():
     t = _table(n).with_columns(pl.Series("n_contacts_tp", [0] * 3 + [20] * (n - 3)))
     got = screen_scores(t, ref)
     assert got["no_interface"].to_list() == [True] * 3 + [False] * (n - 3)
-    assert got["screen_score"][:3].null_count() == 3
+    assert got["screen_score"][:3].to_list() == [0.] * 3
     assert got["screen_score"][3:].null_count() == 0
     assert got["score_unavailable"][0].startswith("no TCR:peptide interface")
 
@@ -452,7 +452,8 @@ def test_discarded_models_do_not_count_toward_the_cohort_floor():
     n = MIN_COHORT + 5
     t = _table(n).with_columns(pl.Series("n_contacts_tp", [0] * 8 + [20] * (n - 8)))
     got = screen_scores(t, ref)
-    assert got["screen_score"].null_count() == got.height
+    assert got["screen_score"][:8].to_list() == [0.] * 8
+    assert got["screen_score"][8:].null_count() == n - 8
     reasons = {r for r in got["score_unavailable"].to_list() if r}
     assert any("scorable models is smaller than the minimum" in r for r in reasons)
 
@@ -528,7 +529,7 @@ def test_template_gate_uses_confidence_only_but_keeps_components():
     assert gated["native_template"].to_list() == [False] * 3
     assert gated["screen_score"][0] == pytest.approx(gated["iptm"][0])
     assert gated["screen_score"][1] is None
-    assert gated["screen_score"][2] is None
+    assert gated["screen_score"][2] == 0.
     assert gated["missing_confidence"].to_list() == [False, True, False]
     assert np.isfinite(gated["z_energy"].to_numpy()).all()
     covered = screen_scores(t, ref, weight=0.6, native_template=True, min_cohort=1)
@@ -537,7 +538,7 @@ def test_template_gate_uses_confidence_only_but_keeps_components():
                                plain["screen_score"].to_numpy(), equal_nan=True)
     assert covered["screen_score"][1] is not None
     small = screen_scores(t, ref, weight=0.6, native_template=False, min_cohort=3)
-    assert small["screen_score"].null_count() == 3
+    assert small["screen_score"].to_list() == [None, None, 0.]
 
 
 def test_template_metadata_is_explicit_hashed_and_validated(tmp_path):

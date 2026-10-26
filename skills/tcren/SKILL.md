@@ -59,7 +59,8 @@ development, so the score is not fit-free or a calibrated binding probability.
 
 Read `screen_score`, `score_unavailable`, `missing_*`, component values and
 `gate_q`/component weights together. Higher score ranks first. Zero-contact models
-retain rows/reasons but no score; they do not count toward the default 30-model
+receive score 0 with `no_interface`, a retained reason and a CLI warning; never
+replace that zero with raw ipTM. They do not count toward the default 30-model
 floor. Flags report by default. `--weight` preserves the Betti:motif ratio while
 changing the confidence weight. Epitope and legacy references have distinct rules.
 Template status is context, not a new default coefficient selection.

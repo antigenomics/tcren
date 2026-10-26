@@ -63,10 +63,10 @@ def test_screen_cli_discards_zero_contact_models_and_reports_flags(task, gate, m
     assert result.exit_code == 0, result.output
     table = pl.read_csv(out, separator="\t")
     assert table["no_interface"].to_list() == [True, False]
-    assert table["screen_score"][0] is None
+    assert table["screen_score"][0] == 0.
     assert table["screen_score"][1] is not None
     assert table["cohort_n_no_interface"].to_list() == [1, 1]
-    assert "discarded with no TCR:peptide interface" in result.output
+    assert "WARNING: 1 model(s) have zero TCR:peptide contacts; screen_score=0" in result.output
 
     if gate is not None:
         import json
