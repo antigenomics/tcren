@@ -16,46 +16,32 @@ are refused. ipTM comes from metadata.tsv or `--confidence`, never from tcren.
 The structural alanine reference follows the varying side: epitope
 `reference_delta(..., structure=)` or contacted-CDR
 `receptor_reference(..., structure=)`, both rebuilding the contact map. The TCR
-output carries energy, `sc_shape`, `g_cyclo_frac` and confidence; only topology
-and confidence enter its default combination; epitope
-ranking carries energy and confidence. Bundled TCR scoring is
-`S = (6 * iptm + g_cyclo_frac) / 7`, a raw weighted mean in [0,1], not a binding
-probability. Confidence weight defaults to 6/7, topology to 1/7. Frozen z-scores
-remain diagnostic. Missing active channels are omitted and weights renormalized.
-Epitope ranking and custom references without `score_method` retain weighted
-Stouffer. The bundled TCR reference declares `raw_weighted_mean`.
+output carries energy, geometry, the original graph fraction and the new
+`g_recognition_cyclo_frac`: graph beta1/E over CDR:peptide + peptide:MHC + CDR:MHC
+contacts (5 Å), without internal peptide edges. Bundled TCR scoring uses
+`S=(1-.41q-.22(1-q))*iptm+.41q*B+.22(1-q)*M`, with B the recognition
+cycle fraction and M whole-mock-calibrated all-six-CDR/peptide contact enrichment.
+q is the inclusive CDF of unlabelled cohort-mean pLDDT/100 against five frozen
+TCRvdb means. Supply generator plddt on 0–100 with iptm; missing values use
+flagged frozen training imputation. Cohort composition affects weights, but no
+score-time fitting occurs. All 2,056 mock graphs retain unit weight; packaged
+histograms and gzipped TSV calibration values require no download.
 
-Zero-contact models retain output rows/reasons but no score and do not count
-toward the default 30-model floor. Smaller cohorts retain components alone.
-Flags report by default; `--on-flag` explicitly selects report, structure,
-geometry, withhold or reverse. Responses cannot restore unavailable scores or
-erase their original reasons. Reversal is not recommended as a modelling correction.
+Template status/inventory records context without changing this shared rule.
+`--weight` overrides confidence while retaining the Betti:motif ratio. Output
+includes `gate_q`, `confidence_weight`, `topology_weight` and `motif_weight`.
+Zero-contact models retain rows/reasons but no score and do not count toward
+the default 30-model floor. Flags report by default. Epitope scoring and legacy
+custom references retain their established rules. The former prepared two-weight
+TCR rule is available as `screen_reference_tcr_v44.json`; v43 is also preserved.
 
-Keep ipTM primary for receptor ranking and inspect the separate components,
-missingness, flags and provenance sidecar. No universal improvement, affinity,
-calibrated probability or receptor-specific discrimination follows from a score.
+The author accepted this score as the new baseline with its recorded VDJdb
+tradeoff. Fitted development accuracy is not an independent test or probability
+calibration. Keep complete matched comparisons. Individual-structure confidence
+proxies are a separate opt-in investigation; cohort-mean scoring remains default.
 
-API: `screen.screen_scores`, `screen.cohort_signature`, `screen.stouffer`.
-Equations and diagrams: `docs/screening.rst`; resource dependencies: `SOURCES`.
-
-## Explicit experimental template gate (4.2.0)
-
-`screen --template-metadata Native2026/metadata.tsv --weight VALUE` gates only
-TCR ranking. `screen.template_coverage(peptide, metadata)` reads the explicit
-native-crystal `epitope` inventory and returns case-insensitive membership and
-its hash. `screen_scores(..., native_template=False)` uses raw ipTM with the bundled TCR reference
-alone; True uses the requested weight; None retains historical behavior.
-Components remain visible; missing ipTM under the confidence-only gate yields
-null with `no weighted component observed`. Zero contacts, cohort floor and
-explicit flag responses retain their policies. TSV columns `native_template`
-and `confidence_weight`, plus gate/reference provenance, expose the choice.
-
-The diagnostic 0.6 weight was selected on evaluation panels: it is not a bundled
-default. The gate does not alter the reference moments.
-Near-orthogonal confidence/structure motivates the sum; geometry/topology still
-share packing information. Keep chemistry energy, TCR:MHC orientation and
-receptor-free pMHC relief distinct from sc_shape complementarity. Inspect them
-alongside flags and ipTM rather than treating gate membership as pose validation.
+API: `screen.screen_scores`, `contacts.motif.bundled_enrichment`,
+`contacts.motif.contact_enrichment`. Equations: `docs/screening.rst`.
 
 ## Epitope-ranking score
 
@@ -2204,3 +2190,235 @@ the same full observed Cartesian inventory. Physical multiplicities survive
 chemical-equivalence pooling. Unsupported opportunities abstain for the whole
 edge. `contact-compare` retains the `inventory_pattern` arm. See
 `docs/INVENTORY_PATTERN_SPEC.md` for equations and explicit independence assumptions.
+
+## Exploratory recognition graph ladder
+
+`export --quantity recognition-topology` emits released CDR:pMHC, CDR:peptide +
+peptide:MHC, then peptide sequence edges, then CDR:MHC edges. All use unique
+residue contacts at the existing cutoff and beta1=E-V+C, cyclo_frac=beta1/E.
+Peptide sequence edges require consecutive observed indices and C--N distance
+in (0,1.8] Angstrom; missing/broken links are counted. No TCR/MHC sequence edges.
+Availability requires receptor contact; internal pMHC cycles cannot rescue an
+absent receptor interface. These are exploratory descriptors, not a new default,
+rupture energy, affinity, anchor assignment or register classifier.
+
+Recognition-topology also exports G2a `tp_pm_sidechain` and G3a
+`tp_pm_sidechain_tm`, replacing peptide sequence edges with side-chain-heavy-atom
+peptide contacts at the supplied cutoff. No sequence-separation exclusion;
+adjacency alone adds no edge. Backbone N/CA/C/O/OXT and hydrogen are excluded.
+
+Recognition-topology includes clique-complex `simplicial_beta1`/`simplicial_beta2`
+over GF(2), all triangle/tetrahedron counts and boundary ranks. The unchanged
+`beta1` is the graph cycle count. H1=E-V+C-rank(d2), H2=F-rank(d2)-rank(d3);
+tetrahedra must be included. See docs/fit-free.rst. No default score change.
+
+The `tp_pm_tm` variant is G1 plus CDR:MHC contacts, with no peptide internal
+sequence or side-chain edges. Its vertices are incident residues as in all variants.
+
+## Weighted recognition and persistence diagnostics
+
+`export --quantity weighted-recognition-topology` reuses the seven-graph ladder,
+with TCRen2 directed TCR/MHC→peptide and MJ TCR→MHC goodness max(-energy,0).
+Missing weights retain edges and withhold weighted graph values; peptide-internal
+edges have no specified potential. Counts, strengths, forest redundancy, graph
+energy, all-terminal cuts, clustering, connectivity, centrality and weighted
+participation are diagnostics only. `alg_conn_w_bounded` is raw lambda2/2.
+`export --quantity persistence` requires `tcren[topology]`; exact CA/CB Rips H0/H1
+finite bars through 12 Å, Gly-only CA fallback, explicit missing/censored counts.
+See docs/fit-free.rst for definitions and bounded-mixture eligibility. No screen
+or default-score change.
+
+## Experimental CDR3 chemical-neighborhood rules
+
+`export --quantity cdr3-neighborhood` reduces fresh all-atom CDR3:peptide and
+CDR3:complete-MHC contacts separately, with existing v2 chemistry and Bondi
+overlaps. `neighborhood-rules --features features.tsv --models models.tsv -o
+scores.tsv` preserves prepared plus ten fixed diagnostic rules; models supply
+`pdb.id,iptm,topology,confidence_weight`, no labels. Six rules discount only
+topology; four hard gates zero the complete score. All rows persist. These are
+experimental, with no screen/default changes; see docs/cdr3-neighborhood.rst.
+
+For detailed per-model contact evidence, `export --quantity cdr3-contacts --interface all`
+retains every CDR3-side atom witness to peptide/complete MHC, v2 flags and
+`sidechain.from`; count feature presence once per model for Fisher tests.
+
+## Directed TCR–MHC potential derivation
+
+`derive-potential --structure-dir Canonical2026 --interface tcr_mhc --balance both
+-t 0 -o TCRen_m.csv --contacts-out TCRen_m_contacts.csv` uses the existing classic
+log-odds estimator, pseudocount 1 and receptor-Cys exclusion. Complete MHC-side
+contacts retain physical chain identities. Both receptor chains and peptide are
+required; withdrawn entries are excluded as for TCRen2. Annotation is batched;
+contact output includes the exact structure weights. This derives a separate
+parameter file and changes no scoring default. Rows are TCR, columns are MHC.
+
+For the peptide→MHC matrix, use `--interface peptide_mhc --keep-cys` with the
+same Canonical2026/balance-both recipe and output `TCRen-pm.csv`. This retains
+all 20 peptide rows and 20 MHC columns. Complete physical peptide–MHC edges
+are counted once each; no matrix symmetrization or scoring-default change.
+
+Weighted graph exports now honor explicit `--potential` (TCR→peptide),
+`--mhc-potential` (TCR→MHC), and `--pmhc-potential` (peptide→MHC). The latter
+changes the PM lookup direction to peptide→MHC; omitting it retains historical
+MHC→peptide behavior. `edges_per_vertex=E/V`, `w_per_vertex=W/V` count incident
+residues V, with bounded E/(E+V), W/(W+V). Used matrices are exported and hashed.
+
+Boltzmann graph exports use `--graph-weighting boltzmann --graph-beta 1`:
+finite matrix energies become exp(-beta*E), with neutral weight 1, positive
+unfavorable weights, missing entries withheld and numeric overflow/underflow
+rejected. Beta is finite positive and recorded; default weighting stays positive.
+
+## Residue saturation surprisal
+
+`saturation-export -s MANIFEST -o residues.parquet -t 0` freshly exports complete
+CDR3 side-chain atom counts/contacts at 5 A for peptide, MHC and union. `--native`
+selects nonwithdrawn class-I alpha-beta structures. Gly and incomplete inventories
+remain explicit. `saturation-score --native native.parquet --features query.parquet
+-o RUN` excludes exact query CDR3 pairs, fits Jeffreys native full-contact rates,
+and exports full-event bits plus pooled-probability conditional binomial bits.
+Each bounded score divides its sum by the maximum attainable information on the
+same contacting residue inventory. Empty information=0. Native frequencies are
+estimated dependencies, not fit-free quantities or binding probabilities.
+`contacts.saturation.bounded_mixture` computes
+(ipTM+w1*prepared+w2*surprise)/(1+w1+w2). No defaults change. See
+`docs/cdr3-neighborhood.rst` for equations, support and independence assumptions.
+The additional `full_sum`/`binomial_sum` outputs are S/(1+S) for raw bit sums S,
+with a fixed one-bit scale; they preserve raw-sum order and absolute engagement.
+
+## Mock saturation reference
+
+`saturation-mock --reference mocks.parquet --metadata mocks.tsv --features
+query.parquet --queries baseline.parquet -o NEW_DIR` excludes query epitopes and
+either exact CDR3 chain, fits raw and equal-epitope/equal-CDR3 weighted reference
+frequencies, and exports residue/summary scores. Mock metadata requires y=0;
+computed mispairings are not experimental negatives. API `balance_mock_residues`,
+weighted `fit_reference`, and `score_saturation` (also exports upper-binomial-tail
+`tail_bits`, bounded `tail_sum`). Benchmark owns coordinate exclusion and held-out
+weight selection. No released/default scorer changes.
+
+`score_saturation` also emits `tail_max_bits` for every complete n>1 side chain,
+including noncontacts, and `tail=sum(tail_bits)/sum(tail_max_bits)`. No contacts
+or no conditional opportunities scores zero. This is a fixed all-side-chain
+opportunity normalization, not exposure weighting; `tail_sum` remains available.
+
+## Contact engagement optimization
+
+`contact-engagement-evaluate --contacts CONTACTS --atoms ATOMS --baseline BASE
+--mock-contacts MOCK_CONTACTS --mock-atoms MOCK_ATOMS --mock-baseline MOCK_BASE
+-o NEW_DIR -t 0 --policy priority|safeguard|ranking|stable|transport|shared|bagged` evaluates additions to a
+fixed ipTM/Betti `prepared` baseline from fresh exports. Keep all raw benchmark
+models, including ambiguous labels, for reference exclusion. Fit only binary
+calls. Driver checks coordinate hashes; CLI excludes reference epitopes and
+either exact CDR3 chain. Separate alpha/beta/peptide channels, zeros/full masses,
+gaps, raw counts and empirical type-specific tails remain explicit. Weighted
+inclusive survival has one tail pseudocount and exactly zero bits at zero contact.
+No residue atom-count division. API: `contacts.engagement.empirical_tails`,
+`offset_predict`, `likelihood_predict`, `smooth_ap`. Nested exact-chain folds
+select ridge/contact weights; ranking adds a smooth AP objective with an analytic
+gradient. Stable selection requires nonnegative AP changes in each inner fold,
+with baseline fallback. Outputs retain every TCRvdb AP delta, full PR curves, parameters,
+feature logit contributions and reference-only VDJdb template strata. These are
+exploratory fitted readouts; no release/default/paper promotion.
+Transport uses training empirical quantiles to match learned-score units to
+baseline units; saved mapping knots use no held-out labels or query distribution.
+Shared adds a compact aggregate model fitted across TCR training cohorts only;
+the VDJdb reference never supplies fit or selection labels.
+Bagged averages three member probabilities using the existing inner training
+partitions, retaining member-level parameters/attributions and outer disjointness.
+
+## Exploratory additive contact maxima
+
+`python -m tcren.contacts.additive --contacts C --atoms A --topology G --baseline B -o OUT -t 0`
+uses fresh CLI exports for max TRA/TRB pairs, max distinct TCR atoms, peptide union
+atoms and both max/union ratios. `iptm+a*beta1/E+b*feature` compares shared/separate
+nonnegative weights by five-epitope macro AP with exact-chain grouped OOF.
+Full-fit and training-percentile OOF metrics are separate; p-values do not select
+weights. CDR1/2/3 heavy atoms at 5 Å, no default promotion. APIs:
+`contacts.additive.contact_counts`, `average_precision_matrix`, `command`.
+
+## In-sample contact GLMs
+
+`python -m tcren.contacts.glm --contacts C --topology G --baseline B -o OUT`
+fits two pooled unpenalized logistic GLMs: ipTM, betti (the former prepared
+score), and distinct contacted peptide/TRA/TRB atom counts; then the same with
+all three counts divided by total unique TCR-peptide residue edges. Zero-edge
+counts/densities are zero. Fresh CLI exports, all finite called rows, numerical
+standardization, input-unit coefficients and explicit in-sample metrics. APIs:
+`contacts.glm.atom_totals`, `fit_glm`, `command`.
+
+
+## All-loop empirical mock residue surprise
+
+`residue-surprise-counts --atoms A --contacts C -o R` exports zero-inclusive
+CDR1/2/3 and reciprocal epitope residues, plus full-sequence/hash identity
+sidecars from original CLI inventory accounting. Added covalent-residue cycles
+are exactly `atom_pairs-partner_residues`; `--atom-scope sidechain` is explicit.
+`residue-surprise-fit --features MOCK --query-features R --metadata META -o JSON`
+retains every source-labelled negative outside benchmark model IDs, coordinate
+hashes and exact full TRA+TRB+epitope pairings. No caps, downsampling or CDR3
+collapse. Shared receptors/epitopes are allowed. Optional `--balance-epitopes`
+uses inverse-frequency weights without removing models; true counts remain.
+`--reference-label 1` declares a cognate reference; scoring with
+`--positive-reference` additionally exports log2 tail-frequency enrichment.
+`residue-surprise-score` defaults to local added cycles. The residue-side diagnostic
+is `sqrt(T*P)`, with mean loop/epitope rarity or positive enrichment;
+`residue-surprise-evaluate --enrichment` selects the latter. No arbitrary powers,
+multi-parameter classifier or implicit coefficient grid. Unsupported residues
+abstain at zero with full denominators and explicit support. All six loops are
+required. CLI owns AP/AUROC and cohort/stratum tables. Existing screening defaults
+remain. See docs/residue-surprise.rst; APIs: `contacts.residue_surprise.residue_counts`,
+`model_identities`, `fit_reference`, `score_residues`.
+
+
+## Three-proportion motif mixture
+
+`export --quantity recognition-betti` exports the existing raw recognition
+beta1/E directly, without the extra graph/homology ladder. `motif-fisher` sums
+local -2 ln p over all six CDRs and peptide, then uses whole eligible mock graphs
+for empirical survival calibration. All controls remain; whole-model LOO local
+ranks avoid self-counting. The independent chi-square Fisher p is diagnostic only.
+`motif-mixture-fit` fits just `S=wI*iptm+wB*betti+wM*enrichment`, nonnegative
+proportions summing to one. The default fits all labelled TCRvdb rows without
+folds. Optional recorded exact-chain folds remain a diagnostic, never resplit;
+`motif-mixture-diagnose` separates within-fold rankings from cross-fold scale
+shifts. Training-only imputation/flags, full-fit/OOF/VDJdb readouts and all counts
+remain distinct. `motif-mixture-score` applies the frozen JSON to the
+three component columns. No arbitrary powers, extra predictor or threshold fit.
+See docs/motif-mixture.rst; APIs: `contacts.motif_mixture.fisher_summary`,
+`empirical_survival`, `simplex_weights`, `fit_weights`, `linear_score`.
+
+`motif-mixture-fit-cohorts --features COMPONENTS -o OUT -t 0` fits independent
+unit-sum triplets for TCRvdb, VDJdb template_present and template_absent, without
+folds. All three panels are then in-sample; no transfer-validation claim. Frozen
+`motif-mixture-score` dispatches from explicit dataset/stratum fields and rejects
+unassigned cohorts. The formula stays linear in the same three components.
+
+## Confidence-dependent three-component recognition rule
+
+`motif-confidence-inputs` joins raw generator confidence and hash-verifies C-alpha
+pLDDT recovery when metadata is missing. `motif-confidence-fit --gate cohort-plddt
+--complementary --rank-confidence` fits two global coefficients: wB=b*q,
+wM=m*(1-q), wI=1-wB-wM, with q the empirical percentile of unlabelled cohort mean
+pLDDT against the frozen TCRvdb confidence reference. No dataset-specific fitted
+triplets or classifier. Full-fit/in-sample interpretation is explicit; all
+NLV/TTD/GIL floors and complete coefficient/metric tables are exported.
+`motif-confidence-score` applies the frozen resource without labels or fitting;
+cohort means require the supplied unlabelled cohort context.
+`motif-confidence-report` collects complete cohort/stratum comparisons.
+`motif-residue-audit --annotations JSON` maps V-aligned CDR3 residues from recorded
+AIRR boundaries, alongside RS/flank, TTD arginine and peptide GIGI audit tags.
+These interpretation tags never enter the predictor. `motif-pair-counts` and
+`motif-fisher` joint/bound-reference/epitope-conditional options retain explicit
+model inventories, counts and reference hashes; no source model cap is used.
+See docs/motif-confidence.rst.
+
+
+## Optional individual-complex confidence proxy
+
+`motif-confidence-proxy --features components.tsv --fields 2 -o scores.tsv`
+uses a frozen allele lookup for cohort confidence with the accepted .41/.22
+score. Inputs: mhc, iptm, betti, enrichment. First-/second-field HLA grouping is
+explicit; unseen alleles use a flagged global fallback and expose support counts.
+`contacts.confidence_proxy.allele_confidence` is the library API. Deployment uses
+the full unlabelled reference; its leave-epitope-out assessment remains separate.
+Ordinary screen keeps measured cohort-mean pLDDT as default.

@@ -1,7 +1,6 @@
 {
   "format": "tcren-screen-1",
   "task": "tcr",
-  "default_weight": 0.8571428571428571,
   "cohort_confidence": {
     "mean": 0.74562,
     "sd": 0.035717,
@@ -51,15 +50,20 @@
     },
     {
       "name": "topology",
-      "column": "g_cyclo_frac",
+      "column": "g_recognition_cyclo_frac",
       "direction": 1,
-      "definition": "(E - V + C) / E over the CDR:pMHC residue contact graph",
-      "mean": 0.24908462479069843,
-      "sd": 0.06009944543413727,
-      "n": 711,
-      "pool_raw_roc": 0.537915,
-      "pool_verdict": "undetermined",
+      "definition": "(E - V + C) / E over CDR:peptide + peptide:MHC + CDR:MHC residue contacts, no internal edges",
+      "mean": 0.0,
+      "sd": 1.0,
       "structural_fraction": 1.0
+    },
+    {
+      "name": "motif",
+      "column": "enrichment",
+      "direction": 1,
+      "mean": 0.0,
+      "sd": 1.0,
+      "structural_fraction": 0.0
     }
   ],
   "standardization": "means and scales frozen on a held-out training pool of 729 models over 14 off-panel epitopes; no label was read to produce them, so this is a change of units and not a fit",
@@ -67,6 +71,39 @@
   "excluded_epitopes": [
     "KLGGALQAK"
   ],
-  "combination": "(6 * iptm + g_cyclo_frac) / 7; energy and geometry are reporting-only. Missing active components are omitted and remaining weights renormalized.",
-  "score_method": "raw_weighted_mean"
+  "combination": "S=(1-b*q-m*(1-q))*ipTM+b*q*Betti+m*(1-q)*enrichment",
+  "score_method": "confidence_motif",
+  "topology_standardization": "Identity for the new topology descriptor: z_topology is its raw fraction, not a newly estimated reference moment.",
+  "weight_selection": "Two development-selected coefficients, .41 and .22; cohort mean pLDDT inclusive frozen CDF.",
+  "motif_confidence": {
+    "schema": "tcren-confidence-motif-1",
+    "gate": "cohort-plddt",
+    "parameters": {
+      "b": 0.41,
+      "m": 0.22
+    },
+    "imputation": [
+      0.7975785268276251,
+      0.3876522190184367,
+      0.6175799479153883
+    ],
+    "plddt_imputation": 93.32430931590982,
+    "formula": "S=(1-b*q-m*(1-q))*ipTM+b*q*Betti+m*(1-q)*enrichment",
+    "cohort_keys": [
+      "dataset",
+      "stratum",
+      "epitope"
+    ],
+    "rank_confidence": true,
+    "confidence_cdf": [
+      0.9179320394646805,
+      0.92612607434279,
+      0.9299804672775766,
+      0.9312745381105264,
+      0.9497418534263323
+    ],
+    "interpretation": "Frozen development-selected coefficients; cohort confidence uses unlabelled rows. Dimensionless score, not a binding probability."
+  },
+  "mock_controls_sha256": "31f882deb420d60cd1860c33166d5fd34aa3735c6e3359e7a878d7b87218c6df",
+  "motif_residue_sha256": "48260c23bd7d00d23ddd37ad79f725418739624e12894ebaa7a2c279c3583635"
 }

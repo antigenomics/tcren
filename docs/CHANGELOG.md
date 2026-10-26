@@ -3,6 +3,46 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
+## [4.4.0] — Unreleased
+
+### Added
+
+- Experimental all-six-CDR/epitope `residue-surprise-*` and `motif-fisher`
+  commands retain all eligible negative controls, count covalent-residue contact
+  cycles, and calibrate Fisher motif sums against whole control graphs.
+  `recognition-betti`, `motif-mixture-fit` and `motif-mixture-score` expose a
+  nonnegative ipTM/complex-Betti/enrichment weighted sum and explicit grouped
+  held-out tables. Global fits need no folds; `motif-mixture-fit-cohorts` fits
+  independent triplets by dataset/template status. `motif-mixture-diagnose`
+  separates within-fold rankings from coefficient-induced score shifts.
+  `motif-confidence-*` add simple confidence-dependent proportions, frozen score
+  replay and complete comparisons; `motif-residue-audit` maps contact evidence
+  and recorded V-alignment boundaries. The selected frozen rule now owns TCR screening.
+
+- Experimental `contact-engagement-evaluate` for grouped held-out contact
+  additions to a fixed ipTM/Betti baseline: empirical residue-type tails,
+  endpoint likelihoods, conditional logistic and smooth-AP objectives, and
+  training-only score-scale mapping. Full comparisons and parameters remain
+  separate from screening defaults.
+- Experimental `saturation-export` and `saturation-score` commands for CDR3
+  side-chain atom completeness, native full-contact frequencies and conditional
+  binomial surprisal. Raw bits, bounded summaries and residue contributions stay
+  separate from screening defaults; missing atoms and native overlap are explicit.
+
+### Changed
+
+- TCR screening now combines ipTM, recognition beta1/E and all-loop contact
+  enrichment with frozen coefficients 0.41/0.22 and the empirical percentile of
+  unlabelled cohort-mean pLDDT. Bundled mock histograms and compressed whole-control
+  calibration values avoid score-time fitting or downloads. Missing values use
+  flagged frozen training imputation. Cohort composition determines weights.
+- Template context remains explicit but does not select different default
+  coefficients. The preceding two-weight reference is preserved as
+  `screen_reference_tcr_v44.json`; the 4.3 reference remains available.
+- Epitope scoring, zero-contact discard, cohort floor and reporting-only flags
+  keep their established behavior. New topology diagnostic standardization is
+  identity; confidence, energy and geometry reference moments are preserved.
+
 ## [4.3.2] — 2026-10-24
 
 ### Added
@@ -2731,3 +2771,11 @@ Initial PyPI release setup (publish workflow, `arda-mapper` dependency, lean sdi
 - Export receptor-independent `pmhc-cells` and an exact spatial-summary sidecar:
   vectorized height/ridge-excess hydropathy covariances, component means and
   common-cell accounting, retaining existing grid/chemistry/ridge definitions.
+
+### Experimental mock occupancy reference
+
+- Added `saturation-mock`: raw and epitope/CDR3-balanced mock references with
+  benchmark-epitope and exact-chain exclusions, preserving native scoring defaults.
+- Added conditional binomial upper-tail occupancy and its bounded bit sum.
+- Added opportunity-normalized upper-tail occupancy, including complete
+  noncontacting residues in the denominator and exact zero information for Ala.

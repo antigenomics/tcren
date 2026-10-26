@@ -217,3 +217,197 @@ the accounting sidecar separately retains successful zero-contact structures.
 No count is labelled an independent sample size or a probability of physical
 validity. Provenance retains the summary hash, conformer policy, annotation and
 searched-reference identities. See :mod:`tcren.contacts.observations`.
+
+Exploratory recognition graphs
+------------------------------
+
+``export --quantity recognition-topology`` exports seven fixed graphs: the
+released CDR:peptide + CDR:MHC graph; CDR:peptide + peptide:MHC; the latter
+with peptide sequence edges; and finally that graph with CDR:MHC edges.
+Residues use physical chain/index identities and contacts use the supplied
+heavy-atom cutoff (default 5 Angstrom). Sequence edges connect consecutive
+observed peptide residues only with a C--N distance in (0, 1.8] Angstrom;
+missing atoms and breaks are counted. No other backbone edges are added.
+
+The two additional variants replace sequence edges with spatial peptide
+side-chain contacts: ``tp_pm_sidechain`` (G2a) and ``tp_pm_sidechain_tm``
+(G3a). A unique residue pair qualifies when at least one pair of side-chain
+heavy atoms is within the supplied cutoff. N, CA, C, O and OXT are backbone;
+hydrogens are excluded. Adjacent residues may qualify spatially, but sequence
+adjacency alone creates no edge. Glycine has no side-chain heavy atom; missing
+side chains are not synthesized. ``peptide_sidechain_edges`` records the count.
+
+The ``tp_pm_tm`` variant adds CDR:MHC contacts directly to G1 without
+peptide sequence or side-chain edges.
+
+For each graph, beta1 = E - V + C and cyclo_frac = beta1/E, where E counts
+unique edges, V incident vertices and C connected components. Empty graphs
+have undefined cyclo_frac. Receptor contact availability is reported separately.
+Cycles express redundant paths, not contact energy or the minimum cut that
+would separate receptor from ligand. Internal peptide:MHC cycles and covalent
+sequence edges are not equivalent to receptor recognition contacts. Neither
+scalar alone assigns peptide anchors or register. The released score is unchanged.
+
+Simplicial contact homology
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The recognition export also constructs each graph's clique complex and reports
+``simplicial_beta1`` and ``simplicial_beta2`` over GF(2), together with triangle
+and tetrahedron counts and the two boundary ranks. These are distinct from the
+unchanged graph ``beta1`` and ``cyclo_frac``. No score default changes.
+
+For each sorted edge (a,b), intersect the forward neighbor sets of a and b to
+enumerate every triangle (a,b,c) once. Intersect the three forward neighbor sets
+to enumerate every tetrahedron (a,b,c,d) once. The transposed boundary matrices
+have a row for each simplex and a column for each codimension-one face, with
+entry one exactly when that face belongs to the simplex. Existing vectorized
+GF(2) Gaussian elimination computes ranks r2 and r3. Over GF(2), each face of a
+boundary occurs twice, so consecutive boundary maps compose to zero. Thus::
+
+    simplicial_beta1 = E - V + C - r2
+    simplicial_beta2 = F - r2 - r3
+
+Here F counts triangular faces; E, V and C retain their graph definitions.
+The 3-skeleton suffices: higher simplices do not change these two homology
+groups. A filled tetrahedron therefore has beta2=0; retaining triangles but
+omitting tetrahedra would incorrectly report a shell. This is exact algebra,
+not a geometric cavity reconstruction. All inter-entity and peptide-edge
+policies remain those of the selected graph.
+
+Implementation: ``topology.graph._clique_homology`` reuses
+``topology.footprint._gf2_rank``. Boundary matrices are allocated sequentially
+as uint8 arrays, with a 64 MB per-matrix ceiling and an explicit failure above
+it. For q rows and p columns, dense elimination takes O(min(q,p)*q*p) time and
+O(q*p) memory in the worst case. Edge, triangle and tetrahedron enumeration
+stores O(V+E+F+T) objects, where T counts tetrahedra; clique enumeration is
+output-sensitive and can grow combinatorially. No cutoff sweep, approximation,
+fitted direction or persistence filtration is performed.
+
+Exploratory normalization uses beta1/E and both beta2/E and beta2/F, setting
+beta2/F=0 when F=0 (then beta2 is necessarily zero). No-edge fractions remain
+undefined. Unlike beta1/E and beta2/F, beta2/E is not generally bounded by one.
+Any fixed ipTM combination must record its chosen denominator and retain the
+unchanged released score as a comparator. Homology counts describe unfilled
+cycles; they do not measure binding energy, force or recognition strength.
+
+The prepared 4.4.0 screen uses ``tp_pm_tm``. The ``released`` graph identifier
+retains the historical 4.3 graph definition for reproducible comparisons.
+
+Energy-weighted recognition graphs and persistence
+--------------------------------------------------
+
+``export --quantity weighted-recognition-topology`` uses the same seven graph
+variants as ``recognition-topology``. It adds diagnostic descriptors only; the
+screen score and frozen reference parameters are unchanged. Install the optional
+``topology`` extra for ``export --quantity persistence``.
+
+The graph vertices are incident physical residues, keyed by chain and observed
+residue index. The contact cutoff remains 5 Å. Edge goodness is
+``w = max(-energy, 0)``: TCRen2 is directed TCR→peptide and MHC→peptide;
+MJ is directed TCR→MHC. No fitted interface coefficients are applied. Units are
+the respective dimensionless table scales, which are not thermodynamic energies.
+Peptide internal edges have no specified energy. An unsupported edge remains in
+the unweighted graph and increments ``missing_weight``; all weighted descriptors
+of that graph are undefined. Empty graphs and graphs lacking CDR contacts retain
+explicit availability/count fields.
+
+``w_total``, ``w_mean`` and ``w_max`` reduce edge goodness. Node strength is
+``s_i = sum_j w_ij``; ``s_mean``, ``s_max`` and ``s_even`` summarize its distribution,
+with Pielou entropy normalized by the number of incident vertices. Density is
+``2E/(V(V-1))`` for E edges and V vertices. ``w_cyclo`` is goodness outside a
+maximum-weight spanning forest divided by total goodness. It is undefined if
+total goodness is zero. It measures redundant strength under that forest
+convention, rather than assigning an edge uniquely to a cycle-space basis.
+
+``giant_frac_q25/q50/q75`` retain edges at or above each model's own goodness
+quantile and report the largest component's vertex count divided by V, retaining
+isolated vertices. Quantiles are within one graph, never across a cohort.
+``graph_energy`` is the sum of absolute eigenvalues of the symmetric weighted
+adjacency. ``graph_energy_c`` subtracts the same-chain induced-subgraph energies
+and divides by the number of inter-chain edges. ``graph_energy_bounded`` divides
+by twice total goodness; the triangle inequality for matrix nuclear norms gives
+the bound [0,1].
+
+``clustering`` averages the fraction of neighbor pairs that are adjacent, with
+zero for degree below two. ``transitivity`` divides summed per-vertex triangle
+incidences by summed unordered neighbor-pair counts (zero when none exist).
+``mincut_tcr_pmhc`` uses unit-capacity maximum flow with a super-source connected
+to every CDR vertex and a super-sink to every pMHC vertex. Consequently, this
+all-terminal definition removes every crossing edge; it is not a single-pair
+bottleneck. ``mincut_frac`` divides by the smaller side's summed graph degrees.
+The weighted variant rounds ``100*w`` to integer capacities, reports the cut in
+original goodness units, and normalizes by the smaller summed rounded degree.
+Zero denominators are undefined.
+
+``alg_conn_w`` is the second eigenvalue of the normalized Laplacian on the
+largest positive-weight component, requiring at least three vertices. Its range
+is [0,2]; ``alg_conn_w_bounded`` divides it by two for mixtures requiring [0,1].
+The existing unweighted connectivity API is unchanged. Betweenness uses
+reciprocal-positive-goodness path lengths, excludes zero-weight edges and divides
+ordered source/target dependencies by ``(V-1)*(V-2)``. Shortest-path dependencies use native triangular solves. Shortest-path ties use
+relative/absolute comparison tolerance 1e-12 in the dependency reduction.
+``btw_tcr`` and ``btw_pmhc`` average over the respective incident sides, including
+zero-strength vertices. Weighted participation replaces degrees with strengths
+in ``1-sum_s (strength_to_module_s/strength_total)**2``. Modules follow the
+existing literature API: peptide/MHC for TCR vertices and six CDR loops for
+pMHC vertices. Unsupported zero-strength participation is excluded from its mean.
+
+Persistence uses the Cα coordinates of endpoints of the ``tp_pm_tm`` graph and
+a companion Cβ cloud (Cα fallback for Gly only). Missing atoms and fallback counts
+are explicit. GUDHI builds the exact Vietoris–Rips 2-skeleton through 12 Å over
+GF(2). For H0 and H1, the export reports finite-bar counts, total/max/mean lengths
+in Å and normalized entropy, plus censored infinite-bar counts. Zero/one-bar
+entropy and absent max/mean are undefined. Infinite intervals never receive
+fabricated death times. Total length divided by ``V*12 Å`` (V is the resolved point count for that cloud)
+and maximum length
+divided by 12 Å are exported separately; the former is not a universal H1 bound
+and must pass a [0,1] eligibility check before entering any bounded mixture.
+No H2 score is exported. A missing GUDHI import raises explicitly.
+
+The implementation reuses native contact searches, SciPy graph primitives and
+NumPy dense linear algebra; no new native kernel is needed. With V vertices,
+E edges and F triangles, adjacency/eigenvalue work uses O(V²) memory and O(V³)
+time. Persistence can require O(V³) simplices in the 2-skeleton. These are
+small interface graphs, rather than whole-protein atom clouds. These descriptors
+have no calibrated affinity, strain or nonbinding interpretation.
+
+.. autofunction:: tcren.topology.weighted.weighted_graph_features
+
+.. autofunction:: tcren.topology.persistence.persistence_features
+
+Explicit MHC matrix weights and per-residue normalization
+---------------------------------------------------------
+
+For ``export --quantity weighted-recognition-topology``, ``--potential`` sets
+TCR-to-peptide weights, ``--mhc-potential`` sets TCR-to-MHC weights, and the optional
+``--pmhc-potential`` sets peptide-to-MHC weights. Each supplied asymmetric matrix
+is looked up in its biological role direction before assigning an undirected
+graph edge weight ``max(-energy,0)``. When no peptide-MHC matrix is supplied, the
+historical MHC-to-peptide lookup in the TCR-peptide matrix is retained. Every
+used matrix is exported and hashed in provenance; explicit inputs are honored.
+
+Let E be the number of physical residue-contact edges, V the number of distinct
+incident residues, and W the sum of their nonnegative goodness weights.
+``edges_per_vertex=E/V`` is half the mean residue degree;
+``w_per_vertex=W/V`` is half the mean weighted strength. Their fixed bounded
+forms are ``E/(E+V)`` and ``W/(W+V)``, respectively. These require no all-pairs
+contact assumption or fitted maximum degree. V includes endpoints of zero-weight
+edges. Empty graphs remain undefined; missing matrix entries retain physical
+edges and withhold energy-dependent descriptors. Historical ``density`` remains
+available for compatibility and has a separate all-pairs definition.
+
+When E denotes the sum of edge weights, the requested E/V statistic is
+``w_per_vertex`` (W/V here), rather than ``edges_per_vertex``.
+
+Boltzmann graph weights
+-----------------------
+
+``export --quantity weighted-recognition-topology --graph-weighting boltzmann
+--graph-beta 1`` uses ``exp(-beta*E)`` for each finite supplied matrix entry E.
+Beta must be finite and positive; beta=1 uses the dimensionless matrix scale
+without temperature calibration or fitting. Neutral entries have weight 1;
+unfavorable entries retain positive weight below 1. Missing entries remain
+unsupported. Overflow or underflow raises an error rather than clipping.
+The historical positive transform remains the default. Graph definitions,
+W/V normalization and score mixtures are unchanged. Both weighting and beta
+are recorded in export provenance.

@@ -4,7 +4,8 @@ Peptide ranking fixes a receptor and varies epitopes; receptor ranking fixes a
 pMHC and varies receptors. The structural alanine reference follows the varying
 side. Topology is included only for the receptor-ranking task.
 
-The bundled TCR readout is (6 * ipTM + cycle fraction) / 7. Epitope and legacy
+The bundled TCR readout combines ipTM, recognition cycles and mock enrichment
+with a frozen cohort-pLDDT gate. Epitope and legacy
 references combine standardized components with weighted Stouffer. ipTM is caller-supplied and remains
 the primary receptor-ranking comparator. The combined score is dimensionless,
 not a calibrated probability or a physical binding free energy.
@@ -12,8 +13,8 @@ not a calibrated probability or a physical binding free energy.
 Models with no TCR:peptide contacts are retained with discard reasons and do not
 count toward the cohort floor. Below the default 30-model floor, components are
 reported without a combined score. Cohort flags report by default; explicit
-responses preserve discarded and withheld rows. No query-cohort normalization
-or fitting is performed. Equations and output semantics: docs/screening.rst.
+responses preserve discarded and withheld rows. The default TCR gate uses the supplied unlabelled cohort mean pLDDT;
+no query-cohort fitting is performed. Equations and output semantics: docs/screening.rst.
 """
 
 from __future__ import annotations
@@ -99,14 +100,20 @@ def _validate(reference: dict) -> list[dict]:
         if "confidence_rho" in c:
             raise ValueError("confidence_rho is retired; remove it from the reference")
     method = reference.get("score_method", "stouffer")
-    if method not in {"stouffer", "raw_weighted_mean"}:
+    if method not in {"stouffer", "raw_weighted_mean", "confidence_motif"}:
         raise ValueError("unknown score_method")
+    if method == "confidence_motif":
+        columns = {c["column"] for c in components}
+        if (reference.get("task") != "tcr"
+                or not {"iptm", "g_recognition_cyclo_frac", "enrichment"} <= columns
+                or not isinstance(reference.get("motif_confidence"), dict)):
+            raise ValueError("confidence_motif requires TCR ipTM, recognition cycles and enrichment")
     if method == "raw_weighted_mean":
         active = {c["name"]: c for c in components
                   if c["name"] == "confidence" or c.get("structural_fraction", 1) != 0}
         if (reference.get("task") != "tcr" or set(active) != {"confidence", "topology"}
                 or active["confidence"]["column"] != "iptm"
-                or active["topology"]["column"] != "g_cyclo_frac"
+                or active["topology"]["column"] not in {"g_cyclo_frac", "g_recognition_cyclo_frac"}
                 or any(c["direction"] != 1 for c in active.values())
                 or active["topology"].get("structural_fraction") != 1):
             raise ValueError("raw_weighted_mean requires raw ipTM and cycle fraction only")
@@ -397,6 +404,33 @@ def apply_flag_response(
                             flag_response_reason=pl.lit(reason))
 
 
+def confidence_weight(reference: dict, weight: float | None = None,
+                      native_template: bool | None = None) -> float:
+    """Resolve the declared default/context weight; explicit overrides win for new scores.
+
+    Legacy references retain the experimental confidence-only absent-template gate.
+    """
+    if reference.get("score_method") == "confidence_motif" and weight is None:
+        raise ValueError("confidence_motif weights require cohort pLDDT; use screen_scores")
+    if native_template is not None and (
+            not isinstance(native_template, bool) or reference.get("task") != "tcr"):
+        raise ValueError("native_template must be a boolean for a TCR-ranking reference")
+    if "template_absent_weight" in reference:
+        for key in ("default_weight", "template_absent_weight"):
+            value = reference[key]
+            if not np.isfinite(value) or not 0 <= value <= 1:
+                raise ValueError(f"{key} must lie in [0, 1]")
+    if weight is None:
+        key = "template_absent_weight" if native_template is False and "template_absent_weight" in reference else "default_weight"
+        weight = float(reference.get(key, DEFAULT_WEIGHT))
+    if not np.isfinite(weight) or not 0 <= weight <= 1:
+        raise ValueError("weight must lie in [0, 1]")
+    if (native_template is False and "template_absent_weight" not in reference
+            and reference.get("score_method") != "confidence_motif"):
+        weight = 1.0
+    return weight
+
+
 def screen_scores(
     table: pl.DataFrame,
     reference: dict,
@@ -412,13 +446,12 @@ def screen_scores(
         table: descriptor table keyed by a unique nonempty ``complex.id``, carrying every
             component column the reference names.
         reference: a frozen reference dict, normally from :func:`bundled_reference`.
-        weight: confidence weight in the reference combination, in ``[0, 1]``. ``None`` takes the
-            reference's own ``default_weight``, which is task-specific. Structural weights
-            are ``(1 - weight) * structural_fraction``; omitted fractions share equally.
-        native_template: optional TCR-ranking applicability gate. False uses confidence
-            alone; True uses the requested weight. None keeps historical behavior.
-            Components remain visible regardless of the gate. This is crystal
-            availability, not a pose-quality judgement.
+        weight: optional confidence-weight override in ``[0,1]``. The default motif score
+            obtains all weights from cohort mean pLDDT; overrides preserve its Betti:motif
+            ratio. Historical references retain their declared fixed-weight semantics.
+        native_template: optional boolean provenance. The motif score has one common rule
+            independent of template status. Historical references retain their declared
+            absent-template rule. Crystal availability is not a pose-quality judgement.
         min_cohort: below this many **scorable** rows the combined score is withheld. Models
             with no TCR:peptide interface are discarded and do not count toward it.
         suppress: when set, withhold the combined score for every row and record this as the
@@ -433,15 +466,12 @@ def screen_scores(
         disappears silently.
     """
     components = _validate(reference)
-    if weight is None:
-        weight = float(reference.get("default_weight", DEFAULT_WEIGHT))
-    if not np.isfinite(weight) or not 0.0 <= weight <= 1.0:
-        raise ValueError("weight must lie in [0, 1]")
-    if native_template is not None:
-        if not isinstance(native_template, bool) or reference.get("task") != "tcr":
-            raise ValueError("native_template must be a boolean for a TCR-ranking reference")
-        if not native_template:
-            weight = 1.0
+    override_weight = weight
+    motif = reference.get("score_method") == "confidence_motif"
+    if motif and native_template is not None and not isinstance(native_template, bool):
+        raise ValueError("native_template must be a boolean for a TCR-ranking reference")
+    weight = (0.0 if motif and weight is None else
+              confidence_weight(reference, weight, None if motif else native_template))
     if "complex.id" not in table.columns:
         raise ValueError("complex.id column required")
     ids = table["complex.id"]
@@ -474,7 +504,34 @@ def screen_scores(
 
     Z = np.column_stack(z_cols)
     observed = np.isfinite(Z).sum(axis=1).astype(np.int16)
-    if reference.get("score_method") == "raw_weighted_mean":
+    if motif:
+        from .contacts.motif_optimize import apply_confidence_score
+
+        if "plddt" not in table.columns:
+            raise ValueError("confidence_motif requires generator plddt on the 0–100 scale")
+        model = reference["motif_confidence"]
+        inputs = table.with_columns(
+            pl.col("g_recognition_cyclo_frac").alias("betti"),
+            *[pl.lit("screen").alias(key) for key in model["cohort_keys"]])
+        result = apply_confidence_score(inputs, model)
+        wb, wm = result["w_B"].to_numpy(), result["w_M"].to_numpy()
+        wi = result["w_I"].to_numpy()
+        if override_weight is not None:
+            structural_total = wb + wm
+            wb, wm = ((1 - weight) * wb / structural_total,
+                      (1 - weight) * wm / structural_total)
+            wi = np.full(table.height, weight)
+        x = table.select(pl.col("iptm", "g_recognition_cyclo_frac", "enrichment")
+                         .cast(pl.Float64)).to_numpy()
+        no_active_components = ~np.isfinite(x).any(axis=1)
+        x = np.where(np.isfinite(x), x, model["imputation"])
+        score = wi * x[:, 0] + wb * x[:, 1] + wm * x[:, 2]
+        score[no_active_components] = np.nan
+        out.update(gate_q=result["gate_q"], plddt=table["plddt"],
+                   missing_plddt=~np.isfinite(table["plddt"].cast(pl.Float64).to_numpy()),
+                   cohort_mean_plddt=[result["plddt"].mean()] * table.height,
+                   confidence_weight=wi, topology_weight=wb, motif_weight=wm)
+    elif reference.get("score_method") == "raw_weighted_mean":
         values = np.column_stack(raw)
         active = np.asarray(weights) > 0
         if np.any(np.isfinite(values[:, active]) &
@@ -512,11 +569,12 @@ def screen_scores(
     out["no_interface"] = no_interface
     series = pl.Series(score)
     out["screen_score"] = series.set(
-        pl.Series(no_weighted | small | no_interface | bool(suppress)), None)
+        pl.Series(no_weighted | (observed == 0) | small | no_interface | bool(suppress)), None)
     out["score_unavailable"] = pl.Series(reason).set(pl.Series(reason == ""), None)
+    if not motif:
+        out["confidence_weight"] = [weight] * table.height
     if native_template is not None:
         out["native_template"] = [native_template] * table.height
-        out["confidence_weight"] = [weight] * table.height
     return pl.DataFrame(out)
 
 

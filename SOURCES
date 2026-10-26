@@ -365,3 +365,45 @@ or prospectively validated parameter. Epitope scoring is unchanged. Missing
 active channels renormalize over observed weights. Historical hashes above
 identify their original resources. Current screen_reference_tcr.json SHA256:
 b04689aee51e37dbd47f5339def84353bac6ec272018bb5dc9949f20ea774618
+
+
+Prepared 4.4.0 recognition score (24 October 2026)
+------------------------------------------------
+Graph beta1/E uses physical residue-contact edges over CDR:peptide,
+peptide:MHC and CDR:MHC, at 5 Angstrom; no internal sequence or peptide edges.
+The two confidence coefficients are 0.55 for the standard/template-supported
+case and 0.90 for explicitly absent templates. They were selected by mean
+per-epitope AP on evaluation cohorts: one shared coefficient for TCRvdb plus
+templated VDJdb, another for non-templated VDJdb. Selection grid was 0:0.01:1,
+plus exactly 6/7. These are evaluation-selected constants, not independent
+validation. All graphs and original-score comparisons use identical models.
+Confidence, energy and geometry retain historical diagnostic moments. New
+recognition topology uses identity diagnostic scaling (mean 0, sd 1), with no
+new estimated moment or training count. The old graph descriptor and complete
+4.3 TCR reference are preserved for explicit reproduction.
+screen_reference_tcr.json SHA256: 7d57a6dec41807a2224e49b1734c366a1e3682860e1fed0d90672d530af3f31a
+screen_reference_tcr_v43.json SHA256: b04689aee51e37dbd47f5339def84353bac6ec272018bb5dc9949f20ea774618
+
+
+Accepted 4.4.0 confidence-motif score (26 October 2026)
+-----------------------------------------------------
+S=(1-.41q-.22(1-q))*ipTM+.41q*B+.22(1-q)*M. B is recognition beta1/E;
+M is whole-mock empirical enrichment from all six CDR loops and peptide contact
+cycles. q is the inclusive CDF of unlabelled cohort mean pLDDT/100 against five
+frozen TCRvdb means. Coefficients were selected on 1,782 classified TCRvdb models;
+confidence context contains 2,034 unlabelled models. This supersedes the prepared
+two-weight default above, which remains screen_reference_tcr_v44.json.
+The 2,056 unit-weight reference graphs come from source-negative/mispair models,
+excluding benchmark coordinate copies and exact full receptor-peptide matches.
+Mock labels are source declarations, not newly measured negative assays. Local
+histograms use inclusive plus-one tails; whole-graph Fisher calibration excludes
+each control's own model from its local ranks. Compressed calibration rows omit
+source identities. Private acquisition and exclusion manifests remain separate.
+Optional confidence_alleles uses 3,056 unlabelled models in 27 cohorts/24 epitopes,
+equal-cohort confidence means, seven HLA groups and a global fallback. This full
+reference is distinct from leave-epitope-out proxy evaluation; it is not default.
+screen_reference_tcr.json SHA256: 66e55cdf1467a1602b1de09b099031643d48bf8b19e15a5ad247e1c277129d52
+motif_confidence_reference.json SHA256: 76b9a5ebe037a843637a4b507e1c78968eb35be4f4b3a54066e9512dbb4489a3
+motif_residue_reference.json SHA256: 48260c23bd7d00d23ddd37ad79f725418739624e12894ebaa7a2c279c3583635
+motif_mock_controls.tsv.gz SHA256: 31f882deb420d60cd1860c33166d5fd34aa3735c6e3359e7a878d7b87218c6df
+confidence_alleles.tsv.gz SHA256: ec72b6788baea15503e4ed01ee0f11c51129cd901fa375fa141a9823095c985a

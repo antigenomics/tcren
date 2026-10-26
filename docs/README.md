@@ -47,7 +47,7 @@ source .venv/bin/activate
 
 ```sh
 tcren screen -s models.tar.gz -o scores.tsv
-# Optional table with unique complex.id and iptm columns:
+# Optional table with unique complex.id, iptm and plddt columns:
 tcren screen -s models.tar.gz --confidence confidence.tsv -o scores.tsv
 ```
 
@@ -77,14 +77,28 @@ flags and a provenance sidecar containing the frozen-reference identity.
 - **Confidence:** the generator's `iptm`.
 - **Energy:** the structural alanine difference on the TCR:peptide interface.
 - **Geometry:** height-field Pearson complementarity, `sc_shape`.
-- **Topology:** CDR:pMHC graph cycle fraction, `g_cyclo_frac`; carried for TCR ranking.
+- **Topology:** three-interface CDR:peptide + peptide:MHC + CDR:MHC graph cycle fraction,
+  `g_recognition_cyclo_frac`; carried for TCR ranking.
 
-TCR ranking uses `S = (6 * ipTM + T) / 7`, where `T = g_cyclo_frac`.
-Both inputs and the default score lie in [0,1]; this is not a binding probability.
-Energy and geometry remain separate readouts. Frozen standardized components
-remain diagnostic columns. Epitope ranking retains weighted Stouffer with
-confidence and energy weighted equally. Nothing is fitted or normalized against
-the query cohort. Legacy custom references retain their Stouffer rule.
+TCR ranking uses the frozen confidence-dependent motif score:
+
+```text
+S = (1 - 0.41*q - 0.22*(1-q))*ipTM + 0.41*q*B + 0.22*(1-q)*M
+```
+
+`B` is the recognition graph cycle fraction; `M` is whole-mock-calibrated
+contact enrichment from all six CDR loops and the peptide. `q` is the inclusive
+percentile of the unlabelled cohort mean pLDDT against five frozen reference
+means. Supply generator `plddt` on the 0–100 scale alongside `iptm`. Missing
+values use flagged frozen training imputation. All weights and the score are
+bounded in [0,1]; the score is not a binding probability. The packaged compressed
+mock reference requires no download or fitting at scoring time.
+
+Cohort-mean confidence remains the default: changing the supplied cohort can
+change its weights. Template status is recorded without choosing a different
+coefficient. Energy and geometry remain diagnostics; epitope ranking and legacy
+custom references retain their existing rules. The preceding two-weight TCR
+reference is retained as `screen_reference_tcr_v44.json` for reproduction.
 
 Models with zero TCR:peptide contacts remain in output with a discard reason and
 no score. They do not count toward the default floor of 30 models with an

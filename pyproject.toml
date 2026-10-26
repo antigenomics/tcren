@@ -4,7 +4,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "tcren"
-version = "4.3.2"
+version = "4.4.0"
 description = "Structure-based prediction of TCR recognition of epitopes via residue-level statistical potentials"
 readme = "docs/README.md"
 requires-python = ">=3.10"
@@ -36,6 +36,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+topology = ["gudhi>=3.10,<4"]
 # pillow is listed explicitly even though matplotlib already pulls it in: viz.pymol.composite
 # imports it directly, and a dependency that is satisfied only through another package's
 # transitive tree is one upstream change away from disappearing.

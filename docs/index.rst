@@ -44,6 +44,9 @@ and distinguishes current scoring from historical fitted readouts.
 
    getting-started
    screening
+   residue-surprise
+   motif-mixture
+   motif-confidence
    ranking
    kit
 
@@ -69,6 +72,7 @@ and distinguishes current scoring from historical fitted readouts.
    :caption: Reference dependencies and reproduction
 
    fit-free
+   cdr3-neighborhood
    ATOM_PATTERN_SPEC
    INVENTORY_PATTERN_SPEC
    CHEMICAL_CORE_SPEC
@@ -90,6 +94,8 @@ and distinguishes current scoring from historical fitted readouts.
    notebooks/mhc_pseudosequence_mps
    notebooks/example_gil_a02_rs_motif
    notebooks/surface_topology
+   notebooks/confidence_motif_score
+   notebooks/tcrvdb_frozen_score_reproduction
 
 Indices
 -------
