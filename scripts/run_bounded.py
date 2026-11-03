@@ -37,6 +37,9 @@ def request_cancel(signum, _frame):
 signal.signal(signal.SIGTERM, request_cancel)
 signal.signal(signal.SIGINT, request_cancel)
 start, peak, reason = time.monotonic(), 0, None
+# Fail before launching a job if the process-tree guard cannot inspect it.
+subprocess.run(["/bin/ps", "-p", str(os.getpid()), "-o", "pid="],
+               capture_output=True, check=True)
 child = subprocess.Popen(command, env=env, start_new_session=True)
 
 # Retain sampled descendants across reparenting and separate sessions. Start times
