@@ -3,6 +3,16 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
+## Unreleased
+
+### Fixed
+
+- Publish MHC reference indexes as immutable, content-validated generations so
+  concurrent searches retain a consistent index during updates and repair.
+- Stage MHC downloads and reference writes in unique paths before atomic publication.
+- Use ARDA's public batch API when it supports thread budgets, retaining the capped
+  mapper route for older supported versions.
+
 ## [4.4.1] — 2026-10-27
 
 ### Fixed

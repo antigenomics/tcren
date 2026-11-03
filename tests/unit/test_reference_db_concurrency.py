@@ -25,6 +25,7 @@ def local_reference(tmp_path, monkeypatch):
     fasta = tmp_path / "reference.fasta"
     fasta.write_text(">synthetic\nACDEFGHIK\n")
     monkeypatch.setattr(reference, "reference_fasta", lambda: fasta)
+    monkeypatch.setattr("arda.mmseqs.version", lambda: "test-version")
 
 
 def _write_db(prefix):
@@ -72,7 +73,10 @@ def test_reference_db_serializes_concurrent_builds(tmp_path, monkeypatch):
     # The build ran exactly once despite 8 concurrent callers, and all got the same db path.
     assert calls["createdb"] == 1, f"build was not serialized: createdb ran {calls['createdb']}x"
     assert calls["createindex"] == 1
-    assert {str(r) for r in results} == {str(db)}
+    assert len(results) == 8
+    assert len(set(results)) == 1
+    assert results[0].name == db.name
+    assert results[0].parent.parent == tmp_path / "generations"
 
 
 def test_reference_db_second_call_is_a_cache_hit(tmp_path, monkeypatch):
@@ -116,13 +120,13 @@ def test_reference_db_repairs_incomplete_index_despite_fresh_markers(tmp_path, m
 
     monkeypatch.setattr(mmseqs, "createdb", createdb)
     monkeypatch.setattr(mmseqs, "run", lambda args: _write_db(str(args[1]) + ".idx"))
-    assert reference.reference_db(cache_dir=tmp_path) == db
+    new = reference.reference_db(cache_dir=tmp_path)
+    assert new != db
     assert len(calls) == 1
-    assert Path(str(db) + ".idx").read_bytes() == b"seq\0"
-    backup, = tmp_path.glob(".alleles_db-backup-*")
-    assert (backup / "alleles_db.idx.index").read_text() == "0\t0\t4\n"
+    assert Path(str(new) + ".idx").read_bytes() == b"seq\0"
+    assert (tmp_path / "alleles_db.idx.index").read_text() == "0\t0\t4\n"
     if broken == "truncated":
-        assert (backup / "alleles_db.idx").read_bytes() == b"x"
+        assert Path(str(db) + ".idx").read_bytes() == b"x"
 
 
 def test_reference_db_does_not_publish_an_incomplete_build(tmp_path, monkeypatch):
@@ -137,3 +141,82 @@ def test_reference_db_does_not_publish_an_incomplete_build(tmp_path, monkeypatch
     with pytest.raises(RuntimeError, match="incomplete"):
         reference.reference_db(cache_dir=tmp_path)
     assert not (tmp_path / "alleles_db.dbtype").exists()
+
+
+def test_rebuild_preserves_old_readers_and_detects_same_size_corruption(tmp_path, monkeypatch):
+    import os
+    import arda.mmseqs as mmseqs
+
+    def createdb(fasta, out, dbtype):
+        _write_db(out)
+        _write_db(str(out) + "_h")
+
+    monkeypatch.setattr(mmseqs, "createdb", createdb)
+    monkeypatch.setattr(mmseqs, "run", lambda args: _write_db(str(args[1]) + ".idx"))
+    old = reference.reference_db(cache_dir=tmp_path)
+    original = {p.name: p.read_bytes() for p in old.parent.iterdir() if p.is_file()}
+    fasta = reference.reference_fasta()
+    stat = fasta.stat()
+    fasta.write_text(">synthetic\nKKKKKKKKK\n")
+    os.utime(fasta, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+    new = reference.reference_db(cache_dir=tmp_path)
+    assert new != old
+    assert {p.name: p.read_bytes() for p in old.parent.iterdir() if p.is_file()} == original
+    new.write_bytes(b"bad\0")  # same size and valid offsets, but wrong contents
+    repaired = reference.reference_db(cache_dir=tmp_path)
+    assert repaired not in (old, new)
+    assert repaired.read_bytes() == b"seq\0"
+    assert new.read_bytes() == b"bad\0"
+
+
+def test_mmseqs_version_change_selects_new_generation(tmp_path, monkeypatch):
+    import arda.mmseqs as mmseqs
+
+    def createdb(fasta, out, dbtype):
+        _write_db(out)
+        _write_db(str(out) + "_h")
+
+    monkeypatch.setattr(mmseqs, "createdb", createdb)
+    monkeypatch.setattr(mmseqs, "run", lambda args: _write_db(str(args[1]) + ".idx"))
+    old = reference.reference_db(cache_dir=tmp_path)
+    monkeypatch.setattr(mmseqs, "version", lambda: "another-version")
+    assert reference.reference_db(cache_dir=tmp_path) != old
+
+
+def test_separate_processes_share_one_complete_generation(tmp_path):
+    import subprocess
+    import sys
+
+    driver = tmp_path / 'build_probe.py'
+    driver.write_text('''import sys,time
+from pathlib import Path
+import arda.mmseqs as mmseqs
+from tcren.mhc import reference
+root=Path(sys.argv[1])
+reference.reference_fasta=lambda: root/'reference.fasta'
+mmseqs.version=lambda: 'synthetic-version'
+def write(prefix):
+    Path(str(prefix)).write_bytes(b'seq\\0')
+    Path(str(prefix)+'.index').write_text('0\\t0\\t4\\n')
+    Path(str(prefix)+'.dbtype').write_bytes(b'\\x01\\0\\0\\0')
+def create(fasta,out,dbtype):
+    with (root/'builds').open('a') as log: log.write('build\\n')
+    time.sleep(.1)
+    write(out);write(str(out)+'_h')
+mmseqs.createdb=create
+mmseqs.run=lambda args: write(str(args[1])+'.idx')
+print(reference.reference_db(root))
+''')
+    workers = [subprocess.Popen([sys.executable, str(driver), str(tmp_path)],
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+               for _ in range(3)]
+    try:
+        outputs = [worker.communicate(timeout=20) for worker in workers]
+        assert all(worker.returncode == 0 for worker in workers), outputs
+        assert len({stdout.strip() for stdout, _ in outputs}) == 1
+        assert (tmp_path / 'builds').read_text() == 'build\n'
+    finally:
+        for worker in workers:
+            if worker.poll() is None:
+                worker.kill()
+            worker.wait()

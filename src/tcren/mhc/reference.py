@@ -57,21 +57,21 @@ def build(
         alleles += imgt.parse_mouse(mouse, human_b2m)
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    # Write via a temp file + os.replace so a concurrent reader never sees a half-written
-    # reference (its presence is the "already built" gate in reference_fasta()).
-    fasta = out_dir / "alleles.aa.fasta"
-    tmp_fasta = fasta.with_name(fasta.name + ".tmp")
-    with tmp_fasta.open("w") as fh:
-        for al in alleles:
-            fh.write(f">{_header(al)}\n{al.sequence}\n")
-    os.replace(tmp_fasta, fasta)
+    import tempfile
+    from arda._locking import build_lock
 
-    meta = out_dir / "metadata.tsv"
-    tmp_meta = meta.with_name(meta.name + ".tmp")
-    pl.DataFrame(
-        {f: [getattr(a, f) for a in alleles] for f in _META_FIELDS}
-    ).write_csv(tmp_meta, separator="\t")
-    os.replace(tmp_meta, meta)
+    fasta = out_dir / "alleles.aa.fasta"
+    # Unique staging prevents concurrent builders from truncating each other's files.
+    with tempfile.TemporaryDirectory(prefix=".reference-", dir=out_dir) as tmp:
+        stage = Path(tmp)
+        with (stage / fasta.name).open("w") as fh:
+            for al in alleles:
+                fh.write(f">{_header(al)}\n{al.sequence}\n")
+        pl.DataFrame({f: [getattr(a, f) for a in alleles] for f in _META_FIELDS}).write_csv(
+            stage / "metadata.tsv", separator="\t", quote_style="never")
+        with build_lock(out_dir / ".reference.lock", done=lambda: False):
+            os.replace(stage / "metadata.tsv", out_dir / "metadata.tsv")
+            os.replace(stage / fasta.name, fasta)
     return fasta
 
 
@@ -108,60 +108,80 @@ def _db_complete(db: Path) -> bool:
 
 
 def reference_db(cache_dir: Path = CACHE_DIR) -> Path:
-    """Path to a compiled, **pre-indexed** mmseqs DB of the allele reference (built once, cached).
+    """Return an immutable, content/version-bound pre-indexed MHC database.
 
-    `mmseqs easy-search` otherwise rebuilds the target DB *and* its k-mer prefilter index from the
-    ~28k-allele FASTA on every call. Caching `createdb` saves little; the dominant cost is the
-    prefilter index, so we also run `createindex` once. Reusing this DB cuts a single-structure MHC
-    search from ~4.5 s to ~0.9 s. Built into the gitignored ``data/mhc_cache`` when missing or older
-    than the FASTA.
-
-    The build is serialized through :func:`arda._locking.build_lock`: tcren is routinely run
-    concurrently against the same cache (one process per SLURM-array task / Nextflow sample), and
-    an unguarded ``createdb`` + ``createindex`` into the shared path would let every other process
-    search a half-written index. Builds are staged and checked before publication; the index marker
-    is published last. Fresh markers alone do not prove that the data files survived a cleanup.
+    Writers publish a complete generation before replacing its pointer. Existing
+    searches retain their old generation, including during repair or reference updates.
+    Legacy flat indexes remain untouched because their source identity is unknown.
     """
+    import hashlib
+    import json
+    import shutil
     import tempfile
+    import uuid
 
     import arda.mmseqs as mmseqs
     from arda._locking import build_lock
+    from ..provenance import searched_index_identity
 
     fasta = reference_fasta()
-    db = cache_dir / "alleles_db"
-    db_marker = db.with_name(db.name + ".dbtype")        # createdb output
-    idx_marker = db.with_name(db.name + ".idx.dbtype")   # createindex output (written last)
+    # Snapshot the small reference input so a concurrent atomic FASTA replacement
+    # cannot change the bytes consumed by createdb after the identity was computed.
+    source = fasta.read_bytes()
+    identity = {"source_sha256": hashlib.sha256(source).hexdigest(),
+                "mmseqs_version": mmseqs.version_key(mmseqs.version())}
+    key = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
+    pointer = cache_dir / (key + ".json")
+    generations = cache_dir / "generations"
 
-    def _fresh() -> bool:
+    def current():
         try:
-            fasta_mtime = fasta.stat().st_mtime
-            return (db_marker.stat().st_mtime >= fasta_mtime
-                    and idx_marker.stat().st_mtime >= fasta_mtime and _db_complete(db))
-        except OSError:
-            return False
+            record = json.loads(pointer.read_text())
+            name = record["generation"]
+            if not isinstance(name, str) or Path(name).name != name or name in (".", ".."):
+                return None
+            db = generations / name / "alleles_db"
+            if (record["identity"] == identity and _db_complete(db)
+                    and record["files_sha256"] == searched_index_identity(db)["files_sha256"]):
+                return db
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+        return None
 
-    if _fresh():
-        return db
+    ready = current()
+    if ready is not None:
+        return ready
     cache_dir.mkdir(parents=True, exist_ok=True)
-    with build_lock(cache_dir / ".alleles_db.lock", done=_fresh) as ours:
+    with build_lock(cache_dir / ".alleles_db.lock", done=lambda: current() is not None) as ours:
         if ours:
-            with tempfile.TemporaryDirectory(prefix=".alleles_db-build-", dir=cache_dir) as tmp:
-                staged = Path(tmp) / db.name
-                mmseqs.createdb(fasta, staged, dbtype=1)
-                mmseqs.run(["createindex", str(staged), str(Path(tmp) / "work"),
+            generations.mkdir(exist_ok=True)
+            with tempfile.TemporaryDirectory(prefix=".build-", dir=generations) as tmp:
+                stage = Path(tmp)
+                snapshot = stage / "source.fasta"
+                snapshot.write_bytes(source)
+                db = stage / "alleles_db"
+                mmseqs.createdb(snapshot, db, dbtype=1)
+                mmseqs.run(["createindex", str(db), str(stage / "work"),
                             "--search-type", "1", "--threads", "1"])
-                if not _db_complete(staged):
+                if not _db_complete(db):
                     raise RuntimeError("MMseqs produced an incomplete MHC reference database")
-                old = [p for p in cache_dir.glob(db.name + "*") if p.is_file()]
-                if old:
-                    backup = Path(tempfile.mkdtemp(prefix=".alleles_db-backup-", dir=cache_dir))
-                    # Remove the readiness marker first, before any data file is replaced.
-                    for p in sorted(old, key=lambda p: p != idx_marker):
-                        os.replace(p, backup / p.name)
-                for p in sorted(Path(tmp).glob(db.name + "*"),
-                                key=lambda p: p.name == idx_marker.name):
-                    os.replace(p, cache_dir / p.name)
-    return db
+                hashes = searched_index_identity(db)["files_sha256"]
+                snapshot.unlink()
+                if (stage / "work").exists():
+                    shutil.rmtree(stage / "work")
+                name = key + "-" + uuid.uuid4().hex
+                os.replace(stage, generations / name)
+                temporary = cache_dir / (".pointer-" + uuid.uuid4().hex)
+                try:
+                    temporary.write_text(json.dumps({"generation": name, "identity": identity,
+                                                     "files_sha256": hashes}) + "\n")
+                    os.replace(temporary, pointer)
+                finally:
+                    temporary.unlink(missing_ok=True)
+    ready = current()
+    if ready is None:
+        raise RuntimeError("MHC reference database failed publication validation")
+    return ready
 
 
 def parse_header(header: str) -> dict[str, str]:

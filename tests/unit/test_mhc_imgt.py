@@ -51,3 +51,70 @@ def test_parse_mouse_roles(tmp_path):
     assert roles["H2-Aa"] == ("MHCII", "MHCa")
     assert roles["B2m"] == ("MHCI", "B2M")
     assert any(a.species == "human" and a.chain_role == "B2M" for a in alleles)
+
+
+def test_download_is_atomic_and_concurrent_callers_share_publication(tmp_path, monkeypatch):
+    import threading
+    import time
+    from types import SimpleNamespace
+
+    dest = tmp_path / 'input.fasta'
+    calls, errors = [], []
+
+    def fetch(*args, **kwargs):
+        calls.append(1)
+        assert not dest.exists()
+        time.sleep(0.05)
+        return SimpleNamespace(text='>synthetic\nACDE\n', raise_for_status=lambda: None)
+
+    monkeypatch.setattr(imgt.requests, 'get', fetch)
+
+    def worker():
+        try:
+            assert imgt._download('synthetic', dest, False).read_text() == '>synthetic\nACDE\n'
+        except Exception as exc:
+            errors.append(exc)
+
+    workers = [threading.Thread(target=worker) for _ in range(4)]
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join(timeout=5)
+    assert not any(worker.is_alive() for worker in workers)
+    assert not errors
+    assert len(calls) == 1
+
+
+def test_bad_download_preserves_previous_reference(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    import pytest
+
+    dest = tmp_path / 'input.fasta'
+    dest.write_text('>previous\nACDE\n')
+    monkeypatch.setattr(imgt.requests, 'get', lambda *a, **k: SimpleNamespace(
+        text='<html>service failure</html>', raise_for_status=lambda: None))
+    with pytest.raises(ValueError, match='not FASTA'):
+        imgt._download('synthetic', dest, True)
+    assert dest.read_text() == '>previous\nACDE\n'
+
+
+def test_reference_build_stages_on_destination_filesystem(tmp_path, monkeypatch):
+    from tcren.mhc import reference
+    import os
+
+    allele = imgt.MhcAllele('HLA-A*01:01', 'A', 'MHCI', 'MHCa', 'human', 'ACDE')
+    monkeypatch.setattr(imgt, 'download_human', lambda *a, **k: tmp_path / 'raw.fasta')
+    monkeypatch.setattr(imgt, 'parse_human', lambda p: [allele])
+    replaced = []
+    real_replace = os.replace
+
+    def replace(source, destination):
+        assert source.parent.parent == tmp_path
+        replaced.append(destination.name)
+        real_replace(source, destination)
+
+    monkeypatch.setattr(reference.os, 'replace', replace)
+    fasta = reference.build(species=('human',), out_dir=tmp_path)
+    assert fasta.read_text() == '>HLA-A*01:01|A|MHCI|MHCa|human\nACDE\n'
+    assert replaced == ['metadata.tsv', 'alleles.aa.fasta']
+    assert not list(tmp_path.glob('.reference-*'))

@@ -62,12 +62,22 @@ def _read_fasta(path: Path):
 
 
 def _download(url: str, dest: Path, force: bool) -> Path:
-    if dest.exists() and not force:
-        return dest
+    import os
+    import tempfile
+    from arda._locking import build_lock
+
     dest.parent.mkdir(parents=True, exist_ok=True)
-    resp = requests.get(url, timeout=120)
-    resp.raise_for_status()
-    dest.write_text(resp.text)
+    with build_lock(dest.with_name("." + dest.name + ".lock"),
+                    done=lambda: dest.exists() and not force) as ours:
+        if ours:
+            resp = requests.get(url, timeout=120)
+            resp.raise_for_status()
+            if not resp.text.lstrip().startswith(">"):
+                raise ValueError(f"MHC reference response is not FASTA: {url}")
+            with tempfile.TemporaryDirectory(prefix=".download-", dir=dest.parent) as tmp:
+                staged = Path(tmp) / dest.name
+                staged.write_text(resp.text)
+                os.replace(staged, dest)
     return dest
 
 

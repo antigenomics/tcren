@@ -119,3 +119,12 @@ The structural alanine reference truncates side chains and rebuilds contacts.
 It is distinct from virtual substitution on a fixed map. Use :doc:`features`
 for descriptor exports, :doc:`potentials` for potential definitions and
 :doc:`reproduction` for reproducible calculations.
+
+MHC index publication
+---------------------
+
+MHC searches use immutable index generations under ``data/mhc_cache/generations``.
+The resolver validates the reference content, MMseqs version and index payload hashes.
+Updating or repairing the reference publishes a new generation atomically; searches
+already using an older generation retain their files. Legacy flat indexes remain
+untouched and are rebuilt into a validated generation on first use.
