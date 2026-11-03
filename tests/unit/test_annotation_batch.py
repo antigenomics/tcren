@@ -82,3 +82,32 @@ def test_all_structure_queries_share_one_multicore_call_per_reference(monkeypatc
     assert [c[0] for c in calls] == ['human', 'mouse']
     expected=[(f'{i}|{c.chain_id}', c.sequence()) for i,s in enumerate(structures) for c in s.chains if c.sequence()]
     assert all(c[1] == expected and c[2:] == (2, '2', threading.get_ident()) for c in calls)
+
+
+def test_public_backend_receives_thread_budget():
+    from tcren.annotation.batch import _annotate
+
+    class Backend:
+        def annotate_sequences(self, pairs, *, threads, **kwargs):
+            assert pairs == [("a", "AAA")]
+            assert threads == 2
+            assert kwargs == {"seqtype": "aa", "organism": "mouse"}
+            return [{"sequence_id": "a"}]
+
+    assert _annotate(Backend(), [("a", "AAA")], "mouse", 2) == [{"sequence_id": "a"}]
+
+
+def test_legacy_backend_uses_capped_mapper_without_retry(monkeypatch):
+    import arda.annotate.mapper as mapper
+    from tcren.annotation.batch import _annotate
+
+    class Backend:
+        def annotate_sequences(self, pairs, seqtype="aa", organism="human"):
+            raise AssertionError("uncapped legacy API must not run")
+
+    def annotate(pairs, **kwargs):
+        assert kwargs == {"seqtype": "aa", "organism": "human", "threads": 2}
+        return [{"sequence_id": "a"}]
+
+    monkeypatch.setattr(mapper, "annotate_records", annotate)
+    assert _annotate(Backend(), [("a", "AAA")], "human", 2) == [{"sequence_id": "a"}]
