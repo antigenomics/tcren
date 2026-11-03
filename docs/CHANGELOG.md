@@ -14,6 +14,9 @@ All notable changes to `tcren` are recorded here. Format follows
 - Stage MHC downloads and reference writes in unique paths before atomic publication.
 - Use ARDA's public batch API when it supports thread budgets, retaining the capped
   mapper route for older supported versions.
+- Respect allocated CPUs in native residue scans and propagate worker failures
+  after joining all started threads.
+- Remove stale generated notebook copies when their source is absent after a branch switch.
 
 ## [4.4.1] — 2026-10-27
 
