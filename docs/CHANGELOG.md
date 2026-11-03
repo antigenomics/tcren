@@ -7,6 +7,8 @@ All notable changes to `tcren` are recorded here. Format follows
 
 ### Fixed
 
+- Reject unsupported or empty species downloads before replacing an existing MHC reference.
+
 - Publish MHC reference indexes as immutable, content-validated generations so
   concurrent searches retain a consistent index during updates and repair.
 - Stage MHC downloads and reference writes in unique paths before atomic publication.

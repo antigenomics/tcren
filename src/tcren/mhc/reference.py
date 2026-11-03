@@ -48,13 +48,23 @@ def build(
     Returns:
         Path to the written ``alleles.aa.fasta``.
     """
+    if isinstance(species, str):
+        species = (species,)
+    if not species or set(species) - {"human", "mouse"}:
+        raise ValueError("MHC reference species must be human and/or mouse")
     alleles: list[MhcAllele] = []
     if "human" in species:
         hla = imgt.download_human(cache_dir, force=force_download)
-        alleles += imgt.parse_human(hla)
+        human = imgt.parse_human(hla)
+        if not human:
+            raise ValueError("Downloaded reference contains no usable human MHC alleles")
+        alleles += human
     if "mouse" in species:
         mouse, human_b2m = imgt.download_mouse(cache_dir, force=force_download)
-        alleles += imgt.parse_mouse(mouse, human_b2m)
+        mouse = imgt.parse_mouse(mouse, human_b2m)
+        if not any(a.species == "mouse" and a.chain_role != "B2M" for a in mouse):
+            raise ValueError("Downloaded reference contains no usable mouse MHC alleles")
+        alleles += mouse
 
     out_dir.mkdir(parents=True, exist_ok=True)
     import tempfile

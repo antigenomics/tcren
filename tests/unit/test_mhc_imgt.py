@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from tcren.mhc import imgt
 from tcren.mhc.imgt import _two_field
 
@@ -118,3 +120,29 @@ def test_reference_build_stages_on_destination_filesystem(tmp_path, monkeypatch)
     assert fasta.read_text() == '>HLA-A*01:01|A|MHCI|MHCa|human\nACDE\n'
     assert replaced == ['metadata.tsv', 'alleles.aa.fasta']
     assert not list(tmp_path.glob('.reference-*'))
+
+
+@pytest.mark.parametrize('species', [(), ('rabbit',), ('human', 'rabbit')])
+def test_reference_rejects_unsupported_species_before_fetch(tmp_path, monkeypatch, species):
+    from tcren.mhc import reference
+    monkeypatch.setattr(imgt, 'download_human', lambda *a, **k: pytest.fail('unexpected download'))
+    with pytest.raises(ValueError, match='species'):
+        reference.build(species=species, out_dir=tmp_path)
+    assert not list(tmp_path.iterdir())
+
+
+@pytest.mark.parametrize('species', ['human', 'mouse'])
+def test_empty_species_reference_cannot_replace_existing_files(tmp_path, monkeypatch, species):
+    from tcren.mhc import reference
+    fasta, metadata = tmp_path / 'alleles.aa.fasta', tmp_path / 'metadata.tsv'
+    fasta.write_text('previous fasta')
+    metadata.write_text('previous metadata')
+    monkeypatch.setattr(imgt, 'download_human', lambda *a, **k: tmp_path / 'raw')
+    monkeypatch.setattr(imgt, 'download_mouse', lambda *a, **k: (tmp_path / 'raw', tmp_path / 'b2m'))
+    monkeypatch.setattr(imgt, 'parse_human', lambda *a: [])
+    monkeypatch.setattr(imgt, 'parse_mouse', lambda *a: [
+        imgt.MhcAllele('B2M', 'B2M', 'MHCI', 'B2M', 'human', 'ACDE')])
+    with pytest.raises(ValueError, match='no usable ' + species):
+        reference.build(species=(species,), out_dir=tmp_path)
+    assert fasta.read_text() == 'previous fasta'
+    assert metadata.read_text() == 'previous metadata'
