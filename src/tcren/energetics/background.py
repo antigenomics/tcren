@@ -279,12 +279,15 @@ def scan_structure(structure, interface: str = "tcr_peptide", side: str = "to", 
         clash_tol: overlap beyond which two heavy atoms collide.
         temperature: Boltzmann temperature in DOPE units for the rotamer average.
         shell: DOPE environment radius about Cbeta.
-        n_threads: kernel threads; 0 (default) uses every core.
+        n_threads: kernel threads; 0 (default) uses the allocated CPU budget.
         engine: ``"native"`` or ``"numpy"`` -- the reference implementation, for the agreement test.
 
     Returns:
         :class:`ScanResult`, plus ``positions`` and ``partners`` as ``(chain, residue)`` lists.
     """
+    from ..runtime import resolve_threads
+
+    n_threads = resolve_threads(n_threads)
     packed, positions, partners = _pack(structure, interface, side, cutoff, shell)
     t = _tables(step)
     from ..refine import _dope

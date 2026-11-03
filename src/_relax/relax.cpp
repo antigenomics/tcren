@@ -24,6 +24,8 @@
 #include <atomic>
 #include <cmath>
 #include <limits>
+#include <exception>
+#include <mutex>
 #include <random>
 #include <thread>
 #include <vector>
@@ -869,10 +871,9 @@ py::dict substitution_scan(
     std::fill(cp, cp + static_cast<size_t>(P) * 20, 0);
     std::fill(rp, rp + static_cast<size_t>(P) * 20, 0);
 
+    int nt = py::module_::import("tcren.runtime").attr("resolve_threads")(n_threads).cast<int>();
     {
         py::gil_scoped_release release;
-        int nt = n_threads > 0 ? n_threads : static_cast<int>(std::thread::hardware_concurrency());
-        if (nt < 1) nt = 1;
         // Thread over the FLATTENED (position, candidate) cells, not over positions. On the
         // peptide side there are only nine positions, so a per-position split caps the pool at
         // nine however many cores are free; the cells are 20x more numerous and equally
@@ -881,11 +882,19 @@ py::dict substitution_scan(
         // tryptophan is nine atoms and an alanine is none.
         const int n_cell = P * 20;
         std::atomic<int> next{0};
+        std::exception_ptr error;
+        std::mutex error_mutex;
         auto worker = [&]() {
-            for (;;) {
-                const int c = next.fetch_add(1, std::memory_order_relaxed);
-                if (c >= n_cell) return;
-                scan_cell(in, c / 20, c % 20, pp, ap, cp, rp, pairs_of_pos);
+            try {
+                for (;;) {
+                    const int c = next.fetch_add(1, std::memory_order_relaxed);
+                    if (c >= n_cell) return;
+                    scan_cell(in, c / 20, c % 20, pp, ap, cp, rp, pairs_of_pos);
+                }
+            } catch (...) {
+                next.store(n_cell, std::memory_order_relaxed);
+                std::lock_guard<std::mutex> guard(error_mutex);
+                if (!error) error = std::current_exception();
             }
         };
         if (nt > n_cell) nt = n_cell > 0 ? n_cell : 1;
@@ -894,9 +903,16 @@ py::dict substitution_scan(
         } else {
             std::vector<std::thread> pool;
             pool.reserve(nt);
-            for (int t = 0; t < nt; ++t) pool.emplace_back(worker);
+            try {
+                for (int t = 0; t < nt; ++t) pool.emplace_back(worker);
+            } catch (...) {
+                next.store(n_cell, std::memory_order_relaxed);
+                for (auto& th : pool) th.join();
+                throw;
+            }
             for (auto& th : pool) th.join();
         }
+        if (error) std::rethrow_exception(error);
     }
 
     py::dict out;
