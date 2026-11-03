@@ -1,8 +1,8 @@
 """Concurrency guard for the on-demand MHC mmseqs index build.
 
 tcren is routinely fanned out one process/thread per sample (SLURM array / Nextflow) against a
-shared ``data/mhc_cache``. ``reference.reference_db`` must serialize the ``createdb`` +
-``createindex`` build (via ``arda._locking.build_lock``) so concurrent callers never build twice
+shared ``data/mhc_cache``. ``reference.reference_db`` must serialize the ``createdb``
+publication (via ``arda._locking.build_lock``) so concurrent callers never build twice
 or search a half-written index. mmseqs itself is mocked here so the test is fast and deterministic;
 it fails if the locking is dropped.
 """
@@ -72,7 +72,7 @@ def test_reference_db_serializes_concurrent_builds(tmp_path, monkeypatch):
 
     # The build ran exactly once despite 8 concurrent callers, and all got the same db path.
     assert calls["createdb"] == 1, f"build was not serialized: createdb ran {calls['createdb']}x"
-    assert calls["createindex"] == 1
+    assert calls["createindex"] == 0
     assert len(results) == 8
     assert len(set(results)) == 1
     assert results[0].name == db.name
@@ -108,9 +108,9 @@ def test_reference_db_repairs_incomplete_index_despite_fresh_markers(tmp_path, m
     for suffix in ("", "_h", ".idx"):
         _write_db(str(db) + suffix)
     if broken == "missing":
-        Path(str(db) + ".idx").unlink()
+        Path(str(db) + "_h").unlink()
     else:
-        Path(str(db) + ".idx").write_bytes(b"x")
+        Path(str(db) + "_h").write_bytes(b"x")
     calls = []
 
     def createdb(fasta, out, dbtype):
@@ -123,10 +123,11 @@ def test_reference_db_repairs_incomplete_index_despite_fresh_markers(tmp_path, m
     new = reference.reference_db(cache_dir=tmp_path)
     assert new != db
     assert len(calls) == 1
-    assert Path(str(new) + ".idx").read_bytes() == b"seq\0"
+    assert Path(str(new) + "_h").read_bytes() == b"seq\0"
+    assert not Path(str(new) + ".idx").exists()
     assert (tmp_path / "alleles_db.idx.index").read_text() == "0\t0\t4\n"
     if broken == "truncated":
-        assert Path(str(db) + ".idx").read_bytes() == b"x"
+        assert Path(str(db) + "_h").read_bytes() == b"x"
 
 
 def test_reference_db_does_not_publish_an_incomplete_build(tmp_path, monkeypatch):
@@ -134,7 +135,6 @@ def test_reference_db_does_not_publish_an_incomplete_build(tmp_path, monkeypatch
 
     def createdb(fasta, out, dbtype):
         _write_db(out)
-        _write_db(str(out) + "_h")
 
     monkeypatch.setattr(mmseqs, "createdb", createdb)
     monkeypatch.setattr(mmseqs, "run", lambda args: None)

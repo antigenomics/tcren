@@ -1,10 +1,11 @@
 """Build and load the curated MHC reference under ``database/mhc/``.
 
 The reference is a single FASTA (``alleles.aa.fasta``) whose headers encode the
-metadata (``allele|locus|mhc_class|chain_role|species``) plus a ``metadata.tsv`` mirror. It is
-built on demand from IMGT by ``tcren build-mhc-ref`` and written under
-:func:`tcren.paths.tcren_home`, not bundled into the wheel.
-The mmseqs search index is built on demand into a gitignored cache (mirroring arda's
+metadata (``allele|locus|mhc_class|chain_role|species``) plus a ``metadata.tsv`` mirror.
+The wheel carries a compact two-field protein reference. ``tcren build-mhc-ref``
+regenerates it under :func:`tcren.paths.tcren_home`; ``--all-alleles`` requests the
+full downloaded vocabulary for explicit fine-mapping work.
+The mmseqs sequence database is built on demand into a gitignored cache (mirroring arda's
 commit-FASTA / build-index-on-demand split).
 """
 
@@ -21,6 +22,7 @@ from .imgt import MhcAllele
 
 DATABASE_DIR = tcren_home() / "database" / "mhc"
 CACHE_DIR = tcren_home() / "data" / "mhc_cache"
+_BUNDLED_DIR = Path(__file__).resolve().parents[1] / "data" / "mhc"
 
 _META_FIELDS = ("allele", "locus", "mhc_class", "chain_role", "species")
 
@@ -36,6 +38,7 @@ def build(
     cache_dir: Path = CACHE_DIR,
     out_dir: Path = DATABASE_DIR,
     force_download: bool = False,
+    all_alleles: bool = False,
 ) -> Path:
     """Download, curate and write the committed MHC reference.
 
@@ -44,6 +47,8 @@ def build(
         cache_dir: Where raw downloads are cached (gitignored).
         out_dir: Where the curated ``alleles.aa.fasta`` + ``metadata.tsv`` are written.
         force_download: Re-download even if cached files exist.
+        all_alleles: Keep the full downloaded vocabulary instead of the compact
+            bundled two-field protein panel.
 
     Returns:
         Path to the written ``alleles.aa.fasta``.
@@ -58,6 +63,19 @@ def build(
         human = imgt.parse_human(hla)
         if not human:
             raise ValueError("Downloaded reference contains no usable human MHC alleles")
+        if not all_alleles:
+            wanted = {header.split("|")[0] for header, _ in
+                      imgt._read_fasta(_BUNDLED_DIR / "alleles.aa.fasta")}
+            selected = {}
+            def rank(a):
+                return ("*" in a.sequence or "X" in a.sequence, -len(a.sequence), a.sequence)
+            for allele in human:
+                if allele.allele in wanted and (allele.allele not in selected or
+                        rank(allele) < rank(selected[allele.allele])):
+                    selected[allele.allele] = allele
+            human = [selected[name] for name in sorted(selected)]
+            if not human:
+                raise ValueError("Downloaded reference contains no usable compact human MHC alleles")
         alleles += human
     if "mouse" in species:
         mouse, human_b2m = imgt.download_mouse(cache_dir, force=force_download)
@@ -86,8 +104,10 @@ def build(
 
 
 def reference_fasta(out_dir: Path = DATABASE_DIR) -> Path:
-    """Path to the committed reference FASTA (raise if the reference is not built)."""
+    """Use an explicit prepared reference, otherwise the bundled compact panel."""
     fasta = out_dir / "alleles.aa.fasta"
+    if not fasta.exists() and out_dir == DATABASE_DIR:
+        fasta = _BUNDLED_DIR / fasta.name
     if not fasta.exists():
         raise FileNotFoundError(
             f"MHC reference not found at {fasta}; run `tcren.mhc.reference.build()` "
@@ -99,7 +119,7 @@ def reference_fasta(out_dir: Path = DATABASE_DIR) -> Path:
 def _db_complete(db: Path) -> bool:
     """Check MMseqs sequence/header/index data against their offset tables, not just markers."""
     try:
-        for suffix in ("", "_h", ".idx"):
+        for suffix in ("", "_h"):
             prefix = db.with_name(db.name + suffix)
             if Path(str(prefix) + ".dbtype").stat().st_size != 4:
                 return False
@@ -118,7 +138,7 @@ def _db_complete(db: Path) -> bool:
 
 
 def reference_db(cache_dir: Path = CACHE_DIR) -> Path:
-    """Return an immutable, content/version-bound pre-indexed MHC database.
+    """Return an immutable, content/version-bound MHC sequence database.
 
     Writers publish a complete generation before replacing its pointer. Existing
     searches retain their old generation, including during repair or reference updates.
@@ -126,7 +146,6 @@ def reference_db(cache_dir: Path = CACHE_DIR) -> Path:
     """
     import hashlib
     import json
-    import shutil
     import tempfile
     import uuid
 
@@ -139,7 +158,8 @@ def reference_db(cache_dir: Path = CACHE_DIR) -> Path:
     # cannot change the bytes consumed by createdb after the identity was computed.
     source = fasta.read_bytes()
     identity = {"source_sha256": hashlib.sha256(source).hexdigest(),
-                "mmseqs_version": mmseqs.version_key(mmseqs.version())}
+                "mmseqs_version": mmseqs.version_key(mmseqs.version()),
+                "format": "sequence-only-v1"}
     key = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
     pointer = cache_dir / (key + ".json")
     generations = cache_dir / "generations"
@@ -171,14 +191,13 @@ def reference_db(cache_dir: Path = CACHE_DIR) -> Path:
                 snapshot.write_bytes(source)
                 db = stage / "alleles_db"
                 mmseqs.createdb(snapshot, db, dbtype=1)
-                mmseqs.run(["createindex", str(db), str(stage / "work"),
-                            "--search-type", "1", "--threads", "1"])
+                # MMseqs' dense protein prefilter index costs ~900 MB even for
+                # a tiny reference. Keep only createdb's sequence/header payloads,
+                # as ARDA does; each batched search owns its temporary work files.
                 if not _db_complete(db):
                     raise RuntimeError("MMseqs produced an incomplete MHC reference database")
                 hashes = searched_index_identity(db)["files_sha256"]
                 snapshot.unlink()
-                if (stage / "work").exists():
-                    shutil.rmtree(stage / "work")
                 name = key + "-" + uuid.uuid4().hex
                 os.replace(stage, generations / name)
                 temporary = cache_dir / (".pointer-" + uuid.uuid4().hex)

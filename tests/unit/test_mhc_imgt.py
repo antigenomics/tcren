@@ -122,6 +122,32 @@ def test_reference_build_stages_on_destination_filesystem(tmp_path, monkeypatch)
     assert not list(tmp_path.glob('.reference-*'))
 
 
+def test_compact_reference_preserves_two_field_proteins_and_full_opt_in(tmp_path, monkeypatch):
+    from tcren.mhc import reference
+
+    def allele(name, sequence):
+        return imgt.MhcAllele(name, name[4:].split('*')[0], 'MHCI', 'MHCa', 'human', sequence)
+
+    alleles = [allele('HLA-A*02:01', 'AC'), allele('HLA-A*02:01', 'ACDE'),
+               allele('HLA-B*27:02', 'ACDF'), allele('HLA-B*27:05', 'ACDG'),
+               allele('HLA-A*99:999', 'ACDH')]
+    monkeypatch.setattr(imgt, 'download_human', lambda *a, **k: tmp_path / 'raw')
+    monkeypatch.setattr(imgt, 'parse_human', lambda p: alleles)
+    compact = reference.build(species=('human',), out_dir=tmp_path / 'compact')
+    assert {h.split('|')[0]: s for h, s in imgt._read_fasta(compact)} == {
+        'HLA-A*02:01': 'ACDE', 'HLA-B*27:02': 'ACDF', 'HLA-B*27:05': 'ACDG'}
+    full = reference.build(species=('human',), out_dir=tmp_path / 'full', all_alleles=True)
+    assert len(list(imgt._read_fasta(full))) == len(alleles)
+
+
+def test_fresh_install_uses_bundled_panel_without_download(tmp_path, monkeypatch):
+    from tcren.mhc import reference
+
+    monkeypatch.setattr(reference, 'DATABASE_DIR', tmp_path)
+    monkeypatch.setattr(imgt, 'download_human', lambda *a, **k: pytest.fail('unexpected download'))
+    assert reference.reference_fasta(tmp_path) == reference._BUNDLED_DIR / 'alleles.aa.fasta'
+
+
 @pytest.mark.parametrize('species', [(), ('rabbit',), ('human', 'rabbit')])
 def test_reference_rejects_unsupported_species_before_fetch(tmp_path, monkeypatch, species):
     from tcren.mhc import reference

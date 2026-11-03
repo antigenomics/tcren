@@ -14,7 +14,7 @@ from pathlib import Path
 
 import requests
 
-HLA_URL = "https://raw.githubusercontent.com/ANHIG/IMGTHLA/Latest/hla_prot.fasta"
+HLA_URL = "https://raw.githubusercontent.com/ANHIG/IMGTHLA/d972ae287948dc2e5468a40ff3b3d27227541189/hla_prot.fasta"
 HUMAN_B2M_URL = "https://rest.uniprot.org/uniprotkb/P61769.fasta"
 MOUSE_MHC_URL = (
     "https://rest.uniprot.org/uniprotkb/search?query="

@@ -7,6 +7,11 @@ All notable changes to `tcren` are recorded here. Format follows
 
 ### Fixed
 
+- Bundle a compact two-field MHC protein panel, retaining B*27:02 and B*27:05
+  separately and the Native2026 fine-mapping sequence targets. Keep the full
+  downloaded vocabulary available through `build-mhc-ref --all-alleles`.
+- Keep small MMseqs sequence databases instead of persistent dense prefilter
+  indexes, eliminating the approximately 900 MB index for a tiny MHC reference.
 - Reject unsupported or empty species downloads before replacing an existing MHC reference.
 
 - Publish MHC reference indexes as immutable, content-validated generations so

@@ -26,7 +26,8 @@ scoring formulas in notebooks or manuscript scripts.
 ## Install and batch inputs
 
 Use the repository `setup.sh` for development, with its `.venv`. Installed wheels
-contain native kernels. `tcren build-mhc-ref` prepares the MHC reference; ARDA owns
+contain native kernels and a compact two-field MHC protein reference. Use
+`tcren build-mhc-ref --all-alleles` for explicit full-vocabulary fine mapping; ARDA owns
 its TCR reference/search bootstrap. See [installation](../../docs/getting-started.rst).
 
 Structure inputs accept PDB/mmCIF, gzip, directories, tar.gz, globs and manifests.

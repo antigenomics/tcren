@@ -930,12 +930,14 @@ def fetch_data(
 def build_mhc_ref(
     species: str = typer.Option("human,mouse", "--species", help="comma-separated"),
     force_download: bool = typer.Option(False, "--force-download"),
+    all_alleles: bool = typer.Option(False, "--all-alleles", help="Keep the full downloaded protein vocabulary for explicit fine mapping."),
 ) -> None:
     """Download and curate the MHC allele reference (IMGT/HLA + UniProt mouse)."""
     from .mhc import reference
 
     fasta = reference.build(
-        species=tuple(s.strip() for s in species.split(",")), force_download=force_download
+        species=tuple(s.strip() for s in species.split(",")), force_download=force_download,
+        all_alleles=all_alleles,
     )
     typer.echo(f"MHC reference written to {fasta}")
 
