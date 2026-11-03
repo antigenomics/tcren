@@ -9,6 +9,7 @@ from reviewed UniProt entries.
 from __future__ import annotations
 
 import re
+import gzip
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -50,13 +51,16 @@ class MhcAllele:
 def _read_fasta(path: Path):
     """Yield ``(header, sequence)`` pairs from a FASTA file."""
     header, seq = None, []
-    for line in path.read_text().splitlines():
-        if line.startswith(">"):
-            if header is not None:
-                yield header, "".join(seq)
-            header, seq = line[1:], []
-        else:
-            seq.append(line.strip())
+    opener = gzip.open if path.suffix == ".gz" else open
+    with opener(path, "rt") as stream:
+        for line in stream:
+            line = line.rstrip("\r\n")
+            if line.startswith(">"):
+                if header is not None:
+                    yield header, "".join(seq)
+                header, seq = line[1:], []
+            else:
+                seq.append(line.strip())
     if header is not None:
         yield header, "".join(seq)
 
@@ -66,6 +70,12 @@ def _download(url: str, dest: Path, force: bool) -> Path:
     import tempfile
     from arda._locking import build_lock
 
+    bundled = Path(__file__).resolve().parents[1] / "data" / "mhc" / (dest.name + ".gz")
+    if not force:
+        if bundled.exists():
+            return bundled
+        if dest.exists():
+            return dest
     dest.parent.mkdir(parents=True, exist_ok=True)
     with build_lock(dest.with_name("." + dest.name + ".lock"),
                     done=lambda: dest.exists() and not force) as ours:

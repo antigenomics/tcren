@@ -49,7 +49,7 @@ tcren screen -s models.tar.gz --task tcr \
   --confidence confidence.tsv -o scores.tsv
 ```
 
-The compact two-field MHC protein reference is bundled. Use
+Bundled source snapshots build the compact two-field MHC protein reference offline. Use
 `tcren build-mhc-ref --all-alleles` only for explicit full-vocabulary fine mapping.
 
 Supply separately modelled candidate receptors for **one peptide and MHC
@@ -60,7 +60,7 @@ confidence from metadata or this table. Annotation is batched internally, and
 
 Wheels include five native extensions. [ARDA](https://github.com/antigenomics/arda)
 provides TCR annotation and its first-use reference/search setup; the compact MHC
-reference is packaged. The [installation tutorial](https://docs.isalgo.dev/tcren/getting-started.html)
+reference is built offline from packaged source snapshots. The [installation tutorial](https://docs.isalgo.dev/tcren/getting-started.html)
 covers raw structures, input formats and first-run setup.
 
 For peptides threaded onto one fixed template:

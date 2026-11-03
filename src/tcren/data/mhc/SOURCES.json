@@ -40,7 +40,7 @@
     }
   ],
   "selection": {
-    "purpose": "Bundled compact MHC reference",
+    "purpose": "Compact reference generated locally from unchanged bundled source snapshots",
     "source_sha256": "985a7f5f5a1aed7910d9366bc2087f87fff6c4aecef653405e1858d9f555f1a6",
     "observed_two_field_hla": 128,
     "native_fine_targets": [
@@ -95,5 +95,7 @@
       "bytes": 5923,
       "sha256": "a984e7f80a2e1d4366e552f640eeb2f02041633b5d05809d7ad80ad898a15ca7"
     }
-  ]
+  ],
+  "redistribution": "Raw source file contents are unchanged after decompression. Reheadering, selection and protein curation occur locally; the generated FASTA is not distributed in the wheel.",
+  "upstream_licence": "https://hla.alleles.org/pages/other/licence_and_disclaimer/"
 }

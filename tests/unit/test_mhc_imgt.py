@@ -142,10 +142,22 @@ def test_compact_reference_preserves_two_field_proteins_and_full_opt_in(tmp_path
 
 def test_fresh_install_uses_bundled_panel_without_download(tmp_path, monkeypatch):
     from tcren.mhc import reference
+    import hashlib
+    import json
 
     monkeypatch.setattr(reference, 'DATABASE_DIR', tmp_path)
-    monkeypatch.setattr(imgt, 'download_human', lambda *a, **k: pytest.fail('unexpected download'))
-    assert reference.reference_fasta(tmp_path) == reference._BUNDLED_DIR / 'alleles.aa.fasta'
+    monkeypatch.setattr(imgt.requests, 'get', lambda *a, **k: pytest.fail('unexpected download'))
+    # A stale raw cache must not replace the pinned offline snapshot.
+    stale = tmp_path / 'raw'
+    stale.mkdir()
+    (stale / 'hla_prot.fasta').write_text('>stale\nACDE\n')
+    assert imgt.download_human(stale).suffix == '.gz'
+    fasta = reference.reference_fasta(tmp_path)
+    assert fasta == tmp_path / 'alleles.aa.fasta'
+    assert len(list(imgt._read_fasta(fasta))) == 174
+    manifest = json.loads((reference._BUNDLED_DIR / 'SOURCES.json').read_text())
+    for row in manifest['curated_files']:
+        assert hashlib.sha256((tmp_path / row['file']).read_bytes()).hexdigest() == row['sha256']
 
 
 @pytest.mark.parametrize('species', [(), ('rabbit',), ('human', 'rabbit')])

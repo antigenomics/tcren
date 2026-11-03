@@ -2,9 +2,9 @@
 
 The reference is a single FASTA (``alleles.aa.fasta``) whose headers encode the
 metadata (``allele|locus|mhc_class|chain_role|species``) plus a ``metadata.tsv`` mirror.
-The wheel carries a compact two-field protein reference. ``tcren build-mhc-ref``
-regenerates it under :func:`tcren.paths.tcren_home`; ``--all-alleles`` requests the
-full downloaded vocabulary for explicit fine-mapping work.
+The wheel carries unchanged compressed source snapshots and a two-field selection
+list. The compact protein reference is built locally under :func:`tcren.paths.tcren_home`;
+``--all-alleles`` requests the full vocabulary for explicit fine mapping.
 The mmseqs sequence database is built on demand into a gitignored cache (mirroring arda's
 commit-FASTA / build-index-on-demand split).
 """
@@ -47,7 +47,7 @@ def build(
         cache_dir: Where raw downloads are cached (gitignored).
         out_dir: Where the curated ``alleles.aa.fasta`` + ``metadata.tsv`` are written.
         force_download: Re-download even if cached files exist.
-        all_alleles: Keep the full downloaded vocabulary instead of the compact
+        all_alleles: Keep the full source vocabulary instead of the compact
             bundled two-field protein panel.
 
     Returns:
@@ -64,8 +64,8 @@ def build(
         if not human:
             raise ValueError("Downloaded reference contains no usable human MHC alleles")
         if not all_alleles:
-            wanted = {header.split("|")[0] for header, _ in
-                      imgt._read_fasta(_BUNDLED_DIR / "alleles.aa.fasta")}
+            import json
+            wanted = set(json.loads((_BUNDLED_DIR / "panel.json").read_text())["hla_alleles"])
             selected = {}
             def rank(a):
                 return ("*" in a.sequence or "X" in a.sequence, -len(a.sequence), a.sequence)
@@ -104,10 +104,10 @@ def build(
 
 
 def reference_fasta(out_dir: Path = DATABASE_DIR) -> Path:
-    """Use an explicit prepared reference, otherwise the bundled compact panel."""
+    """Use a prepared reference, building the compact panel offline on first use."""
     fasta = out_dir / "alleles.aa.fasta"
     if not fasta.exists() and out_dir == DATABASE_DIR:
-        fasta = _BUNDLED_DIR / fasta.name
+        return build(out_dir=out_dir)
     if not fasta.exists():
         raise FileNotFoundError(
             f"MHC reference not found at {fasta}; run `tcren.mhc.reference.build()` "

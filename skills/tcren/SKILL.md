@@ -26,7 +26,8 @@ scoring formulas in notebooks or manuscript scripts.
 ## Install and batch inputs
 
 Use the repository `setup.sh` for development, with its `.venv`. Installed wheels
-contain native kernels and a compact two-field MHC protein reference. Use
+contain native kernels and unchanged source snapshots for offline preparation of
+the compact two-field MHC protein reference. Use
 `tcren build-mhc-ref --all-alleles` for explicit full-vocabulary fine mapping; ARDA owns
 its TCR reference/search bootstrap. See [installation](../../docs/getting-started.rst).
 

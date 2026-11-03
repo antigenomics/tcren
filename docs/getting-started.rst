@@ -14,8 +14,9 @@ Use Python 3.10 or later in an isolated environment:
    $ tcren info
 
 Binary wheels contain the native kernels. ARDA supplies TCR chain annotation
-and obtains its reference/search backend on first use. The compact MHC protein
-reference is bundled. Prepare ARDA's reference before moving to an offline compute
+and obtains its reference/search backend on first use. Unchanged compressed MHC
+source snapshots and the compact selection are bundled; first use builds the
+174-record protein panel locally without a download. Prepare ARDA's reference before moving to an offline compute
 environment. ``build-mhc-ref`` regenerates the MHC reference; this is reference
 preparation, not score fitting.
 
@@ -50,7 +51,7 @@ Reference locations
 ``TCREN_HOME`` selects the reference root when set. Otherwise a source install
 uses its checkout, while a wheel uses ``XDG_CACHE_HOME/tcren`` (normally
 ``~/.cache/tcren``). An explicitly prepared MHC reference lives in ``database/mhc/``;
-otherwise the bundled compact reference is used. Small MMseqs sequence databases
+otherwise the compact reference is generated offline from bundled source snapshots. Small MMseqs sequence databases
 live in ``data/mhc_cache/``; dense protein prefilter indexes are not retained.
 ``TCREN_DATA_DIR`` overrides the structure-data directory.
 These are reference assets; calculated results are written to the requested output.

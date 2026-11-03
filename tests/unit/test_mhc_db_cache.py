@@ -41,7 +41,7 @@ def test_bundled_panel_distinguishes_b2702_and_b2705(tmp_path, monkeypatch):
     from tcren.mhc.imgt import _read_fasta
     from tcren.mhc.mapper import _best_hits
 
-    fasta = reference._BUNDLED_DIR / 'alleles.aa.fasta'
+    fasta = reference.build(cache_dir=tmp_path / 'raw', out_dir=tmp_path / 'reference')
     sequences = {header.split('|')[0]: sequence for header, sequence in _read_fasta(fasta)}
     names = ['HLA-B*27:02', 'HLA-B*27:05']
     assert sequences[names[0]] != sequences[names[1]]

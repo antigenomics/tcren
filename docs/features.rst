@@ -59,8 +59,9 @@ favourable); they are log-odds ratios of contact frequencies and are *not* in kT
 
 .. note::
 
-   Both commands annotate the MHC chains using the bundled compact two-field protein
-   reference. ``tcren build-mhc-ref --all-alleles`` prepares the full downloaded
+   Both commands annotate the MHC chains using a compact two-field protein
+   reference generated offline from bundled source snapshots.
+   ``tcren build-mhc-ref --all-alleles`` prepares the full source
    vocabulary for explicit fine mapping (see :ref:`mhc-reference`).
 
 Options
