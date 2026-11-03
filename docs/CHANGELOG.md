@@ -7,7 +7,13 @@ All notable changes to `tcren` are recorded here. Format follows
 
 ### Fixed
 
-- Bundle a compact two-field MHC protein panel, retaining B*27:02 and B*27:05
+- Isolate simultaneous Potts scoring payloads and reuse the allocation-aware coarse
+  worker runtime; preserve per-structure seeded results across serial and process execution.
+- Forward the allocated CPU budget to both batched searches in orientation workflows.
+- Check process inspection before launching a guarded command, preventing unguarded children
+  when process inspection is unavailable.
+- Prepare a compact two-field MHC protein panel offline from unchanged bundled
+  source snapshots with upstream notices, retaining B*27:02 and B*27:05
   separately and the Native2026 fine-mapping sequence targets. Keep the full
   downloaded vocabulary available through `build-mhc-ref --all-alleles`.
 - Keep small MMseqs sequence databases instead of persistent dense prefilter

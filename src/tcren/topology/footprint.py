@@ -486,13 +486,11 @@ def footprint_batch(structures: str | Path | Iterable[Structure], *, cutoff: flo
         A frame with ``pdb.id`` plus every feature of :func:`footprint_features`.
     """
     if isinstance(structures, (str, Path)):
-        import os
-
         from ..annotation.batch import iter_typed
         from ..mhc import annotate_mhc_batch
 
-        structs = list(iter_typed(Path(structures), organism=organism))
-        annotate_mhc_batch(structs, threads=os.cpu_count() or 1)     # must follow chain typing
+        structs = list(iter_typed(Path(structures), organism=organism, threads=0))
+        annotate_mhc_batch(structs, threads=0)     # must follow chain typing
         it: Iterable[Structure] = structs
     else:
         it = structures
