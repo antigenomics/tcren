@@ -7,7 +7,7 @@ from pathlib import Path
 
 from ..metadata import read_metadata
 from . import reference
-from .imgt import _HLA_LOCUS_ROLE, _read_fasta
+from .imgt import _HLA_LOCUS_ROLE, _read_fasta, _two_field
 
 
 def _normalise(value):
@@ -15,7 +15,7 @@ def _normalise(value):
 
 
 def _compatible(declared, candidate):
-    declared, candidate = _normalise(declared), _normalise(candidate)
+    declared, candidate = (_two_field(_normalise(value)) for value in (declared, candidate))
     return candidate == declared or candidate.startswith(declared + ":")
 
 
@@ -25,7 +25,7 @@ def _role(allele):
 
 def _validate(allele, reference_names):
     normal = _normalise(allele)
-    human = re.fullmatch(r"[A-Z]+[0-9]*\*\d{2,3}(?::\d{2,3}){0,3}[NLSCAQ]?", normal)
+    human = re.fullmatch(r"[A-Z]+[0-9]*\*\d{2,}(?::\d{2,}){0,3}[NLSCAQ]?", normal)
     if not (human and _role(allele)) and allele not in reference_names:
         raise ValueError(f"Unsupported or malformed MHC declaration: {allele}")
 

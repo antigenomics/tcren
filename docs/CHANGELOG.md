@@ -12,6 +12,8 @@ All notable changes to `tcren` are recorded here. Format follows
   downloaded vocabulary available through `build-mhc-ref --all-alleles`.
 - Keep small MMseqs sequence databases instead of persistent dense prefilter
   indexes, eliminating the approximately 900 MB index for a tiny MHC reference.
+- Match higher-field HLA declarations to two-field protein evidence while
+  preserving the submitted name, and accept numeric fields longer than three digits.
 - Reject unsupported or empty species downloads before replacing an existing MHC reference.
 
 - Publish MHC reference indexes as immutable, content-validated generations so
