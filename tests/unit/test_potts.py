@@ -727,11 +727,12 @@ def test_contact_map_rejects_an_unknown_grouping():
 def test_contact_map_does_not_depend_on_the_number_of_workers():
     """Same contract as `score_sites`: `workers` is a scheduling knob, never a scientific one."""
     from tcren.potts import contact_map
+    from tcren.runtime import available_cpus
 
     sites, model = _map_inputs(n_struct=6)
     kw = dict(by="loop", chains=8, burn=4, draws=8, thin=1, seed=0)
     assert contact_map(sites, model, workers=1, **kw).equals(
-        contact_map(sites, model, workers=3, **kw))
+        contact_map(sites, model, workers=min(3, available_cpus()), **kw))
 
 
 # --------------------------------------------------------------------------- peptide_free_energy
