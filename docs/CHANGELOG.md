@@ -5,6 +5,8 @@ All notable changes to `tcren` are recorded here. Format follows
 
 ## Unreleased
 
+## 4.4.2
+
 ### Fixed
 
 - Install declared test dependencies for `setup.sh --tests` and initialize native
