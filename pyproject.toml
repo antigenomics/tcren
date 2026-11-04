@@ -78,6 +78,7 @@ build-dir = "build/{wheel_tag}"
 # excludesfile, so a local `uv build` would otherwise package them.
 sdist.include = ["/docs/README.md"]
 sdist.exclude = [
+    "/attic/",
     "/notebooks", "/tests", "/docs", "/data", "/assets", "/scripts", "/skills",
     "/.github", "/setup.sh", "/STATUS.md", "/BENCHMARKS.md",
     "/appendix", "/.claude", "/.codex", "/.agents", "/.DS_Store",
