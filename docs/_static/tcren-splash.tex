@@ -9,15 +9,15 @@
 \graphicspath{{docs/_static/}{./}}
 \ifnum\pdfstrcmp{\jobname}{tcren-splash-dark}=0\def\darkmode{1}\fi
 \ifdefined\darkmode
-  \definecolor{paper}{HTML}{101B27}\definecolor{ink}{HTML}{E6EFF7}
-  \definecolor{muted}{HTML}{A5B7C9}\definecolor{rule}{HTML}{42576A}
-  \definecolor{energy}{HTML}{ED9DC6}\definecolor{conf}{HTML}{73BAEA}
-  \definecolor{betti}{HTML}{E5BC58}\definecolor{motif}{HTML}{65D1BD}
+  \definecolor{paper}{HTML}{1A2332}\definecolor{ink}{HTML}{EEF2F7}
+  \definecolor{muted}{HTML}{9CADBF}\definecolor{rule}{HTML}{354254}
+  \definecolor{energy}{HTML}{83B5E7}\definecolor{conf}{HTML}{83B5E7}
+  \definecolor{betti}{HTML}{FFBD59}\definecolor{motif}{HTML}{25C39D}
 \else
-  \definecolor{paper}{HTML}{F7FAFC}\definecolor{ink}{HTML}{193248}
-  \definecolor{muted}{HTML}{5C7489}\definecolor{rule}{HTML}{BDCCD7}
-  \definecolor{energy}{HTML}{AF477C}\definecolor{conf}{HTML}{267CB2}
-  \definecolor{betti}{HTML}{A57709}\definecolor{motif}{HTML}{128779}
+  \definecolor{paper}{HTML}{FFFFFF}\definecolor{ink}{HTML}{1A2332}
+  \definecolor{muted}{HTML}{54657A}\definecolor{rule}{HTML}{E6E9EE}
+  \definecolor{energy}{HTML}{3F75AC}\definecolor{conf}{HTML}{3F75AC}
+  \definecolor{betti}{HTML}{B17B20}\definecolor{motif}{HTML}{168B78}
 \fi
 \pagecolor{paper}\color{ink}
 \begin{document}
@@ -31,7 +31,7 @@
  atom/.style={circle,minimum size=2.1mm,inner sep=0pt,fill=paper,line width=.8pt}]
 \useasboundingbox (0,0) rectangle (220,-279);
 \fill[paper] (0,0) rectangle (220,-279);
-\node[title] at (110,-10) {TCRen};
+\node[title] at (110,-10) {Structural evidence for recognition};
 \node[text=muted,font=\fontsize{12}{15}\selectfont] at (110,-20)
  {From molecular contacts to receptor recognition};
 % One schematic graph supplies chemistry, topology and inspection.
