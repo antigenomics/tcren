@@ -176,6 +176,7 @@ cohort throughput.
 
 ```sh
 ./setup.sh --tests
+uv pip install -e ".[dev,docs]"
 .venv/bin/ruff check src tests
 source .venv/bin/activate
 make -C docs html SPHINXOPTS=-W

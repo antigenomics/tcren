@@ -31,10 +31,10 @@ jobs:
       - name: Install package with its declared runtime and test dependencies
         # ARDA owns reference locking and annotation; exercise the installed core dependency.
         # Its pinned reference/backend bootstrap is small; MHC source snapshots are bundled.
-        run: uv pip install -e ".[test]" matplotlib
+        run: uv pip install -e ".[test]"
       - name: Run unit tests
         # Retain the existing coverage floor across supported Python versions.
-        run: .venv/bin/pytest -m "not slow" -ra --cov=tcren --cov-report=term-missing --cov-fail-under=50
+        run: .venv/bin/python -c 'import tcren, pytest, sys; raise SystemExit(pytest.main(sys.argv[1:]))' -m "not slow" -ra --cov=tcren --cov-report=term-missing --cov-fail-under=50
 
   lint:
     # Nothing enforced ruff before, so the tree had drifted to 77 reports. The settings it runs

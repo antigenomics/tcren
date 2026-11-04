@@ -7,6 +7,9 @@ All notable changes to `tcren` are recorded here. Format follows
 
 ### Fixed
 
+- Install declared test dependencies for `setup.sh --tests` and initialize native
+  runtime limits before loading test plugins, matching the CI test entry point.
+
 - Search full ARDA receptor alleles for structural fine mapping and record the
   matching full-reference identity in single/batched structure annotation.
 

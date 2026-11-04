@@ -22,7 +22,9 @@ preparation, not score fitting.
 
 For a source checkout, run ``bash setup.sh`` and activate ``.venv``. Re-run setup
 after changing native code. Do not mix a development import with an installed-wheel
-validation run.
+validation run. ``bash setup.sh --tests`` installs the declared test extra before
+running checks. For lint and documentation tools, install the separate development
+and docs extras with ``uv pip install -e ".[dev,docs]"``.
 
 .. _mhc-reference:
 
