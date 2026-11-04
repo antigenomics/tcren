@@ -16,6 +16,9 @@ re-exports every name, so callers written against the old location keep working.
 from __future__ import annotations
 
 from pathlib import Path
+from inspect import signature
+
+from .arda_adapter import _annotate
 
 import polars as pl
 
@@ -265,26 +268,21 @@ def annotate_batch(
     pairs = [(f"{idx}|{cid}", seq) for idx, cid, seq in flat]
     for org in organisms:
         identity_reader = getattr(arda, "reference_index_identity", None)
-        identity = identity_reader(org, seqtype="aa") if identity_reader else {"status": "unavailable"}
+        identity_kwargs = {"seqtype": "aa"}
+        if identity_reader and "major_only" in signature(identity_reader).parameters:
+            identity_kwargs["major_only"] = False
+        identity = identity_reader(org, **identity_kwargs) if identity_reader else {"status": "unavailable"}
         with search_threads(threads):
             records = list(_annotate(arda, pairs, org, threads))
         if len(records) != len(flat):
             raise RuntimeError("annotation record count differs from query count")
-        if identity_reader and identity_reader(org, seqtype="aa") != identity:
+        if identity_reader and identity_reader(org, **identity_kwargs) != identity:
             raise RuntimeError("annotation index changed during the search")
         for structure in structures:
             structure.annotation_provenance.setdefault("arda", {})[org] = identity
         for (idx, cid, _seq), rec in zip(flat, records):
             out[idx][org][cid] = rec
     return out
-def _annotate(arda, pairs, organism: str, threads: int):
-    """Use the public batch API; older supported ARDA versions need the mapper API."""
-    from inspect import signature
-
-    if "threads" in signature(arda.annotate_sequences).parameters:
-        return arda.annotate_sequences(pairs, seqtype="aa", organism=organism, threads=threads)
-    from arda.annotate.mapper import annotate_records
-    return annotate_records(pairs, organism=organism, seqtype="aa", threads=threads)
 
 def iter_typed(structures, organism: str = "human", *, full_ids: bool = False,
                threads: int = 1, on_error: str = "raise", importer=None):

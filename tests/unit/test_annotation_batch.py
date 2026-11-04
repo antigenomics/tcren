@@ -111,3 +111,49 @@ def test_legacy_backend_uses_capped_mapper_without_retry(monkeypatch):
 
     monkeypatch.setattr(mapper, "annotate_records", annotate)
     assert _annotate(Backend(), [("a", "AAA")], "human", 2) == [{"sequence_id": "a"}]
+
+
+def test_structure_search_and_provenance_use_full_receptor_alleles(monkeypatch):
+    from types import SimpleNamespace
+    from tcren.annotation import batch, arda_adapter
+    from tcren.structure.model import Atom, Chain, Residue, Structure
+
+    calls = []
+
+    def annotate_sequences(pairs, *, threads, major_only=True, **kwargs):
+        calls.append(('search', major_only, threads, len(pairs)))
+        return [{'sequence_id': cid} for cid, seq in pairs]
+
+    def identity(organism, seqtype='aa', *, major_only=True):
+        calls.append(('identity', major_only))
+        return {'major_only': major_only}
+
+    backend = SimpleNamespace(annotate_sequences=annotate_sequences, reference_index_identity=identity)
+    monkeypatch.setattr(arda_adapter, '_import_arda', lambda: backend)
+    chain = Chain('A', [Residue(0, 1, '', 'A', 'ALA', (Atom('CA', 'C', (0, 0, 0)),))])
+    structure = Structure('query', [chain])
+    batch.annotate_batch([structure], backend, organisms=('human',), threads=1)
+    assert calls == [('identity', False), ('search', False, 1, 1), ('identity', False)]
+    assert structure.annotation_provenance['arda']['human']['major_only'] is False
+    calls.clear()
+    arda_adapter.annotate_chain(chain, 'human')
+    arda_adapter.annotate_chains([chain], 'human')
+    assert all(call[1] is False for call in calls)
+    assert len(calls) == 2
+
+
+def test_legacy_public_api_selects_full_alleles_in_new_mapper(monkeypatch):
+    import arda.annotate.mapper as mapper
+    from tcren.annotation.batch import _annotate
+
+    class Backend:
+        def annotate_sequences(self, pairs, seqtype='aa', organism='human'):
+            raise AssertionError('legacy API cannot accept the selected CPU budget')
+
+    def annotate(pairs, *, major_only=True, **kwargs):
+        assert major_only is False
+        assert kwargs == {'seqtype': 'aa', 'organism': 'human', 'threads': 1}
+        return [{'sequence_id': 'a'}]
+
+    monkeypatch.setattr(mapper, 'annotate_records', annotate)
+    assert _annotate(Backend(), [('a', 'AAA')], 'human', 1) == [{'sequence_id': 'a'}]

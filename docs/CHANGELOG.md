@@ -7,6 +7,9 @@ All notable changes to `tcren` are recorded here. Format follows
 
 ### Fixed
 
+- Search full ARDA receptor alleles for structural fine mapping and record the
+  matching full-reference identity in single/batched structure annotation.
+
 - Isolate simultaneous Potts scoring payloads and reuse the allocation-aware coarse
   worker runtime; preserve per-structure seeded results across serial and process execution.
 - Forward the allocated CPU budget to both batched searches in orientation workflows.

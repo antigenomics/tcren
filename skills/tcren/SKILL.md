@@ -29,7 +29,9 @@ Use the repository `setup.sh` for development, with its `.venv`. Installed wheel
 contain native kernels and unchanged source snapshots for offline preparation of
 the compact two-field MHC protein reference. Use
 `tcren build-mhc-ref --all-alleles` for explicit full-vocabulary fine mapping; ARDA owns
-its TCR reference/search bootstrap. See [installation](../../docs/getting-started.rst).
+its TCR reference/search bootstrap. TCRen requests all receptor alleles for
+structural fine mapping and records that full-reference identity; ARDA's default
+major-allele repertoire searches remain separate. See [installation](../../docs/getting-started.rst).
 
 Structure inputs accept PDB/mmCIF, gzip, directories, tar.gz, globs and manifests.
 Pass the whole query set in one call: annotation is batched internally. Use the
