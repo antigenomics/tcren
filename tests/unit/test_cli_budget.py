@@ -185,8 +185,9 @@ def test_wide_modes_fail_before_the_live_thread_ceiling(monkeypatch):
     import pytest
     from tcren import runtime
     monkeypatch.setattr(runtime, 'available_cpus', lambda: 1000)
+    assert runtime.resolve_threads(0) == 16
     with pytest.raises(ValueError, match='live-thread ceiling'):
-        runtime.resolve_threads(0)
+        runtime.resolve_threads(1000)
     with pytest.raises(ValueError, match='live-thread ceiling'):
         runtime.check_parallel_entrypoint(122, 122)
 

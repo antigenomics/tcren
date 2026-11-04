@@ -55,7 +55,11 @@ source "$ROOT/.venv/bin/activate"
 # --- 2. tcren (+ arda-mapper, from pyproject.toml) -------------------------
 log "installing tcren (editable); arda (PyPI: arda-mapper) is pulled in as a dependency"
 log "arda auto-fetches a static mmseqs binary on first use — no conda/bioconda needed"
-uv pip install -e "$ROOT"
+INSTALL_TARGET="$ROOT"
+if [[ "$DO_TESTS" -eq 1 ]]; then
+  INSTALL_TARGET="${ROOT}[test]"
+fi
+uv pip install -e "$INSTALL_TARGET"
 
 # --- 3. reference data (HF) ------------------------------------------------
 # Populate data/ with Native2026 (orientation refs) + Canonical2026 (the default
@@ -68,7 +72,7 @@ fi
 # --- 4. tests --------------------------------------------------------------
 if [[ "$DO_TESTS" -eq 1 ]]; then
   log "running fast tests"
-  pytest "$ROOT/tests" -m "not slow" -q
+  python -c 'import tcren, pytest, sys; raise SystemExit(pytest.main(sys.argv[1:]))' "$ROOT/tests" -m "not slow" -q
 fi
 
 log "done. Activate with: source .venv/bin/activate"

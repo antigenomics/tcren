@@ -7,6 +7,26 @@ import subprocess
 import sys
 import time
 
+import pytest
+
+
+def test_guard_refuses_to_start_when_process_inspection_is_unavailable(tmp_path, monkeypatch):
+    import runpy
+
+    report = tmp_path / 'guard.json'
+    guard = Path(__file__).resolve().parents[2] / 'scripts/run_bounded.py'
+    monkeypatch.setattr(sys, 'argv', [str(guard), str(report), '10', '1', '--', sys.executable])
+    monkeypatch.setattr(signal, 'signal', lambda *a: None)
+
+    def unavailable(*args, **kwargs):
+        raise PermissionError('process inspection unavailable')
+
+    monkeypatch.setattr(subprocess, 'run', unavailable)
+    monkeypatch.setattr(subprocess, 'Popen', lambda *a, **k: pytest.fail('unguarded job started'))
+    with pytest.raises(PermissionError, match='inspection unavailable'):
+        runpy.run_path(str(guard), run_name='__main__')
+    assert not report.exists()
+
 
 def test_bounded_guard_thread_configuration(tmp_path):
     report = tmp_path / "guard.json"

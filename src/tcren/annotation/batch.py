@@ -16,13 +16,16 @@ re-exports every name, so callers written against the old location keep working.
 from __future__ import annotations
 
 from pathlib import Path
+from inspect import signature
+
+from .arda_adapter import _annotate
 
 import polars as pl
 
 from ..structure.model import Structure
 from ..runtime import resolve_threads, search_threads, single_threaded
 
-def iter_annotated_set(struct_dir: str | Path, on_error: str = "skip", *, threads: int = 1):
+def iter_annotated_set(struct_dir: str | Path, on_error: str = "skip", *, threads: int = 0):
     """Parse and chain-type every structure in a folder, yielding annotated structures.
 
     Annotation is **batched**: one arda call per organism covers every chain of every
@@ -71,7 +74,7 @@ def iter_annotated_set(struct_dir: str | Path, on_error: str = "skip", *, thread
         yield s
 def annotate_structure_set(
     struct_dir: str | Path, on_error: str = "skip", count_atoms: bool = False,
-    *, interface: str = "tcr_peptide", threads: int = 1,
+    *, interface: str = "tcr_peptide", threads: int = 0,
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
     """Run the tcren pipeline over a folder of PDBs → ``(contacts, markup)`` tables.
 
@@ -132,7 +135,7 @@ def annotate_structure_set(
     markup_df = pl.DataFrame(markup) if markup else pl.DataFrame()
     return contacts_df, markup_df
 def mhc_annotation(
-    struct_dir, ids=None, organism: str = "human", on_error: str = "skip", *, threads: int = 1
+    struct_dir, ids=None, organism: str = "human", on_error: str = "skip", *, threads: int = 0
 ) -> pl.DataFrame:
     """Per-structure MHC allele + class for a folder (tcren mapper) — fully batched.
 
@@ -225,7 +228,7 @@ def mhc_annotation(
     return pl.DataFrame(rows)
 @single_threaded
 def annotate_batch(
-    structures, arda=None, organisms=("human", "mouse"), threads: int = 1
+    structures, arda=None, organisms=("human", "mouse"), threads: int = 0
 ) -> list[dict[str, dict[str, dict]]]:
     """Annotate every chain of every structure with one mmseqs call per organism.
 
@@ -265,34 +268,24 @@ def annotate_batch(
     pairs = [(f"{idx}|{cid}", seq) for idx, cid, seq in flat]
     for org in organisms:
         identity_reader = getattr(arda, "reference_index_identity", None)
-        identity = identity_reader(org, seqtype="aa") if identity_reader else {"status": "unavailable"}
+        identity_kwargs = {"seqtype": "aa"}
+        if identity_reader and "major_only" in signature(identity_reader).parameters:
+            identity_kwargs["major_only"] = False
+        identity = identity_reader(org, **identity_kwargs) if identity_reader else {"status": "unavailable"}
         with search_threads(threads):
             records = list(_annotate(arda, pairs, org, threads))
         if len(records) != len(flat):
             raise RuntimeError("annotation record count differs from query count")
-        if identity_reader and identity_reader(org, seqtype="aa") != identity:
+        if identity_reader and identity_reader(org, **identity_kwargs) != identity:
             raise RuntimeError("annotation index changed during the search")
         for structure in structures:
             structure.annotation_provenance.setdefault("arda", {})[org] = identity
         for (idx, cid, _seq), rec in zip(flat, records):
             out[idx][org][cid] = rec
     return out
-def _annotate(arda, pairs, organism: str, threads: int):
-    """``arda.annotate_sequences`` with an explicit thread cap when requested.
 
-    The public adapter drops ``threads`` on the floor, so reach one level down to
-    ``arda.annotate.mapper.annotate_records`` when a cap is asked for. Guarded: an arda without that
-    module cannot satisfy a requested cap and fails explicitly.
-    """
-    if threads > 0:
-        try:
-            from arda.annotate.mapper import annotate_records
-        except ImportError as exc:
-            raise ImportError("arda backend cannot enforce the requested thread cap") from exc
-        return annotate_records(pairs, organism=organism, seqtype="aa", threads=threads)
-    return arda.annotate_sequences(pairs, seqtype="aa", organism=organism)
 def iter_typed(structures, organism: str = "human", *, full_ids: bool = False,
-               threads: int = 1, on_error: str = "raise", importer=None):
+               threads: int = 0, on_error: str = "raise", importer=None):
     """Yield chain-typed structures, annotating a whole set in one batch.
 
     ``classify_chains`` per structure spawns one ``mmseqs easy-search`` per structure, each

@@ -6,6 +6,13 @@ requested organism; MHC annotation is a separate batch. Never run one search
 per structure or wrap the internally threaded search engine in a Python pool.
 ``screen`` reuses its annotated structures for descriptor calculation.
 
+Structure-level receptor annotation explicitly searches all ARDA alleles, including
+non-major alleles needed for fine mapping of a small query set. Its provenance
+records the full-allele searched index. This does not change ARDA's major-allele
+default for high-throughput repertoire annotation. MHC annotation separately uses
+the compact two-field protein panel, preserving distinctions such as B*27:02
+and B*27:05; see :doc:`getting-started`.
+
 .. code-block:: console
 
    $ tcren screen -s models.tar.gz --confidence confidence.tsv -t 0 -o scores.tsv

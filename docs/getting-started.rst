@@ -11,18 +11,20 @@ Use Python 3.10 or later in an isolated environment:
    $ python -m venv .venv
    $ source .venv/bin/activate
    $ python -m pip install tcren
-   $ tcren build-mhc-ref
    $ tcren info
 
 Binary wheels contain the native kernels. ARDA supplies TCR chain annotation
-and obtains its reference/search backend on first use. The MHC sequence reference
-is prepared by ``build-mhc-ref``; this is a one-time reference download, not
-score fitting. Reference preparation needs network access. Prepare references
-before moving to an offline compute environment.
+and obtains its reference/search backend on first use. Unchanged compressed MHC
+source snapshots and the compact selection are bundled; first use builds the
+174-record protein panel locally without a download. Prepare ARDA's reference before moving to an offline compute
+environment. ``build-mhc-ref`` regenerates the MHC reference; this is reference
+preparation, not score fitting.
 
 For a source checkout, run ``bash setup.sh`` and activate ``.venv``. Re-run setup
 after changing native code. Do not mix a development import with an installed-wheel
-validation run.
+validation run. ``bash setup.sh --tests`` installs the declared test extra before
+running checks. For lint and documentation tools, install the separate development
+and docs extras with ``uv pip install -e ".[dev,docs]"``.
 
 .. _mhc-reference:
 
@@ -35,6 +37,14 @@ may match several alleles equally well; its representative match does not replac
 known experimental restriction. Pseudosequence extraction is a separate optional
 annotation operation, not a prerequisite for the ranking formula.
 
+The compact reference retains distinct two-field protein alleles, including
+``HLA-B*27:02`` and ``HLA-B*27:05``. It covers the declared VDJdb vocabulary,
+Native2026 sequence targets and representative HLA loci, plus mouse MHC and B2M.
+It is a bounded search panel, not a claim to contain every named HLA protein.
+For explicit fine mapping outside it, prepare the full downloaded vocabulary with
+``tcren build-mhc-ref --all-alleles``. Third/fourth-field DNA differences are not
+separate protein assignments; retain experimentally supplied nomenclature in metadata.
+
 .. _data-locations:
 
 Reference locations
@@ -42,8 +52,10 @@ Reference locations
 
 ``TCREN_HOME`` selects the reference root when set. Otherwise a source install
 uses its checkout, while a wheel uses ``XDG_CACHE_HOME/tcren`` (normally
-``~/.cache/tcren``). MHC sequences live in ``database/mhc/`` and search indexes in
-``data/mhc_cache/``. ``TCREN_DATA_DIR`` overrides the structure-data directory.
+``~/.cache/tcren``). An explicitly prepared MHC reference lives in ``database/mhc/``;
+otherwise the compact reference is generated offline from bundled source snapshots. Small MMseqs sequence databases
+live in ``data/mhc_cache/``; dense protein prefilter indexes are not retained.
+``TCREN_DATA_DIR`` overrides the structure-data directory.
 These are reference assets; calculated results are written to the requested output.
 Use ``tcren fetch-data`` for the native/canonical structure sets needed by
 orientation and relevant examples. The default score's frozen mock calibration
@@ -119,3 +131,12 @@ The structural alanine reference truncates side chains and rebuilds contacts.
 It is distinct from virtual substitution on a fixed map. Use :doc:`features`
 for descriptor exports, :doc:`potentials` for potential definitions and
 :doc:`reproduction` for reproducible calculations.
+
+MHC index publication
+---------------------
+
+MHC searches use immutable index generations under ``data/mhc_cache/generations``.
+The resolver validates the reference content, MMseqs version and index payload hashes.
+Updating or repairing the reference publishes a new generation atomically; searches
+already using an older generation retain their files. Legacy flat indexes remain
+untouched and are rebuilt into a validated generation on first use.

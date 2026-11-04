@@ -2,8 +2,8 @@
 # Set up the `tcren-nb` conda env for ALL notebooks under notebooks/.
 #
 #   1. Create/update the conda env from environment.yml (python + mmseqs2 + toolchain).
-#   2. Editable-install tcren with the notebook + viz extras (this also pulls arda@2.0.1
-#      as a pinned git dependency and builds its C++ extension).
+#   2. Editable-install tcren with notebook + viz extras and the ARDA dependency
+#      declared in pyproject.toml; build its C++ extensions if wheels are unavailable.
 #   3. Register a Jupyter kernel so VS Code / Jupyter can select it.
 #
 # Usage:  bash setup.sh

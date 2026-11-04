@@ -59,9 +59,10 @@ favourable); they are log-odds ratios of contact frequencies and are *not* in kT
 
 .. note::
 
-   Both commands annotate the MHC chains, which needs the MHC allele reference. It is built from
-   IMGT on demand rather than bundled in the wheel, so run ``tcren build-mhc-ref`` once after a
-   ``pip install`` (see :ref:`mhc-reference`).
+   Both commands annotate the MHC chains using a compact two-field protein
+   reference generated offline from bundled source snapshots.
+   ``tcren build-mhc-ref --all-alleles`` prepares the full source
+   vocabulary for explicit fine mapping (see :ref:`mhc-reference`).
 
 Options
 -------

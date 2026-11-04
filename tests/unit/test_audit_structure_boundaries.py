@@ -1,6 +1,4 @@
 """Synthetic regressions for the remaining structure-boundary audit findings."""
-import sys
-from types import ModuleType
 
 import numpy as np
 import pytest
@@ -14,17 +12,16 @@ def _chain(cid, role, points):
                        for i, p in enumerate(points)], chain_type=role)
 
 
-def test_capped_annotation_propagates_runtime_failure(monkeypatch):
+def test_capped_annotation_propagates_runtime_failure():
     from tcren.annotation.batch import _annotate
 
-    mapper = ModuleType("arda.annotate.mapper")
-    def fail(*args, **kwargs):
-        raise RuntimeError("search failed")
-    mapper.annotate_records = fail
-    monkeypatch.setitem(sys.modules, "arda.annotate.mapper", mapper)
     class Backend:
-        def annotate_sequences(self, *args, **kwargs):
-            pytest.fail("runtime failure must not retry without the thread cap")
+        def annotate_sequences(self, pairs, *, threads, **kwargs):
+            assert pairs == [("a", "AAA")]
+            assert threads == 2
+            assert kwargs == {"seqtype": "aa", "organism": "human"}
+            raise RuntimeError("search failed")
+
     with pytest.raises(RuntimeError, match="search failed"):
         _annotate(Backend(), [("a", "AAA")], "human", 2)
 

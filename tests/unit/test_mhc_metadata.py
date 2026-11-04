@@ -23,6 +23,18 @@ def test_preserve_declared_resolution_with_exact_cropped_support():
     assert result.supplied_support == 'exact_observed_sequence'
 
 
+def test_higher_dna_fields_use_two_field_protein_support_without_losing_declaration():
+    from tcren.mhc.metadata import _compatible, _validate
+
+    result = call()
+    set_supplied_allele(result, 'HLA-A*02:01:59', 'ABC', [
+        ('HLA-A*02:01|A|MHCI|MHCa|human', 'XABCY')])
+    assert result.allele == 'HLA-A*02:01:59'
+    assert result.supplied_support == 'exact_observed_sequence'
+    assert not _compatible('HLA-B*27:02', 'HLA-B*27:05')
+    _validate('HLA-A*02:1219N', set())  # Fields are not limited to two or three digits.
+
+
 def test_mismatch_and_role_conflict_are_exposed():
     result = call()
     with pytest.warns(UserWarning, match='observed_sequence_not_exact'):

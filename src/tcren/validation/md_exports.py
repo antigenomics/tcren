@@ -52,7 +52,7 @@ def _pairs(path, output, cutoff):
 @single_threaded
 def export_md_trajectory(trajectory, reference, components_path, potential, output, *,
                          mhc_class, pbc_whole=False, cutoff=5.0, docking=False,
-                         organism="human", threads=1):
+                         organism="human", threads=0):
     """Export exact existing trajectory readouts into a new directory.
 
     The caller declares PBC preparation and MHC class; neither is inferred. Component

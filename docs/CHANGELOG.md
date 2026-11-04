@@ -3,6 +3,42 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
+## Unreleased
+
+## 4.4.2
+
+### Fixed
+
+- Install declared test dependencies for `setup.sh --tests` and initialize native
+  runtime limits before loading test plugins, matching the CI test entry point.
+
+- Search full ARDA receptor alleles for structural fine mapping and record the
+  matching full-reference identity in single/batched structure annotation.
+
+- Isolate simultaneous Potts scoring payloads and reuse the allocation-aware coarse
+  worker runtime; preserve per-structure seeded results across serial and process execution.
+- Forward the allocated CPU budget to both batched searches in orientation workflows.
+- Check process inspection before launching a guarded command, preventing unguarded children
+  when process inspection is unavailable.
+- Prepare a compact two-field MHC protein panel offline from unchanged bundled
+  source snapshots with upstream notices, retaining B*27:02 and B*27:05
+  separately and the Native2026 fine-mapping sequence targets. Keep the full
+  downloaded vocabulary available through `build-mhc-ref --all-alleles`.
+- Keep small MMseqs sequence databases instead of persistent dense prefilter
+  indexes, eliminating the approximately 900 MB index for a tiny MHC reference.
+- Match higher-field HLA declarations to two-field protein evidence while
+  preserving the submitted name, and accept numeric fields longer than three digits.
+- Reject unsupported or empty species downloads before replacing an existing MHC reference.
+
+- Publish MHC reference indexes as immutable, content-validated generations so
+  concurrent searches retain a consistent index during updates and repair.
+- Stage MHC downloads and reference writes in unique paths before atomic publication.
+- Use ARDA's public batch API when it supports thread budgets, retaining the capped
+  mapper route for older supported versions.
+- Respect allocated CPUs in native residue scans and propagate worker failures
+  after joining all started threads.
+- Remove stale generated notebook copies when their source is absent after a branch switch.
+
 ## [4.4.1] — 2026-10-27
 
 ### Fixed
