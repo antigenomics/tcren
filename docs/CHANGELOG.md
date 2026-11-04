@@ -5,6 +5,9 @@ All notable changes to `tcren` are recorded here. Format follows
 
 ## Unreleased
 
+- Allow explicit shared coordinate bounds in SVG complementarity maps so co-framed
+  structures and simplified views retain matching scales and origins when overlaid.
+
 ## 4.4.2
 
 ### Fixed

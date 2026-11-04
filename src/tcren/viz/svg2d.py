@@ -25,10 +25,14 @@ def _f(x: float) -> str:
     return f"{x:.2f}"
 
 
-def _canvas_mapper(uv, width, height, margin):
+def _canvas_mapper(uv, width, height, margin, bounds=None):
     us = [p[0] for p in uv]
     vs = [p[1] for p in uv]
-    umin, umax, vmin, vmax = min(us), max(us), min(vs), max(vs)
+    umin, umax, vmin, vmax = bounds if bounds is not None else (min(us), max(us), min(vs), max(vs))
+    if bounds is not None:
+        from math import isfinite
+        if not all(isfinite(v) for v in bounds) or umax <= umin or vmax <= vmin:
+            raise ValueError("bounds require finite increasing u and v limits")
     du, dv = (umax - umin) or 1.0, (vmax - vmin) or 1.0
     sx = (width - 2 * margin) / du
     sy = (height - 2 * margin) / dv
@@ -51,6 +55,7 @@ def render_complementarity_map(
     width: int = 900,
     height: int = 700,
     margin: float = 60.0,
+    bounds: tuple[float, float, float, float] | None = None,
 ) -> str:
     """Render a complementarity map to an SVG string.
 
@@ -67,6 +72,8 @@ def render_complementarity_map(
         draw_backbone: connect consecutive residues within each chain (sequence-adjacent
             ``aa_index``) with a thin backbone trace.
         width, height, margin: canvas geometry.
+        bounds: optional shared ``(u_min, u_max, v_min, v_max)`` in Angstroms, so maps
+            of co-framed structures retain identical scales and origins when overlaid.
 
     Returns:
         SVG markup (string).
@@ -80,7 +87,7 @@ def render_complementarity_map(
     uv = list(zip(drawn["u"].to_list(), drawn["v"].to_list()))
     if pockets is not None and pockets.height:
         uv += list(zip(pockets["u"].to_list(), pockets["v"].to_list()))
-    to_px = _canvas_mapper(uv, width, height, margin)
+    to_px = _canvas_mapper(uv, width, height, margin, bounds)
 
     pos = {}  # (chain, aa_index) -> (px, py)
     for r in drawn.iter_rows(named=True):

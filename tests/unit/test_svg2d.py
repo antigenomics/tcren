@@ -116,3 +116,14 @@ def test_empty_projection_raises():
     empty = _markup().with_columns(pl.lit(None, dtype=pl.Float64).alias("u"))
     with pytest.raises(ValueError):
         render_complementarity_map(empty)
+
+
+def test_shared_bounds_preserve_overlay_positions_and_reject_invalid_limits():
+    markup = _markup()
+    bounds = (-10.0, 30.0, -10.0, 30.0)
+    full = ET.fromstring(render_complementarity_map(markup, bounds=bounds))
+    subset = ET.fromstring(render_complementarity_map(markup, show_chains=["tra", "peptide"], bounds=bounds))
+    selector = f".//{_NS}g[@data-chain='P']/{_NS}rect"
+    assert full.find(selector).attrib == subset.find(selector).attrib
+    with pytest.raises(ValueError, match="bounds"):
+        render_complementarity_map(markup, bounds=(0., 0., 0., 1.))
