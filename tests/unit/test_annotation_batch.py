@@ -118,9 +118,13 @@ def test_structure_search_and_provenance_use_full_receptor_alleles(monkeypatch):
     from tcren.annotation import batch, arda_adapter
     from tcren.structure.model import Atom, Chain, Residue, Structure
 
+    from tcren import runtime
+    monkeypatch.setattr(runtime, "available_cpus", lambda: 2)
     calls = []
 
     def annotate_sequences(pairs, *, threads, major_only=True, **kwargs):
+        import os
+        assert os.environ['OMP_THREAD_LIMIT'] == str(threads)
         calls.append(('search', major_only, threads, len(pairs)))
         return [{'sequence_id': cid} for cid, seq in pairs]
 
@@ -139,7 +143,7 @@ def test_structure_search_and_provenance_use_full_receptor_alleles(monkeypatch):
     arda_adapter.annotate_chain(chain, 'human')
     arda_adapter.annotate_chains([chain], 'human')
     assert all(call[1] is False for call in calls)
-    assert len(calls) == 2
+    assert calls == [("search", False, 2, 1)] * 2
 
 
 def test_legacy_public_api_selects_full_alleles_in_new_mapper(monkeypatch):

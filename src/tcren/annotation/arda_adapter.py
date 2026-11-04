@@ -49,7 +49,11 @@ def _annotate(arda, pairs, organism: str, threads: int):
     # Older supported ARDA versions already search all alleles and have no selector.
     if "major_only" in signature(annotate).parameters:
         kwargs["major_only"] = False
-    return annotate(pairs, **kwargs)
+    from ..runtime import resolve_threads, search_threads
+    threads = resolve_threads(threads)
+    kwargs["threads"] = threads
+    with search_threads(threads):
+        return annotate(pairs, **kwargs)
 
 
 def _apply_record(chain, record: dict) -> dict:
@@ -106,7 +110,7 @@ def annotate_chain(chain, organism: str) -> dict | None:
     seq = chain.sequence()
     if not seq:
         return None
-    record = _annotate(_import_arda(), [(chain.chain_id, seq)], organism, 1)[0]
+    record = _annotate(_import_arda(), [(chain.chain_id, seq)], organism, 0)[0]
     return _apply_record(chain, record)
 
 
@@ -142,7 +146,7 @@ def annotate_chains(chains, organism: str) -> dict[str, dict]:
     items = [(c.chain_id, c.sequence()) for c in chains if c.sequence()]
     if not items:
         return {}
-    records = _annotate(_import_arda(), items, organism, 1)
+    records = _annotate(_import_arda(), items, organism, 0)
     by_id = {cid: rec for (cid, _), rec in zip(items, records)}
     apply_records(chains, by_id)
     return by_id
