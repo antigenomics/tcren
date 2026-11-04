@@ -26,6 +26,12 @@ them into binding probabilities, affinities or kinetic rates.
 .. image:: _static/tcren-splash-light.svg
    :alt: Statistical contact potentials and confidence-context receptor ranking share structural diagnostics and evaluation tools.
    :width: 100%
+   :class: only-light
+
+.. image:: _static/tcren-splash-dark.svg
+   :alt: Structural contact potentials and confidence-context receptor ranking.
+   :width: 100%
+   :class: only-dark
 
 Learn with a worked example
 ---------------------------

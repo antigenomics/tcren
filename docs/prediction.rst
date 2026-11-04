@@ -84,7 +84,7 @@ Library use
    import polars as pl
    from tcren.prediction import inspect_predictions
 
-   tables = inspect_predictions(pl.read_csv("manifest.tsv", separator="\t"), threads=1)
+   tables = inspect_predictions(pl.read_csv("manifest.tsv", separator="\t"), threads=0)
    models, contacts = tables["models"], tables["contacts"]
    # Filter contacts by complex.id, chain.type.from/to, region.type.from/to or residue.index.
    # assessment.tsv joins to models on complex.id; contacts retain the same model key.

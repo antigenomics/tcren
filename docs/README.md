@@ -5,6 +5,8 @@
 [![Documentation](https://github.com/antigenomics/tcren/actions/workflows/docs.yml/badge.svg)](https://docs.isalgo.dev/tcren/)
 ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)
 
+[Get started](https://docs.isalgo.dev/tcren/getting-started.html) · [Guides](https://docs.isalgo.dev/tcren/) · [Screening](https://docs.isalgo.dev/tcren/screening.html) · [API](https://docs.isalgo.dev/tcren/modules.html) · [Gallery](https://docs.isalgo.dev/tcren/gallery.html)
+
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/antigenomics/tcren/master/docs/_static/tcren-splash-dark.svg">
   <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/antigenomics/tcren/master/docs/_static/tcren-splash-light.svg">

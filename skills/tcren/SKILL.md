@@ -14,14 +14,14 @@ scoring formulas in notebooks or manuscript scripts.
 
 | Input and question | Command | Guide |
 |---|---|---|
-| One pMHC, candidate receptors | `screen` | [Screen contract](../../docs/screening.rst) |
-| One receptor, separately modelled peptides | `screen` | [Screen contract](../../docs/screening.rst) |
-| Candidate peptides threaded on one fixed template | `score` | [Getting started](../../docs/getting-started.rst) |
-| Existing structural epitope-energy/ipTM table | `rank-epitopes` | [Epitope ranking](../../docs/ranking.rst) |
-| Contacts, atom inventories or score attribution | `contacts`, `export` | [Features](../../docs/features.rst) |
-| Canonical placement and pMHC surface | `superimpose`, `surface` | [Inspection](../../docs/kit.rst) |
-| Recorded observations and matched comparisons | `evaluate`, `associate` | [Evaluation](../../docs/evaluation.rst) |
-| Dynamics and mechanical descriptors | `md`, `mechanics` | [MD](../../docs/md-validation.rst) |
+| One pMHC, candidate receptors | `screen` | [Screen contract](https://docs.isalgo.dev/tcren/screening.html) |
+| One receptor, separately modelled peptides | `screen` | [Screen contract](https://docs.isalgo.dev/tcren/screening.html) |
+| Candidate peptides threaded on one fixed template | `score` | [Getting started](https://docs.isalgo.dev/tcren/getting-started.html) |
+| Existing structural epitope-energy/ipTM table | `rank-epitopes` | [Epitope ranking](https://docs.isalgo.dev/tcren/ranking.html) |
+| Contacts, atom inventories or score attribution | `contacts`, `export` | [Features](https://docs.isalgo.dev/tcren/features.html) |
+| Canonical placement and pMHC surface | `superimpose`, `surface` | [Inspection](https://docs.isalgo.dev/tcren/kit.html) |
+| Recorded observations and matched comparisons | `evaluate`, `associate` | [Evaluation](https://docs.isalgo.dev/tcren/evaluation.html) |
+| Dynamics and mechanical descriptors | `md`, `mechanics` | [MD](https://docs.isalgo.dev/tcren/md-validation.html) |
 
 ## Install and batch inputs
 
@@ -31,13 +31,13 @@ the compact two-field MHC protein reference. Use
 `tcren build-mhc-ref --all-alleles` for explicit full-vocabulary fine mapping; ARDA owns
 its TCR reference/search bootstrap. TCRen requests all receptor alleles for
 structural fine mapping and records that full-reference identity; ARDA's default
-major-allele repertoire searches remain separate. See [installation](../../docs/getting-started.rst).
+major-allele repertoire searches remain separate. See [installation](https://docs.isalgo.dev/tcren/getting-started.html).
 
 Structure inputs accept PDB/mmCIF, gzip, directories, tar.gz, globs and manifests.
 Pass the whole query set in one call: annotation is batched internally. Use the
 command's CPU budget (`-t 0` for all allocated CPUs where supported, `1` for serial,
 positive N for a bound). Never launch one search process per structure or nest
-an outer pool around the search engine. See [performance](../../docs/performance.rst).
+an outer pool around the search engine. See [performance](https://docs.isalgo.dev/tcren/performance.html).
 
 ## Default TCR ranking
 
@@ -71,13 +71,13 @@ Template status is context, not a new default coefficient selection.
 
 APIs: `screen.screen_scores`, `contacts.motif.bundled_enrichment`,
 `contacts.motif.contact_enrichment`. Reference equations and output fields live
-in [screening](../../docs/screening.rst), not in duplicated notebook code.
+in [screening](https://docs.isalgo.dev/tcren/screening.html), not in duplicated notebook code.
 
 ## Confidence context for individual complexes
 
 The measured cohort mean remains default. The explicit `motif-confidence-proxy`
 command offers frozen MHC allele-context lookup with support counts and a flagged
-global fallback. See [confidence options](../../docs/motif-confidence.rst) for
+global fallback. See [confidence options](https://docs.isalgo.dev/tcren/motif-confidence.html) for
 single-structure and small-set alternatives, their input requirements and limits.
 For raw singleton structures use `screen --task tcr --confidence-context nearest-plddt
 --min-cohort 1 --confidence confidence.tsv`; `nearest-mean-plddt` uses a small
@@ -90,7 +90,7 @@ an independently validated true cohort mean. Do not describe a representative al
 CDR3 excludes conserved junction anchors. Preserve paired receptor, peptide and
 MHC identities when joining results; an annotated sequence is not a binding label.
 MHC role/groove annotation is needed by the graph; an exact allele name is not a
-term in the default score. Sequence-equivalent allele names may be unresolved. Read [MHC identity](../../docs/mhc-annotation.rst)
+term in the default score. Sequence-equivalent allele names may be unresolved. Read [MHC identity](https://docs.isalgo.dev/tcren/mhc-annotation.html)
 for supplied metadata, sequence support and ambiguity fields.
 
 Use `scoring --delta --reference-mode structural` for peptide alanine truncation
@@ -106,14 +106,14 @@ scope and count atom pairs, residue pairs and structures separately.
 
 ## Reproduce and inspect
 
-[Reproduction](../../docs/reproduction.rst) owns CLI input/output provenance.
+[Reproduction](https://docs.isalgo.dev/tcren/reproduction.html) owns CLI input/output provenance.
 Record version, source/reference hashes, exact memberships and masks. Compare
 scores and metrics on identical populations, retaining both gains and losses.
 Raw-coordinate reproduction and frozen-table replay are distinct checks.
 
 Historical `recognize`, `assess`, Potts and fitted contact commands remain available
 for their existing contracts; they are not the default screen. Read
-[reference dependencies](../../docs/fit-free.rst), [experimental ranking APIs](../../docs/experimental-ranking.rst),
+[reference dependencies](https://docs.isalgo.dev/tcren/fit-free.html), [experimental ranking APIs](https://docs.isalgo.dev/tcren/experimental-ranking.html),
 and the relevant module docs only when reproducing those methods. `SOURCES`
 records bundled parameter identities. Preserve the original classic potential
 separately from updated classic tables and rederived/full/LOO/LCO variants.
