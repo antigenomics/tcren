@@ -201,7 +201,9 @@ def _interactive_map(function, work, count):
             pickle.dump((function, work, count), stream, protocol=pickle.HIGHEST_PROTOCOL)
         with root.joinpath('stderr').open('w+b') as log:
             process = subprocess.Popen([sys.executable, '-m', 'tcren._parallel', folder],
-                                       stderr=log, start_new_session=os.name == 'posix')
+                                       stderr=log, start_new_session=os.name == 'posix',
+                                       env={**os.environ, 'PYTHONPATH': os.pathsep.join(
+                                           os.path.abspath(p) for p in sys.path)})
             try:
                 code = process.wait()
             except BaseException:

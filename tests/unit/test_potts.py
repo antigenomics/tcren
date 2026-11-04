@@ -630,7 +630,11 @@ def test_splitting_the_work_across_processes_changes_no_number():
     sites = _synthetic_sites()
     model = fit_potts(sites, couplings=False)
     n = sites["pdb.id"].n_unique()
-    workers = max(2, min(4, n // 2))
+    from tcren.runtime import available_cpus
+
+    if available_cpus() < 2:
+        pytest.skip("requires two allocated CPUs")
+    workers = min(4, n // 2, available_cpus())
     for fn, kw in ((score_sites, {"particles": 8, "steps": 4}),
                    (bound_unbound, {"chains": 8, "burn": 4, "draws": 4, "thin": 1,
                                     "particles": 8, "steps": 4})):

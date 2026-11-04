@@ -92,7 +92,11 @@ def test_beta_to_zero_recovers_the_mean(pairs, model):
 def test_workers_do_not_change_the_answer(pairs, model):
     """Per-structure results are a function of `(seed, pdb.id)`, never of the table split."""
     a = energy_ensemble(pairs, model, workers=1, seed=0)
-    b = energy_ensemble(pairs, model, workers=4, seed=0)
+    from tcren.runtime import available_cpus
+
+    if available_cpus() < 2:
+        pytest.skip("requires two allocated CPUs")
+    b = energy_ensemble(pairs, model, workers=min(4, available_cpus()), seed=0)
     for col in ("phi_mean", "phi_var", "phi_free", "map_entropy", "hamming_obs"):
         assert a[col].to_list() == b[col].to_list()
 
