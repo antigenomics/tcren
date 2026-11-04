@@ -61,7 +61,7 @@ def _matching_ids(db_dir: Path, mhc_class: str, species: str) -> list[str]:
 
 
 def _canonical_references(db_dir: Path, mhc_class: str, species: str,
-                          organism: str, *, threads: int = 1) -> list[Structure]:
+                          organism: str, *, threads: int = 0) -> list[Structure]:
     """Load + batch-annotate the matching-class/species database structures (cached)."""
     from ..runtime import native_threads
 

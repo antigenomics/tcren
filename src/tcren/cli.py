@@ -93,7 +93,7 @@ def _score_pipeline_one(args):
 
 
 
-def _typed_batch(structures, organism: str, mhc: bool = True, *, threads: int = 1) -> list:
+def _typed_batch(structures, organism: str, mhc: bool = True, *, threads: int = 0) -> list:
     """Every structure of ``structures``, chain-typed and (optionally) MHC-annotated, BATCHED.
 
     Two mmseqs searches for the whole set, never two per structure. Calling ``classify_chains`` or
@@ -316,7 +316,7 @@ def screen(
     template_metadata: Path = typer.Option(None, "--template-metadata", help="TCR template inventory TSV with epitope column; records context (legacy references may select a weight)"),
     template_status: str = typer.Option(None, "--template-status", help="present|absent; explicit TCR template availability instead of an inventory"),
     organism: str = typer.Option("human", "--organism"),
-    threads: int = typer.Option(0, "-t", "--threads", help="CPU budget: 1 serial, 0 all allocated, or a positive count"),
+    threads: int = typer.Option(0, "-t", "--threads", help="CPU budget: 1 serial, 0 automatic (up to 16 allocated), or a positive count"),
 ) -> None:
     """Rank a COHORT of modelled complexes — start here.
 
@@ -516,7 +516,7 @@ def annotate(
     regions: str = typer.Option("all", "--regions", help="which chains to annotate: all|tcr|mhc|peptide"),
     pseudo: bool = typer.Option(False, "--pseudo", help="also mark MHC pseudosequence (MPS) residues"),
     organism: str = typer.Option("human", "--organism"),
-    threads: int = typer.Option(1, "-t", "--threads", help="CPU budget: 1 serial, 0 all allocated, or a positive count"),
+    threads: int = typer.Option(0, "-t", "--threads", help="CPU budget: 1 serial, 0 automatic (up to 16 allocated), or a positive count"),
 ) -> None:
     """Annotate chains and emit a per-residue region-markup table.
 
@@ -554,7 +554,7 @@ def contacts(
     interface: str = typer.Option("tcr_peptide", "--interface", help="tcr_peptide|tcr_mhc|peptide_mhc|all"),
     regions: str = typer.Option("all", "--regions", help="TCR regions on the TCR side: all|cdr|cdr+fr (default: all)"),
     organism: str = typer.Option("human", "--organism"),
-    threads: int = typer.Option(1, "-t", "--threads", help="CPU budget: 1 serial, 0 all allocated, or a positive count"),
+    threads: int = typer.Option(0, "-t", "--threads", help="CPU budget: 1 serial, 0 automatic (up to 16 allocated), or a positive count"),
 ) -> None:
     """Compute and emit an annotated contact table."""
     if regions not in TCR_REGIONS:
@@ -1079,7 +1079,7 @@ def score(
     delta: bool = typer.Option(False, "--delta", help="also report ΔΦ, the poly-alanine-referenced energy"),
     reference: str = typer.Option("structural", "--reference", help="how the poly-alanine baseline is built for --delta: structural (rebuild its own contacts) or virtual (re-index on the template map)"),
     reference_aa: str = typer.Option("A", "--reference-aa", help="reference residue for --delta (default: alanine)"),
-    threads: int = typer.Option(0, "-t", "--threads", help="CPU budget: 1 serial, 0 all allocated, or a positive count"),
+    threads: int = typer.Option(0, "-t", "--threads", help="CPU budget: 1 serial, 0 automatic (up to 16 allocated), or a positive count"),
 ) -> None:
     """Score candidate epitopes against input structures (end-to-end pipeline).
 
@@ -1220,7 +1220,7 @@ def score_receptors(
     out: Path = typer.Option("candidate_receptors_TCRen.csv", "-o", "--out"),
     organism: str = typer.Option("human", "--organism"),
     cutoff: float = typer.Option(5.0, "--cutoff"),
-    threads: int = typer.Option(0, "-t", "--threads", help="CPU budget: 1 serial, 0 all allocated, or a positive count"),
+    threads: int = typer.Option(0, "-t", "--threads", help="CPU budget: 1 serial, 0 automatic (up to 16 allocated), or a positive count"),
 ) -> None:
     """Thread paired CDR3s or observed junctions onto fixed receptor:peptide contacts.
 
@@ -1282,7 +1282,7 @@ def ddg_cmd(
     regions: str = typer.Option("all", "--regions", help="TCR regions on the TCR side: all|cdr|cdr+fr (default: all)"),
     organism: str = typer.Option("human", "--organism"),
     cutoff: float = typer.Option(5.0, "--cutoff"),
-    threads: int = typer.Option(1, "-t", "--threads", help="CPU budget: 1 serial, 0 all allocated, or a positive count"),
+    threads: int = typer.Option(0, "-t", "--threads", help="CPU budget: 1 serial, 0 automatic (up to 16 allocated), or a positive count"),
 ) -> None:
     """ΔΔG of point mutations; ``ddG = E(native) - E(mutant)``, positive => STABILISING.
 
@@ -1360,7 +1360,7 @@ def cpl_cmd(
     regions: str = typer.Option("all", "--regions", help="TCR regions on the TCR side: all|cdr|cdr+fr (default: all)"),
     organism: str = typer.Option("human", "--organism"),
     cutoff: float = typer.Option(5.0, "--cutoff"),
-    threads: int = typer.Option(1, "-t", "--threads", help="CPU budget: 1 serial, 0 all allocated, or a positive count"),
+    threads: int = typer.Option(0, "-t", "--threads", help="CPU budget: 1 serial, 0 automatic (up to 16 allocated), or a positive count"),
 ) -> None:
     """Predict a combinatorial-peptide-library response matrix from a template TCR:pMHC structure.
 
@@ -1432,7 +1432,7 @@ def rank(
     seed: int = typer.Option(0, "--seed"),
     organism: str = typer.Option("human", "--organism"),
     cutoff: float = typer.Option(5.0, "--cutoff"),
-    threads: int = typer.Option(1, "-t", "--threads", help="CPU budget: 1 serial, 0 all allocated, or a positive count"),
+    threads: int = typer.Option(0, "-t", "--threads", help="CPU budget: 1 serial, 0 automatic (up to 16 allocated), or a positive count"),
 ) -> None:
     """Percentile-rank peptides' TCRen energy against a random pMHC background.
 
@@ -1489,7 +1489,7 @@ def surface(
     region: str = typer.Option(None, "--region", help="restrict --compare to one source, e.g. peptide"),
     compare: Path = typer.Option(None, "--compare", help="also write the pairwise map-distance matrix here"),
     cells: Path = typer.Option(None, "--cells", help="also write the long per-cell table here"),
-    threads: int = typer.Option(1, "-t", "--threads", help="CPU budget: 1 serial, 0 all allocated, or a positive count"),
+    threads: int = typer.Option(0, "-t", "--threads", help="CPU budget: 1 serial, 0 automatic (up to 16 allocated), or a positive count"),
     svg: Path = typer.Option(None, "--svg", help="directory to write one SVG map per structure"),
 ) -> None:
     """Map the pMHC surface a TCR sees — height + hydropathy + charge over the groove.
@@ -1616,7 +1616,7 @@ def recognize(
     organism: str = typer.Option("human", "--organism"),
     full: bool = typer.Option(False, "--full", help="add the 18 CDR3-local frame descriptors (the FramePose strain layer) and the intra-peptide term Phi_pep_int/n_pep_int"),
     mechanics: bool = typer.Option(False, "--mechanics", help="also append the koff proxies from `tcren mechanics` (stiffness tensor, steered rupture, coupling residues) — same table, no second annotation pass"),
-    threads: int = typer.Option(1, "-t", "--threads", help="CPU budget: 1 serial, 0 all allocated; one annotation batch per species"),
+    threads: int = typer.Option(0, "-t", "--threads", help="CPU budget: 1 serial, 0 automatic (up to 16 allocated); one annotation batch per species"),
     autodetect_species: bool = typer.Option(True, "--autodetect-species/--no-autodetect-species", help="also search mouse to catch a mis-declared organism; --no- halves the annotation cost"),
 ) -> None:
     """Full interface descriptor table for each TCR-pMHC complex (one TSV row per PDB).
@@ -1744,7 +1744,7 @@ def scoring(
     reference_mode: str = typer.Option("virtual", "--reference-mode", help="structural: truncate to alanine and rebuild contacts; virtual: historical fixed-map substitution"),
     geometry: bool = typer.Option(False, "--geometry", help="also report the interface-geometry descriptors and the decorrelated quality score Q"),
     skip_errors: bool = typer.Option(False, "--skip-errors", help="drop structures that fail instead of writing an error row"),
-    threads: int = typer.Option(1, "-t", "--threads", help="CPU budget: 1 serial, 0 all allocated; searches and workers run in separate phases"),
+    threads: int = typer.Option(0, "-t", "--threads", help="CPU budget: 1 serial, 0 automatic (up to 16 allocated); searches and workers run in separate phases"),
 ) -> None:
     """Score structures: per-interface contact energies Φ (and ΔΦ, and interface geometry).
 
@@ -1889,7 +1889,7 @@ def energy(
     shell: float = typer.Option(12.0, "--shell", help="partner atoms within this many Å of the peptide (DOPE range)"),
     organism: str = typer.Option("human", "--organism"),
     seed: int = typer.Option(0, "--seed", help="refinement seed (with --relax)"),
-    threads: int = typer.Option(1, "-t", "--threads", help="CPU budget: 1 serial, 0 all allocated, or a positive count"),
+    threads: int = typer.Option(0, "-t", "--threads", help="CPU budget: 1 serial, 0 automatic (up to 16 allocated), or a positive count"),
 ) -> None:
     """DOPE atom-level interaction energy across the peptide↔partner interface (the ``_relax`` kernel).
 
@@ -1927,7 +1927,7 @@ def mechanics(
     direction: str = typer.Option("tensile", "--direction", help="rupture pull: tensile|shear|auto"),
     break_strain: float = typer.Option(0.5, "--break-strain", help="fractional extension at which a spring breaks"),
     organism: str = typer.Option("human", "--organism"),
-    threads: int = typer.Option(1, "-t", "--threads", help="CPU budget: 1 serial, 0 all allocated; searches and workers run in separate phases"),
+    threads: int = typer.Option(0, "-t", "--threads", help="CPU budget: 1 serial, 0 automatic (up to 16 allocated); searches and workers run in separate phases"),
     autodetect_species: bool = typer.Option(True, "--autodetect-species/--no-autodetect-species", help="also search mouse to catch a mis-declared organism; --no- halves the annotation cost"),
 ) -> None:
     """Interface mechanics — the koff proxies: stiffness tensor + steered rupture + coupling residues.
@@ -1971,7 +1971,7 @@ def _mechanics_one(args) -> dict:
         return {"pdb.id": pid, "K_tens": None, "error": f"{type(exc).__name__}: {str(exc)[:80]}"}
 
 
-def _annotate_set(structs, *, organism: str, autodetect_species: bool, threads: int = 1) -> None:
+def _annotate_set(structs, *, organism: str, autodetect_species: bool, threads: int = 0) -> None:
     """Chain-type and MHC-annotate a whole set in place: one mmseqs search per organism, within budget.
 
     mmseqs parallelises internally within the selected budget; it gets the whole set, not N concurrent
@@ -2016,7 +2016,7 @@ def refine(
     max_chi: int = typer.Option(2, "--max-chi", help="chi angles sampled per residue when repacking"),
     mmcif: bool = typer.Option(False, "--mmCIF", help="write mmCIF (.cif) instead of PDB"),
     compress: bool = typer.Option(False, "--compress", help="gzip the output (.gz)"),
-    threads: int = typer.Option(1, "-t", "--threads", help="CPU budget: 1 serial, 0 all allocated, or a positive count"),
+    threads: int = typer.Option(0, "-t", "--threads", help="CPU budget: 1 serial, 0 automatic (up to 16 allocated), or a positive count"),
 ) -> None:
     """Potential-guided rigid-body refinement of the peptide pose (knowledge-based, not physics).
 
@@ -2327,7 +2327,7 @@ def features(
     all_families: bool = typer.Option(False, "--all", help="every family, kinetics included"),
     organism: str = typer.Option("human", "--organism"),
     radii: str = typer.Option("7,8", "--radii", help="Calpha thresholds for the footprint flag complex (topology family)"),
-    threads: int = typer.Option(1, "-t", "--threads", min=0, help="CPU budget: 1 serial, 0 all allocated; one annotation batch then coarse descriptor workers"),
+    threads: int = typer.Option(0, "-t", "--threads", min=0, help="CPU budget: 1 serial, 0 automatic (up to 16 allocated); one annotation batch then coarse descriptor workers"),
     autodetect_species: bool = typer.Option(True, "--autodetect-species/--no-autodetect-species", help="also search mouse to catch a mis-declared organism; --no- halves the annotation cost"),
     metadata: bool = typer.Option(True, "--metadata/--no-metadata", help="join the set's metadata.tsv (label, epitope, allele, ipTM/pLDDT) when one ships beside the structures"),
     chunk: int = typer.Option(
@@ -3272,7 +3272,7 @@ def export_exact(
     interface: str = typer.Option("tcr_peptide", "--interface"),
     cutoff: float = typer.Option(5.0, "--cutoff"),
     organism: list[str] = typer.Option(["human", "mouse"], "--organism"),
-    threads: int = typer.Option(1, "-t", "--threads"),
+    threads: int = typer.Option(0, "-t", "--threads"),
     register_reference_id: str = typer.Option(None, "--register-reference-id", help="Class-II reference ID included in this batch; exports all core correspondences"),
     register_p1: int = typer.Option(None, "--register-p1", help="Verified one-based P1 position in the reference peptide"),
     peptide_selection: Path = typer.Option(None, "--peptide-selection", help="Source-verified TSV: pdb.id, chain.id, first_pdb, last_pdb (inclusive author numbering)"),

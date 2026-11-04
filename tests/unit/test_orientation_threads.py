@@ -68,3 +68,10 @@ def test_canonical_reference_cache_separates_organisms(tmp_path, monkeypatch):
     mouse = module._canonical_references(tmp_path, 'MHCI', 'Human', 'mouse', threads=2)
     assert mouse is not human
     assert seen == [('human', 2), ('mouse', 2)]
+
+
+def test_automatic_budget_caps_without_restricting_explicit_requests(monkeypatch):
+    from tcren import runtime
+    monkeypatch.setattr(runtime, 'available_cpus', lambda: 32)
+    assert runtime.resolve_threads(0) == 16
+    assert runtime.resolve_threads(32) == 32

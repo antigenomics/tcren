@@ -187,7 +187,7 @@ def inspect_md_trajectory(
     contact_cutoff=None,
     docking=False,
     organism="human",
-    threads=1,
+    threads=0,
 ):
     """Stream PBC-corrected GROMACS frames, reporting partner-relative RMSD.
 

@@ -25,7 +25,7 @@ import polars as pl
 from ..structure.model import Structure
 from ..runtime import resolve_threads, search_threads, single_threaded
 
-def iter_annotated_set(struct_dir: str | Path, on_error: str = "skip", *, threads: int = 1):
+def iter_annotated_set(struct_dir: str | Path, on_error: str = "skip", *, threads: int = 0):
     """Parse and chain-type every structure in a folder, yielding annotated structures.
 
     Annotation is **batched**: one arda call per organism covers every chain of every
@@ -74,7 +74,7 @@ def iter_annotated_set(struct_dir: str | Path, on_error: str = "skip", *, thread
         yield s
 def annotate_structure_set(
     struct_dir: str | Path, on_error: str = "skip", count_atoms: bool = False,
-    *, interface: str = "tcr_peptide", threads: int = 1,
+    *, interface: str = "tcr_peptide", threads: int = 0,
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
     """Run the tcren pipeline over a folder of PDBs → ``(contacts, markup)`` tables.
 
@@ -135,7 +135,7 @@ def annotate_structure_set(
     markup_df = pl.DataFrame(markup) if markup else pl.DataFrame()
     return contacts_df, markup_df
 def mhc_annotation(
-    struct_dir, ids=None, organism: str = "human", on_error: str = "skip", *, threads: int = 1
+    struct_dir, ids=None, organism: str = "human", on_error: str = "skip", *, threads: int = 0
 ) -> pl.DataFrame:
     """Per-structure MHC allele + class for a folder (tcren mapper) — fully batched.
 
@@ -228,7 +228,7 @@ def mhc_annotation(
     return pl.DataFrame(rows)
 @single_threaded
 def annotate_batch(
-    structures, arda=None, organisms=("human", "mouse"), threads: int = 1
+    structures, arda=None, organisms=("human", "mouse"), threads: int = 0
 ) -> list[dict[str, dict[str, dict]]]:
     """Annotate every chain of every structure with one mmseqs call per organism.
 
@@ -285,7 +285,7 @@ def annotate_batch(
     return out
 
 def iter_typed(structures, organism: str = "human", *, full_ids: bool = False,
-               threads: int = 1, on_error: str = "raise", importer=None):
+               threads: int = 0, on_error: str = "raise", importer=None):
     """Yield chain-typed structures, annotating a whole set in one batch.
 
     ``classify_chains`` per structure spawns one ``mmseqs easy-search`` per structure, each

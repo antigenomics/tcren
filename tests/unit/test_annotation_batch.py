@@ -7,11 +7,12 @@ def test_archive_is_annotated_in_one_batch(monkeypatch):
     from tcren.annotation import batch
     from tcren.structure import Structure
 
+    monkeypatch.setattr('tcren.runtime.available_cpus', lambda: 4)
     structs = [Structure("one", []), Structure("two", [])]
     seen = []
     monkeypatch.setattr(structure, "iter_structures", lambda *a, **k: iter(zip(("one", "two"), structs)))
     def annotate(items, **kwargs):
-        assert kwargs["threads"] == 1
+        assert kwargs["threads"] == 4
         seen.append(list(items))
         return [{"human": {}, "mouse": {}} for _ in items]
     monkeypatch.setattr(batch, "annotate_batch", annotate)

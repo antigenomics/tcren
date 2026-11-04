@@ -407,7 +407,7 @@ from .runtime import resolve_threads, single_threaded
 
 @single_threaded
 def export_batch(sources, output, *, quantity, peptide_potential, mhc_potential,
-                 cutoff=5.0, interface="tcr_peptide", organisms=("human", "mouse"), threads=1,
+                 cutoff=5.0, interface="tcr_peptide", organisms=("human", "mouse"), threads=0,
                  command="tcren export", reference_mode="virtual", register_reference_id=None,
                  register_p1=None, peptide_selection=None, pmhc_potential=None,
                  graph_weighting="positive", graph_beta=1.0):

@@ -189,3 +189,7 @@ make -C docs html SPHINXOPTS=-W
 ## License
 
 TCRen is distributed under the [ISALGO LAB Academic and Non-Commercial Research License, version 1.0](https://github.com/antigenomics/tcren/blob/master/LICENSE).
+
+CPU budgets use `threads=0` for automatic parallel work, capped at 16 allocated CPUs.
+Use `1` for serial work or a positive
+count to override the automatic cap within the scheduler/container allocation.

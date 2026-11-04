@@ -81,8 +81,8 @@ def available_cpus() -> int:
     return max(1, min(counts))
 
 
-def resolve_threads(threads: int = 1) -> int:
-    """1 is serial, 0 is all allocated cores; reject invalid/excessive counts."""
+def resolve_threads(threads: int = 0) -> int:
+    """1 is serial, 0 selects up to 16 allocated cores; reject invalid/excessive counts."""
     if isinstance(threads, bool):
         raise ValueError('threads must be an integer: 0 (all allocated) or a positive count')
     try:
@@ -96,7 +96,7 @@ def resolve_threads(threads: int = 1) -> int:
     available = available_cpus()
     if count > available:
         raise ValueError(f'requested {count} CPUs exceeds the available allocation ({available})')
-    selected = count or available
+    selected = count or min(available, 16)
     if selected + 16 >= 1000:
         raise ValueError("CPU request exceeds the live-thread ceiling; select fewer than 984 CPUs")
     return selected
