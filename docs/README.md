@@ -51,6 +51,11 @@ tcren screen -s models.tar.gz --task tcr \
   --confidence confidence.tsv -o scores.tsv
 ```
 
+Native Windows is supported without WSL. Install with `python -m pip install tcren`;
+ARDA automatically prepares its Windows MMseqs2 runtime on first annotation.
+Source builds require the Microsoft C++ Build Tools. The Windows CI job builds
+the source stack and checks annotation and contacts on the bundled 1AO7 fixture.
+
 Bundled source snapshots build the compact two-field MHC protein reference offline. Use
 `tcren build-mhc-ref --all-alleles` only for explicit full-vocabulary fine mapping.
 
