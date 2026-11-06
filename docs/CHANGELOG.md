@@ -5,6 +5,11 @@ All notable changes to `tcren` are recorded here. Format follows
 
 ## Unreleased
 
+## 4.4.3
+
+- Clamp oversized CPU/thread requests to the available budget instead of aborting.
+  Preserve automatic selection, explicit smaller budgets and bounded native workers.
+
 ## 4.4.2
 
 ### Fixed

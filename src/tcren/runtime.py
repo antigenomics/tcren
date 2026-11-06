@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from functools import wraps
+import logging
 import operator
 import os
 from pathlib import Path
@@ -161,7 +162,7 @@ def available_cpus(*, physical: bool = True) -> int:
 
 
 def resolve_threads(threads: int = 0) -> int:
-    """1 is serial, 0 selects all allocated physical cores; reject invalid/excessive counts."""
+    """1 is serial, 0 selects all allocated physical cores; cap excessive counts."""
     if isinstance(threads, bool):
         raise ValueError('threads must be an integer: 0 (all allocated) or a positive count')
     try:
@@ -173,11 +174,11 @@ def resolve_threads(threads: int = 0) -> int:
     if count == 1:
         return 1
     available = available_cpus() if count == 0 else available_cpus(physical=False)
-    if count > available:
-        raise ValueError(f'requested {count} CPUs exceeds the available allocation ({available})')
-    selected = count or available
-    if selected + 16 >= 1000:
-        raise ValueError("CPU request exceeds the live-thread ceiling; select fewer than 984 CPUs")
+    selected = min(count or available, available, 121)
+    if count > selected:
+        logging.getLogger(__name__).warning(
+            "Requested %d CPUs; detected allocation %d logical CPUs (%d physical cores); using %d CPUs",
+            count, available, available_cpus(), selected)
     return selected
 
 

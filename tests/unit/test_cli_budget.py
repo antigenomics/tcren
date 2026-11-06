@@ -61,7 +61,8 @@ def test_cpu_modes_and_initialized_native_limits(monkeypatch):
 
     monkeypatch.setattr(runtime, 'available_cpus', lambda **kwargs: 2)
     assert [runtime.resolve_threads(n) for n in (0, 1, 2)] == [2, 1, 2]
-    for invalid in (-1, 3, True, 1.5):
+    assert runtime.resolve_threads(3) == 2
+    for invalid in (-1, True, 1.5):
         with pytest.raises(ValueError):
             runtime.resolve_threads(invalid)
     monkeypatch.setenv('OMP_NUM_THREADS', '7')
@@ -160,7 +161,6 @@ def test_coarse_workers_are_distinct_and_native_serial():
 
 def test_nested_cgroup_quota_limits_all_mode(monkeypatch):
     from tcren import runtime
-    import pytest
     monkeypatch.setattr(runtime.sys, 'platform', 'linux')
     monkeypatch.setattr(runtime.os, 'cpu_count', lambda: 16)
     monkeypatch.setattr(runtime.os, 'sched_getaffinity', lambda pid: set(range(4)), raising=False)
@@ -172,8 +172,7 @@ def test_nested_cgroup_quota_limits_all_mode(monkeypatch):
         return files[str(path)]
     monkeypatch.setattr(runtime.Path, 'read_text', read)
     assert runtime.resolve_threads(0) == 1
-    with pytest.raises(ValueError, match='allocation'):
-        runtime.resolve_threads(2)
+    assert runtime.resolve_threads(2) == 1
     files.clear()
     files.update({'/proc/self/cgroup':'2:cpu,cpuacct:/job/child\n',
                   '/sys/fs/cgroup/cpu,cpuacct/job/cpu.cfs_quota_us':'200000',
@@ -185,10 +184,8 @@ def test_wide_modes_fail_before_the_live_thread_ceiling(monkeypatch):
     import pytest
     from tcren import runtime
     monkeypatch.setattr(runtime, 'available_cpus', lambda **kwargs: 1000)
-    with pytest.raises(ValueError, match="live-thread ceiling"):
-        runtime.resolve_threads(0)
-    with pytest.raises(ValueError, match='live-thread ceiling'):
-        runtime.resolve_threads(1000)
+    assert runtime.resolve_threads(0) == 121
+    assert runtime.resolve_threads(1000) == 121
     with pytest.raises(ValueError, match='live-thread ceiling'):
         runtime.check_parallel_entrypoint(122, 122)
 
@@ -274,13 +271,11 @@ print('cancelled cleanly')
 
 
 def test_physical_default_and_explicit_smt(monkeypatch):
-    import pytest
     from tcren import runtime
     monkeypatch.setattr(runtime, "available_cpus", lambda physical=True: 20 if physical else 40)
     assert runtime.resolve_threads(0) == 20
     assert runtime.resolve_threads(40) == 40
-    with pytest.raises(ValueError):
-        runtime.resolve_threads(41)
+    assert runtime.resolve_threads(41) == 40
 
 
 def test_windows_topology_budget(monkeypatch):
