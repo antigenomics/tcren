@@ -288,6 +288,10 @@ def test_windows_topology_budget(monkeypatch):
     monkeypatch.setattr(runtime.sys, "platform", "win32")
     monkeypatch.setattr(runtime.os, "cpu_count", lambda: 40)
     monkeypatch.setattr(runtime, "_windows_cpu_counts", lambda: (40, 20))
+    monkeypatch.setattr(runtime.Path, "is_file", lambda path: False)
+    def missing_cgroup(path):
+        raise FileNotFoundError(str(path))
+    monkeypatch.setattr(runtime.Path, "read_text", missing_cgroup)
     monkeypatch.delattr(runtime.os, "sched_getaffinity", raising=False)
     for key in ("SLURM_CPUS_PER_TASK", "PBS_NP", "NSLOTS"):
         monkeypatch.delenv(key, raising=False)
