@@ -240,7 +240,7 @@ def annotate_batch(
     name.
 
     ``threads`` is the fixed search CPU budget: 1 is serial, 0 resolves the current
-    allocation, and a positive count is rejected if it exceeds that allocation.
+    allocation, and a positive count is capped to that allocation.
     One batched search per organism runs sequentially; searches are never wrapped
     in an outer worker pool. New and already-initialized native kernels are capped.
 
