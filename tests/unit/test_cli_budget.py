@@ -281,3 +281,17 @@ def test_physical_default_and_explicit_smt(monkeypatch):
     assert runtime.resolve_threads(40) == 40
     with pytest.raises(ValueError):
         runtime.resolve_threads(41)
+
+
+def test_windows_topology_budget(monkeypatch):
+    from tcren import runtime
+    monkeypatch.setattr(runtime.sys, "platform", "win32")
+    monkeypatch.setattr(runtime.os, "cpu_count", lambda: 40)
+    monkeypatch.setattr(runtime, "_windows_cpu_counts", lambda: (40, 20))
+    monkeypatch.delattr(runtime.os, "sched_getaffinity", raising=False)
+    for key in ("SLURM_CPUS_PER_TASK", "PBS_NP", "NSLOTS"):
+        monkeypatch.delenv(key, raising=False)
+    assert runtime.resolve_threads(0) == 20
+    assert runtime.resolve_threads(40) == 40
+    monkeypatch.setenv("SLURM_CPUS_PER_TASK", "8")
+    assert runtime.resolve_threads(0) == 8
