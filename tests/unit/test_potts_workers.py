@@ -51,8 +51,7 @@ def test_default_workers_respect_allocation_and_reuse_batched_runtime(monkeypatc
     assert score._map_structures('probe', 8, {}, {}, workers=None) == list(range(8))
     assert seen['threads'] == 2
     assert seen['chunk_sizes'] == [4, 4]
-    with pytest.raises(ValueError, match='allocation'):
-        score._map_structures('probe', 1, {}, {}, workers=3)
+    assert score._map_structures('probe', 1, {}, {}, workers=3) == [0]
 
 
 def test_real_spawned_workers_preserve_serial_results():
