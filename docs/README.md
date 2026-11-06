@@ -188,10 +188,13 @@ make -C docs html SPHINXOPTS=-W
 [API skill](https://github.com/antigenomics/tcren/blob/master/skills/tcren/SKILL.md) ·
 [Editable splash source](https://github.com/antigenomics/tcren/blob/master/docs/_static/tcren-splash.tex)
 
+## CPU budgets
+
+`threads=0` selects the available physical cores, constrained by CPU affinity,
+scheduler allocation and container quota. On a fully allocated 20-core/40-thread
+host, automatic selection uses 20 workers. Use `1` for serial work; an explicit
+positive count may use logical CPUs within the allocation.
+
 ## License
 
 TCRen is distributed under the [ISALGO LAB Academic and Non-Commercial Research License, version 1.0](https://github.com/antigenomics/tcren/blob/master/LICENSE).
-
-CPU budgets use `threads=0` for automatic parallel work, capped at 16 allocated CPUs.
-Use `1` for serial work or a positive
-count to override the automatic cap within the scheduler/container allocation.

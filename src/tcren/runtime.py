@@ -19,7 +19,7 @@ _NATIVE_ENV = ('POLARS_MAX_THREADS', 'POLARS_ASYNC_THREAD_COUNT',
 _LOCK = RLock()
 
 
-def available_cpus() -> int:
+def available_cpus(*, physical: bool = True) -> int:
     """Cores available under affinity, scheduler, container and physical-core limits."""
     counts = [os.cpu_count() or 1]
     if hasattr(os, 'sched_getaffinity'):
@@ -31,10 +31,11 @@ def available_cpus() -> int:
                 topology = Path(f'/sys/devices/system/cpu/cpu{cpu}/topology')
                 cores.add((topology.joinpath('physical_package_id').read_text(),
                            topology.joinpath('core_id').read_text()))
-            counts.append(len(cores))
+            if physical:
+                counts.append(len(cores))
         except OSError:
             pass  # CPU topology can be hidden by a container; retain affinity limits.
-    if sys.platform == 'darwin':
+    if physical and sys.platform == 'darwin':
         try:
             result = subprocess.run(['sysctl', '-n', 'hw.physicalcpu'], capture_output=True,
                                     text=True, timeout=5, check=False)
@@ -82,7 +83,7 @@ def available_cpus() -> int:
 
 
 def resolve_threads(threads: int = 0) -> int:
-    """1 is serial, 0 selects up to 16 allocated cores; reject invalid/excessive counts."""
+    """1 is serial, 0 selects all allocated physical cores; reject invalid/excessive counts."""
     if isinstance(threads, bool):
         raise ValueError('threads must be an integer: 0 (all allocated) or a positive count')
     try:
@@ -93,10 +94,10 @@ def resolve_threads(threads: int = 0) -> int:
         raise ValueError('threads must be nonnegative (0 means all allocated cores)')
     if count == 1:
         return 1
-    available = available_cpus()
+    available = available_cpus() if count == 0 else available_cpus(physical=False)
     if count > available:
         raise ValueError(f'requested {count} CPUs exceeds the available allocation ({available})')
-    selected = count or min(available, 16)
+    selected = count or available
     if selected + 16 >= 1000:
         raise ValueError("CPU request exceeds the live-thread ceiling; select fewer than 984 CPUs")
     return selected

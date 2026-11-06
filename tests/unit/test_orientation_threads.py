@@ -10,7 +10,7 @@ from tcren.docking import pipeline
 
 @pytest.mark.parametrize('mode', ['orient', 'superimpose'])
 def test_orientation_forwards_threads_to_both_searches(tmp_path, monkeypatch, mode):
-    monkeypatch.setattr('tcren.runtime.available_cpus', lambda: 2)
+    monkeypatch.setattr('tcren.runtime.available_cpus', lambda **kwargs: 2)
     structs = [SimpleNamespace(chains=[], complex_species='Human') for _ in range(2)]
     files = [tmp_path / '1ao7.pdb', tmp_path / '1bd2.pdb']
     seen = []
@@ -70,8 +70,8 @@ def test_canonical_reference_cache_separates_organisms(tmp_path, monkeypatch):
     assert seen == [('human', 2), ('mouse', 2)]
 
 
-def test_automatic_budget_caps_without_restricting_explicit_requests(monkeypatch):
+def test_automatic_budget_uses_all_available_cores(monkeypatch):
     from tcren import runtime
-    monkeypatch.setattr(runtime, 'available_cpus', lambda: 32)
-    assert runtime.resolve_threads(0) == 16
+    monkeypatch.setattr(runtime, 'available_cpus', lambda **kwargs: 32)
+    assert runtime.resolve_threads(0) == 32
     assert runtime.resolve_threads(32) == 32

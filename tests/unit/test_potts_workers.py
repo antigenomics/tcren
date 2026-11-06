@@ -40,7 +40,7 @@ def test_simultaneous_serial_calls_keep_their_own_payload(monkeypatch):
 def test_default_workers_respect_allocation_and_reuse_batched_runtime(monkeypatch):
     seen = {}
     monkeypatch.setattr(os, 'cpu_count', lambda: 64)
-    monkeypatch.setattr('tcren.runtime.available_cpus', lambda: 2)
+    monkeypatch.setattr('tcren.runtime.available_cpus', lambda **kwargs: 2)
     monkeypatch.setitem(score._BODIES, 'probe', lambda s: s)
 
     def parallel(function, chunks, threads):

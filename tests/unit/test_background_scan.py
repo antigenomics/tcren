@@ -120,7 +120,7 @@ def test_native_scan_validates_packed_inputs(monkeypatch):
     """Synthetic empty scan tests the binding without structures or scientific reruns."""
     from tcren import _relax
 
-    monkeypatch.setattr("tcren.runtime.available_cpus", lambda: 2)
+    monkeypatch.setattr("tcren.runtime.available_cpus", lambda **kwargs: 2)
     args = dict(bb=np.empty((0, 4, 3)), n_atom=np.zeros(20, np.int32),
                 n_chi=np.zeros(20, np.int32), chi_vals=np.array([0.0]),
                 env_xyz=np.empty((0, 3)), env_cls=np.empty(0, np.int32),

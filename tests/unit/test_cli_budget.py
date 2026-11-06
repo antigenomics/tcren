@@ -59,7 +59,7 @@ def test_cpu_modes_and_initialized_native_limits(monkeypatch):
     from threadpoolctl import threadpool_info, threadpool_limits
     from tcren import runtime
 
-    monkeypatch.setattr(runtime, 'available_cpus', lambda: 2)
+    monkeypatch.setattr(runtime, 'available_cpus', lambda **kwargs: 2)
     assert [runtime.resolve_threads(n) for n in (0, 1, 2)] == [2, 1, 2]
     for invalid in (-1, 3, True, 1.5):
         with pytest.raises(ValueError):
@@ -184,8 +184,9 @@ def test_nested_cgroup_quota_limits_all_mode(monkeypatch):
 def test_wide_modes_fail_before_the_live_thread_ceiling(monkeypatch):
     import pytest
     from tcren import runtime
-    monkeypatch.setattr(runtime, 'available_cpus', lambda: 1000)
-    assert runtime.resolve_threads(0) == 16
+    monkeypatch.setattr(runtime, 'available_cpus', lambda **kwargs: 1000)
+    with pytest.raises(ValueError, match="live-thread ceiling"):
+        runtime.resolve_threads(0)
     with pytest.raises(ValueError, match='live-thread ceiling'):
         runtime.resolve_threads(1000)
     with pytest.raises(ValueError, match='live-thread ceiling'):
@@ -195,7 +196,7 @@ def test_wide_modes_fail_before_the_live_thread_ceiling(monkeypatch):
 def test_search_allowance_does_not_force_requested_parallelism_serial(monkeypatch):
     import os
     from tcren import runtime
-    monkeypatch.setattr(runtime, 'available_cpus', lambda: 2)
+    monkeypatch.setattr(runtime, 'available_cpus', lambda **kwargs: 2)
     previous = dict(os.environ)
     with runtime.native_threads():
         with runtime.search_threads(2):
@@ -270,3 +271,13 @@ print('cancelled cleanly')
                             capture_output=True, timeout=15)
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == 'cancelled cleanly'
+
+
+def test_physical_default_and_explicit_smt(monkeypatch):
+    import pytest
+    from tcren import runtime
+    monkeypatch.setattr(runtime, "available_cpus", lambda physical=True: 20 if physical else 40)
+    assert runtime.resolve_threads(0) == 20
+    assert runtime.resolve_threads(40) == 40
+    with pytest.raises(ValueError):
+        runtime.resolve_threads(41)

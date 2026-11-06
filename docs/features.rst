@@ -98,7 +98,7 @@ Options
      - organism passed to the TCR annotator
    * - ``-t``, ``--threads``
      - ``0``
-     - CPU budget: 0 automatic (default, up to 16 allocated CPUs), positive count within allocation; one annotation batch then coarse single-threaded numerical workers
+     - CPU budget: 0 automatic (default, all allocated physical cores), positive count within allocation; one annotation batch then coarse single-threaded numerical workers
    * - ``--autodetect-species`` / ``--no-autodetect-species``
      - on
      - also search mouse, to catch a mis-declared organism; ``--no-`` halves the annotation cost

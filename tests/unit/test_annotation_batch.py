@@ -7,7 +7,7 @@ def test_archive_is_annotated_in_one_batch(monkeypatch):
     from tcren.annotation import batch
     from tcren.structure import Structure
 
-    monkeypatch.setattr('tcren.runtime.available_cpus', lambda: 4)
+    monkeypatch.setattr('tcren.runtime.available_cpus', lambda **kwargs: 4)
     structs = [Structure("one", []), Structure("two", [])]
     seen = []
     monkeypatch.setattr(structure, "iter_structures", lambda *a, **k: iter(zip(("one", "two"), structs)))
@@ -76,7 +76,7 @@ def test_all_structure_queries_share_one_multicore_call_per_reference(monkeypatc
     def search(backend, pairs, organism, threads):
         calls.append((organism, list(pairs), threads, os.environ['OMP_THREAD_LIMIT'], threading.get_ident()))
         return [{} for _ in pairs]
-    monkeypatch.setattr(runtime, 'available_cpus', lambda: 2)
+    monkeypatch.setattr(runtime, 'available_cpus', lambda **kwargs: 2)
     monkeypatch.setattr(batch, '_annotate', search)
     result = batch.annotate_batch(structures, arda=object(), threads=2)
     assert len(result) == 2
@@ -120,7 +120,7 @@ def test_structure_search_and_provenance_use_full_receptor_alleles(monkeypatch):
     from tcren.structure.model import Atom, Chain, Residue, Structure
 
     from tcren import runtime
-    monkeypatch.setattr(runtime, "available_cpus", lambda: 2)
+    monkeypatch.setattr(runtime, "available_cpus", lambda **kwargs: 2)
     calls = []
 
     def annotate_sequences(pairs, *, threads, major_only=True, **kwargs):
