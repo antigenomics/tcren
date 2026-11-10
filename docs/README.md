@@ -149,3 +149,7 @@ Use `--task epitope` to fix the receptor, `--origin apex` for an apex origin,
 and `--legacy` for unchanged historical SVG output. Serve using
 `python -m http.server --bind 127.0.0.1 --directory browser`.
 See [the browser guide](https://docs.isalgo.dev/tcren/complementarity.html).
+The standalone dashboard uses one atom/bond/contact model for both projections
+and both display levels. Residue mode references Cα atoms and counts the same
+atom-contact witnesses; summaries and inspection distinguish global and visible
+counts. Typed compressed Parquet tables accompany JSON.gz browser scenes.

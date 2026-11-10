@@ -8,6 +8,9 @@ All notable changes to `tcren` are recorded here. Format follows
 - Rewrite complementarity visualization with ranking frames, residue/heavy-atom
   scenes, all six CDRs and groove regions, exact contact witnesses and a local
   side/top overlay dashboard. Keep unchanged historical maps via `--legacy`.
+- Use one normalized molecular graph with named covalent connectivity, CA-based
+  residue aggregation, explicit node cardinalities, chain controls and typed
+  compressed tables. Center epitope-ranking comparisons on the fixed TCR.
 
 ## [4.2.0] — 2026-10-23
 

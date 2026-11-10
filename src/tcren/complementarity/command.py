@@ -71,6 +71,9 @@ def complementarity_command(
     if legacy and not 3 <= cutoff <= 6:
         raise typer.BadParameter("legacy cutoff must be within [3, 6] Angstroms")
     references, errors, seen = {}, [], set()
+    implementation = {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
+                      for p in sorted(Path(__file__).parent.iterdir())
+                      if p.suffix in {".py", ".html", ".js"}}
 
     def scenes():
         source = iter(_structures(structures, scratch))
@@ -98,7 +101,7 @@ def complementarity_command(
                         identity = sorted((c.chain_type, c.sequence()) for c in structure.by_type(*types))
                         key = hashlib.sha256(json.dumps(identity).encode()).hexdigest()
                         if key not in references:
-                            frame = reference_frame(structure, origin=origin)
+                            frame = reference_frame(structure, origin=origin, task=task)
                             references[key] = structure, frame
                         reference, frame = references[key]
                         current = ranking_frame(structure, reference, frame, task=task)
@@ -122,7 +125,7 @@ def complementarity_command(
     (output / "run.json").write_text(json.dumps(dict(
         version=version("tcren"), source=str(structures), task=task, origin=origin,
         cutoff=cutoff, threads=threads, legacy=legacy, structures=len(seen),
-        errors=len(errors)), indent=2), encoding="utf-8")
+        errors=len(errors), implementation_sha256=implementation), indent=2), encoding="utf-8")
     if not seen:
         raise typer.BadParameter("no structures found")
     typer.echo(f"Wrote {output}: {len(seen)} structures, {len(errors)} errors")

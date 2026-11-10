@@ -1,8 +1,9 @@
 Complementarity browser
 =======================
 
-The rewritten ``tcren.complementarity`` module exports contact scenes and a local
-dashboard without changing screening scores.
+The rewritten ``tcren.complementarity`` module owns one molecular graph and a
+standalone local dashboard, independent of vdjdb-web. It changes no screening
+scores. Atoms own coordinates; residue points reference their C-alpha atoms.
 
 .. code-block:: console
 
@@ -29,40 +30,68 @@ reference selection. Coordinates and RMSD are in Angstroms.
 The reference peptide's N-to-C terminal vector defines +x. The groove-floor plane
 normal toward the peptide, orthogonalized against x, defines +z. The right-handed
 y axis points toward the side camera. Side views show x/z, top views x/y.
-Overlay members inherit one reference origin without peptide recentering.
+Overlay members inherit one reference origin without independent recentering.
 
-``--origin center-of-mass`` uses peptide heavy-atom element masses, selecting one
+For TCR ranking, ``--origin center-of-mass`` uses peptide heavy-atom element masses, selecting one
 alternate atom per name (blank/A first). Hydrogen/deuterium are excluded.
 ``--origin apex`` uses the reference peptide C-alpha with greatest height above
 the groove plane, sequence order breaking ties. Missing, collinear and nonfinite
-landmarks fail explicitly. Scenes record reference, transform, origin, anchor
+landmarks fail explicitly. For epitope ranking the origin instead uses the fixed
+TCR variable-domain heavy-atom COM, or its groove-facing CDR C-alpha apex (lowest
+reference z). Framework and CDR atoms define that variable domain; constant
+domains do not determine its center. Scenes record the origin component explicitly.
+Scenes record reference, transform, origin, anchor
 count and RMSD. Alignment is geometric normalization, not evidence of binding.
 
 Nodes and contacts
 ------------------
 
-Scenes include CDR1–3 on both receptor chains, peptide and annotated MHC groove
-helices/floor. Missing annotations are reported. Residue positions are C-alpha;
+Scenes retain all typed alpha/beta, peptide, MHC and beta-2-microglobulin polymer
+atoms. CDR1–3, peptide and groove helices/floor are initially visible; chains,
+frameworks and other regions remain independently selectable. Missing annotations
+are reported. Residue positions resolve the owning C-alpha atom;
 author numbers, insertion codes and sequence indices remain separate. Missing
 C-alpha residues retain null coordinates and a warning. Heavy-atom nodes retain
 alternate locations and distinguish repeated names.
 
 Contacts are all inter-chain heavy-atom pairs within inclusive ``--cutoff``
 (default 5 Angstroms). Different nonblank alternate conformers are excluded.
-Residue multiplicity counts these witnesses, not residue pairs or energy.
+Directly covalent atom pairs are excluded. Residue multiplicity aggregates the
+same atom table, counting witnesses rather than residue pairs or energy.
 Default displayed groups are TCR–peptide, TCR–MHC and peptide–MHC; alpha–beta
-contacts are optional. Unit edges, width proportional to square-root count
-(capped at eight pixels), and parallel witness edges are available.
+contacts are optional. Unit edges, linear width (0.5 pixels per atom-pair contact)
+and parallel witness curves sharing the same endpoints are available.
 Atom mode displays individual witnesses.
 
-Solid residue traces require consecutive resolved sequence indices and a C-alpha
-distance <=4.5 Angstroms. Atom backbone traces use N–CA, CA–C, C–O/OXT and adjacent
-C–N distances in (0.4, 1.9] Angstroms with compatible alternate locations.
-Within-residue atom links use distances in (0.4, 1.2 times summed covalent radii]
-for C/N/O/S/P/Se, with compatible alternate conformers; they are geometric bond
-suggestions, not verified bond orders. Backbone links are highlighted separately.
-These traces are not a complete chemical bond graph. Dashed edges are contacts.
-Hover shows identities; region/edge selection, zoom and label scope control density.
+Named amino-acid templates define covalent connectivity, with coordinate
+validation: backbone distances in (0.4, 1.9] Angstroms, side chains in (0.4, 2.3].
+Adjacent peptide C–N bonds require consecutive resolved sequence positions.
+MSE replaces methionine SD with SE. Cysteine SG–SG at 1.7–2.3 Angstroms is an
+explicit disulfide, including between chains. Unknown side-chain templates and
+unavailable named bonds are flagged; bond orders are not assigned. Residue
+backbone traces derive from peptide bonds whose residues both have C-alpha atoms.
+Alternate conformers remain distinguishable and are not simultaneous occupancy
+evidence. Dashed edges are non-covalent inter-chain distance contacts.
+
+Global atom counts include covalent degree, contact count/degree, partner residue
+and partner chain counts. Residues include atom membership, contacting atoms,
+atom-pair contact count, distinct residue-partner degree, covalent residue degree
+and partner-chain count. Zeros remain explicit. The inspector separately labels
+counts for the visible selection; filters never overwrite global counts.
+Hover/click exposes identities, source keys, ordinals and counts. Summary tables,
+chain/region/edge selection, zoom, pan and label scope support inspection.
+
+Compressed data
+---------------
+
+``tables/`` contains typed Zstandard-compressed Parquet partitions for atoms,
+residues, bonds, atom contacts and aggregated residue contacts. Partitions hold
+at most eight structures. IDs are structure-local; join on ``structure_id`` plus
+the local ID. Residue coordinates resolve ``ca_atom`` in the atom table.
+``tables/manifest.json`` records schemas and row counts. JSON.gz is the browser
+interchange serialization of the same model; the exporter performs no second
+contact or degree calculation. Small JSON files retain input/reference manifests,
+errors and run parameters. All runtime assets are local; no CDN is required.
 
 Legacy and Python APIs
 ----------------------
@@ -74,5 +103,5 @@ and projection restrictions still apply. Existing APIs remain unchanged.
 ``canonical_frame`` constructs a reference; ``fit_frame`` fits matched landmarks.
 ``prepare.reference_frame`` and ``prepare.ranking_frame`` accept annotated
 structures. ``scene.build_scene`` creates JSON-compatible scenes with schema
-``tcren.complementarity/1``. ``dashboard.write_dashboard`` streams compressed
+``tcren.complementarity/2``. ``dashboard.write_dashboard`` streams compressed
 scenes and the viewer into a new directory.

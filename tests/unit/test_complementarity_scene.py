@@ -22,7 +22,13 @@ def test_all_atom_witnesses_and_insertion_identity():
                                    Chain("Q", [residue(1, 3)], "PEPTIDE")])
     scene = build_scene(structure, FRAME, cutoff=4)
     assert len(scene["atom_contacts"]) == 4
-    assert scene["residue_contacts"] == [[0, 1, 4]]
+    assert scene["residue_contacts"] == [dict(source=0, target=1, contact_count=4)]
+    assert scene["residues"][0]["contact_count"] == 4
+    assert scene["residues"][0]["contact_degree"] == 1
+    assert scene["residues"][0]["atom_count"] == 2
+    assert scene["atoms"][0]["contact_count"] == 2
+    assert scene["atoms"][0]["partner_residue_count"] == 1
+    assert "xyz" not in scene["residues"][0]
     assert scene["residues"][1]["insertion"] == "A"
     assert scene["residues"][1]["number"] == 42
 
@@ -31,7 +37,8 @@ def test_zero_contacts_and_missing_ca_retained():
     structure = Structure("test", [Chain("P", [residue(0, 0, ca=False)], "PEPTIDE"),
                                    Chain("Q", [residue(0, 30)], "PEPTIDE")])
     scene = build_scene(structure, FRAME)
-    assert scene["residues"][0]["xyz"] is None
+    assert scene["residues"][0]["ca_atom"] is None
+    assert scene["residues"][0]["contact_count"] == 0
     assert scene["atom_contacts"] == scene["residue_contacts"] == []
     assert scene["warnings"]
 

@@ -8,11 +8,15 @@ label{display:block;margin:10px 0}select,input{font:inherit;max-width:100%}selec
 .views{display:grid;grid-template-columns:1fr 1fr;gap:12px}svg{width:100%;height:560px;background:#fff;border:1px solid #ddd}
 .key{display:flex;gap:15px;flex-wrap:wrap}.key span{border-bottom:4px solid var(--color)}
 #status{white-space:pre-wrap;font-size:13px}button{font:inherit;padding:6px 10px}
+table{border-collapse:collapse;width:100%;font-size:13px}th,td{padding:6px;border-bottom:1px solid #ddd;text-align:left;overflow-wrap:anywhere;max-width:180px}
+#inspector{max-height:300px;overflow:auto;white-space:pre-wrap}
 @media(max-width:1600px){.views{grid-template-columns:1fr}}
 @media(max-width:800px){main{grid-template-columns:1fr}}
 </style>
 <h1>TCRen complementarity browser</h1>
 <p>Shared reference coordinates · side and top views · distances in Å. Contacts describe geometry, not verified binding.</p>
+<p id="population" role="status"></p>
+<details><summary>Export diagnostics</summary><pre id="errors">Loading diagnostics…</pre></details>
 <main><aside>
 <label>Reference group <select id="group"></select></label>
 <label>Find structure <input id="search" type="search"></label>
@@ -21,58 +25,25 @@ label{display:block;margin:10px 0}select,input{font:inherit;max-width:100%}selec
 <label>Contact multiplicity <select id="weight"><option value="unit">One edge per residue pair</option><option value="weighted">Width by atom-pair count</option><option value="parallel">Parallel atom-pair edges</option></select></label>
 <label><input id="labels" type="checkbox" checked> Residue / atom labels</label>
 <label><input id="backbone" type="checkbox" checked> Backbone trace</label>
+<label><input id="covalent" type="checkbox" checked> Covalent atom bonds</label>
 <label>Zoom <input id="zoom" type="range" min="1" max="5" step="0.25" value="1"></label>
 <label>Pan x (Å) <input id="panx" type="range" min="-100" max="100" value="0"></label>
 <label>Pan vertical (Å) <input id="pany" type="range" min="-100" max="100" value="0"></label>
 <label>Labels for <select id="labelscope"><option value="peptide">Peptide</option><option value="contacts">Contacted residues</option><option value="all">All visible residues / atoms</option></select></label>
+<fieldset><legend>Chains</legend><div id="chains"></div></fieldset>
 <fieldset><legend>Regions</legend><div id="regions"></div></fieldset>
 <fieldset><legend>Contact groups</legend><div id="edges"></div></fieldset>
 </aside><section><div class="key"><span style="--color:#0072b2">α TCR</span><span style="--color:#56b4e9">β TCR</span><span style="--color:#d55e00">Peptide N→C</span><span style="--color:#009e73">MHC</span></div>
+<h2>Selection summary</h2><div id="summary"></div>
+<details open><summary>Atom / residue inspector</summary><div id="inspector">Click a point to inspect its identity and counts.</div></details>
+<p><a href="tables/manifest.json">Compressed table index</a></p>
+<details><summary>Download typed tables (Parquet)</summary><div id="downloads"></div></details>
+<details><summary>Browse every residue / atom</summary>
+<label>Find node <input id="nodesearch" type="search" placeholder="Chain, name, number, ID"></label>
+<label><input id="visibleonly" type="checkbox" checked> Only currently visible nodes</label>
+<button id="previous" type="button">Previous</button> <button id="next" type="button">Next</button>
+<span id="pageinfo"></span><div id="nodetable"></div></details>
 <div class="views"><div><h2>Side · x / z</h2><svg id="side" viewBox="0 0 700 560" aria-label="Side contact view"></svg></div><div><h2>Top · x / y</h2><svg id="top" viewBox="0 0 700 560" aria-label="Top contact view"></svg></div></div>
-<p>+x: reference peptide N→C; +z: above groove; +y: toward side-view camera. Overlay members share the reference origin. Hover for identities. Dashed edges are contacts; solid lines are backbone traces.</p>
+<p>+x: reference peptide N→C; +z: above groove; +y: toward side-view camera. Overlay members share the reference origin. Hover/click for identities and counts. Dashed edges are contacts; thin solid lines are covalent bonds; colored traces highlight backbone connectivity.</p>
 <pre id="status" role="status"></pre></section></main>
-<script type="module">
-const $=id=>document.getElementById(id), ns='http://www.w3.org/2000/svg';
-const colors={alpha:'#0072b2',beta:'#56b4e9',peptide:'#d55e00',mhc:'#009e73'};
-const edgeName=(a,b)=>[a,b].sort().join(':');
-const regionNames=['alpha:CDR1','alpha:CDR2','alpha:CDR3','beta:CDR1','beta:CDR2','beta:CDR3','peptide:PEPTIDE','mhc:HELIX_A1','mhc:HELIX_A2','mhc:HELIX_B1','mhc:GROOVE_FLOOR'];
-function choices(id,names,off=[]){for(const name of names){const label=document.createElement('label'),input=document.createElement('input');input.type='checkbox';input.value=name;input.checked=!off.includes(name);label.append(input,document.createTextNode(' '+name));$(id).append(label);}}
-choices('regions',regionNames);choices('edges',['alpha:peptide','beta:peptide','alpha:mhc','beta:mhc','mhc:peptide','alpha:beta'],['alpha:beta']);
-const checked=id=>new Set([...$(id).querySelectorAll('input:checked')].map(x=>x.value));
-const add=(root,tag,attrs={},title)=>{const el=document.createElementNS(ns,tag);for(const [k,v]of Object.entries(attrs))el.setAttribute(k,v);if(title){const t=document.createElementNS(ns,'title');t.textContent=title;el.append(t);}root.append(el);return el;};
-let entries=[],generation=0;
-function options(){const selected=new Set([...$('structures').selectedOptions].map(o=>o.value));$('structures').replaceChildren();for(const e of entries.filter(e=>e.reference===$('group').value&&(e.id+' '+e.search).toLowerCase().includes($('search').value.toLowerCase()))){const o=new Option(e.id,e.file);o.selected=selected.has(e.file);$('structures').add(o);}}
-async function load(file){const response=await fetch(file);if(!response.ok)throw Error(`${file}: ${response.status}`);return JSON.parse(await new Response(response.body.pipeThrough(new DecompressionStream('gzip'))).text());}
-async function render(){const token=++generation;try{const selected=[...$('structures').selectedOptions];if(selected.length>16)throw Error('Select at most 16 structures per overlay; all structures remain individually available.');const scenes=await Promise.all(selected.map(o=>load(o.value)));if(token!==generation)return;
-const regions=checked('regions'),edges=checked('edges'),atom=$('detail').value==='atom';
-const visible=r=>regions.has(r.role+':'+r.region);const all=scenes.flatMap(s=>s.residues.filter(r=>visible(r)&&r.xyz).map(r=>r.xyz));
-let extent=10;for(const p of all)extent=Math.max(extent,...p.map(Math.abs));
-const scale=230/extent*Number($('zoom').value);
-for(const [id,vertical]of [['side',2],['top',1]]){const svg=$(id);svg.replaceChildren();
-const pos=p=>[350+(p[0]-Number($('panx').value))*scale,280-(p[vertical]-Number($('pany').value))*scale];
-const [zeroX,zeroY]=pos([0,0,0]);
-for(const axis of [0,1])add(svg,'line',{x1:axis?zeroX:25,y1:axis?25:zeroY,x2:axis?zeroX:675,y2:axis?535:zeroY,stroke:'#d6dce3'});
-add(svg,'text',{x:660,y:300,'font-size':13}).textContent='+x';add(svg,'text',{x:360,y:30,'font-size':13}).textContent=vertical===2?'+z':'+y';
-add(svg,'line',{x1:30,y1:525,x2:30+10*scale,y2:525,stroke:'#333','stroke-width':2});add(svg,'text',{x:30,y:545,'font-size':12}).textContent='10 Å';
-scenes.forEach((s,index)=>{const nodes=atom?s.atoms:s.residues, residue=n=>atom?s.residues[n.residue]:n;
-const contacted=new Set(s.residue_contacts.flatMap(([a,b])=>[a,b]));
-const shown=n=>n.xyz&&visible(residue(n));
-function line(a,b,attrs={},title){if(!shown(a)||!shown(b))return;const [x1,y1]=pos(a.xyz),[x2,y2]=pos(b.xyz);add(svg,'line',{x1,y1,x2,y2,...attrs},title);}
-const opacity=scenes.length>1?.55:1;
-const links=atom?s.atom_contacts:s.residue_contacts;
-for(const [i,j,count]of links){const a=nodes[i],b=nodes[j],ra=residue(a),rb=residue(b);if(!edges.has(edgeName(ra.role,rb.role)))continue;
-const n=!atom&&$('weight').value==='parallel'?count:1;
-for(let k=0;k<n;k++)line(a,b,{stroke:'#666','stroke-width':!atom&&$('weight').value==='weighted'?Math.min(8,Math.sqrt(count)):0.7,'stroke-dasharray':'3 3',opacity,transform:`translate(0,${(k-(n-1)/2)*1.5})`},atom?`${s.id}: ${count.toFixed(2)} Å`:`${s.id}: ${count} atom pairs`);}
-if(atom)for(const [a,b]of (s.bonds||[]))line(nodes[a],nodes[b],{stroke:'#aaa','stroke-width':0.8,opacity});
-if($('backbone').checked)for(const [a,b]of (atom?s.backbone:s.trace))line(nodes[a],nodes[b],{stroke:colors[residue(nodes[a]).role],'stroke-width':2,opacity});
-for(const n of nodes.filter(shown)){const r=residue(n),[cx,cy]=pos(n.xyz),name=`${s.id} | ${r.chain} ${r.region} ${r.aa}${r.number}${r.insertion}${atom?' '+n.name+' '+n.altloc:''}`;
-add(svg,'circle',{cx,cy,r:atom?2.5:5,fill:colors[r.role],stroke:atom&&n.backbone?'#111':'white','stroke-width':1,opacity},name);
-const labelAllowed=$('labelscope').value==='all'||($('labelscope').value==='contacts'&&contacted.has(r.id)&&(!atom||n.name==='CA'))||(r.role==='peptide'&&(!atom||n.name==='CA'));
-if($('labels').checked&&labelAllowed){const t=add(svg,'text',{x:cx+5,y:cy-5,fill:colors[r.role],'font-size':13},name);t.textContent=atom&&$('labelscope').value==='all'?n.name:`${r.aa}${r.number}${r.insertion}${atom?' CA':''}`;}}
-});}
-$('status').textContent=scenes.length?scenes.map(s=>`${s.id}\nReference: ${s.frame.reference} · ${s.frame.origin} · ${s.frame.anchors} anchors · RMSD ${s.frame.rmsd.toFixed(3)} Å\n${s.residue_contacts.length} residue contacts · ${s.atom_contacts.length} atom pairs${s.warnings.length?'\n'+s.warnings.join('\n'):''}`).join('\n\n'):'Select a structure to inspect.';
-}catch(error){$('status').textContent=String(error);}}
-try{const r=await fetch('index.json');if(!r.ok)throw Error(`Index: ${r.status}`);entries=await r.json();for(const group of new Set(entries.map(e=>e.reference)))$('group').add(new Option(entries.find(e=>e.reference===group).label||group,group));options();await render();}catch(error){$('status').textContent=`Serve this directory over localhost. ${error}`;}
-$('group').onchange=()=>{options();render();};$('search').oninput=()=>{options();render();};
-for(const id of ['structures','detail','weight','labels','backbone','regions','edges','zoom','panx','pany','labelscope'])$(id).addEventListener('change',render);
-</script></html>
+<script type="module" src="viewer.js"></script></html>

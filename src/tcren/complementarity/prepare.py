@@ -4,7 +4,8 @@ from __future__ import annotations
 import numpy as np
 from Bio.Align import PairwiseAligner
 
-from .frame import canonical_frame, fit_frame
+from .frame import CanonicalFrame, canonical_frame, fit_frame
+from .topology import conformer_rank
 
 _MASS = {"C": 12.011, "N": 14.007, "O": 15.999, "S": 32.06,
          "P": 30.974, "SE": 78.971}
@@ -12,7 +13,25 @@ _GROOVE = {"GROOVE_FLOOR", "HELIX_A1", "HELIX_A2", "HELIX_B1"}
 _FRAMEWORK = {"FR1", "FR2", "FR3", "FR4"}
 
 
-def reference_frame(structure, *, origin="center-of-mass"):
+def _mass_points(residues):
+    points, masses = [], []
+    for res in residues:
+        seen = set()
+        for atom in sorted(res.atoms, key=lambda a: conformer_rank(a.altloc)):
+            element = atom.element.upper()
+            if element in {"H", "D"} or atom.name in seen:
+                continue
+            seen.add(atom.name)
+            if element not in _MASS:
+                raise ValueError(f"unsupported mass element {element}")
+            points.append(atom.coord)
+            masses.append(_MASS[element])
+    if not points:
+        raise ValueError("centering requires heavy atoms")
+    return points, masses
+
+
+def reference_frame(structure, *, origin="center-of-mass", task="tcr"):
     """Build a frame from one peptide, annotated groove floor and heavy-atom mass.
 
     Center of mass explicitly excludes hydrogen/deuterium and unrecognized
@@ -25,21 +44,29 @@ def reference_frame(structure, *, origin="center-of-mass"):
     ca = [r.ca for r in peptide.residues if r.ca is not None]
     groove = [r.ca for c in structure.by_type("MHCa", "MHCb") for reg in c.regions
               if reg.region_type == "GROOVE_FLOOR" for r in reg.residues if r.ca is not None]
-    atoms, masses = [], []
-    for res in peptide.residues:
-        # Resolve one alternate conformer consistently for the origin calculation.
-        seen = set()
-        for atom in sorted(res.atoms, key=lambda a: (a.altloc not in ("", "A"), a.altloc)):
-            if atom.element.upper() in {"H", "D"} or atom.name in seen:
-                continue
-            seen.add(atom.name)
-            element = atom.element.upper()
-            if element not in _MASS:
-                raise ValueError(f"unsupported peptide mass element {element}")
-            atoms.append(atom.coord)
-            masses.append(_MASS[element])
-    return canonical_frame(ca, groove, reference_id=structure.pdb_id, origin=origin,
-                           peptide_atoms=atoms, peptide_masses=masses)
+    if task not in {"tcr", "epitope"} or origin not in {"apex", "center-of-mass"}:
+        raise ValueError("task must be tcr/epitope and origin apex/center-of-mass")
+    initial_origin = origin if task == "tcr" else "apex"
+    atoms, masses = _mass_points(peptide.residues) if initial_origin == "center-of-mass" else (None, None)
+    frame = canonical_frame(ca, groove, reference_id=structure.pdb_id, origin=initial_origin,
+                            peptide_atoms=atoms, peptide_masses=masses)
+    if task == "tcr":
+        return frame
+    tcr = _fixed_chains(structure, task)
+    selected = [res for c in tcr.values() for reg in c.regions
+                if reg.region_type in _FRAMEWORK | {"CDR1", "CDR2", "CDR3"} for res in reg.residues]
+    unique = {id(res): res for res in selected}.values()
+    if origin == "center-of-mass":
+        points, weights = _mass_points(unique)
+        position = np.average(points, axis=0, weights=weights)
+    else:
+        tips = [r.ca for c in tcr.values() for reg in c.regions
+                if reg.region_type in {"CDR1", "CDR2", "CDR3"} for r in reg.residues if r.ca is not None]
+        if not tips:
+            raise ValueError("TCR apex requires CDR C-alpha landmarks")
+        position = tips[np.argmin(frame.transform(tips)[:, 2])]
+    return CanonicalFrame(frame.rotation, -position @ frame.rotation, frame.reference_id,
+                          origin, origin_component="tcr-variable-domain")
 
 
 def _fixed_chains(structure, task):

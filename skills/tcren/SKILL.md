@@ -10,7 +10,11 @@ description: tcren — TCR-pMHC contact potential (TCRen) pipeline; conventions 
 Use `tcren complementarity -s models.list -o browser --task tcr -t 4`, then
 serve the output directory on localhost. `--task epitope` fixes the TCR framework;
 TCR ranking fixes identical peptide/MHC groups. Side/top views inherit a common
-reference origin. `--origin apex` replaces the default heavy-atom center of mass.
+reference origin: peptide COM/apex for TCR ranking, TCR variable-domain COM/CDR
+apex for epitope ranking. One atom/bond/contact model owns both display levels;
+residue mode resolves CA atoms and aggregates the same atom-pair witnesses.
+Use global versus visible counts explicitly. JSON.gz scenes and typed compressed
+Parquet tables share these definitions; the dashboard is independent of vdjdb-web.
 Inspect reference identity, RMSD, warnings and `errors.json`. Contact multiplicity
 counts atom pairs, not binding evidence. `--legacy` invokes unchanged historical
 SVG maps. See `docs/complementarity.rst` for definitions and limitations.

@@ -37,6 +37,7 @@ class CanonicalFrame:
     origin: str
     rmsd: float = 0.0
     anchor_count: int = 0
+    origin_component: str = "peptide"
 
     def transform(self, points) -> np.ndarray:
         """Apply this frame without modifying the source coordinates."""
@@ -120,4 +121,5 @@ def fit_frame(mobile_anchors, reference_anchors, reference: CanonicalFrame) -> C
         rotation @ reference.rotation,
         translation @ reference.rotation + reference.translation,
         reference.reference_id, reference.origin, rmsd, len(mobile),
+        reference.origin_component,
     )
