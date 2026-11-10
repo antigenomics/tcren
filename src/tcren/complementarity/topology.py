@@ -64,6 +64,10 @@ def polymer_bonds(atoms, residues, coordinates):
             sidechain = ""
         if residue["resname"] == "MSE":
             sidechain = sidechain.replace("SD", "SE")
+        supported = BACKBONE | {name for pair in sidechain.split() for name in pair.split("-")}
+        for atom in members:
+            if atom["name"] not in supported:
+                warnings.append(f"untemplated_atom:{atom['id']}:{atom['name']}:{residue['resname']}")
         for pair in ("N-CA CA-C C-O C-OXT " + sidechain).split():
             a, b = pair.split("-")
             for left in named.get(a, []):

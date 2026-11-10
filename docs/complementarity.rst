@@ -68,7 +68,9 @@ validation: backbone distances in (0.4, 1.9] Angstroms, side chains in (0.4, 2.3
 Adjacent peptide C–N bonds require consecutive resolved sequence positions.
 MSE replaces methionine SD with SE. Cysteine SG–SG at 1.7–2.3 Angstroms is an
 explicit disulfide, including between chains. Unknown side-chain templates and
-unavailable named bonds are flagged; bond orders are not assigned. Residue
+unavailable named bonds are flagged. Atoms outside the canonical template are
+retained with an explicit untemplated-atom warning rather than invented bonds;
+modified-residue connectivity may therefore be incomplete. Bond orders are not assigned. Residue
 backbone traces derive from peptide bonds whose residues both have C-alpha atoms.
 Alternate conformers remain distinguishable and are not simultaneous occupancy
 evidence. Dashed edges are non-covalent inter-chain distance contacts.

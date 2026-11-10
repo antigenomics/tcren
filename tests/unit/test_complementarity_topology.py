@@ -35,3 +35,12 @@ def test_framework_and_unannotated_atoms_are_retained():
     scene = build_scene(Structure("framework", [Chain("A", [residue], "TRA")]), FRAME)
     assert scene["residues"][0]["region"] == "UNANNOTATED"
     assert scene["residues"][0]["ca_atom"] == 0
+
+
+def test_modified_atoms_are_retained_with_explicit_connectivity_warning():
+    residue = Residue(0, 1, "", "S", "SEP", (
+        Atom("OG", "O", np.zeros(3)), Atom("P", "P", np.array([1.5, 0., 0.]))))
+    scene = build_scene(Structure("modified", [Chain("P", [residue], "PEPTIDE")]), FRAME)
+    assert len(scene["atoms"]) == 2
+    assert any(warning.startswith("untemplated_atom:1:P:SEP") for warning in scene["warnings"])
+    assert not scene["bonds"]  # no invented phosphate chemistry
