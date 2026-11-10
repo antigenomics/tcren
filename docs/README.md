@@ -140,3 +140,12 @@ benchmarks are separate from software checks. Rebuild the editable install after
 native changes. Scientific campaigns, old results and publication figures are
 maintained with the benchmark and manuscript repositories. [CHANGELOG.md](https://github.com/antigenomics/tcren/blob/master/docs/CHANGELOG.md)
 records software changes. The [API skill](https://github.com/antigenomics/tcren/blob/master/skills/tcren/SKILL.md) owns API guidance.
+
+## Extended contact browser
+
+`tcren complementarity -s models.list -o browser --task tcr -t 4` exports
+shared-frame residue/heavy-atom scenes and a local side/top overlay dashboard.
+Use `--task epitope` to fix the receptor, `--origin apex` for an apex origin,
+and `--legacy` for unchanged historical SVG output. Serve using
+`python -m http.server --bind 127.0.0.1 --directory browser`.
+See [the browser guide](https://docs.isalgo.dev/tcren/complementarity.html).

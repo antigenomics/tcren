@@ -5,6 +5,16 @@ description: tcren — TCR-pMHC contact potential (TCRen) pipeline; conventions 
 
 # tcren Skills Guide
 
+## Extended contact browser
+
+Use `tcren complementarity -s models.list -o browser --task tcr -t 4`, then
+serve the output directory on localhost. `--task epitope` fixes the TCR framework;
+TCR ranking fixes identical peptide/MHC groups. Side/top views inherit a common
+reference origin. `--origin apex` replaces the default heavy-atom center of mass.
+Inspect reference identity, RMSD, warnings and `errors.json`. Contact multiplicity
+counts atom pairs, not binding evidence. `--legacy` invokes unchanged historical
+SVG maps. See `docs/complementarity.rst` for definitions and limitations.
+
 ## Primary entry point — `tcren screen`
 
 `screen -s models.tar.gz -o scores.tsv` ranks a cohort of separately modelled αβ
