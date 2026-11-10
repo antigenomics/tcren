@@ -25,7 +25,7 @@ def _structures(source, scratch):
                 if not member.isfile() or path.name.startswith("._") or not is_structure_file(path):
                     continue
                 suffix = "".join(path.suffixes)
-                identity = member.name[:-len(suffix)].replace("/", "__")
+                identity = member.name[:-len(suffix)]
                 with archive.extractfile(member) as incoming:
                     with tempfile.NamedTemporaryFile(suffix=suffix, dir=scratch) as temporary:
                         while chunk := incoming.read(1024 * 1024):
