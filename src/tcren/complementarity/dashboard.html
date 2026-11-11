@@ -29,7 +29,10 @@ table{border-collapse:collapse;width:100%;font-size:13px}th,td{padding:6px;borde
 <label><input id="covalent" type="checkbox" checked> Covalent atom bonds</label>
 <label>Zoom <input id="zoom" type="range" min="1" max="5" step="0.25" value="1"></label>
 <label>Pan x (Å) <input id="panx" type="range" min="-100" max="100" value="0"></label>
-<label>Pan vertical (Å) <input id="pany" type="range" min="-100" max="100" value="0"></label>
+<label>Pan z · side (Å) <input id="panz" type="range" min="-100" max="100" value="0"></label>
+<label>Pan y · top (Å) <input id="pany" type="range" min="-100" max="100" value="0"></label>
+<button id="fit-camera" type="button">Fit visible nodes</button>
+<button id="reset-camera" type="button">Reset camera</button>
 <label>Labels for <select id="labelscope"><option value="peptide">Peptide · first structure</option><option value="allpeptides">Peptide · every structure</option><option value="contacts">Contacted residues</option><option value="all">All visible residues / atoms</option></select></label>
 <fieldset><legend>Chains</legend><div id="chains"></div></fieldset>
 <fieldset><legend>Regions</legend><div id="regions"></div></fieldset>

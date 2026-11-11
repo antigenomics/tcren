@@ -14,6 +14,9 @@ reference origin: peptide COM/apex for TCR ranking, TCR variable-domain COM/CDR
 apex for epitope ranking. One atom/bond/contact model owns both display levels;
 residue mode resolves CA atoms and aggregates the same atom-pair witnesses.
 Use global versus filtered counts explicitly; zoom and pan change neither.
+Side z and top y camera offsets are independent. Fit visible nodes frames the
+selected points; Reset camera returns to the shared molecular reference origin.
+Neither action changes exported coordinates, alignment or contact counts.
 JSON.gz scenes, typed Parquet and matching TSV.gz tables share these definitions;
 the dashboard is independent of vdjdb-web. Run
 `tcren complementarity-summary browser` to check exported row counts and contact

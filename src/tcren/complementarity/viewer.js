@@ -27,7 +27,7 @@ function svgElement(root, tag, attributes = {}, title) {
     root.append(node); return node;
 }
 
-function options() {
+export function updateStructureOptions() {
     const selected = new Set([...$('structures').selectedOptions].map(o => o.value));
     $('structures').replaceChildren();
     const query = $('search').value.toLowerCase();
@@ -162,12 +162,12 @@ function draw(svg,vertical,views,atomic,scale) {
             'paint-order':'stroke',stroke:'white','stroke-width':2},title).textContent=text;
     }
     const position=p=>[350+(p[0]-Number($('panx').value))*scale,
-        280-(p[vertical]-Number($('pany').value))*scale];
+        280-(p[vertical]-Number($(vertical===2?'panz':'pany').value))*scale];
     const [zeroX,zeroY]=position([0,0,0]);
     for (const axis of [0,1]) svgElement(svg,'line',{x1:axis?zeroX:25,y1:axis?25:zeroY,
         x2:axis?zeroX:675,y2:axis?535:zeroY,stroke:'#d6dce3'});
-    svgElement(svg,'text',{x:660,y:zeroY+18,'font-size':13}).textContent='+x';
-    svgElement(svg,'text',{x:zeroX+8,y:30,'font-size':13}).textContent=vertical===2?'+z':'+y';
+    svgElement(svg,'text',{x:660,y:Math.min(540,Math.max(20,zeroY+18)),'font-size':13}).textContent='+x';
+    svgElement(svg,'text',{x:Math.min(650,Math.max(10,zeroX+8)),y:30,'font-size':13}).textContent=vertical===2?'+z':'+y';
     const maximum=130/scale,power=10**Math.floor(Math.log10(maximum));
     const bar=[5,2,1].find(value=>value*power<=maximum)*power;
     svgElement(svg,'line',{x1:30,y1:525,x2:30+bar*scale,y2:525,stroke:'#333','stroke-width':2});
@@ -218,6 +218,19 @@ function draw(svg,vertical,views,atomic,scale) {
     }
 }
 
+export function fitCameraCoordinates(positions) {
+    const lo=[Infinity,Infinity,Infinity],hi=[-Infinity,-Infinity,-Infinity];let extent=10,count=0;
+    for(const p of positions){count++;for(let axis=0;axis<3;axis++){
+        lo[axis]=Math.min(lo[axis],p[axis]);hi[axis]=Math.max(hi[axis],p[axis]);extent=Math.max(extent,Math.abs(p[axis]));
+    }}
+    if(!count)return false;
+    for(const [axis,id]of [[0,'panx'],[1,'pany'],[2,'panz']])$(id).value=String(Math.max(-100,Math.min(100,Math.round((lo[axis]+hi[axis])/2))));
+    const radius=Math.max(1,...lo.map((value,i)=>(hi[i]-value)/2))*1.1;
+    $('zoom').value=String(Math.min(5,Math.max(1,Math.round(extent/radius*4)/4)));return true;
+}
+
+export function resetCameraCoordinates(){for(const id of ['panx','pany','panz'])$(id).value='0';$('zoom').value='1';}
+
 async function render() {
     const token=++generation;
     for(const id of ['side','top'])$(id).setAttribute('aria-busy','true');
@@ -242,7 +255,7 @@ async function render() {
         summary(views,atomic);
         draw($('side'),2,views,atomic,scale);draw($('top'),1,views,atomic,scale);
         document.dispatchEvent(new CustomEvent('tcren:render',{detail:{scenes,atomic}}));
-        $('status').textContent=scenes.length?scenes.map(s=>`${s.id}\nReference ${s.frame.reference}; fixed origin ${s.frame.origin_component}: ${s.frame.origin}; ${s.frame.anchors} anchors; RMSD ${s.frame.rmsd.toFixed(3)} Å\n${s.warnings.length?s.warnings.join('\n'):'No export warnings'}`).join('\n\n'):'Select a structure to inspect.';
+        $('status').textContent=scenes.length?scenes.map(s=>`${s.id}\nReference ${s.frame.reference}; fixed origin ${s.frame.origin_component}: ${s.frame.origin}; ${s.frame.anchors} anchors; RMSD ${s.frame.rmsd.toFixed(3)} Å\n${s.warnings.length?s.warnings.join('\n'):'No export warnings'}`).join('\n\n')+`\nCamera offsets x/y/z: ${$('panx').value}/${$('pany').value}/${$('panz').value} Å; zoom ${$('zoom').value}. Molecular reference coordinates remain fixed.`:'Select a structure to inspect.';
     } catch(error) {
         if(token!==generation)return;
         currentViews=[];nodeTable();summary([],false);
@@ -272,10 +285,15 @@ try {
         $('downloads').append(row);
     }
     for(const group of new Set(entries.map(e=>e.reference)))$('group').add(new Option(entries.find(e=>e.reference===group).label||group,group));
-    options();await render();
+    updateStructureOptions();await render();
 } catch(error) {$('status').textContent=`Serve this directory over localhost. ${error}`;}
-$('group').onchange=()=>{options();render();};$('search').oninput=()=>{options();render();};
-for(const id of ['structures','detail','weight','labels','backbone','covalent','regions','chains','edges','zoom','panx','pany','labelscope'])$(id).addEventListener('change',render);
+$('group').onchange=()=>{updateStructureOptions();render();};$('search').oninput=()=>{updateStructureOptions();render();};
+for(const id of ['structures','detail','weight','labels','backbone','covalent','regions','chains','edges','zoom','panx','pany','panz','labelscope'])$(id).addEventListener('change',render);
+$('fit-camera').onclick=()=>{
+    function* positions(){for(const view of currentViews)for(const node of view.nodes)if(view.shown(node))yield node.xyz;}
+    if(fitCameraCoordinates(positions()))render();
+};
+$('reset-camera').onclick=()=>{resetCameraCoordinates();render();};
 $('nodesearch').oninput=()=>{nodePage=0;nodeTable();};
 $('visibleonly').onchange=()=>{nodePage=0;nodeTable();};
 $('previous').onclick=()=>{nodePage--;nodeTable();};$('next').onclick=()=>{nodePage++;nodeTable();};

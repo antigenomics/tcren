@@ -90,6 +90,9 @@ counts after chain, region and contact-group filters; zoom and pan do not change
 these counts. Filters never overwrite global counts.
 Hover/click exposes identities, source keys, ordinals and counts. Summary tables,
 chain/region/edge selection, zoom, pan and label scope support inspection.
+Side z and top y camera offsets are independent. ``Fit visible nodes`` adjusts
+the shared zoom and camera offsets; ``Reset camera`` restores the reference-origin
+view. These actions never recenter molecular coordinates or change counts.
 Default peptide labels refer to the first selected structure, avoiding repeated
 labels in overlays; select ``Peptide · every structure`` to label each member.
 All points remain independently inspectable in either mode.
@@ -133,7 +136,9 @@ Dataset-specific PWM thresholds, experimental matrices and motif/anchor joins
 belong in consuming projects. They are not computed by this CLI. The browser
 dispatches ``tcren:render`` with ``{scenes, atomic}`` after drawing; plotted points
 carry ``data-structure-id`` and ``data-residue-id``. JavaScript consumers can reuse
-``loadScene``, ``nodesFor`` and ``choices`` from ``viewer.js``. This permits local
+``loadScene``, ``nodesFor``, ``choices``, ``updateStructureOptions``,
+``fitCameraCoordinates`` and ``resetCameraCoordinates`` from
+``viewer.js``. This permits local
 overlays without duplicating molecular coordinate or contact calculations.
 An HTML ``data-max-overlay`` attribute can lower the detailed selection limit;
 the library always caps it at 16. Large overview rendering belongs in consumers.
