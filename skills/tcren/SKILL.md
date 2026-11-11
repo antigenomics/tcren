@@ -10,6 +10,54 @@ private identity maps and publication formatting in their owning projects.
 Start with `tcren --help` and the chosen command's `--help`. Do not reconstruct
 scoring formulas in notebooks or manuscript scripts.
 
+## Extended contact browser
+
+Use `tcren complementarity -s models.list -o browser --task tcr -t 4`, then
+serve the output directory on localhost. `--task epitope` fixes the TCR framework;
+TCR ranking fixes identical peptide/MHC groups. Side/top views inherit a common
+reference origin: peptide COM/apex for TCR ranking, TCR variable-domain COM/CDR
+apex for epitope ranking. One atom/bond/contact model owns both display levels;
+residue mode resolves CA atoms and aggregates the same atom-pair witnesses.
+Use global versus filtered counts explicitly; zoom and pan change neither.
+Side z and top y camera offsets are independent. Fit visible nodes frames the
+selected points; Reset camera returns to the shared molecular reference origin.
+Neither action changes exported coordinates, alignment or contact counts.
+Labels are capped at 250 per projection, with a visible omission count; peptide
+and contacting nodes take priority. Every molecular point remains inspectable.
+JSON.gz scenes, typed Parquet and matching TSV.gz tables share these definitions;
+the dashboard is independent of vdjdb-web. Run
+`tcren complementarity-summary browser` to check exported row counts and contact
+incidence without recomputation; root summary JSON/TSV.gz/Parquet retain counts.
+Use repeatable `--exclude-id` for explicit omissions; inspect `excluded.json`.
+Inspect reference identity, RMSD, warnings and `errors.json`. Contact multiplicity
+counts atom pairs, not binding evidence. `--legacy` invokes unchanged historical
+SVG maps. See `docs/complementarity.rst` for definitions and limitations.
+
+For metadata-directed inputs use `complementarity --metadata TABLE --id-column id
+--path-column structure_path`; optional `--member-column member` addresses tar
+members. Paths are relative to TABLE; IDs must be explicit, unique and nonempty.
+Do not infer assay outcomes from path names. `complementarity-views --exports
+VERIFIED_BROWSER -o NEW_VIEWS` writes typed long `topography_residues`,
+`topography_cells` and `contact_heatmap` Parquet/TSV.gz partitions. Reuse frozen
+scenes; never call the older surface command's independent frame for these views.
+TCR ranking maps the variable-domain lower face; epitope ranking maps the peptide
+upper face. Signed canonical z, sphere-envelope height and atom-center apex are
+different quantities. Unknown KD and missing CA stay null. Facet order is alpha
+CDR1/2/3, beta CDR3/2/1; loop residue order remains N→C. Contact masking uses original
+heavy-atom witnesses. Contact-only heatmaps can have zero visible pairs; explicit no-contact messages
+are distinct from absent facets and missing CA values. Inspect all-pair distances
+and the source coordinates before interpreting empty contact maps. Short display
+labels retain full join IDs; reference-group hash labels use eight characters
+with full values/tooltips. Occupied grid boundaries require extent review.
+Browser selection changes abort obsolete fetch/decompression. Project overviews
+pass an AbortSignal to `loadScene(file, {signal})` and dispatch
+`tcren:cancel-detail` on overview entry; cancellation is not a heap measurement.
+Static `complementarity-plot --tables NEW_VIEWS --structure-id
+ID -o NEW_FIGURES` and the single-structure table browser consume these exact
+tables (browser JSON caches are read back from Parquet). Project Polars descriptors
+must use the exported long tables, retain reference groups and labels separately,
+and inspect every generated figure; no browser-side geometry or label-based fits.
+
 ## Choose the task
 
 | Input and question | Command | Guide |
@@ -19,6 +67,7 @@ scoring formulas in notebooks or manuscript scripts.
 | Candidate peptides threaded on one fixed template | `score` | [Getting started](https://docs.isalgo.dev/tcren/getting-started.html) |
 | Existing structural epitope-energy/ipTM table | `rank-epitopes` | [Epitope ranking](https://docs.isalgo.dev/tcren/ranking.html) |
 | Contacts, atom inventories or score attribution | `contacts`, `export` | [Features](https://docs.isalgo.dev/tcren/features.html) |
+| Shared-frame atom/residue views and overlays | `complementarity`, `complementarity-views`, `complementarity-plot` | [Complementarity](https://docs.isalgo.dev/tcren/complementarity.html) |
 | Canonical placement and pMHC surface | `superimpose`, `surface` | [Inspection](https://docs.isalgo.dev/tcren/kit.html) |
 | Recorded observations and matched comparisons | `evaluate`, `associate` | [Evaluation](https://docs.isalgo.dev/tcren/evaluation.html) |
 | Dynamics and mechanical descriptors | `md`, `mechanics` | [MD](https://docs.isalgo.dev/tcren/md-validation.html) |

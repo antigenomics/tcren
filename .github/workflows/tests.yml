@@ -49,3 +49,13 @@ jobs:
         # whatever is newest, whose default rule set is wider -- the first run of this job found
         # 167 reports against 0 locally, none of them a regression.
         run: uvx ruff@0.15.22 check src tests
+
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify browser streaming cancellation
+        run: node tests/complementarity_abort.mjs

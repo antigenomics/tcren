@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width">
+<title>TCRen complementarity browser</title>
+<style>
+body{font:15px system-ui;margin:24px;color:#203044;background:#f5f7fa}h1{font-size:24px}
+main{display:grid;grid-template-columns:260px 1fr;gap:20px}section,aside{background:white;padding:16px;border:1px solid #d5dce4;border-radius:8px}
+label{display:block;margin:10px 0}select,input{font:inherit;max-width:100%}select[multiple]{width:100%;height:250px}
+.views{display:grid;grid-template-columns:1fr 1fr;gap:12px}svg{width:100%;height:560px;background:#fff;border:1px solid #ddd}
+.key{display:flex;gap:15px;flex-wrap:wrap}.key span{border-bottom:4px solid var(--color)}
+#status{white-space:pre-wrap;font-size:13px}button{font:inherit;padding:6px 10px}
+table{border-collapse:collapse;width:100%;font-size:13px}th,td{padding:6px;border-bottom:1px solid #ddd;text-align:left;overflow-wrap:anywhere;max-width:180px}
+#inspector{max-height:300px;overflow:auto;white-space:pre-wrap}
+#summary{overflow-x:auto}
+@media(max-width:1600px){.views{grid-template-columns:1fr}}
+@media(max-width:800px){main{grid-template-columns:1fr}}
+</style>
+<h1>TCRen complementarity browser</h1>
+<p>Shared reference coordinates · side and top views · distances in Å. Contacts describe geometry, not verified binding.</p>
+<p id="population" role="status"></p>
+<details><summary>Export diagnostics</summary><pre id="errors">Loading diagnostics…</pre></details>
+<main><aside>
+<label>Reference group <select id="group"></select></label>
+<label>Find structure <input id="search" type="search"></label>
+<label>Structures (Ctrl/⌘ to overlay) <select id="structures" multiple></select></label>
+<label>Detail <select id="detail"><option value="residue">Residues (Cα)</option><option value="atom">Heavy atoms</option></select></label>
+<label>Contact multiplicity <select id="weight"><option value="unit">One edge per residue pair</option><option value="weighted">Width by atom-pair count</option><option value="parallel">Parallel atom-pair edges</option></select></label>
+<label><input id="labels" type="checkbox" checked> Residue / atom labels</label>
+<label><input id="backbone" type="checkbox" checked> Backbone trace</label>
+<label><input id="covalent" type="checkbox" checked> Covalent atom bonds</label>
+<label>Zoom <input id="zoom" type="range" min="1" max="5" step="0.25" value="1"></label>
+<label>Pan x (Å) <input id="panx" type="range" min="-100" max="100" value="0"></label>
+<label>Pan z · side (Å) <input id="panz" type="range" min="-100" max="100" value="0"></label>
+<label>Pan y · top (Å) <input id="pany" type="range" min="-100" max="100" value="0"></label>
+<button id="fit-camera" type="button">Fit visible nodes</button>
+<button id="reset-camera" type="button">Reset camera</button>
+<label>Labels for <select id="labelscope"><option value="peptide">Peptide · first structure</option><option value="allpeptides">Peptide · every structure</option><option value="contacts">Contacted residues</option><option value="all">All visible residues / atoms</option></select></label>
+<fieldset><legend>Chains</legend><div id="chains"></div></fieldset>
+<fieldset><legend>Regions</legend><div id="regions"></div></fieldset>
+<fieldset><legend>Contact groups</legend><div id="edges"></div></fieldset>
+</aside><section><div class="key"><span style="--color:#0072b2">α TCR</span><span style="--color:#56b4e9">β TCR</span><span style="--color:#d55e00">Peptide N→C</span><span style="--color:#009e73">MHC</span></div>
+<h2>Selection summary</h2><div id="summary"></div>
+<details open><summary>Atom / residue inspector</summary><div id="inspector">Click a point to inspect its identity and counts.</div></details>
+<p><a href="tables/manifest.json">Compressed table index</a></p>
+<details><summary>Download typed tables (Parquet / TSV.gz)</summary><div id="downloads"></div></details>
+<details><summary>Browse every residue / atom</summary>
+<label>Find node <input id="nodesearch" type="search" placeholder="Chain, name, number, ID"></label>
+<label><input id="visibleonly" type="checkbox" checked> Only nodes passing chain / region filters</label>
+<button id="previous" type="button">Previous</button> <button id="next" type="button">Next</button>
+<span id="pageinfo"></span><div id="nodetable"></div></details>
+<div class="views"><div><h2>Side · x / z</h2><svg id="side" viewBox="0 0 700 560" aria-label="Side contact view"></svg></div><div><h2>Top · x / y</h2><svg id="top" viewBox="0 0 700 560" aria-label="Top contact view"></svg></div></div>
+<p>+x: reference peptide N→C; +z: above groove; +y: toward side-view camera. Overlay members share the reference origin. Hover/click for identities and counts. Dashed edges are contacts; thin solid lines are covalent bonds; colored traces highlight backbone connectivity.</p>
+<pre id="status" role="status"></pre></section></main>
+<script type="module" src="viewer.js"></script></html>

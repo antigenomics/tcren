@@ -193,6 +193,29 @@ make -C docs html SPHINXOPTS=-W
 [API skill](https://github.com/antigenomics/tcren/blob/master/skills/tcren/SKILL.md) ·
 [Editable splash source](https://github.com/antigenomics/tcren/blob/master/docs/_static/tcren-splash.tex)
 
+## Extended contact browser
+
+`tcren complementarity -s models.list -o browser --task tcr -t 4` exports
+shared-frame residue/heavy-atom scenes and a local side/top overlay dashboard.
+Use `--task epitope` to fix the receptor, `--origin apex` for an apex origin,
+and `--legacy` for unchanged historical SVG output. Serve using
+`python -m http.server --bind 127.0.0.1 --directory browser`.
+See [the browser guide](https://docs.isalgo.dev/tcren/complementarity.html).
+
+Metadata inputs (`--metadata structures.tsv --id-column id --path-column structure_path`)
+preserve explicit structure identities. `tcren complementarity-views --exports browser -o views`
+adds long topography and Cα/contact-facet tables in TSV.gz and Parquet, with summaries
+and a standalone interactive table browser. `tcren complementarity-plot --tables views
+--structure-id ID -o figures/ID` renders PNGs from those tables. Geometry is computed
+once; table-derived JSON caches serve the same values to the browser.
+The standalone dashboard uses one atom/bond/contact model for both projections
+and both display levels. Residue mode references Cα atoms and counts the same
+atom-contact witnesses; summaries and inspection distinguish global and visible
+counts after filters. Matching Parquet and TSV.gz tables accompany JSON.gz scenes;
+`tcren complementarity-summary browser` independently checks exported row counts
+and contact-incidence sums. Per-structure summaries are also available in all
+three formats. Explicit `--exclude-id` omissions retain their source identities.
+
 ## CPU budgets
 
 `threads=0` selects the available physical cores, constrained by CPU affinity,

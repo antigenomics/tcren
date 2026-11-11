@@ -3417,6 +3417,21 @@ from .historical_candidates import command as historical_candidates_command, mar
 app.command("historical-candidates", rich_help_panel=_P_DATA)(historical_candidates_command)
 app.command("historical-markup", rich_help_panel=_P_DATA)(historical_markup_command)
 
+from .complementarity.command import complementarity_command
+
+app.command("complementarity")(complementarity_command)
+from .complementarity.summary import summary_command
+
+app.command("complementarity-summary")(summary_command)
+
+from .complementarity.view_export import views_command
+
+app.command("complementarity-views")(views_command)
+
+from .complementarity.view_plot import plot_command as complementarity_plot_command
+
+app.command("complementarity-plot")(complementarity_plot_command)
+
 # The __main__ guard belongs at the VERY END of the module, below the last @app.command.
 # It has been moved twice for the same reason. It first sat just after `main()`, two thirds up,
 # so `python -m tcren.cli` ran the app before the `potts` subcommands were registered and

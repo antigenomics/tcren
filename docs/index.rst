@@ -100,6 +100,7 @@ Look up definitions and APIs
    notebooks/tcrvdb_frozen_score_reproduction
 
    notebooks/complementarity_map_2d
+   complementarity
    notebooks/pocket_cdr_3d
    notebooks/canonical_frame_figures
    notebooks/pymol_canonical_figures
