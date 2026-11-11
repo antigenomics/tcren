@@ -43,6 +43,9 @@ heavy-atom witnesses. Contact-only heatmaps can have zero visible pairs; explici
 are distinct from absent facets and missing CA values. Inspect all-pair distances
 and the source coordinates before interpreting empty contact maps. Short display
 labels retain full join IDs; occupied grid boundaries require extent review.
+Browser selection changes abort obsolete fetch/decompression. Project overviews
+pass an AbortSignal to `loadScene(file, {signal})` and dispatch
+`tcren:cancel-detail` on overview entry; cancellation is not a heap measurement.
 Static `complementarity-plot --tables NEW_VIEWS --structure-id
 ID -o NEW_FIGURES` and the single-structure table browser consume these exact
 tables (browser JSON caches are read back from Parquet). Project Polars descriptors

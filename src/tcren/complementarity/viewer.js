@@ -5,6 +5,7 @@ const COLORS = {alpha:'#0072b2', beta:'#56b4e9', peptide:'#d55e00', mhc:'#009e73
 const DEFAULT_REGIONS = new Set(['CDR1','CDR2','CDR3','PEPTIDE','HELIX_A1','HELIX_A2','HELIX_B1','GROOVE_FLOOR']);
 const edgeName = (a,b) => [a,b].sort().join(':');
 let entries = [], generation = 0, currentViews = [], nodePage = 0;
+let renderController = null;
 
 export function choices(id, values, initiallyVisible) {
     const existing = new Map([...$(id).querySelectorAll('input')].map(n => [n.value,n.checked]));
@@ -39,10 +40,12 @@ export function updateStructureOptions() {
     }
 }
 
-export async function loadScene(file) {
-    const response = await fetch(file);
+export async function loadScene(file, {signal} = {}) {
+    const response = await fetch(file, {signal});
     if (!response.ok) throw Error(`${file}: ${response.status}`);
-    const scene = JSON.parse(await new Response(response.body.pipeThrough(new DecompressionStream('gzip'))).text());
+    const text = await new Response(response.body.pipeThrough(new DecompressionStream('gzip'), {signal})).text();
+    signal?.throwIfAborted();
+    const scene = JSON.parse(text);
     if (scene.schema !== 'tcren.complementarity/2') throw Error('This prototype uses an older schema; regenerate it with the current exporter.');
     return scene;
 }
@@ -245,13 +248,15 @@ export function resetCameraCoordinates(){for(const id of ['panx','pany','panz'])
 
 async function render() {
     const token=++generation;
+    renderController?.abort();
+    const controller = renderController = new AbortController();
     for(const id of ['side','top'])$(id).setAttribute('aria-busy','true');
     $('status').textContent='Loading selection…';
     try {
         const selected=[...$('structures').selectedOptions];
         const limit=Math.min(16,Math.max(1,parseInt(document.documentElement.dataset.maxOverlay)||16));
         if(selected.length>limit)throw Error(`Select at most ${limit} structures per detailed overlay.`);
-        const scenes=await Promise.all(selected.map(o=>loadScene(o.value)));
+        const scenes=await Promise.all(selected.map(o=>loadScene(o.value,{signal:controller.signal})));
         if(token!==generation)return;
         choices('chains',scenes.flatMap(s=>s.components.map(c=>c.role+':'+c.chain)),()=>true);
         choices('regions',scenes.flatMap(s=>s.residues.map(r=>r.role+':'+r.region)),v=>DEFAULT_REGIONS.has(v.split(':')[1]));
@@ -269,16 +274,23 @@ async function render() {
         document.dispatchEvent(new CustomEvent('tcren:render',{detail:{scenes,atomic}}));
         $('status').textContent=scenes.length?scenes.map(s=>`${s.id}\nReference ${s.frame.reference}; fixed origin ${s.frame.origin_component}: ${s.frame.origin}; ${s.frame.anchors} anchors; RMSD ${s.frame.rmsd.toFixed(3)} Å\n${s.warnings.length?s.warnings.join('\n'):'No export warnings'}`).join('\n\n')+`\nCamera offsets x/y/z: ${$('panx').value}/${$('pany').value}/${$('panz').value} Å; zoom ${$('zoom').value}. Molecular reference coordinates remain fixed.`:'Select a structure to inspect.';
     } catch(error) {
+        controller.abort(); // Also stop sibling loads when one selection member fails.
         if(token!==generation)return;
         currentViews=[];nodeTable();summary([],false);
         $('side').replaceChildren();$('top').replaceChildren();
         $('inspector').textContent='Selection unavailable.';$('status').textContent=String(error);
     } finally {
+        if(renderController===controller)renderController=null;
         if(token===generation)for(const id of ['side','top'])$(id).setAttribute('aria-busy','false');
     }
 }
 
 choices('edges',['alpha:peptide','beta:peptide','alpha:mhc','beta:mhc','mhc:peptide','alpha:beta','b2m:mhc','mhc:mhc'],v=>!['alpha:beta','b2m:mhc','mhc:mhc'].includes(v));
+document.addEventListener('tcren:cancel-detail',()=>{
+    generation++;
+    renderController?.abort();renderController=null;
+    for(const id of ['side','top'])$(id).setAttribute('aria-busy','false');
+});
 try {
     const response=await fetch('index.json');if(!response.ok)throw Error(`Index ${response.status}`);
     entries=await response.json();

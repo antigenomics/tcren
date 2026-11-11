@@ -236,3 +236,9 @@ A contact witness records proximity within the extraction envelope; it does not
 certify a physically plausible interaction. Inspect original atom coordinates
 for steric overlaps and displaced poses before interpreting dense contact
 patches or motif localization. Preserve source models and experimental calls.
+
+Changing a detailed or table selection aborts its previous fetch and gzip stream.
+Consuming overview renderers can call ``loadScene(file, {signal})`` with an
+AbortSignal and dispatch ``tcren:cancel-detail`` when leaving detailed mode.
+Cancelled requests cannot replace the latest selection's status. Cancellation
+bounds obsolete network/decompression work; it is not a measured heap-memory claim.
