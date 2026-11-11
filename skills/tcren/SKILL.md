@@ -42,7 +42,8 @@ CDR1/2/3, beta CDR3/2/1; loop residue order remains N→C. Contact masking uses 
 heavy-atom witnesses. Contact-only heatmaps can have zero visible pairs; explicit no-contact messages
 are distinct from absent facets and missing CA values. Inspect all-pair distances
 and the source coordinates before interpreting empty contact maps. Short display
-labels retain full join IDs; occupied grid boundaries require extent review.
+labels retain full join IDs; reference-group hash labels use eight characters
+with full values/tooltips. Occupied grid boundaries require extent review.
 Browser selection changes abort obsolete fetch/decompression. Project overviews
 pass an AbortSignal to `loadScene(file, {signal})` and dispatch
 `tcren:cancel-detail` on overview entry; cancellation is not a heap measurement.

@@ -308,7 +308,12 @@ try {
         }
         $('downloads').append(row);
     }
-    for(const group of new Set(entries.map(e=>e.reference)))$('group').add(new Option(entries.find(e=>e.reference===group).label||group,group));
+    for(const group of new Set(entries.map(e=>e.reference))){
+        const label=entries.find(e=>e.reference===group).label||group;
+        const text=/^[a-f0-9]{32,}$/i.test(group)?label.replace(group,group.slice(0,8)):label;
+        const option=new Option(text,group);option.title=`${label}\nReference ${group}`;
+        $('group').add(option);
+    }
     updateStructureOptions();await render();
 } catch(error) {$('status').textContent=`Serve this directory over localhost. ${error}`;}
 $('group').onchange=()=>{updateStructureOptions();render();};$('search').oninput=()=>{updateStructureOptions();render();};

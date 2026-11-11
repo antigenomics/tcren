@@ -147,7 +147,9 @@ An HTML ``data-max-overlay`` attribute can lower the detailed selection limit;
 the library always caps it at 16. Large overview rendering belongs in consumers.
 Consumers can add ``display_label`` to index entries. Long structure identifiers
 are abbreviated in the selection summary, with full identities in tooltips,
-inspectors and all exports.
+inspectors and all exports. Reference-group options abbreviate long hexadecimal
+IDs to eight characters while retaining the full reference in their value and
+tooltip; informative custom group labels remain intact.
 
 Metadata and table-owned surface/contact views
 ----------------------------------------------
