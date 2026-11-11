@@ -28,6 +28,23 @@ Inspect reference identity, RMSD, warnings and `errors.json`. Contact multiplici
 counts atom pairs, not binding evidence. `--legacy` invokes unchanged historical
 SVG maps. See `docs/complementarity.rst` for definitions and limitations.
 
+For metadata-directed inputs use `complementarity --metadata TABLE --id-column id
+--path-column structure_path`; optional `--member-column member` addresses tar
+members. Paths are relative to TABLE; IDs must be explicit, unique and nonempty.
+Do not infer assay outcomes from path names. `complementarity-views --exports
+VERIFIED_BROWSER -o NEW_VIEWS` writes typed long `topography_residues`,
+`topography_cells` and `contact_heatmap` Parquet/TSV.gz partitions. Reuse frozen
+scenes; never call the older surface command's independent frame for these views.
+TCR ranking maps the variable-domain lower face; epitope ranking maps the peptide
+upper face. Signed canonical z, sphere-envelope height and atom-center apex are
+different quantities. Unknown KD and missing CA stay null. Facet order is alpha
+CDR1/2/3, beta CDR3/2/1; loop residue order remains N→C. Contact masking uses original
+heavy-atom witnesses. Static `complementarity-plot --tables NEW_VIEWS --structure-id
+ID -o NEW_FIGURES` and the single-structure table browser consume these exact
+tables (browser JSON caches are read back from Parquet). Project Polars descriptors
+must use the exported long tables, retain reference groups and labels separately,
+and inspect every generated figure; no browser-side geometry or label-based fits.
+
 ## Primary entry point — `tcren screen`
 
 `screen -s models.tar.gz -o scores.tsv` ranks a cohort of separately modelled αβ

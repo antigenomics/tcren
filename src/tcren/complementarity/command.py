@@ -16,27 +16,58 @@ from .prepare import fixed_component, ranking_frame, reference_frame
 from .scene import build_scene
 
 
-def _structures(source, scratch):
-    from ..structure import is_structure_file, iter_structures, parse_structure
+def _archive_structures(source, scratch, identities=None):
+    from ..structure import is_structure_file, parse_structure
 
-    if str(source).endswith((".tar.gz", ".tgz", ".tar")):
-        with tarfile.open(source, mode="r|*") as archive:
-            for member in archive:
-                path = Path(member.name)
-                if not member.isfile() or path.name.startswith("._") or not is_structure_file(path):
-                    continue
-                suffix = "".join(path.suffixes)
-                identity = member.name[:-len(suffix)]
-                with archive.extractfile(member) as incoming:
-                    with tempfile.NamedTemporaryFile(suffix=suffix, dir=scratch) as temporary:
-                        while chunk := incoming.read(1024 * 1024):
-                            temporary.write(chunk)
-                        temporary.flush()
+    found = set()
+    with tarfile.open(source, mode="r|*") as archive:
+        for member in archive:
+            path = Path(member.name)
+            if not member.isfile() or path.name.startswith("._") or not is_structure_file(path):
+                continue
+            if identities is not None and member.name not in identities:
+                continue
+            if identities is not None:
+                found.add(member.name)
+            suffix = "".join(path.suffixes)
+            selected = identities[member.name] if identities is not None else [(member.name[:-len(suffix)], None)]
+            with archive.extractfile(member) as incoming:
+                with tempfile.NamedTemporaryFile(suffix=suffix, dir=scratch) as temporary:
+                    while chunk := incoming.read(1024 * 1024):
+                        temporary.write(chunk)
+                    temporary.flush()
+                    digest = hashlib.sha256(Path(temporary.name).read_bytes()).hexdigest()
+                    for identity, row in selected:
                         structure = parse_structure(temporary.name, pdb_id=identity)
                         structure.annotation_provenance["visualization_input"] = dict(
-                            member=member.name,
-                            sha256=hashlib.sha256(Path(temporary.name).read_bytes()).hexdigest())
+                            member=member.name, sha256=digest)
+                        if identities is not None:
+                            structure.annotation_provenance["visualization_input"].update(archive=str(source), metadata_row=row)
                         yield structure
+    if identities is not None and (missing := set(identities) - found):
+        raise ValueError(f"metadata archive members missing in {source}: {', '.join(sorted(missing)[:5])}")
+
+
+def _structures(source, scratch, metadata=None):
+    from ..structure import iter_structures, parse_structure
+
+    if metadata is not None:
+        archives, handled = {}, set()
+        for item in metadata:
+            if item.member:
+                archives.setdefault(item.path, {}).setdefault(item.member, []).append((item.identity, item.row))
+        for item in metadata:
+            if item.member:
+                if item.path not in handled:
+                    handled.add(item.path)
+                    yield from _archive_structures(item.path, scratch, archives[item.path])
+            else:
+                structure = parse_structure(item.path, pdb_id=item.identity)
+                structure.annotation_provenance["visualization_input"] = dict(
+                    path=str(item.path), metadata_row=item.row, sha256=hashlib.sha256(item.path.read_bytes()).hexdigest())
+                yield structure
+    elif str(source).endswith((".tar.gz", ".tgz", ".tar")):
+        yield from _archive_structures(source, scratch)
     else:
         from ..structure import structure_paths
 
@@ -49,7 +80,7 @@ def _structures(source, scratch):
 
 
 def complementarity_command(
-    structures: Path = typer.Option(..., "--structures", "-s"),
+    structures: Path = typer.Option(None, "--structures", "-s"),
     output: Path = typer.Option(..., "--output", "-o"),
     task: str = typer.Option("tcr", help="tcr: fixed pMHC; epitope: fixed receptor"),
     origin: str = typer.Option("center-of-mass", help="apex or center-of-mass"),
@@ -58,6 +89,10 @@ def complementarity_command(
     legacy: bool = typer.Option(False, "--legacy", help="Use unchanged historical SVG maps"),
     scratch: Path = typer.Option(None, help="Existing directory for one temporary archive member"),
     exclude_id: list[str] = typer.Option(None, "--exclude-id", help="Explicit source ID to omit; repeatable and recorded"),
+    metadata: Path = typer.Option(None, help="TSV[.gz]/CSV[.gz]/Parquet with explicit structure identities and paths"),
+    path_column: str = typer.Option("structure_path", help="Metadata path column; relative paths resolve beside metadata"),
+    id_column: str = typer.Option("id", help="Metadata structure identity column"),
+    member_column: str = typer.Option(None, help="Metadata archive-member column, when paths point to tar files"),
 ):
     """Export shared-frame side/top contact scenes and a local overlay dashboard."""
     from ..annotation import classify_chains
@@ -74,6 +109,20 @@ def complementarity_command(
         raise typer.BadParameter("scratch must be an existing directory")
     if legacy and not 3 <= cutoff <= 6:
         raise typer.BadParameter("legacy cutoff must be within [3, 6] Angstroms")
+    if (structures is None) == (metadata is None):
+        raise typer.BadParameter("provide exactly one of --structures or --metadata")
+    source_rows, metadata_provenance = None, None
+    if metadata is not None:
+        from .inputs import metadata_inputs
+
+        try:
+            source_rows = metadata_inputs(metadata, path_column=path_column, id_column=id_column,
+                                          member_column=member_column)
+        except (ValueError, OSError) as exc:
+            raise typer.BadParameter(str(exc)) from exc
+        metadata_provenance = dict(path=str(metadata.resolve()), sha256=hashlib.sha256(metadata.read_bytes()).hexdigest(),
+                                   id_column=id_column, path_column=path_column, member_column=member_column,
+                                   order="direct paths in table order; each archive streamed once at its first occurrence")
     references, errors, seen = {}, [], set()
     excluded, input_count = [], 0
     requested_exclusions = set(exclude_id or [])
@@ -83,7 +132,9 @@ def complementarity_command(
 
     def selected_sources():
         nonlocal input_count
-        for structure in _structures(structures, scratch):
+        for structure in _structures(structures, scratch, source_rows):
+            if metadata_provenance is not None:
+                structure.annotation_provenance["visualization_metadata"] = metadata_provenance
             input_count += 1
             if structure.pdb_id in requested_exclusions:
                 excluded.append(dict(id=structure.pdb_id, reason="explicit --exclude-id",
@@ -147,7 +198,8 @@ def complementarity_command(
     from importlib.metadata import version
 
     (output / "run.json").write_text(json.dumps(dict(
-        version=version("tcren"), source=str(structures), task=task, origin=origin,
+        version=version("tcren"), source=str(metadata if metadata is not None else structures),
+        metadata=metadata_provenance, task=task, origin=origin,
         cutoff=cutoff, threads=threads, legacy=legacy, structures=len(seen),
         input_structures=input_count, excluded_structures=len(excluded),
         errors=len(errors), implementation_sha256=implementation), indent=2), encoding="utf-8")

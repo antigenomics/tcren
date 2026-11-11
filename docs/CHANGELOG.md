@@ -13,6 +13,9 @@ All notable changes to `tcren` are recorded here. Format follows
   compressed tables. Center epitope-ranking comparisons on the fixed TCR.
 - Export matching TSV.gz/Parquet tables and JSON summaries; add a table-only
   summary check, explicit recorded exclusions and peptide label collision handling.
+- Accept explicit metadata structure IDs/paths and archive members. Export long
+  canonical topography and 18-facet CA/contact tables, then render static and
+  single-structure interactive views from those same typed tables.
 
 ## [4.2.0] — 2026-10-23
 
