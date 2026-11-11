@@ -90,6 +90,9 @@ counts after chain, region and contact-group filters; zoom and pan do not change
 these counts. Filters never overwrite global counts.
 Hover/click exposes identities, source keys, ordinals and counts. Summary tables,
 chain/region/edge selection, zoom, pan and label scope support inspection.
+Default peptide labels refer to the first selected structure, avoiding repeated
+labels in overlays; select ``Peptide · every structure`` to label each member.
+All points remain independently inspectable in either mode.
 
 Compressed data
 ---------------

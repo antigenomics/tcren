@@ -205,8 +205,9 @@ function draw(svg,vertical,views,atomic,scale) {
             point.onclick=()=>inspect(view,node);
             point.onkeydown=e=>{if(e.key==='Enter'||e.key===' ')inspect(view,node);};
             const scope=$('labelscope').value;
-            const label=scope==='all'||(scope==='contacts'&&node.contact_count>0&&(!atomic||node.name==='CA'))||
-                (r.role==='peptide'&&(!atomic||node.name==='CA'));
+            const peptideLabel=r.role==='peptide'&&(!atomic||node.name==='CA');
+            const label=scope==='peptide'?peptideLabel&&view===views[0]:scope==='allpeptides'?peptideLabel:
+                scope==='all'||(scope==='contacts'&&node.contact_count>0&&(!atomic||node.name==='CA'))||peptideLabel;
             if ($('labels').checked&&label) labelAt(cx,cy,
                 atomic&&scope==='all'?node.name:`${r.aa}${r.number}${r.insertion}${atomic?' CA':''}`,COLORS[r.role],name);
         }
