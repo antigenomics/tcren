@@ -23,7 +23,7 @@ from .compute import (
 
 @single_threaded
 def recognition_table(items, *, organism: str = "human", full: bool = False,
-                      threads: int = 1, chunk: int = 64,
+                      threads: int = 0, chunk: int = 64,
                       autodetect_species: bool = True, mechanics: bool = False,
                       include: Sequence[str] | None = None, radii: Sequence[float] = (7.0, 8.0),
                       _mmseqs_threads: int = 0, annotate: bool = True) -> list[dict]:

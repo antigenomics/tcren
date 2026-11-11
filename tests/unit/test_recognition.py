@@ -10,6 +10,43 @@ from tcren.recognition import (CDR3_FRAME_FEATURES, DESCRIPTORS, FAMILIES, FULL_
                                _interface_symmetry, descriptors)
 
 
+def test_burial_copies_selected_chains_without_parent_graph(monkeypatch):
+    """SASA needs isolated chain copies, without traversing unrelated parent state."""
+    from Bio.PDB import PDBParser
+    from Bio.PDB.Atom import Atom
+    from Bio.PDB.Chain import Chain
+    from Bio.PDB.Model import Model
+    from Bio.PDB.Residue import Residue
+    from Bio.PDB.Structure import Structure
+    from tcren.descriptors.compute import _burial
+
+    model = Model(0)
+    parent = Structure("original")
+    parent.add(model)
+    for cid, x in (("T", 0.), ("P", 3.), ("X", 100.)):
+        chain = Chain(cid)
+        residue = Residue((" ", 1, " "), "ALA", " ")
+        atom = Atom("CA", np.array([x, 0., 0.]), 0., 1., " ", " CA ", 1, "C")
+        atom.sasa = -1.
+        residue.add(atom)
+        chain.add(residue)
+        model.add(chain)
+    original = [(a, a.coord.copy(), a.parent) for a in model.get_atoms()]
+
+    def unrelated_parent_copy(self, memo):
+        raise AssertionError("chain copying traversed its parent model")
+
+    monkeypatch.setattr(Model, "__deepcopy__", unrelated_parent_copy, raising=False)
+    monkeypatch.setattr(PDBParser, "get_structure", lambda *args, **kwargs: parent)
+    monkeypatch.setattr("tcren.structure.io.write_pdb", lambda *args: None)
+    assert _burial(None, ["T"], ["P"]) > 0.
+    for atom, coord, residue in original:
+        assert np.array_equal(atom.coord, coord)
+        assert atom.sasa == -1. and atom.parent is residue
+    assert all(chain.parent is model for chain in model)
+    assert model.parent is parent
+
+
 def test_interface_symmetry_contact_counts():
     import math
 

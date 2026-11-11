@@ -31,9 +31,9 @@ fills gaps, so no already-covered allele can change. Fetch the alignments with:
     done
 
     python scripts/build_pseudo_fasta.py \
-        --mhci ~/vcs/tmp/pseudo/MHC_pseudo.dat \
-        --mhcii ~/vcs/tmp/pseudo/pseudosequence.2023.all.X.dat \
-        --imgt-alignments ~/vcs/tmp/imgt
+        --mhci /path/to/pseudosequences/MHC_pseudo.dat \
+        --mhcii /path/to/pseudosequences/pseudosequence.2023.all.X.dat \
+        --imgt-alignments /path/to/imgt
 """
 
 from __future__ import annotations

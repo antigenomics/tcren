@@ -5,11 +5,9 @@ side chains hold it in the TCR-facing conformation from one that happens to have
 there, because both present the same contact list. That blind spot is a specific, testable
 hypothesis rather than a general complaint:
 
-    Sewell (2026-08, ``manuscripts/2026-tcren/suggestions/sewell.txt``): Supplementary Fig. 4 of
-    Dolton et al. (*J Clin Invest* 2024) shows a substantial **intra-peptide** interaction between
-    P3 and P6 that stabilises the central bulge the TCR reads. "Poor binders could perhaps still
-    make many contacts but fail to stabilise the productive peptide conformation" — which would
-    explain why an additive contact model describes some systems well and others badly.
+    Intra-peptide interactions can stabilise the conformation presented to the TCR.
+    This module measures how that conformation changes when those interactions
+    are included or removed from the sampling potential.
 
 :func:`peptide_stability` measures it. Backbone φ/ψ are sampled by Metropolis Monte Carlo at
 temperature against the DOPE potential, and the readout is not a better pose but how far the peptide
@@ -18,8 +16,7 @@ conformation it was given). A peptide held by its own interactions stays; one th
 
 **The intra-peptide term is a switch, not a fixture.** ``intra_weight=0`` reruns the identical
 sampling with the peptide's contacts with itself removed, so ``delta_rmsf`` between the two is the
-stabilisation those interactions actually provide. That difference is the quantity Sewell's
-hypothesis is about, and :func:`stability_table` computes it for a set of structures.
+stabilisation those interactions actually provide. The paired difference is computed by :func:`stability_table` for a set of structures.
 
 Moves are torsional and exact: perturb one φ or ψ and rotate every atom downstream of that bond. A
 peptide has two free termini, so no loop closure is needed — the same rotation primitive

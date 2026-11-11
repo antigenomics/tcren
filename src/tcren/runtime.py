@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from functools import wraps
+import logging
 import operator
 import os
 from pathlib import Path
@@ -19,9 +20,87 @@ _NATIVE_ENV = ('POLARS_MAX_THREADS', 'POLARS_ASYNC_THREAD_COUNT',
 _LOCK = RLock()
 
 
-def available_cpus() -> int:
+def _windows_cpu_counts():
+    """Return process-affinity logical/physical counts using Windows topology.
+
+    Multiple processor groups cannot be represented by GetProcessAffinityMask;
+    reject them instead of silently counting only the primary group.
+    The current job rate is honored; Windows does not expose parent-job rates here.
+    """
+    import ctypes as C
+    from ctypes import wintypes as W
+    kernel = C.WinDLL("kernel32", use_last_error=True)
+    kernel.GetCurrentProcess.restype = W.HANDLE
+    process = kernel.GetCurrentProcess()
+    groups = W.USHORT(64)
+    group_ids = (W.USHORT * 64)()
+    kernel.GetProcessGroupAffinity.argtypes = [W.HANDLE, C.POINTER(W.USHORT), C.POINTER(W.USHORT)]
+    if not kernel.GetProcessGroupAffinity(process, C.byref(groups), group_ids):
+        raise RuntimeError("Windows CPU topology or affinity query failed")
+    if groups.value != 1:
+        raise RuntimeError("CPU budgeting requires a single Windows processor group")
+    mask, system = C.c_size_t(), C.c_size_t()
+    kernel.GetProcessAffinityMask.argtypes = [W.HANDLE, C.POINTER(C.c_size_t), C.POINTER(C.c_size_t)]
+    if not kernel.GetProcessAffinityMask(process, C.byref(mask), C.byref(system)):
+        raise RuntimeError("Windows CPU topology or affinity query failed")
+    size = W.DWORD()
+    query = kernel.GetLogicalProcessorInformationEx
+    query.argtypes = [W.DWORD, C.c_void_p, C.POINTER(W.DWORD)]
+    query(0, None, C.byref(size))  # RelationProcessorCore
+    if not size.value:
+        raise RuntimeError("Windows CPU topology or affinity query failed")
+    buffer = C.create_string_buffer(size.value)
+    if not query(0, buffer, C.byref(size)):
+        raise RuntimeError("Windows CPU topology or affinity query failed")
+    data = buffer.raw
+    offset, physical = 0, 0
+    width = C.sizeof(C.c_size_t)
+    while offset < len(data):
+        length = int.from_bytes(data[offset + 4:offset + 8], "little")
+        if length < 32 or offset + length > len(data):
+            raise RuntimeError("Windows CPU topology or affinity query failed")
+        count = int.from_bytes(data[offset + 30:offset + 32], "little")
+        for index in range(count):
+            start = offset + 32 + index * (width + 8)
+            if start + width + 8 > offset + length:
+                raise RuntimeError("Windows CPU topology or affinity query failed")
+            bits = int.from_bytes(data[start:start + width], "little")
+            group = int.from_bytes(data[start + width:start + width + 2], "little")
+            if group == group_ids[0] and bits & mask.value:
+                physical += 1
+                break
+        offset += length
+    if not mask.value or not physical:
+        raise RuntimeError("Windows returned empty CPU affinity or physical topology")
+    logical = mask.value.bit_count()
+    # Job CPU rate is a fraction of the host capacity, not the affinity mask.
+    class Rate(C.Structure):
+        _fields_ = [("flags", W.DWORD), ("rate", W.DWORD)]
+    rate = Rate()
+    query_job = kernel.QueryInformationJobObject
+    query_job.argtypes = [W.HANDLE, C.c_int, C.c_void_p, W.DWORD, C.c_void_p]
+    in_job = W.BOOL()
+    kernel.IsProcessInJob.argtypes = [W.HANDLE, W.HANDLE, C.POINTER(W.BOOL)]
+    if not kernel.IsProcessInJob(process, None, C.byref(in_job)):
+        raise RuntimeError("Windows job membership query failed")
+    if in_job.value and not query_job(None, 15, C.byref(rate), C.sizeof(rate), None):
+        raise RuntimeError("Windows job CPU rate query failed")
+    if rate.flags & 1:
+        maximum = (rate.rate >> 16) if rate.flags & 16 else rate.rate
+        if rate.flags & (4 | 16) and maximum:
+            kernel.GetActiveProcessorCount.argtypes = [W.WORD]
+            kernel.GetActiveProcessorCount.restype = W.DWORD
+            host = kernel.GetActiveProcessorCount(0xffff) or os.cpu_count() or logical
+            logical = min(logical, max(1, host * maximum // 10000))
+    return logical, min(physical, logical)
+
+
+def available_cpus(*, physical: bool = True) -> int:
     """Cores available under affinity, scheduler, container and physical-core limits."""
     counts = [os.cpu_count() or 1]
+    if sys.platform == "win32":
+        logical, cores = _windows_cpu_counts()
+        counts.append(cores if physical else logical)
     if hasattr(os, 'sched_getaffinity'):
         affinity = os.sched_getaffinity(0)
         counts.append(len(affinity))
@@ -31,10 +110,11 @@ def available_cpus() -> int:
                 topology = Path(f'/sys/devices/system/cpu/cpu{cpu}/topology')
                 cores.add((topology.joinpath('physical_package_id').read_text(),
                            topology.joinpath('core_id').read_text()))
-            counts.append(len(cores))
+            if physical:
+                counts.append(len(cores))
         except OSError:
             pass  # CPU topology can be hidden by a container; retain affinity limits.
-    if sys.platform == 'darwin':
+    if physical and sys.platform == 'darwin':
         try:
             result = subprocess.run(['sysctl', '-n', 'hw.physicalcpu'], capture_output=True,
                                     text=True, timeout=5, check=False)
@@ -81,8 +161,8 @@ def available_cpus() -> int:
     return max(1, min(counts))
 
 
-def resolve_threads(threads: int = 1) -> int:
-    """1 is serial, 0 is all allocated cores; reject invalid/excessive counts."""
+def resolve_threads(threads: int = 0) -> int:
+    """1 is serial, 0 selects all allocated physical cores; cap excessive counts."""
     if isinstance(threads, bool):
         raise ValueError('threads must be an integer: 0 (all allocated) or a positive count')
     try:
@@ -93,12 +173,12 @@ def resolve_threads(threads: int = 1) -> int:
         raise ValueError('threads must be nonnegative (0 means all allocated cores)')
     if count == 1:
         return 1
-    available = available_cpus()
-    if count > available:
-        raise ValueError(f'requested {count} CPUs exceeds the available allocation ({available})')
-    selected = count or available
-    if selected + 16 >= 1000:
-        raise ValueError("CPU request exceeds the live-thread ceiling; select fewer than 984 CPUs")
+    available = available_cpus() if count == 0 else available_cpus(physical=False)
+    selected = min(count or available, available, 121)
+    if count > selected:
+        logging.getLogger(__name__).warning(
+            "Requested %d CPUs; detected allocation %d logical CPUs (%d physical cores); using %d CPUs",
+            count, available, available_cpus(), selected)
     return selected
 
 
@@ -201,7 +281,9 @@ def _interactive_map(function, work, count):
             pickle.dump((function, work, count), stream, protocol=pickle.HIGHEST_PROTOCOL)
         with root.joinpath('stderr').open('w+b') as log:
             process = subprocess.Popen([sys.executable, '-m', 'tcren._parallel', folder],
-                                       stderr=log, start_new_session=os.name == 'posix')
+                                       stderr=log, start_new_session=os.name == 'posix',
+                                       env={**os.environ, 'PYTHONPATH': os.pathsep.join(
+                                           os.path.abspath(p) for p in sys.path)})
             try:
                 code = process.wait()
             except BaseException:

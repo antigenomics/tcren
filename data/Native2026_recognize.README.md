@@ -7,11 +7,10 @@ on `complex.id`. Regenerate with
 tcren recognize --full --scores -s "$TCREN_DATA_DIR/Native2026" -o Native2026_recognize.tsv
 ```
 
-It is kept in the repository because it is the only per-structure annotation table for the reference
-set that is small enough to commit, and several analyses need one column of it without wanting to
-re-featurise 374 structures — `mhc_class_bin` in particular, which is how the reference set is split
-into class I (280) and class II (94).
+This retained annotation table records the reference set, including `mhc_class_bin`:
+280 class-I structures and 94 class-II structures.
 
-Everything in it is **computed**, not measured. It is a convenience cache of this library's own
-output, so it must be regenerated whenever the features or the potential change; nothing should
-treat it as an input.
+Everything in it is **computed**, not measured. Preserve it as a historical
+output; it does not establish results for a changed descriptor implementation or
+potential. Run the command above only when a fresh calculation is requested,
+and keep the new output separate from this retained table.

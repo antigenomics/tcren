@@ -31,8 +31,12 @@ def test_pipeline_no_superimpose_scores_three_interfaces():
         res.scores["tcr_peptide"] + res.scores["tcr_mhc"] + res.scores["peptide_mhc"])
 
 
-def test_pipeline_superimpose_sets_canonical_frame():
-    res = run(_FIXTURE, superimpose=True)
+def test_pipeline_superimpose_sets_canonical_frame(tmp_path):
+    from tcren.docking import run_folder
+
+    canonical = tmp_path / "canonical"
+    run_folder(_FIXTURE, canonical)
+    res = run(_FIXTURE, superimpose=True, db_dir=canonical)
     assert res.oriented is not None and res.rmsd is not None
     assert {c.chain_id for c in res.oriented.chains} <= set("ABCDE")
     row = score_row(res)

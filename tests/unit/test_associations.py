@@ -133,3 +133,17 @@ def test_raw_joint_products_and_cli_preserve_score_rows(tmp_path):
     assert pl.read_csv(tmp_path/'out/membership.tsv', separator='\t').equals(baseline['membership'])
     assert pl.read_csv(tmp_path/'out/joint_features.tsv', separator='\t').equals(joint)
     assert json.loads((tmp_path/'out/provenance.json').read_text())['feature_products'] == [['relief', 'sasa_hydropathy']]
+
+
+def test_ambiguous_models_contribute_context_only():
+    rows = pl.DataFrame(dict(id=["a", "b", "c"], dataset=["d"]*3,
+        task=["receptor"]*3, cohort=["p"]*3, mhc_class=["I"]*3,
+        template_coverage=["unknown"]*3, y=[0., 1., None],
+        iptm=[.1, .9, .5], score=[.2, .8, .4]))
+    features = pl.DataFrame(dict(id=["a", "b", "c"], relief=[1., 3., 100.]))
+    result = associate(rows, features, {"score": 1}, ["relief"])
+    assert result["features"]["median"].to_list() == [3.]
+    assert result["features"]["n_rows"].to_list() == [3]
+    assert result["metrics"]["n_used"].to_list() == [2]*4
+    assert result["membership"]["finite_endpoint"].to_list() == [True, True, False]
+    assert result["membership"]["used"].to_list() == [True, True, False]

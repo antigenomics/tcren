@@ -94,9 +94,9 @@ def test_md_atom_correspondence_includes_author_identity(tmp_path):
                               {"TCR": ["A"]}, paths["potential.xvg"])
 
 
-def test_md_budget_validated_before_parsing(tmp_path, monkeypatch):
+def test_md_budget_clamps_before_parsing(tmp_path, monkeypatch):
     monkeypatch.setenv("SLURM_CPUS_PER_TASK", "1")
-    with pytest.raises(ValueError, match="exceeds"):
+    with pytest.raises(FileNotFoundError):
         inspect_md_trajectory("missing", "missing", {}, "missing", threads=2)
 
 

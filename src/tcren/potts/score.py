@@ -7,11 +7,13 @@ available-pair set. Nothing is fitted.
 from __future__ import annotations
 
 import hashlib
-import os
-from concurrent.futures import ProcessPoolExecutor
+import operator
+from contextvars import ContextVar
 
 import numpy as np
 import polars as pl
+
+from ..runtime import parallel_map, resolve_threads
 
 from .kernel import bucket_edges, colour, coupling_matrix, edges
 from .model import PottsModel, kernel_names
@@ -68,24 +70,22 @@ def _one(lo: int, hi: int, e, sigma, E, eoff, kv, s: int):
     return e[lo:hi], sigma[lo:hi], A, cols
 
 
-#: Filled once per worker process by :func:`_init_workers`, so the prepared arrays cross the
-#: process boundary once rather than once per structure.
-_SHARED: dict = {}
-
-
-def _init_workers(payload: dict) -> None:
-    _SHARED.clear()
-    _SHARED.update(payload)
+#: Prepared arrays belong to one coarse chunk, never to simultaneous callers.
+_SHARED: ContextVar[dict] = ContextVar('potts_payload')
 
 
 def _run_chunk(args):
-    body, idx, kw = args
+    body, idx, kw, payload = args
     if body not in _BODIES:
         # A spawned worker imports this module, not whatever registered the body. The ensemble
         # bodies register themselves into `_BODIES` on import, so import them on demand rather
         # than at module scope, which would be a cycle (`ensemble` imports from here).
         from . import ensemble  # noqa: F401
-    return [_BODIES[body](s, **kw) for s in idx]
+    token = _SHARED.set(payload)
+    try:
+        return [_BODIES[body](s, **kw) for s in idx]
+    finally:
+        _SHARED.reset(token)
 
 
 def _map_structures(body: str, n: int, payload: dict, kw: dict, workers: int | None):
@@ -99,18 +99,20 @@ def _map_structures(body: str, n: int, payload: dict, kw: dict, workers: int | N
     Measured on an M3 (16 cores), 64 structures of 20--80 sites: serial 48.9 ms per structure,
     3.6x at 8 processes. Threads make it *slower* (0.33x) — the arrays are too small for numpy to
     release the GIL usefully.
+
+    Batches with fewer than two structures per process run in the caller.
     """
     if workers is None:
-        workers = os.cpu_count() or 1
+        workers = 1 if n < 2 else resolve_threads(0)
+    if isinstance(workers, bool) or operator.index(workers) < 1:
+        raise ValueError('workers must be a positive integer or None')
+    workers = resolve_threads(operator.index(workers))
     if workers <= 1 or n < 2 * workers:
-        _init_workers(payload)
-        return _run_chunk((body, list(range(n)), kw))
+        return _run_chunk((body, list(range(n)), kw, payload))
     bounds = np.linspace(0, n, workers + 1).astype(int)
-    chunks = [(body, list(range(bounds[i], bounds[i + 1])), kw)
+    chunks = [(body, list(range(bounds[i], bounds[i + 1])), kw, payload)
               for i in range(workers) if bounds[i + 1] > bounds[i]]
-    with ProcessPoolExecutor(max_workers=workers, initializer=_init_workers,
-                             initargs=(payload,)) as ex:
-        return [row for part in ex.map(_run_chunk, chunks) for row in part]
+    return [row for part in parallel_map(_run_chunk, chunks, workers) for row in part]
 
 
 def _payload(upid, starts, e, sigma, E, eoff, kv) -> dict:
@@ -119,7 +121,7 @@ def _payload(upid, starts, e, sigma, E, eoff, kv) -> dict:
 
 def _unpack(s: int):
     """``(pdb id, lo, hi, rng, eta, sigma, A, colours)`` for structure ``s`` from the shared arrays."""
-    d = _SHARED
+    d = _SHARED.get()
     lo, hi = d["starts"][s], d["starts"][s + 1]
     et, sg, A, cols = _one(lo, hi, d["e"], d["sigma"], d["E"], d["eoff"], d["kv"], s)
     return d["upid"][s], lo, hi, et, sg, A, cols
@@ -204,8 +206,9 @@ def score_sites(sites: pl.DataFrame, model: PottsModel, *, particles: int = 64,
         particles: AIS particles per structure.
         steps: AIS annealing steps.
         seed: Seed for the sampler.
-        workers: Processes to split the structures across. ``None`` takes every core, ``1``
-            runs serially. The result is identical either way — each structure's numbers
+        workers: Processes to split the structures across. ``None`` uses allocated cores, ``1``
+            runs serially. Batches smaller than two structures per process run in the caller.
+            The result is identical either way — each structure's numbers
             depend on ``(seed, pdb.id)`` alone, never on how the work was split.
     """
     upid, starts, e, sigma, E, eoff, kv, _ = _prepare(sites, model)
@@ -235,8 +238,9 @@ def contact_probabilities(sites: pl.DataFrame, model: PottsModel, *, chains: int
         model: A fitted :class:`PottsModel`.
         chains, burn, draws, thin: Gibbs settings; see :func:`tcren.potts.gibbs`.
         seed: Seed for the sampler.
-        workers: Processes to split the structures across. ``None`` (default) uses every core,
-            ``1`` runs serially. Bit-identical either way; see :func:`tcren.potts.score_sites`.
+        workers: Processes to split the structures across. ``None`` (default) uses allocated cores,
+            ``1`` runs serially. Batches smaller than two structures per process run in the caller.
+            Bit-identical either way; see :func:`tcren.potts.score_sites`.
 
     Returns:
         The input frame with the three probabilities appended, one row per site.
@@ -304,7 +308,7 @@ def contact_map(sites: pl.DataFrame, model: PottsModel, *, by: str = "loop", cha
         by: ``"loop"`` (default), ``"position"`` or ``"pair"``.
         chains, burn, draws, thin: Gibbs settings; see :func:`tcren.potts.gibbs`.
         seed: Seed for the sampler.
-        workers: Processes to split the structures across; ``None`` uses every core, ``1`` runs
+        workers: Processes to split the structures across; ``None`` uses allocated cores, ``1`` runs
             serially. Bit-identical either way.
 
     Returns:
@@ -514,8 +518,9 @@ def bound_unbound(sites: pl.DataFrame, model: PottsModel, *, threshold: int | No
         chains, burn, draws, thin: Gibbs settings; see :func:`tcren.potts.gibbs`.
         particles, steps: AIS settings; see :func:`tcren.potts.ais_log_z`.
         seed: Seed for both samplers.
-        workers: Processes to split the structures across. ``None`` takes every core, ``1``
-            runs serially. The result is identical either way — each structure's numbers
+        workers: Processes to split the structures across. ``None`` uses allocated cores, ``1``
+            runs serially. Batches smaller than two structures per process run in the caller.
+            The result is identical either way — each structure's numbers
             depend on ``(seed, pdb.id)`` alone, never on how the work was split.
 
     Returns:

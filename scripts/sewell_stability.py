@@ -1,12 +1,8 @@
 #!/usr/bin/env python3
 """Does peptide conformational stability explain where an additive contact model fails?
 
-    "Supplementary Figure 4 in our JCI paper shows quite a substantial intra-peptide interaction
-     between P3 and P6 that stabilises the central peptide bulge recognised by the TCR. It made me
-     wonder whether this sort of internal peptide stabilisation might explain why 4C6 appears to be
-     less well described by an additive contact model than the other systems. Poor binders could
-     perhaps still make many contacts but fail to stabilise the productive peptide conformation."
-        -- Sewell, 2026-08, manuscripts/2026-tcren/suggestions/sewell.txt
+This diagnostic compares peptide conformational sampling with and without
+intra-peptide interactions at matched random seeds.
 
 The CPL set gives the design for free: ~160 modelled complexes for the BEST peptides and ~160 for
 the WORST, for each of seven clones. For every structure compute

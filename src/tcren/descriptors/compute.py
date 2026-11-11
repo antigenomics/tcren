@@ -88,7 +88,6 @@ def _burial(structure, tcr_ids, pmhc_ids) -> float:
         return math.nan
     import os
     import tempfile
-    from copy import deepcopy
 
     from Bio.PDB import PDBParser
     from Bio.PDB.Model import Model
@@ -107,7 +106,7 @@ def _burial(structure, tcr_ids, pmhc_ids) -> float:
         m2 = Model(0)
         for ch in model:
             if ch.id in ids:
-                m2.add(deepcopy(ch))
+                m2.add(ch.copy())  # Copy the subtree without following its parent hierarchy.
         s2 = BioStructure("t")
         s2.add(m2)
         sr.compute(s2, level="A")

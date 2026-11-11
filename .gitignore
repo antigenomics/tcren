@@ -389,3 +389,6 @@ appendix/*.toc
 
 # Local agent instructions, campaign plans and notes.
 /*.md
+
+# Private retired branches, notes and scratch; never package or publish.
+/attic/

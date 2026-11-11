@@ -9,12 +9,13 @@ from reviewed UniProt entries.
 from __future__ import annotations
 
 import re
+import gzip
 from dataclasses import dataclass
 from pathlib import Path
 
 import requests
 
-HLA_URL = "https://raw.githubusercontent.com/ANHIG/IMGTHLA/Latest/hla_prot.fasta"
+HLA_URL = "https://raw.githubusercontent.com/ANHIG/IMGTHLA/d972ae287948dc2e5468a40ff3b3d27227541189/hla_prot.fasta"
 HUMAN_B2M_URL = "https://rest.uniprot.org/uniprotkb/P61769.fasta"
 MOUSE_MHC_URL = (
     "https://rest.uniprot.org/uniprotkb/search?query="
@@ -50,24 +51,43 @@ class MhcAllele:
 def _read_fasta(path: Path):
     """Yield ``(header, sequence)`` pairs from a FASTA file."""
     header, seq = None, []
-    for line in path.read_text().splitlines():
-        if line.startswith(">"):
-            if header is not None:
-                yield header, "".join(seq)
-            header, seq = line[1:], []
-        else:
-            seq.append(line.strip())
+    opener = gzip.open if path.suffix == ".gz" else open
+    with opener(path, "rt") as stream:
+        for line in stream:
+            line = line.rstrip("\r\n")
+            if line.startswith(">"):
+                if header is not None:
+                    yield header, "".join(seq)
+                header, seq = line[1:], []
+            else:
+                seq.append(line.strip())
     if header is not None:
         yield header, "".join(seq)
 
 
 def _download(url: str, dest: Path, force: bool) -> Path:
-    if dest.exists() and not force:
-        return dest
+    import os
+    import tempfile
+    from arda._locking import build_lock
+
+    bundled = Path(__file__).resolve().parents[1] / "data" / "mhc" / (dest.name + ".gz")
+    if not force:
+        if bundled.exists():
+            return bundled
+        if dest.exists():
+            return dest
     dest.parent.mkdir(parents=True, exist_ok=True)
-    resp = requests.get(url, timeout=120)
-    resp.raise_for_status()
-    dest.write_text(resp.text)
+    with build_lock(dest.with_name("." + dest.name + ".lock"),
+                    done=lambda: dest.exists() and not force) as ours:
+        if ours:
+            resp = requests.get(url, timeout=120)
+            resp.raise_for_status()
+            if not resp.text.lstrip().startswith(">"):
+                raise ValueError(f"MHC reference response is not FASTA: {url}")
+            with tempfile.TemporaryDirectory(prefix=".download-", dir=dest.parent) as tmp:
+                staged = Path(tmp) / dest.name
+                staged.write_text(resp.text)
+                os.replace(staged, dest)
     return dest
 
 

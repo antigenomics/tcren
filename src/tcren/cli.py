@@ -93,7 +93,7 @@ def _score_pipeline_one(args):
 
 
 
-def _typed_batch(structures, organism: str, mhc: bool = True, *, threads: int = 1) -> list:
+def _typed_batch(structures, organism: str, mhc: bool = True, *, threads: int = 0) -> list:
     """Every structure of ``structures``, chain-typed and (optionally) MHC-annotated, BATCHED.
 
     Two mmseqs searches for the whole set, never two per structure. Calling ``classify_chains`` or
@@ -110,6 +110,8 @@ def _typed_batch(structures, organism: str, mhc: bool = True, *, threads: int = 
     if structs and mhc:
         from .mhc import annotate_mhc_batch
         annotate_mhc_batch(structs, threads=threads)
+        from .mhc.metadata import apply_metadata
+        apply_metadata(structs, structures)
     return structs
 
 
@@ -144,6 +146,32 @@ def _load_potential(spec: str | None) -> Potential:
     )
 
 
+def _load_template_potentials(
+    spec: str | None, mapping: Path | None, ids: list[str],
+) -> Potential | dict[str, Potential]:
+    """Resolve an explicit frozen potential for every scored template."""
+    if mapping is None:
+        return _load_potential(spec)
+    if spec is not None:
+        raise typer.BadParameter("--potential-map and --potential are mutually exclusive")
+    table = pl.read_csv(mapping, separator="\t", infer_schema=False)
+    if not {"complex.id", "potential"} <= set(table.columns) or table.is_empty():
+        raise typer.BadParameter("--potential-map requires nonempty complex.id and potential columns")
+    table = table.select("complex.id", "potential")
+    if any(table[c].null_count() or (table[c].str.strip_chars() == "").any() for c in table.columns):
+        raise typer.BadParameter("--potential-map requires nonempty IDs and potentials")
+    table = table.with_columns(pl.col("complex.id").str.to_lowercase())
+    if table["complex.id"].n_unique() != table.height or len(ids) != len(set(ids)):
+        raise typer.BadParameter("--potential-map requires unique template IDs")
+    if set(table["complex.id"]) != set(ids):
+        raise typer.BadParameter("--potential-map IDs must match scored template IDs exactly")
+    loaded, result = {}, {}
+    for ident, value in table.iter_rows():
+        key = value if value in _BUNDLED_POTENTIALS else str((mapping.parent / value).resolve())
+        if key not in loaded:
+            loaded[key] = _load_potential(key)
+        result[ident] = loaded[key]
+    return result
 
 
 def _read_candidates(path: Path) -> list[str] | dict[str, list[str]]:
@@ -174,7 +202,18 @@ def _read_candidates(path: Path) -> list[str] | dict[str, list[str]]:
 from .screen import MIN_COHORT as SCREEN_MIN_COHORT  # noqa: E402
 
 
-def _screen_descriptors(structs: list, task, *, organism: str, threads: int) -> pl.DataFrame:
+def _screen_residue_chunk(structs):
+    """Reduce a contiguous chunk to residue counts before returning to the parent."""
+    from .contacts.observations import atom_inventory, contact_observations
+    from .contacts.residue_surprise import residue_counts
+
+    return pl.concat([
+        residue_counts(atom_inventory(s), contact_observations(s, interface="tcr_peptide"))
+        for s in structs
+    ], how="vertical_relaxed")
+
+
+def _screen_descriptors(structs: list, task, *, organism: str, threads: int, motif: bool = False) -> pl.DataFrame:
     """The component columns the screen reference names, for one already-typed batch.
 
     The structural alanine reference is taken on the side that VARIES, which is the whole point
@@ -186,13 +225,14 @@ def _screen_descriptors(structs: list, task, *, organism: str, threads: int) -> 
     from .exports import receptor_reference
     from .potential import mj, tcren2
     from .recognition import recognition_table
+    from .topology.graph import recognition_graph_features
     from .screen import CohortKind
 
     # sc_shape and g_cyclo_frac come from the existing descriptor path, one batched call.
     # recognition_table takes (id, structure) pairs; _typed_batch hands back bare Structures.
     shape = pl.DataFrame(recognition_table(
         [(s.pdb_id, s) for s in structs], organism=organism,
-        include=("interface", "topology"), threads=threads))
+        include=("interface", "topology"), threads=threads, annotate=False))
     key = "complex.id" if "complex.id" in shape.columns else "pdb.id"
     keep = [c for c in ("sc_shape", "g_cyclo_frac") if c in shape.columns]
     table = shape.select(pl.col(key).alias("complex.id"), *keep)
@@ -205,7 +245,8 @@ def _screen_descriptors(structs: list, task, *, organism: str, threads: int) -> 
             row = receptor_reference(cm, peptide_pot, mhc_pot, structure=s, cutoff=5.0)
             rows.append({"complex.id": s.pdb_id,
                          "n_contacts_tp": cm.tcr_peptide().height,
-                         "dFT_tcr_pep_cdr": row.get("dFT_tcr_pep_cdr")})
+                         "dFT_tcr_pep_cdr": row.get("dFT_tcr_pep_cdr"),
+                         **recognition_graph_features(cm)})
         else:
             from .energetics.mutation import reference_delta
             peptide = next((c.sequence() for c in s.chains if c.chain_type == "PEPTIDE"), None)
@@ -216,6 +257,17 @@ def _screen_descriptors(structs: list, task, *, organism: str, threads: int) -> 
     # The energy frame has one row per structure and is the authority on membership; the shape
     # frame may be missing a row whose surface map failed, so join onto the energy frame.
     energy = pl.DataFrame(rows)
+    if motif:
+        from .runtime import parallel_map
+        from .contacts.motif import bundled_enrichment
+
+        size = max(1, (len(structs) + threads - 1) // threads)
+        chunks = [structs[i:i + size] for i in range(0, len(structs), size)]
+        residues = pl.concat(parallel_map(_screen_residue_chunk, chunks, threads),
+                             how="vertical_relaxed")
+        enrichment = bundled_enrichment(residues).rename({"id": "complex.id"})
+        energy = energy.join(enrichment, on="complex.id", how="left", validate="1:1",
+                             maintain_order="left")
     return energy.join(table, on="complex.id", how="left", validate="1:1", maintain_order="left")
 
 
@@ -232,13 +284,22 @@ def _screen_confidence(confidence: Path | None, structures) -> pl.DataFrame | No
             raise typer.BadParameter(f"--confidence needs {sorted(missing)}; got {t.columns[:6]}")
         if t["complex.id"].is_duplicated().any():
             raise typer.BadParameter("--confidence has duplicate complex.id values")
-        return t.select("complex.id", pl.col("iptm").cast(pl.Float64))
+        return t.select("complex.id", *[pl.col(c).cast(pl.Float64)
+                        for c in ("iptm", "plddt") if c in t.columns])
+    tables = []
     for spec in (structures if isinstance(structures, list) else [structures]):
         meta = read_metadata(spec)
         if meta is not None and "iptm" in meta.columns:
-            return meta.select(pl.col("id").cast(pl.String).alias("complex.id"),
-                               pl.col("iptm").cast(pl.Float64)).unique(subset=["complex.id"])
-    return None
+            tables.append(meta.select(pl.col("id").cast(pl.String).alias("complex.id"),
+                                      *[pl.col(c).cast(pl.Float64)
+                                        for c in ("iptm", "plddt") if c in meta.columns]))
+    if not tables:
+        return None
+    merged = pl.concat(tables, how="diagonal_relaxed").unique(maintain_order=True)
+    if merged["complex.id"].is_duplicated().any():
+        raise typer.BadParameter("conflicting confidence metadata for duplicate complex.id")
+    return merged
+
 
 
 @app.command(rich_help_panel=_P_MAIN)
@@ -246,14 +307,16 @@ def screen(
     structures: list[str] = typer.Option(..., "-s", "--structures", help="structure file(s), directory, .tar.gz, glob, or a .txt manifest of paths; repeatable and comma-separable"),
     out: Path = typer.Option("screen.tsv", "-o", "--out", help="per-model score table (TSV)"),
     task: str = typer.Option("auto", "--task", help="auto|epitope|tcr; a declared task is verified against the structures"),
-    confidence: Path = typer.Option(None, "--confidence", help="table of complex.id and iptm; by default ipTM is read from the set's metadata.tsv"),
+    confidence: Path = typer.Option(None, "--confidence", help="table of complex.id, iptm and optional plddt (0–100); defaults to metadata.tsv"),
+    confidence_context: str = typer.Option("cohort", "--confidence-context", help="cohort (default) | nearest-plddt (each model) | nearest-mean-plddt (supplied same-pMHC set); proxy modes require --task tcr and keep --min-cohort"),
     reference: Path = typer.Option(None, "--reference", help="frozen reference JSON (default: the bundled one for the detected task)"),
     min_cohort: int = typer.Option(SCREEN_MIN_COHORT, "--min-cohort", help="below this many models the combined score is withheld and only components are reported"),
     on_flag: str = typer.Option("report", "--on-flag", help="what to do when a cohort is flagged low_confidence: report (default, change nothing) | structure (drop ipTM, score on structure alone) | geometry (geometry component alone) | withhold | reverse. All but report are opt-in because the only evidence that acting helps comes from the evaluation panels themselves."),
-    weight: float = typer.Option(None, "--weight", help="confidence weight in the Stouffer combination, in [0, 1]; default: the reference's own, which is task-specific"),
-    template_metadata: Path = typer.Option(None, "--template-metadata", help="experimental TCR gate: native-crystal TSV with epitope column; absent epitopes use ipTM alone. Requires explicit --weight for covered epitopes"),
+    weight: float = typer.Option(None, "--weight", help="confidence weight in the reference combination, in [0, 1]; default: the reference's own, which is task-specific"),
+    template_metadata: Path = typer.Option(None, "--template-metadata", help="TCR template inventory TSV with epitope column; records context (legacy references may select a weight)"),
+    template_status: str = typer.Option(None, "--template-status", help="present|absent; explicit TCR template availability instead of an inventory"),
     organism: str = typer.Option("human", "--organism"),
-    threads: int = typer.Option(1, "-t", "--threads", help="CPU budget: 1 serial, 0 all allocated, or a positive count"),
+    threads: int = typer.Option(0, "-t", "--threads", help="CPU budget: 1 serial, 0 automatic (all allocated physical cores), or a positive count"),
 ) -> None:
     """Rank a COHORT of modelled complexes — start here.
 
@@ -270,12 +333,13 @@ def screen(
 
     \b
     Keep generator ipTM alongside the energy and structural components. The default
-    TCR combination uses weighted Stouffer with confidence weight 0.8. An explicit
-    --template-metadata and --weight enable an experimental epitope-availability
-    gate; neither template availability nor a flag establishes pose accuracy.
+    TCR combination uses ipTM, recognition cycle fraction and mock-calibrated
+    motif enrichment. Its frozen weights depend on the unlabelled cohort mean
+    pLDDT; provide generator plddt (0–100) alongside iptm in --confidence.
 
-    Below a cohort of 30 models the combined score is WITHHELD and the components are reported
-    alone, because per-cohort margin noise then exceeds any effect the combination can produce.
+    The default cohort floor withholds the combined score below 30 contact-bearing models.
+    For explicit small-set proxy scoring choose --task tcr, --confidence-context and
+    --min-cohort 1; missing context and zero-contact models still withhold scores.
 
     Everything else in this package is a toolkit: `annotate` and `contacts` for markup and
     contact listing, `superimpose` for canonical orientation, `surface` for pMHC topography,
@@ -289,15 +353,31 @@ def screen(
 
     if task not in ("auto", "epitope", "tcr"):
         raise typer.BadParameter("--task must be auto, epitope or tcr")
-    if template_metadata is not None and weight is None:
-        raise typer.BadParameter("--template-metadata requires explicit --weight")
+    if confidence_context not in ("cohort", "nearest-plddt", "nearest-mean-plddt"):
+        raise typer.BadParameter("--confidence-context must be cohort, nearest-plddt or nearest-mean-plddt")
+    proxy_context = confidence_context != "cohort"
+    if proxy_context and task != "tcr":
+        raise typer.BadParameter("nearest confidence context requires explicit --task tcr")
+    if template_status not in (None, "present", "absent"):
+        raise typer.BadParameter("--template-status must be present or absent")
+    if template_status is not None and template_metadata is not None:
+        raise typer.BadParameter("use either --template-status or --template-metadata")
     n_threads = resolve_threads(threads)
     structs = _typed_batch(structures, organism, threads=n_threads)
     if not structs:
         raise typer.BadParameter(f"no structures found in {structures!r}")
 
     peptides, receptors = identities(structs)
-    detected, summary = cohort_signature(peptides, receptors)
+    if proxy_context:
+        mhc_sequences = [tuple(sorted((c.chain_type, c.sequence()) for c in s.chains
+                                      if c.chain_type in {"MHCa", "MHCb"})) for s in structs]
+        if len(set(peptides)) != 1 or any(not value for value in mhc_sequences) or len(set(mhc_sequences)) != 1:
+            raise typer.BadParameter("nearest confidence context requires one peptide and matching observed MHC chain sequences")
+    if proxy_context and len(set(peptides)) == len(set(receptors)) == 1:
+        detected = CohortKind.TCR_RANKING
+        summary = {"n_structures": len(structs), "n_distinct_peptides": 1, "n_distinct_receptors": 1}
+    else:
+        detected, summary = cohort_signature(peptides, receptors)
     if task != "auto" and CohortKind(task) is not detected:
         raise typer.BadParameter(
             f"--task {task} was declared but the structures are a {detected.value} cohort: "
@@ -314,15 +394,29 @@ def screen(
         except ValueError as exc:
             raise typer.BadParameter(str(exc)) from exc
 
-    table = _screen_descriptors(structs, detected, organism=organism, threads=n_threads)
+    if template_status is not None:
+        if detected is not CohortKind.TCR_RANKING:
+            raise typer.BadParameter("--template-status applies only to TCR ranking")
+        coverage = {"native_template": template_status == "present", "source": "explicit status"}
+
+    ref = bundled_reference(detected) if reference is None else read_reference(reference)
+    use_motif = ref.get("score_method") == "confidence_motif"
+    if proxy_context and not use_motif:
+        raise typer.BadParameter("nearest confidence context requires the TCR confidence-motif reference")
+    table = _screen_descriptors(structs, detected, organism=organism, threads=n_threads,
+                                motif=use_motif)
     iptm = _screen_confidence(confidence, structures)
     if iptm is not None:
         table = table.join(iptm, on="complex.id", how="left", validate="1:1", maintain_order="left")
     else:
         table = table.with_columns(iptm=pl.lit(None, dtype=pl.Float64))
 
-    ref = bundled_reference(detected) if reference is None else read_reference(reference)
-    flags = cohort_flags(table, ref, min_cohort=min_cohort)
+    if use_motif and "plddt" not in table.columns:
+        table = table.with_columns(plddt=pl.lit(None, dtype=pl.Float64))
+    if (template_metadata is not None and weight is None
+            and "template_absent_weight" not in ref and not use_motif):
+        raise typer.BadParameter("legacy --template-metadata requires explicit --weight")
+    flags = cohort_flags(table, ref, min_cohort=min_cohort, confidence_context=confidence_context)
     # Flags report by default; changing the score requires an explicit --on-flag response.
     try:
         response = FlagResponse(on_flag)
@@ -331,14 +425,16 @@ def screen(
             f"--on-flag must be one of {', '.join(r.value for r in FlagResponse)}") from exc
     suppress = withhold_reason(flags, detected)
     result = screen_scores(table, ref, weight=weight, min_cohort=min_cohort, suppress=suppress,
-                           native_template=coverage["native_template"] if coverage else None)
+                           native_template=coverage["native_template"] if coverage else None,
+                           confidence_context=confidence_context)
     # Act on a flag only if asked, and never on a cohort whose score was already withheld for
     # size -- rewriting a score that does not exist would only confuse the reason column.
     acted = None
     if (response is not FlagResponse.REPORT and flags.get("low_confidence") is True
             and not flags.get("small_cohort")):
         acted = f"low_confidence: {FLAG_TEXT['low_confidence']}"
-        result = apply_flag_response(result, table, ref, response=response, reason=acted)
+        result = apply_flag_response(result, table, ref, response=response, reason=acted,
+                                     confidence_context=confidence_context)
     for name in ("small_cohort", "no_interface", "forced_pose", "low_confidence",
                  "confidence_disagrees"):
         result = result.with_columns(pl.lit(flags.get(name)).alias(f"flag_{name}"))
@@ -351,6 +447,7 @@ def screen(
     result.write_csv(out, separator="\t")
     from .provenance import stamp
     stamp(out, command="screen", extra={"task": detected.value, "format": ref["format"],
+                                        "score_method": ref.get("score_method", "stouffer"),
                                         "flags": {k: v for k, v in flags.items()},
                                         "on_flag": response.value,
                                         "flag_response_applied": acted is not None,
@@ -358,10 +455,9 @@ def screen(
                                         "weight": weight if weight is not None
                                         else ref.get("default_weight"),
                                         "template_gate": coverage,
-                                        "effective_weight": 1.0 if coverage and not
-                                        coverage["native_template"] else weight if weight is not None
-                                        else ref.get("default_weight"),
+                                        "effective_weight": result["confidence_weight"][0],
                                         "min_cohort": min_cohort,
+                                        "confidence_context": confidence_context,
                                         "cohort": summary})
     scored = int(result["screen_score"].is_not_null().sum())
     discarded = int(result["no_interface"].sum()) if "no_interface" in result.columns else 0
@@ -372,9 +468,13 @@ def screen(
         f"{summary['n_distinct_peptides']} peptide(s), {summary['n_distinct_receptors']} receptor(s)"
         + (f"; mean ipTM {flags['mean_iptm']:.3f} (z {flags['cohort_confidence_z']:+.2f})"
            if flags.get("cohort_confidence_z") == flags.get("cohort_confidence_z") else "")
-        + (f"; {discarded} discarded with no TCR:peptide interface" if discarded else "")
+        + (f"; {discarded} zero-contact models scored 0" if discarded else "")
         + (f"; flags: {', '.join(raised)}" if raised else "; no flags")
         + ("" if iptm is not None else "; no ipTM supplied"))
+    if discarded:
+        typer.echo(
+            f"WARNING: {discarded} model(s) have zero TCR:peptide contacts; screen_score=0 "
+            "(no binding interface in the supplied model; no_interface=true).", err=True)
     if acted and response is not FlagResponse.WITHHOLD:
         typer.echo(f"--on-flag {response.value} applied — {acted}")
     if scored:
@@ -416,7 +516,7 @@ def annotate(
     regions: str = typer.Option("all", "--regions", help="which chains to annotate: all|tcr|mhc|peptide"),
     pseudo: bool = typer.Option(False, "--pseudo", help="also mark MHC pseudosequence (MPS) residues"),
     organism: str = typer.Option("human", "--organism"),
-    threads: int = typer.Option(1, "-t", "--threads", help="CPU budget: 1 serial, 0 all allocated, or a positive count"),
+    threads: int = typer.Option(0, "-t", "--threads", help="CPU budget: 1 serial, 0 automatic (all allocated physical cores), or a positive count"),
 ) -> None:
     """Annotate chains and emit a per-residue region-markup table.
 
@@ -454,7 +554,7 @@ def contacts(
     interface: str = typer.Option("tcr_peptide", "--interface", help="tcr_peptide|tcr_mhc|peptide_mhc|all"),
     regions: str = typer.Option("all", "--regions", help="TCR regions on the TCR side: all|cdr|cdr+fr (default: all)"),
     organism: str = typer.Option("human", "--organism"),
-    threads: int = typer.Option(1, "-t", "--threads", help="CPU budget: 1 serial, 0 all allocated, or a positive count"),
+    threads: int = typer.Option(0, "-t", "--threads", help="CPU budget: 1 serial, 0 automatic (all allocated physical cores), or a positive count"),
 ) -> None:
     """Compute and emit an annotated contact table."""
     if regions not in TCR_REGIONS:
@@ -561,6 +661,9 @@ def derive_potential(
         None, "--structure-dir",
         help="folder of PDBs to assemble contacts from (PDBs→contacts) when no -i CSV is given",
     ),
+    interface: str = typer.Option("tcr_peptide", "--interface",
+        help="directed derivation interface: tcr_peptide|tcr_mhc|peptide_mhc"),
+    threads: int = typer.Option(0, "-t", "--threads", help="annotation CPUs; 0 uses all allocated"),
     redundancy_t: float | None = typer.Option(
         None, "--redundancy-t",
         help="NOT USED FOR TCRen2. non-redundancy clustering cutoff over αβ structures (off by default; "
@@ -574,6 +677,15 @@ def derive_potential(
              "the mean of 1/(structures sharing its value) over the chosen axes, so a "
              "re-solved complex counts once while a novel receptor on a common epitope "
              "still counts (requires --structure-dir)",
+    ),
+    weight_column: str | None = typer.Option(
+        None, "--weight-column",
+        help="explicit finite nonnegative per-contact weights in the input table; multiplied "
+             "with --balance weights when both are supplied",
+    ),
+    drop_cys: bool | None = typer.Option(
+        None, "--drop-cys/--keep-cys",
+        help="override variant cysteine policy (classic drops receptor Cys; am keeps it)",
     ),
     loo: bool = typer.Option(False, "--loo", help="NOT USED FOR TCRen2. emit leave-one-out potentials instead"),
     contacts_out: Path | None = typer.Option(
@@ -598,10 +710,16 @@ def derive_potential(
     if (contact_maps is None) == (structure_dir is None):
         raise typer.BadParameter("pass exactly one of -i/--contact-maps or --structure-dir")
 
+    if interface not in {"tcr_peptide", "tcr_mhc", "peptide_mhc"}:
+        raise typer.BadParameter("--interface must be tcr_peptide, tcr_mhc or peptide_mhc")
+    from .runtime import resolve_threads
+    selected_threads = resolve_threads(threads)
     markup = None
     if structure_dir is not None:
         from .paper import annotate_structure_set
-        contacts, markup = annotate_structure_set(structure_dir)
+        contacts, markup = annotate_structure_set(
+            structure_dir, interface=interface, threads=selected_threads,
+            on_error="raise" if interface != "tcr_peptide" else "skip")
     else:
         contacts = pl.read_csv(contact_maps)
 
@@ -666,12 +784,29 @@ def derive_potential(
             raise typer.BadParameter("--balance requires markup (use --structure-dir)")
         weights = balanced_weights(markup, axes=axes)
 
+    if weight_column is not None:
+        if weight_column not in contacts.columns:
+            raise typer.BadParameter(f"missing weight column: {weight_column}")
+        try:
+            votes = contacts[weight_column].cast(pl.Float64)
+        except pl.exceptions.InvalidOperationError as exc:
+            raise typer.BadParameter("contact weights must be finite nonnegative numbers") from exc
+        selected_votes = (votes.filter(contacts["pdb.id"].is_in(include))
+                          if include is not None else votes)
+        if (votes.null_count() or not votes.is_finite().all()
+                or (votes < 0).any() or not (selected_votes > 0).any()):
+            raise typer.BadParameter(
+                "contact weights must be finite nonnegative numbers with at least one positive weight")
+    if loo and (weight_column is not None or drop_cys is not None):
+        raise typer.BadParameter("--loo does not support --weight-column or cysteine overrides")
+
     if loo:
         ids = include or contacts["pdb.id"].unique().to_list()
         derive_tcren_loo(contacts, ids, variant=variant, pseudocount=pseudocount).write_csv(str(out))
     else:
         pot = derive_tcren(contacts, include=include, variant=variant,
-                           pseudocount=pseudocount, weights=weights)
+                           pseudocount=pseudocount, weights=weights,
+                           weight_col=weight_column, drop_cys=drop_cys)
         pot.to_csv(out)
     typer.echo(f"wrote {out}")
 
@@ -680,13 +815,18 @@ def derive_potential(
         # a count of what the shipped matrix was derived from. Assembling a second table by hand and
         # counting that is how a manuscript comes to report a derivation set the matrix never saw.
         used = contacts if include is None else contacts.filter(pl.col("pdb.id").is_in(include))
+        if interface != "tcr_peptide" and weights is not None:
+            used = used.with_columns(pl.col("pdb.id").replace_strict(
+                weights, return_dtype=pl.Float64).alias("structure_weight"))
         used.write_csv(str(contacts_out))
         from .provenance import stamp
         n_kept = len(include) if include is not None else contacts["pdb.id"].n_unique()
         stamp(contacts_out, command="derive-potential --contacts-out",
-              extra={"structures_kept": int(n_kept),
+              extra={"structures_kept": int(n_kept), "interface": interface,
+                     "threads": selected_threads,
                      "structures_with_contacts": int(used["pdb.id"].n_unique()),
-                     "contacts": int(used.height), "balance": balance, "variant": variant})
+                     "contacts": int(used.height), "balance": balance, "variant": variant,
+                     "weight_column": weight_column, "drop_cys": drop_cys})
         typer.echo(f"wrote {contacts_out} ({used.height} contacts over "
                    f"{used['pdb.id'].n_unique()} of {n_kept} kept structures) -- the table the "
                    f"matrix was derived from, for any downstream count")
@@ -790,12 +930,14 @@ def fetch_data(
 def build_mhc_ref(
     species: str = typer.Option("human,mouse", "--species", help="comma-separated"),
     force_download: bool = typer.Option(False, "--force-download"),
+    all_alleles: bool = typer.Option(False, "--all-alleles", help="Keep the full source protein vocabulary for explicit fine mapping."),
 ) -> None:
-    """Download and curate the MHC allele reference (IMGT/HLA + UniProt mouse)."""
+    """Prepare the MHC reference from bundled sources; --force-download refreshes raw inputs."""
     from .mhc import reference
 
     fasta = reference.build(
-        species=tuple(s.strip() for s in species.split(",")), force_download=force_download
+        species=tuple(s.strip() for s in species.split(",")), force_download=force_download,
+        all_alleles=all_alleles,
     )
     typer.echo(f"MHC reference written to {fasta}")
 
@@ -897,10 +1039,11 @@ def _reference_energy(structure, cm, potential, interface, regions, mode, refere
 
 def _candidate_score_chunk(work):
     """Score a coarse contiguous template chunk without annotation searches."""
-    entries, pot, options = work
+    entries, potentials, options = work
     interface, regions, cutoff, intra_weight, drop_untyped, position_scheme, soft, delta, reference, reference_aa = options
     frames = []
     for s, mine in entries:
+        pot = potentials[str(s.pdb_id).lower()] if isinstance(potentials, dict) else potentials
         cm = ContactMap.from_structure(s, cutoff=cutoff, peptide_internal=bool(intra_weight))
         if soft:
             from .energetics.rotamers import contact_probabilities
@@ -923,6 +1066,7 @@ def score(
     structures: list[str] = typer.Option(..., "-s", "--structures", help="structure file(s), directory, .tar.gz, glob, or a .txt manifest of paths; repeatable and comma-separable"),
     candidates: Path = typer.Option(..., "-c", "--candidates", help="candidate epitopes file"),
     potential: str | None = typer.Option(None, "-p", "--potential", help="potential: bundled name (tcren2|tcren2_em|karnaukhov2022|mj|keskin) or CSV path (default: tcren2)"),
+    potential_map: Path | None = typer.Option(None, "--potential-map", exists=True, dir_okay=False, help="TSV: complex.id,potential; frozen bundled name or CSV per scored template; mutually exclusive with --potential"),
     out: Path = typer.Option("candidate_epitopes_TCRen.csv", "-o", "--out"),
     interface: str = typer.Option("tcr_peptide", "--interface"),
     regions: str = typer.Option("all", "--regions", help="TCR regions on the TCR side: all|cdr|cdr+fr (default: all)"),
@@ -935,7 +1079,7 @@ def score(
     delta: bool = typer.Option(False, "--delta", help="also report ΔΦ, the poly-alanine-referenced energy"),
     reference: str = typer.Option("structural", "--reference", help="how the poly-alanine baseline is built for --delta: structural (rebuild its own contacts) or virtual (re-index on the template map)"),
     reference_aa: str = typer.Option("A", "--reference-aa", help="reference residue for --delta (default: alanine)"),
-    threads: int = typer.Option(0, "-t", "--threads", help="CPU budget: 1 serial, 0 all allocated, or a positive count"),
+    threads: int = typer.Option(0, "-t", "--threads", help="CPU budget: 1 serial, 0 automatic (all allocated physical cores), or a positive count"),
 ) -> None:
     """Score candidate epitopes against input structures (end-to-end pipeline).
 
@@ -973,7 +1117,6 @@ def score(
         raise typer.BadParameter(f"--position-weights must be one of {'|'.join(POSITION_SCHEMES)}")
     if reference not in ("structural", "virtual"):
         raise typer.BadParameter("--reference must be structural or virtual")
-    pot = _load_potential(potential)
     cands = _read_candidates(candidates)
     pools = cands if isinstance(cands, dict) else None
     threads = resolve_threads(threads)
@@ -983,6 +1126,7 @@ def score(
         mine = pools.get(str(s.pdb_id).lower()) if pools is not None else cands
         if mine:
             entries.append((s, mine))
+    pot = _load_template_potentials(potential, potential_map, [str(s.pdb_id).lower() for s, _ in entries])
     options = (interface, regions, cutoff, intra_weight, drop_untyped, position_scheme,
                soft, delta, reference, reference_aa)
     count = min(threads, len(entries))
@@ -996,10 +1140,11 @@ def score(
 
 def _receptor_score_chunk(work):
     """Thread paired observed receptor regions onto physical TRA/TRB contacts."""
-    entries, pot, cutoff, receptor_region = work
+    entries, potentials, cutoff, receptor_region = work
     frames = []
     alphabet = set("ACDEFGHIKLMNPQRSTVWY")
     for structure, candidates in entries:
+        pot = potentials[str(structure.pdb_id).lower()] if isinstance(potentials, dict) else potentials
         peptides = structure.by_type("PEPTIDE")
         if (len(peptides) != 1 or not peptides[0].residues or
                 not set(peptides[0].sequence()) <= alphabet):
@@ -1071,10 +1216,11 @@ def score_receptors(
     structures: list[str] = typer.Option(..., "-s", "--structures"),
     candidates: Path = typer.Option(..., "-c", "--candidates", help="TSV: complex.id,candidate.id and cdr3a/cdr3b or junctiona/junctionb"),
     potential: str | None = typer.Option(None, "-p", "--potential"),
+    potential_map: Path | None = typer.Option(None, "--potential-map", exists=True, dir_okay=False, help="TSV: complex.id,potential; frozen bundled name or CSV per scored template; mutually exclusive with --potential"),
     out: Path = typer.Option("candidate_receptors_TCRen.csv", "-o", "--out"),
     organism: str = typer.Option("human", "--organism"),
     cutoff: float = typer.Option(5.0, "--cutoff"),
-    threads: int = typer.Option(0, "-t", "--threads", help="CPU budget: 1 serial, 0 all allocated, or a positive count"),
+    threads: int = typer.Option(0, "-t", "--threads", help="CPU budget: 1 serial, 0 automatic (all allocated physical cores), or a positive count"),
 ) -> None:
     """Thread paired CDR3s or observed junctions onto fixed receptor:peptide contacts.
 
@@ -1112,7 +1258,7 @@ def score_receptors(
         raise typer.BadParameter(f"candidate templates not found: {', '.join(sorted(missing))}")
     entries = [(s, frame.filter(pl.col("complex.id") == str(s.pdb_id).lower())) for s in typed]
     entries = [(s, rows) for s, rows in entries if not rows.is_empty()]
-    pot = _load_potential(potential)
+    pot = _load_template_potentials(potential, potential_map, [str(s.pdb_id).lower() for s, _ in entries])
     count = min(threads, len(entries))
     work = [(entries[i*len(entries)//count:(i+1)*len(entries)//count], pot, cutoff, receptor_region)
             for i in range(count)]
@@ -1136,7 +1282,7 @@ def ddg_cmd(
     regions: str = typer.Option("all", "--regions", help="TCR regions on the TCR side: all|cdr|cdr+fr (default: all)"),
     organism: str = typer.Option("human", "--organism"),
     cutoff: float = typer.Option(5.0, "--cutoff"),
-    threads: int = typer.Option(1, "-t", "--threads", help="CPU budget: 1 serial, 0 all allocated, or a positive count"),
+    threads: int = typer.Option(0, "-t", "--threads", help="CPU budget: 1 serial, 0 automatic (all allocated physical cores), or a positive count"),
 ) -> None:
     """ΔΔG of point mutations; ``ddG = E(native) - E(mutant)``, positive => STABILISING.
 
@@ -1214,7 +1360,7 @@ def cpl_cmd(
     regions: str = typer.Option("all", "--regions", help="TCR regions on the TCR side: all|cdr|cdr+fr (default: all)"),
     organism: str = typer.Option("human", "--organism"),
     cutoff: float = typer.Option(5.0, "--cutoff"),
-    threads: int = typer.Option(1, "-t", "--threads", help="CPU budget: 1 serial, 0 all allocated, or a positive count"),
+    threads: int = typer.Option(0, "-t", "--threads", help="CPU budget: 1 serial, 0 automatic (all allocated physical cores), or a positive count"),
 ) -> None:
     """Predict a combinatorial-peptide-library response matrix from a template TCR:pMHC structure.
 
@@ -1286,7 +1432,7 @@ def rank(
     seed: int = typer.Option(0, "--seed"),
     organism: str = typer.Option("human", "--organism"),
     cutoff: float = typer.Option(5.0, "--cutoff"),
-    threads: int = typer.Option(1, "-t", "--threads", help="CPU budget: 1 serial, 0 all allocated, or a positive count"),
+    threads: int = typer.Option(0, "-t", "--threads", help="CPU budget: 1 serial, 0 automatic (all allocated physical cores), or a positive count"),
 ) -> None:
     """Percentile-rank peptides' TCRen energy against a random pMHC background.
 
@@ -1343,7 +1489,7 @@ def surface(
     region: str = typer.Option(None, "--region", help="restrict --compare to one source, e.g. peptide"),
     compare: Path = typer.Option(None, "--compare", help="also write the pairwise map-distance matrix here"),
     cells: Path = typer.Option(None, "--cells", help="also write the long per-cell table here"),
-    threads: int = typer.Option(1, "-t", "--threads", help="CPU budget: 1 serial, 0 all allocated, or a positive count"),
+    threads: int = typer.Option(0, "-t", "--threads", help="CPU budget: 1 serial, 0 automatic (all allocated physical cores), or a positive count"),
     svg: Path = typer.Option(None, "--svg", help="directory to write one SVG map per structure"),
 ) -> None:
     """Map the pMHC surface a TCR sees — height + hydropathy + charge over the groove.
@@ -1470,7 +1616,7 @@ def recognize(
     organism: str = typer.Option("human", "--organism"),
     full: bool = typer.Option(False, "--full", help="add the 18 CDR3-local frame descriptors (the FramePose strain layer) and the intra-peptide term Phi_pep_int/n_pep_int"),
     mechanics: bool = typer.Option(False, "--mechanics", help="also append the koff proxies from `tcren mechanics` (stiffness tensor, steered rupture, coupling residues) — same table, no second annotation pass"),
-    threads: int = typer.Option(1, "-t", "--threads", help="CPU budget: 1 serial, 0 all allocated; one annotation batch per species"),
+    threads: int = typer.Option(0, "-t", "--threads", help="CPU budget: 1 serial, 0 automatic (all allocated physical cores); one annotation batch per species"),
     autodetect_species: bool = typer.Option(True, "--autodetect-species/--no-autodetect-species", help="also search mouse to catch a mis-declared organism; --no- halves the annotation cost"),
 ) -> None:
     """Full interface descriptor table for each TCR-pMHC complex (one TSV row per PDB).
@@ -1598,7 +1744,7 @@ def scoring(
     reference_mode: str = typer.Option("virtual", "--reference-mode", help="structural: truncate to alanine and rebuild contacts; virtual: historical fixed-map substitution"),
     geometry: bool = typer.Option(False, "--geometry", help="also report the interface-geometry descriptors and the decorrelated quality score Q"),
     skip_errors: bool = typer.Option(False, "--skip-errors", help="drop structures that fail instead of writing an error row"),
-    threads: int = typer.Option(1, "-t", "--threads", help="CPU budget: 1 serial, 0 all allocated; searches and workers run in separate phases"),
+    threads: int = typer.Option(0, "-t", "--threads", help="CPU budget: 1 serial, 0 automatic (all allocated physical cores); searches and workers run in separate phases"),
 ) -> None:
     """Score structures: per-interface contact energies Φ (and ΔΦ, and interface geometry).
 
@@ -1743,7 +1889,7 @@ def energy(
     shell: float = typer.Option(12.0, "--shell", help="partner atoms within this many Å of the peptide (DOPE range)"),
     organism: str = typer.Option("human", "--organism"),
     seed: int = typer.Option(0, "--seed", help="refinement seed (with --relax)"),
-    threads: int = typer.Option(1, "-t", "--threads", help="CPU budget: 1 serial, 0 all allocated, or a positive count"),
+    threads: int = typer.Option(0, "-t", "--threads", help="CPU budget: 1 serial, 0 automatic (all allocated physical cores), or a positive count"),
 ) -> None:
     """DOPE atom-level interaction energy across the peptide↔partner interface (the ``_relax`` kernel).
 
@@ -1781,7 +1927,7 @@ def mechanics(
     direction: str = typer.Option("tensile", "--direction", help="rupture pull: tensile|shear|auto"),
     break_strain: float = typer.Option(0.5, "--break-strain", help="fractional extension at which a spring breaks"),
     organism: str = typer.Option("human", "--organism"),
-    threads: int = typer.Option(1, "-t", "--threads", help="CPU budget: 1 serial, 0 all allocated; searches and workers run in separate phases"),
+    threads: int = typer.Option(0, "-t", "--threads", help="CPU budget: 1 serial, 0 automatic (all allocated physical cores); searches and workers run in separate phases"),
     autodetect_species: bool = typer.Option(True, "--autodetect-species/--no-autodetect-species", help="also search mouse to catch a mis-declared organism; --no- halves the annotation cost"),
 ) -> None:
     """Interface mechanics — the koff proxies: stiffness tensor + steered rupture + coupling residues.
@@ -1825,7 +1971,7 @@ def _mechanics_one(args) -> dict:
         return {"pdb.id": pid, "K_tens": None, "error": f"{type(exc).__name__}: {str(exc)[:80]}"}
 
 
-def _annotate_set(structs, *, organism: str, autodetect_species: bool, threads: int = 1) -> None:
+def _annotate_set(structs, *, organism: str, autodetect_species: bool, threads: int = 0) -> None:
     """Chain-type and MHC-annotate a whole set in place: one mmseqs search per organism, within budget.
 
     mmseqs parallelises internally within the selected budget; it gets the whole set, not N concurrent
@@ -1870,7 +2016,7 @@ def refine(
     max_chi: int = typer.Option(2, "--max-chi", help="chi angles sampled per residue when repacking"),
     mmcif: bool = typer.Option(False, "--mmCIF", help="write mmCIF (.cif) instead of PDB"),
     compress: bool = typer.Option(False, "--compress", help="gzip the output (.gz)"),
-    threads: int = typer.Option(1, "-t", "--threads", help="CPU budget: 1 serial, 0 all allocated, or a positive count"),
+    threads: int = typer.Option(0, "-t", "--threads", help="CPU budget: 1 serial, 0 automatic (all allocated physical cores), or a positive count"),
 ) -> None:
     """Potential-guided rigid-body refinement of the peptide pose (knowledge-based, not physics).
 
@@ -2181,7 +2327,7 @@ def features(
     all_families: bool = typer.Option(False, "--all", help="every family, kinetics included"),
     organism: str = typer.Option("human", "--organism"),
     radii: str = typer.Option("7,8", "--radii", help="Calpha thresholds for the footprint flag complex (topology family)"),
-    threads: int = typer.Option(1, "-t", "--threads", min=0, help="CPU budget: 1 serial, 0 all allocated; one annotation batch then coarse descriptor workers"),
+    threads: int = typer.Option(0, "-t", "--threads", min=0, help="CPU budget: 1 serial, 0 automatic (all allocated physical cores); one annotation batch then coarse descriptor workers"),
     autodetect_species: bool = typer.Option(True, "--autodetect-species/--no-autodetect-species", help="also search mouse to catch a mis-declared organism; --no- halves the annotation cost"),
     metadata: bool = typer.Option(True, "--metadata/--no-metadata", help="join the set's metadata.tsv (label, epitope, allele, ipTM/pLDDT) when one ships beside the structures"),
     chunk: int = typer.Option(
@@ -3079,19 +3225,54 @@ def contact_summary(
     typer.echo(f"Wrote {table.height} complete model summaries to {output}")
 
 
+@app.command("neighborhood-rules", rich_help_panel=_P_SCORE)
+def neighborhood_rules(
+    features: Path = typer.Option(..., "--features", exists=True, dir_okay=False),
+    models: Path = typer.Option(..., "--models", exists=True, dir_okay=False,
+                                help="TSV: pdb.id, iptm, topology, confidence_weight"),
+    output: Path = typer.Option(..., "-o", "--output"),
+) -> None:
+    """Apply fixed experimental CDR3 rules; preserve prepared and every model row."""
+    import hashlib
+    from .provenance import check, stamp
+    from .topology.neighborhood import neighborhood_scores, RULES, SEVERE_OVERLAP_A, CHARGE_DISTANCE_A
+
+    check(features)
+    baseline = pl.read_csv(models, separator="\t")
+    counts = pl.read_csv(features, separator="\t")
+    if baseline["pdb.id"].is_duplicated().any() or counts["pdb.id"].is_duplicated().any():
+        raise typer.BadParameter("unique model and feature IDs required")
+    if set(baseline["pdb.id"]) != set(counts["pdb.id"]):
+        raise typer.BadParameter("features must cover exactly every model")
+    result = neighborhood_scores(baseline.join(counts, on="pdb.id", validate="1:1"))
+    result.write_csv(output, separator="\t")
+    stamp(output, command="neighborhood-rules", columns=result.columns, extra={
+        "inputs": {str(path.resolve()): hashlib.sha256(path.read_bytes()).hexdigest()
+                   for path in (models, features)}, "rules": RULES,
+        "severe_overlap_A": SEVERE_OVERLAP_A, "charge_distance_A": CHARGE_DISTANCE_A,
+        "score_method": "fixed topology discounts and hard gates; no fits or outcomes",
+        "n_models": result.height})
+    typer.echo(f"wrote {output}")
+
+
 @app.command("export", rich_help_panel=_P_ANNOT)
 def export_exact(
     structures: list[str] = typer.Option(..., "-s", "--structures"),
     output: Path = typer.Option(..., "-o", "--output"),
     quantity: str = typer.Option("receptor-reference", "--quantity",
-                                help="receptor-reference, position, residue, contacts, contact-context, contact-atoms, atom-inventory, placement, contact-topology, backbone, pmhc, pmhc-cells, contact-exposure or surface-contacts"),
+                                help="receptor-reference, position, residue, contacts, contact-context, contact-atoms, atom-inventory, placement, contact-topology, recognition-topology, recognition-betti, weighted-recognition-topology, cdr3-neighborhood, cdr3-contacts, persistence, backbone, pmhc, pmhc-cells, contact-exposure or surface-contacts"),
     potential: str = typer.Option(None, "--potential", help="Explicit TCR:peptide potential name or CSV; not needed for pmhc"),
     mhc_potential: str = typer.Option("mj", "--mhc-potential"),
+    pmhc_potential: str | None = typer.Option(None, "--pmhc-potential",
+        help="weighted-recognition-topology: explicit directed peptide-to-MHC potential"),
+    graph_weighting: str = typer.Option("positive", "--graph-weighting",
+        help="weighted graph edge transform: positive=max(-E,0) or boltzmann=exp(-beta*E)"),
+    graph_beta: float = typer.Option(1.0, "--graph-beta", help="finite positive Boltzmann inverse scale"),
     reference_mode: str = typer.Option("virtual", "--reference-mode", help="receptor-reference only: structural alanine truncation or historical virtual identities"),
     interface: str = typer.Option("tcr_peptide", "--interface"),
     cutoff: float = typer.Option(5.0, "--cutoff"),
     organism: list[str] = typer.Option(["human", "mouse"], "--organism"),
-    threads: int = typer.Option(1, "-t", "--threads"),
+    threads: int = typer.Option(0, "-t", "--threads"),
     register_reference_id: str = typer.Option(None, "--register-reference-id", help="Class-II reference ID included in this batch; exports all core correspondences"),
     register_p1: int = typer.Option(None, "--register-p1", help="Verified one-based P1 position in the reference peptide"),
     peptide_selection: Path = typer.Option(None, "--peptide-selection", help="Source-verified TSV: pdb.id, chain.id, first_pdb, last_pdb (inclusive author numbering)"),
@@ -3101,21 +3282,32 @@ def export_exact(
     Accepts files, directories, tar archives, globs and manifests. Writes accounting, physical
     residue identities, exact potential tables and provenance beside the output.
     """
+    import math
     import shlex
     import sys
 
     from .exports import export_batch
 
-    potential_free = {"pmhc", "pmhc-cells", "contact-topology", "backbone", "contact-atoms", "atom-inventory", "contact-exposure", "surface-contacts"}
+    potential_free = {"pmhc", "pmhc-cells", "contact-topology", "recognition-topology", "recognition-betti", "weighted-recognition-topology", "cdr3-neighborhood", "cdr3-contacts", "persistence", "backbone", "contact-atoms", "atom-inventory", "contact-exposure", "surface-contacts"}
     if quantity not in potential_free and potential is None:
-        raise typer.BadParameter("--potential is required except for --quantity pmhc, pmhc-cells, contact-topology, backbone, contact-atoms, atom-inventory, contact-exposure or surface-contacts")
+        raise typer.BadParameter("--potential is required except for --quantity pmhc, pmhc-cells, contact-topology, recognition-topology, recognition-betti, weighted-recognition-topology, cdr3-neighborhood, cdr3-contacts, persistence, backbone, contact-atoms, atom-inventory, contact-exposure or surface-contacts")
     if reference_mode not in ("virtual", "structural"):
         raise typer.BadParameter("--reference-mode must be virtual or structural")
     if reference_mode == "structural" and quantity != "receptor-reference":
         raise typer.BadParameter("structural reference requires --quantity receptor-reference")
+    if pmhc_potential is not None and quantity != "weighted-recognition-topology":
+        raise typer.BadParameter("--pmhc-potential requires --quantity weighted-recognition-topology")
+    weighted = quantity == "weighted-recognition-topology"
+    if graph_weighting not in {"positive", "boltzmann"} or not math.isfinite(graph_beta) or graph_beta <= 0:
+        raise typer.BadParameter("graph weighting requires positive|boltzmann and finite beta > 0")
+    if not weighted and (graph_weighting != "positive" or graph_beta != 1.0):
+        raise typer.BadParameter("graph weighting options require weighted-recognition-topology")
     ledger = export_batch(structures, output, quantity=quantity,
-                          peptide_potential=None if quantity in potential_free else _load_potential(potential),
-                          mhc_potential=None if quantity in potential_free else _load_potential(mhc_potential), interface=interface,
+                          peptide_potential=(_load_potential(potential) if potential is not None else None) if weighted
+                          else (None if quantity in potential_free else _load_potential(potential)),
+                          mhc_potential=_load_potential(mhc_potential) if weighted or quantity not in potential_free else None, interface=interface,
+                          pmhc_potential=_load_potential(pmhc_potential) if pmhc_potential is not None else None,
+                          graph_weighting=graph_weighting, graph_beta=graph_beta,
                           cutoff=cutoff, organisms=tuple(organism), threads=threads,
                           command=shlex.join(sys.argv), reference_mode=reference_mode,
                           register_reference_id=register_reference_id, register_p1=register_p1,
@@ -3147,6 +3339,98 @@ app.add_typer(md_app, name="md", rich_help_panel=_P_ANNOT)
 from .ranking import rank_command
 
 app.command("rank-epitopes", rich_help_panel=_P_SCORE)(rank_command)
+
+from .contacts.saturation import export_command as saturation_export, score_command as saturation_score
+app.command("saturation-export", rich_help_panel=_P_ANNOT)(saturation_export)
+app.command("saturation-score", rich_help_panel=_P_SCORE)(saturation_score)
+
+from .contacts.saturation import mock_command as saturation_mock
+app.command("saturation-mock", rich_help_panel=_P_SCORE)(saturation_mock)
+
+from .contacts.profile import command as contact_profile_command
+app.command("contact-profile-evaluate", rich_help_panel=_P_SCORE)(contact_profile_command)
+from .contacts.engagement import command as contact_engagement_command
+app.command("contact-engagement-evaluate", rich_help_panel=_P_SCORE)(contact_engagement_command)
+
+from .contacts.residue_surprise import counts_command as residue_surprise_counts
+from .contacts.residue_surprise import fit_command as residue_surprise_fit
+from .contacts.residue_surprise import score_command as residue_surprise_score
+from .contacts.residue_surprise import evaluate_command as residue_surprise_evaluate
+app.command("residue-surprise-counts", rich_help_panel=_P_SCORE)(residue_surprise_counts)
+app.command("residue-surprise-fit", rich_help_panel=_P_SCORE)(residue_surprise_fit)
+app.command("residue-surprise-score", rich_help_panel=_P_SCORE)(residue_surprise_score)
+app.command("residue-surprise-evaluate", rich_help_panel=_P_SCORE)(residue_surprise_evaluate)
+
+from .contacts.motif_mixture import fisher_command as motif_fisher
+from .contacts.motif_mixture import fit_command as motif_mixture_fit
+from .contacts.motif_mixture import score_command as motif_mixture_score
+from .contacts.motif_mixture import diagnose_command as motif_mixture_diagnose
+from .contacts.motif_mixture import fit_cohorts_command as motif_mixture_fit_cohorts
+app.command("motif-fisher", rich_help_panel=_P_SCORE)(motif_fisher)
+app.command("motif-mixture-fit", rich_help_panel=_P_SCORE)(motif_mixture_fit)
+app.command("motif-mixture-score", rich_help_panel=_P_SCORE)(motif_mixture_score)
+app.command("motif-mixture-diagnose", rich_help_panel=_P_SCORE)(motif_mixture_diagnose)
+app.command("motif-mixture-fit-cohorts", rich_help_panel=_P_SCORE)(motif_mixture_fit_cohorts)
+
+from .contacts.motif_optimize import command as motif_confidence_fit
+from .contacts.motif_optimize import confidence_command as motif_confidence_inputs
+from .contacts.motif_optimize import residue_audit_command as motif_residue_audit
+from .contacts.motif_optimize import pair_counts_command as motif_pair_counts
+from .contacts.motif_optimize import score_command as motif_confidence_score
+from .contacts.motif_optimize import report_command as motif_confidence_report
+app.command("motif-confidence-fit", rich_help_panel=_P_SCORE)(motif_confidence_fit)
+app.command("motif-confidence-inputs", rich_help_panel=_P_SCORE)(motif_confidence_inputs)
+app.command("motif-residue-audit", rich_help_panel=_P_SCORE)(motif_residue_audit)
+app.command("motif-pair-counts", rich_help_panel=_P_SCORE)(motif_pair_counts)
+app.command("motif-confidence-score", rich_help_panel=_P_SCORE)(motif_confidence_score)
+from .contacts.confidence_proxy import score_command as motif_confidence_proxy
+app.command("motif-confidence-proxy", rich_help_panel=_P_SCORE)(motif_confidence_proxy)
+app.command("motif-confidence-report", rich_help_panel=_P_SCORE)(motif_confidence_report)
+
+from .evaluation import command as evaluate_command
+app.command("evaluate", rich_help_panel=_P_SCORE)(evaluate_command)
+from .evaluation_diagnostics import command as evaluate_diagnostics_command
+app.command("evaluate-diagnostics", rich_help_panel=_P_SCORE)(evaluate_diagnostics_command)
+from .refine.substitute_cli import command as substitute_peptides_command
+app.command("substitute-peptides", rich_help_panel=_P_ORIENT)(substitute_peptides_command)
+
+from .calibration import command as cutoff_calibration_command
+from .structure.repair import command as restore_modified_peptides_command
+app.command("cutoff-calibration", rich_help_panel=_P_DATA)(cutoff_calibration_command)
+app.command("restore-modified-peptides", rich_help_panel=_P_DATA)(restore_modified_peptides_command)
+
+@app.command("potential-clusters", rich_help_panel=_P_DATA)
+def potential_clusters(
+    contacts: Path = typer.Option(..., exists=True, dir_okay=False),
+    markup: Path = typer.Option(..., exists=True, dir_okay=False),
+    output: Path = typer.Option(..., "--output", "-o"),
+    distance: float = typer.Option(6.),
+):
+    """Export historical alpha-beta membership and complete-linkage sequence clusters."""
+    from .potential.redundancy import cluster_command
+    cluster_command(contacts, markup, output, distance)
+
+from .ranking_summary import command as ranking_summary_command
+app.command("ranking-summary", rich_help_panel=_P_SCORE)(ranking_summary_command)
+
+from .historical_candidates import command as historical_candidates_command, markup_command as historical_markup_command
+app.command("historical-candidates", rich_help_panel=_P_DATA)(historical_candidates_command)
+app.command("historical-markup", rich_help_panel=_P_DATA)(historical_markup_command)
+
+from .complementarity.command import complementarity_command
+
+app.command("complementarity")(complementarity_command)
+from .complementarity.summary import summary_command
+
+app.command("complementarity-summary")(summary_command)
+
+from .complementarity.view_export import views_command
+
+app.command("complementarity-views")(views_command)
+
+from .complementarity.view_plot import plot_command as complementarity_plot_command
+
+app.command("complementarity-plot")(complementarity_plot_command)
 
 # The __main__ guard belongs at the VERY END of the module, below the last @app.command.
 # It has been moved twice for the same reason. It first sat just after `main()`, two thirds up,

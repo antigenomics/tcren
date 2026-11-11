@@ -653,7 +653,7 @@ STATUS: dict[str, tuple[str, str]] = {
     # measured on the modelled corpus rather than argued from the definition
     # -- length coupling, measured on 143 class I Native2026 crystals ---------------------------
     # Two axes, because they catch different columns: peptide length 8-13 and CDR3(alpha+beta)
-    # length 19-28. The mechanism is the author's, 2026-09-01. On the peptide axis: class I closes
+    # length 19-28. On the peptide axis: class I closes
     # its groove at both ends, so a longer peptide must BULGE, and a bulged peptide sits closer to
     # the receptor and takes more contacts per residue. On the CDR3 axis: a longer loop simply has
     # more residues to spread over the surface it reaches.

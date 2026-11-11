@@ -32,8 +32,8 @@ from ..structure.model import Structure
 from .align import OrientationResult, _matched_anchors, apply_transform
 from .chains import rename_chains
 
-# Annotated database references, keyed by (db_dir, class, species) — built once per process.
-_DB_CACHE: dict[tuple[str, str, str], list[Structure]] = {}
+# Annotated reference parameters, built once per database/class/species/organism.
+_DB_CACHE: dict[tuple[str, str, str, str], list[Structure]] = {}
 
 
 def _metadata_path(db_dir: Path) -> Path:
@@ -61,11 +61,21 @@ def _matching_ids(db_dir: Path, mhc_class: str, species: str) -> list[str]:
 
 
 def _canonical_references(db_dir: Path, mhc_class: str, species: str,
-                          organism: str) -> list[Structure]:
+                          organism: str, *, threads: int = 0) -> list[Structure]:
     """Load + batch-annotate the matching-class/species database structures (cached)."""
-    key = (str(db_dir), mhc_class, species.lower())
-    if key in _DB_CACHE:
-        return _DB_CACHE[key]
+    from ..runtime import native_threads
+
+    key = (str(db_dir), mhc_class, species.lower(), organism)
+    if key not in _DB_CACHE:
+        # Cached reads in geometry workers must not wait on their parent's native lock.
+        with native_threads():
+            if key not in _DB_CACHE:
+                _DB_CACHE[key] = _load_canonical_references(db_dir, mhc_class, species,
+                                                          organism, threads)
+    return _DB_CACHE[key]
+
+
+def _load_canonical_references(db_dir, mhc_class, species, organism, threads):
 
     from ..annotation import classify_chains
     from ..annotation.arda_adapter import _import_arda
@@ -79,11 +89,10 @@ def _canonical_references(db_dir: Path, mhc_class: str, species: str,
         if rid in by_id:
             from ..structure import parse_structure
             refs.append(parse_structure(by_id[rid], pdb_id=rid))
-    records = _batch_annotate(refs, _import_arda())
+    records = _batch_annotate(refs, _import_arda(), threads=threads)
     for s, recs in zip(refs, records):
         classify_chains(s, organism=organism, precomputed_records=recs)
-    annotate_mhc_batch(refs)
-    _DB_CACHE[key] = refs
+    annotate_mhc_batch(refs, threads=threads)
     return refs
 
 

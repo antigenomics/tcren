@@ -120,6 +120,15 @@ def _residue_atoms(structure):
             yield chain, residue, position, region, role, selected, heavy, list(by_name.values())
 
 
+def select_conformer(structure):
+    """Copy full components with the existing per-residue atom/conformer policy."""
+    selected = {c.chain_id: [] for c in structure.chains}
+    for chain, residue, _, _, _, _, _, kept in _residue_atoms(structure):
+        selected[chain.chain_id].append(replace(residue, atoms=tuple(a for _, a in kept)))
+    return replace(structure, chains=[replace(c, residues=selected[c.chain_id])
+                                      for c in structure.chains])
+
+
 def _selected_atoms(structure):
     """Copy only supported component atoms; retain original heavy-atom indices."""
     residues_by_chain = {id(chain): [] for chain in structure.chains}

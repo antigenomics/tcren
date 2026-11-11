@@ -319,3 +319,197 @@ def test_contact_summary_keeps_zero_models_and_composition_ties():
     assert result['bulge_energy'].is_nan()[0]
     with pytest.raises(ValueError, match='accounting'):
         summarize_contacts(table, ledger.with_columns(pl.lit(1).alias('n_rows')))
+
+
+
+def test_contact_summary_accepts_header_only_csv():
+    from tcren.topology.contact_context import summarize_contacts
+    table = exports.export_structure(typed_structure(), 'contact-context', classic(), mj())
+    empty = pl.read_csv(table.head(0).write_csv(separator="\t").encode(), separator="\t")
+    ledger = pl.DataFrame({'pdb.id': ['a', 'b'], 'status': ['ok', 'ok'], 'n_rows': [0, 0]})
+    result = summarize_contacts(empty, ledger)
+    assert result['pdb.id'].to_list() == ['a', 'b']
+    assert all(value == 0 for row in result.drop('pdb.id').rows() for value in row)
+    with pytest.raises(ValueError, match='accounting'):
+        summarize_contacts(empty, ledger.with_columns(pl.lit(1).alias('n_rows')))
+
+
+def test_recognition_graph_ladder():
+    from types import SimpleNamespace
+    import numpy as np
+    schema = {"chain.id.from": pl.String, "residue.index.from": pl.Int64,
+              "chain.id.to": pl.String, "residue.index.to": pl.Int64,
+              "region.type.from": pl.String}
+    def frame(rows):
+        return pl.DataFrame(rows, schema=schema, orient="row")
+    frames = {"tcr_peptide": frame([("T",0,"P",0,"CDR3"), ("T",0,"P",1,"CDR3")]),
+              "peptide_mhc": frame([("P",0,"M",0,"PEPTIDE"), ("P",1,"M",0,"PEPTIDE")]),
+              "tcr_mhc": frame([("T",0,"M",0,"CDR3"), ("F",0,"M",0,"FR1")])}
+    residues = [SimpleNamespace(seq_index=i, aa="A", atoms=[SimpleNamespace(name=n, element=n[0], coord=np.array(x))])
+                for i,n,x in [(0,"C",[0.,0,0]), (1,"N",[1.33,0,0])]]
+    structure = SimpleNamespace(by_type=lambda _: [SimpleNamespace(chain_id="P",residues=residues)])
+    cm = SimpleNamespace(interface=frames.__getitem__)
+    result = exports.recognition_topology(structure, cm)
+    assert result["beta1"].to_list() == [0,1,2,3,1,2,2]
+    assert result["edges"].to_list() == [3,4,5,6,4,5,5]
+    assert result["sequence_breaks"].to_list() == [0]*7
+    residues[1].atoms[0].coord[0] = 10
+    assert exports.recognition_topology(structure, cm)["beta1"].to_list() == [0,1,1,2,1,2,2]
+    # Spatial side-chain edges survive a broken backbone; duplicate atom pairs
+    # count once. Hydrogen and backbone proximity cannot create these edges.
+    for residue, x in zip(residues, [0., 5.]):
+        residue.atoms.extend([SimpleNamespace(name="CB", element="C", coord=np.array([x, 3., 0.])),
+                              SimpleNamespace(name="CG", element="C", coord=np.array([x, 3., 0.])),
+                              SimpleNamespace(name="HB", element="H", coord=np.array([0., 3., 0.]))])
+    spatial = exports.recognition_topology(structure, cm)
+    assert spatial["beta1"].to_list() == [0,1,1,2,2,3,2]
+    assert spatial["peptide_sidechain_edges"].to_list() == [1]*7
+    assert exports.recognition_topology(structure, cm, cutoff=4.9)["peptide_sidechain_edges"].to_list() == [0]*7
+    from tcren.topology.graph import recognition_graph_features
+    production = recognition_graph_features(cm)
+    assert production["g_recognition_cyclo_frac"] == 2/5
+    assert production["g_recognition_vertices"] == 4
+    tripartite = spatial.filter(pl.col("graph") == "tp_pm_tm")
+    assert tripartite.select("edges", "simplicial_beta1", "simplicial_beta2", "triangles", "tetrahedra").row(0) == (5, 0, 0, 2, 0)
+    frames["tcr_peptide"] = frames["tcr_peptide"].clear()
+    frames["tcr_mhc"] = frames["tcr_mhc"].clear()
+    assert not exports.recognition_topology(structure, cm)["available"].any()
+    frames["peptide_mhc"] = frame([("P",i,"M",j,"PEPTIDE") for i in [0,1] for j in [0,1]])
+    raw = exports.recognition_betti(cm)
+    assert raw["complex_cyclo_frac"].item() == 1/4
+    assert not raw["receptor_contacts_available"].item()
+    assert raw["g_recognition_cyclo_frac"].is_nan().item()
+    real = typed_structure()
+    actual = exports.export_structure(real, "recognition-topology", None, None)
+    compact = exports.export_structure(real, "recognition-betti", None, None)
+    expected = actual.filter(pl.col("graph") == "tp_pm_tm")
+    assert compact["g_recognition_edges"].item() == expected["edges"].item()
+    assert compact["g_recognition_beta1"].item() == expected["beta1"].item()
+    assert compact["g_recognition_cyclo_frac"].item() == expected["cyclo_frac"].item()
+    assert compact["complex_cyclo_frac"].item() == expected["cyclo_frac"].item()
+    from tcren.topology.graph import graph_features
+    assert actual.filter(pl.col("graph") == "released")["cyclo_frac"].item() == graph_features(real)["g_cyclo_frac"]
+
+
+def test_simplicial_homology_fills_triangles_and_tetrahedra():
+    from itertools import combinations
+    from tcren.topology.graph import _clique_homology
+
+    def betti(edges, cycle_rank):
+        result = _clique_homology(set(edges), cycle_rank)
+        return result['simplicial_beta1'], result['simplicial_beta2']
+
+    assert betti([], 0) == (0, 0)
+    assert betti([(0, 1)], 0) == (0, 0)
+    assert betti([(0, 1), (1, 2), (2, 3), (0, 3)], 1) == (1, 0)
+    assert betti(combinations(range(3), 2), 1) == (0, 0)
+    # The octahedral surface has one H2 generator despite having no tetrahedra.
+    shell = {(a, b) for a, b in combinations(range(6), 2) if a//2 != b//2}
+    result = _clique_homology(shell, 7)
+    assert (result['triangles'], result['tetrahedra']) == (8, 0)
+    assert betti(shell, 7) == (0, 1)
+    # A filled tetrahedron has four triangles, but no H2 hole. K5 also has none:
+    # the 3-skeleton suffices even though its clique complex has a 4-simplex.
+    assert betti(combinations(range(4), 2), 3) == (0, 0)
+    assert betti(combinations(range(5), 2), 6) == (0, 0)
+    assert betti(shell | {(0, 1)}, 8) == (0, 0)
+    with pytest.raises(ValueError, match='sorted endpoints'):
+        betti([(1, 0)], 0)
+
+
+@pytest.mark.parametrize('quantity', ['weighted-recognition-topology', 'persistence'])
+def test_weighted_and_persistence_exports(quantity):
+    if quantity == 'persistence':
+        pytest.importorskip('gudhi')
+    import numpy as np
+    from tcren.topology.graph import _recognition_contact_edges
+    structure = typed_structure()
+    assert quantity in exports.QUANTITIES
+    result = exports.export_structure(structure, quantity, classic(), mj())
+    if quantity == 'weighted-recognition-topology':
+        reference = exports.recognition_topology(structure, ContactMap.from_structure(structure))
+        assert_frame_equal(result.select('graph', 'vertices', 'edges', 'beta0', 'beta1'),
+                           reference.select('graph', 'vertices', 'edges', 'beta0', 'beta1'))
+        assert result.filter(pl.col('graph').is_in(['released', 'tp_pm', 'tp_pm_tm']))['missing_weight'].sum() == 0
+        assert np.isfinite(result.filter(pl.col('graph') == 'tp_pm_tm')['w_total'][0])
+    else:
+        parts = _recognition_contact_edges(ContactMap.from_structure(structure))
+        vertices = {v for edges in parts.values() for edge in edges for v in edge}
+        assert result['vertices'][0] == len(vertices)
+        assert result['points'][0]+result['missing_atoms'][0] == len(vertices)
+        assert 'pers1_bars_cb' in result.columns
+
+
+@pytest.mark.parametrize('quantity', ['weighted-recognition-topology', 'persistence', 'cdr3-contacts'])
+def test_new_topology_cli_requires_no_user_potential(monkeypatch, tmp_path, quantity):
+    captured = {}
+    def batch(*args, **kwargs):
+        captured.update(kwargs)
+        return pl.DataFrame({'status': ['ok']})
+    monkeypatch.setattr(exports, 'export_batch', batch)
+    result = CliRunner().invoke(app, ['export', '-s', str(PDB), '-o', str(tmp_path/'out.tsv'),
+                                    '--quantity', quantity])
+    assert result.exit_code == 0, result.output
+    assert captured['quantity'] == quantity
+    assert captured['peptide_potential'] is None
+
+
+def test_cdr3_neighborhood_export_uses_complete_interfaces():
+    structure = typed_structure()
+    result = exports.export_structure(structure, 'cdr3-neighborhood', None, None)
+    cm = ContactMap.from_structure(structure)
+    assert result.height == 1
+    assert result['peptide_edges'][0] == cm.interface('tcr_peptide').height
+    assert result['mhc_edges'][0] == cm.interface('tcr_mhc').height
+
+
+def test_cdr3_contacts_export_retains_all_atom_chemical_witnesses():
+    structure = typed_structure()
+    atoms = exports.export_structure(structure, 'cdr3-contacts', None, None)
+    from tcren.topology.neighborhood import neighborhood_counts, neighborhood_features
+    from tcren.contact_types import stacked_pairs
+    assert atoms['region.type.from'].unique().to_list() == ['CDR3']
+    assert set(atoms['interface']) == {'peptide', 'mhc'}
+    assert 'is_hydrophobic' in atoms.columns and 'sidechain.from' in atoms.columns
+    expected = neighborhood_features(structure)
+    expected.pop('pdb.id')
+    assert neighborhood_counts(atoms, stacking=stacked_pairs(structure)) == expected
+
+
+@pytest.mark.parametrize("interface", ["tcr_mhc", "peptide_mhc"])
+def test_mhc_derivation_contact_table_preserves_physical_edges(interface):
+    from tcren.paper.helpers import contact_table
+    from copy import deepcopy
+    structure = typed_structure()
+    # Coincident class-II alpha/beta sites must count as separate physical edges.
+    duplicate = deepcopy(structure.by_type('MHCa')[0])
+    duplicate.chain_id = 'Z'
+    duplicate.chain_type = 'MHCb'
+    structure.chains.append(duplicate)
+    result = contact_table(structure, interface=interface)
+    expected = ContactMap.from_structure(structure).interface(interface)
+    keys = ['chain.id.from','residue.index.from','chain.id.to','residue.index.to']
+    assert result.height == expected.height
+    assert_frame_equal(result.select(keys).sort(keys),expected.select(keys).sort(keys))
+    assert set(result['chain.type.to']) >= {'MHCa','MHCb'}
+
+
+def test_weighted_cli_forwards_all_three_explicit_matrices(monkeypatch, tmp_path):
+    captured = {}
+    def batch(*args, **kwargs):
+        captured.update(kwargs)
+        return pl.DataFrame({'status':['ok']})
+    monkeypatch.setattr(exports, 'export_batch', batch)
+    paths=[]
+    for label,value in [('tp',-1.),('tm',-2.),('pm',-3.)]:
+        path=tmp_path/(label+'.csv')
+        pl.DataFrame({'residue.aa.from':['A'],'residue.aa.to':['D'],'value':[value]}).write_csv(path)
+        paths.append(str(path))
+    result=CliRunner().invoke(app,['export','-s',str(PDB),'-o',str(tmp_path/'out.tsv'),
+        '--quantity','weighted-recognition-topology','--potential',paths[0],
+        '--mhc-potential',paths[1],'--pmhc-potential',paths[2],
+        '--graph-weighting','boltzmann','--graph-beta','1.0'])
+    assert result.exit_code==0,result.output
+    assert captured['graph_weighting']=='boltzmann' and captured['graph_beta']==1.0
+    for field,value in [('peptide_potential',-1.),('mhc_potential',-2.),('pmhc_potential',-3.)]:
+        assert captured[field].matrix['value'].to_list()==[value]

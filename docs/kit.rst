@@ -19,9 +19,9 @@ A CDR3 excludes the conserved junction anchors; use the supplied chain annotatio
 
    $ tcren screen -s models.tar.gz --confidence confidence.tsv -o screen.tsv
 
-The optional confidence table has unique ``complex.id`` and ``iptm`` columns.
+The optional confidence table has unique ``complex.id``, ``iptm`` and ``plddt`` columns (pLDDT on 0–100).
 Without it, ``screen`` looks for the set's ``metadata.tsv``. If ipTM is unavailable,
-the output reports that fact and combines the available structural components.
+the default TCR output flags missing values and uses the frozen imputation policy.
 See :doc:`screening` for equations, the structural reference and missingness rules.
 
 Read the output before using the ranking
@@ -33,8 +33,8 @@ Read the output before using the ranking
    ``n_components`` reports observed inputs rather than an imputed complete vector.
 #. Read ``cohort_mean_iptm``, ``cohort_confidence_z`` and the cohort flags. Flags report
    by default; they do not automatically change the score.
-#. For receptor ranking, retain ipTM as the primary comparator. The structural
-   combination is a complementary readout, with no universal improvement claimed.
+#. For receptor ranking, sort finite ``screen_score`` values from highest to lowest.
+   Retain ipTM as a comparator and inspect ``gate_q`` and the component weights.
 #. Use the provenance sidecar to recover the task, frozen-reference hash, weight,
    cohort floor and requested flag response.
 
@@ -51,7 +51,7 @@ Inspect the components
    $ tcren features -s models.tar.gz -i interface,topology,energetics -o features.tsv
    $ tcren contacts -s models.tar.gz --interface tcr_peptide -o contacts.csv
    $ tcren scoring -s models.tar.gz --delta --reference-mode structural -o energies.csv
-   $ tcren export -s models.tar.gz --quantity receptor-reference --reference-mode structural -o receptor.tsv
+   $ tcren export -s models.tar.gz --quantity receptor-reference --reference-mode structural --potential tcren2 -o receptor.tsv
 
 ``features`` provides individual descriptors; its existing ``dPhi`` columns use
 the historical fixed-map route. For the structural epitope alanine difference use
