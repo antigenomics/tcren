@@ -31,7 +31,11 @@ def write_dashboard(scenes, output: str | Path) -> Path:
         payload = json.dumps(scene, allow_nan=False, separators=(",", ":")).encode()
         (output / name).write_bytes(gzip.compress(payload, mtime=0))
         tables.add(scene)
-        entries.append(dict(id=scene["id"], reference=scene["frame"]["reference"],
+        identity = scene["id"]
+        short_id = identity[:8] if len(identity) > 24 else identity
+        peptides = [c["sequence"] for c in scene.get("components", []) if c["role"] == "peptide"]
+        display_label = scene.get("display_label") or " · ".join([*peptides, short_id])
+        entries.append(dict(id=identity, display_label=display_label, reference=scene["frame"]["reference"],
                             label=scene.get("group_label", scene["frame"]["reference"]),
                             search=" ".join(c["sequence"] for c in scene.get("components", [])),
                             file=name, warnings=scene["warnings"]))

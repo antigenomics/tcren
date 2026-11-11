@@ -107,3 +107,19 @@ def test_summary_checks_peptide_contacts_against_residue_roles(tmp_path):
     summary.write_parquet(out / "summary.parquet")
     with pytest.raises(ValueError, match="TCR–peptide contacts differ"):
         summarize_exports(out)
+
+
+def test_default_selector_label_is_informative_without_changing_identity(tmp_path):
+    identity = "abcdef0123456789" * 4
+    scene = empty_scene(identity)
+    scene["components"] = [dict(role="peptide", sequence="GILGFVFTL")]
+    out = tmp_path / "browser"
+    write_dashboard([scene], out)
+    entry = json.loads((out / "index.json").read_text())[0]
+    assert entry["id"] == identity
+    assert entry["display_label"] == "GILGFVFTL · abcdef01"
+    assert entry["file"] == "scene-0.json.gz"
+    assert json.loads(gzip.decompress((out / entry["file"]).read_bytes()))["id"] == identity
+    viewer = (out / "viewer.js").read_text()
+    assert "new Option(entry.display_label||entry.id,entry.file)" in viewer
+    assert "option.title=entry.id" in viewer

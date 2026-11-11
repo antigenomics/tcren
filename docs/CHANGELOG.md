@@ -5,6 +5,9 @@ All notable changes to `tcren` are recorded here. Format follows
 
 ## [4.5.0] — 2026-11-11
 
+- Show peptide sequence and compact structure IDs in the molecular selector,
+  retaining full identities in tooltips and exact source joins.
+
 - Rewrite complementarity visualization with ranking frames, residue/heavy-atom
   scenes, all six CDRs and groove regions, exact contact witnesses and a local
   side/top overlay dashboard. Keep unchanged historical maps via `--legacy`.
