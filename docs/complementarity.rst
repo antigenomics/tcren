@@ -227,6 +227,10 @@ resolved geometry. No contacts alone does not establish an experimental
 nonbinder. Short display labels preserve full structure identities for joins.
 Static figures and browser values remain consumers of exported Parquet tables.
 Inspect occupied-grid-boundary warnings before interpreting whole surfaces.
+The table-view exporter rejects requests exceeding 20 million atom/offset
+evaluations before calling the surface sampler. Grid dimensions alone do not
+bound work for a very large probe or a very narrow extent; reduce the grid or
+probe, or widen the extent if this guard is reached.
 
 A contact witness records proximity within the extraction envelope; it does not
 certify a physically plausible interaction. Inspect original atom coordinates

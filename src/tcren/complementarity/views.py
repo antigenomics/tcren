@@ -40,6 +40,8 @@ def validate_grid(grid, extent, probe):
         raise ValueError("grid must have two integer dimensions in [1,256]")
     if len(extent) != 4 or not np.isfinite(extent).all() or extent[0] >= extent[1] or extent[2] >= extent[3]:
         raise ValueError("extent must be finite x0<x1,y0<y1")
+    if not np.isfinite((extent[1]-extent[0], extent[3]-extent[2])).all():
+        raise ValueError("extent widths must be finite")
     if not np.isfinite(probe) or probe < 0:
         raise ValueError("probe must be finite and nonnegative")
 
@@ -91,14 +93,22 @@ def topography_tables(scene, *, grid=(64, 64), extent=(-40., 40., -40., 40.), pr
     direction = -1 if task == "tcr" else 1
     local[:, 2] *= direction
     radii = np.array([_BONDI.get(a["element"], _DEFAULT_RADIUS) for a in atoms]) + probe
+    # The shared sampler enumerates lateral offsets for every atom. Grid size
+    # alone does not bound that work when the probe is huge or the extent tiny.
+    ny, nx = grid
+    dx, dy = (extent[1]-extent[0])/nx, (extent[3]-extent[2])/ny
+    radius = float(radii.max())
+    offsets = (radius/dx if dx else float("inf"), radius/dy if dy else float("inf"))
+    if (not np.isfinite(offsets).all() or max(offsets) > 20_000_000
+            or (2*np.ceil(offsets[0])+1)*(2*np.ceil(offsets[1])+1)*len(atoms) > 20_000_000):
+        raise ValueError("topography exceeds 20,000,000 atom/offset evaluations; "
+                         "use a smaller grid/probe or a wider extent")
     cells, owners, heights = _height_candidates(local, radii, grid, extent)
     order = np.lexsort((heights, cells))
     cells, owners, heights = cells[order], owners[order], heights[order]
     last = np.r_[cells[1:] != cells[:-1], True] if len(cells) else np.zeros(0, bool)
     exposed = {int(cell): (int(owner), float(height)*direction)
                for cell, owner, height in zip(cells[last], owners[last], heights[last])}
-    ny, nx = grid
-    dx, dy = (extent[1]-extent[0])/nx, (extent[3]-extent[2])/ny
     rows = []
     for iy in range(ny):
         for ix in range(nx):

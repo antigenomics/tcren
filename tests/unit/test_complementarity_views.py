@@ -75,6 +75,7 @@ def test_contacting_pair_without_ca_has_null_distance_not_zero():
     ((0, 1), (-1, 1, -1, 1), 1.4), ((True, 1), (-1, 1, -1, 1), 1.4),
     ((257, 1), (-1, 1, -1, 1), 1.4), ((1, 1), (1, -1, -1, 1), 1.4),
     ((1, 1), (-1, 1, -1, float("nan")), 1.4), ((1, 1), (-1, 1, -1, 1), -1),
+    ((1, 1), (-1e308, 1e308, -1, 1), 1.4),
 ])
 def test_invalid_grid_bounds_and_probe(grid, extent, probe):
     with pytest.raises(ValueError):
@@ -214,3 +215,17 @@ def test_static_plot_explains_zero_contact_facets_and_uses_navigation_label(tmp_
     assert all(path.is_file() for path in paths)
     assert all("Known peptide · native" in title for title, _ in captions)
     assert "No contacting pairs" in captions[1][1]
+
+
+@pytest.mark.parametrize("extent,probe", [
+    ((-1., 1., -1., 1.), 1e100),
+    ((0., 1e-300, 0., 1e-300), 1.4),
+    ((0., 1e-320, 0., 1e-320), 1.4),
+])
+def test_topography_refuses_unbounded_offset_work_before_sampler(monkeypatch, extent, probe):
+    def forbidden(*args, **kwargs):
+        pytest.fail("unbounded request reached ray caster")
+
+    monkeypatch.setattr("tcren.complementarity.views._height_candidates", forbidden)
+    with pytest.raises(ValueError, match="atom/offset evaluations"):
+        topography_tables(example(), grid=(256, 256), extent=extent, probe=probe)
