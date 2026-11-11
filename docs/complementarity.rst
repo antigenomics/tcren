@@ -96,6 +96,9 @@ view. These actions never recenter molecular coordinates or change counts.
 Default peptide labels refer to the first selected structure, avoiding repeated
 labels in overlays; select ``Peptide · every structure`` to label each member.
 All points remain independently inspectable in either mode.
+Each projection displays at most 250 labels, prioritizing peptide nodes and then
+nodes with contacts after filters. A visible notice reports omitted labels.
+The label limit never removes molecular points, edges, table rows or counts.
 
 Compressed data
 ---------------

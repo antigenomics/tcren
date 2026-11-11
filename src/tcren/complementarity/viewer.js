@@ -140,7 +140,12 @@ function nodeTable() {
 
 function draw(svg,vertical,views,atomic,scale) {
     svg.replaceChildren();
-    const labelBoxes=[];
+    const labelBoxes=[],labelBuckets=[[],[],[]],labelLimit=250;let requestedLabels=0;
+    function queueLabel(priority,...label){
+        const [cx,cy]=label;if(cx<5||cx>695||cy<5||cy>510)return;
+        requestedLabels++;
+        if(labelBuckets[priority].length<labelLimit)labelBuckets[priority].push(label);
+    }
     function labelAt(cx,cy,text,color,title) {
         if(cx<5||cx>695||cy<5||cy>510)return;
         const width=text.length*8+4,height=16;
@@ -212,10 +217,17 @@ function draw(svg,vertical,views,atomic,scale) {
             const peptideLabel=r.role==='peptide'&&(!atomic||node.name==='CA');
             const label=scope==='peptide'?peptideLabel&&view===views[0]:scope==='allpeptides'?peptideLabel:
                 scope==='all'||(scope==='contacts'&&node.contact_count>0&&(!atomic||node.name==='CA'))||peptideLabel;
-            if ($('labels').checked&&label) labelAt(cx,cy,
+            if ($('labels').checked&&label) queueLabel(r.role==='peptide'?0:view.visibleCounts.get(node.id)>0?1:2,cx,cy,
                 atomic&&scope==='all'?node.name:`${r.aa}${r.number}${r.insertion}${atomic?' CA':''}`,COLORS[r.role],name);
         }
     }
+    for(const bucket of labelBuckets)for(const label of bucket){
+        if(labelBoxes.length===labelLimit)break;
+        labelAt(...label);
+    }
+    if(requestedLabels>labelBoxes.length)svgElement(svg,'text',{
+        x:350,y:556,'font-size':11,'text-anchor':'middle',class:'label-limit',fill:'#6c3c12'
+    }).textContent=`${requestedLabels-labelBoxes.length} labels omitted (limit ${labelLimit}); filter chains/regions. All points remain inspectable.`;
 }
 
 export function fitCameraCoordinates(positions) {

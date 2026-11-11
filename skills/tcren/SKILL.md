@@ -17,6 +17,8 @@ Use global versus filtered counts explicitly; zoom and pan change neither.
 Side z and top y camera offsets are independent. Fit visible nodes frames the
 selected points; Reset camera returns to the shared molecular reference origin.
 Neither action changes exported coordinates, alignment or contact counts.
+Labels are capped at 250 per projection, with a visible omission count; peptide
+and contacting nodes take priority. Every molecular point remains inspectable.
 JSON.gz scenes, typed Parquet and matching TSV.gz tables share these definitions;
 the dashboard is independent of vdjdb-web. Run
 `tcren complementarity-summary browser` to check exported row counts and contact
