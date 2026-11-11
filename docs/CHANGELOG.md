@@ -3,7 +3,7 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
-## Unreleased — 4.5.0
+## [4.5.0] — 2026-11-11
 
 - Rewrite complementarity visualization with ranking frames, residue/heavy-atom
   scenes, all six CDRs and groove regions, exact contact witnesses and a local
