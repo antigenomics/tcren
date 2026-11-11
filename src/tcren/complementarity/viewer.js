@@ -33,7 +33,8 @@ function options() {
     const query = $('search').value.toLowerCase();
     for (const entry of entries.filter(e => e.reference === $('group').value &&
             (e.id+' '+(e.search||'')).toLowerCase().includes(query))) {
-        const option = new Option(entry.id,entry.file); option.selected = selected.has(entry.file);
+        const option = new Option(entry.display_label||entry.id,entry.file);
+        option.title=entry.id;option.selected = selected.has(entry.file);
         $('structures').add(option);
     }
 }
@@ -104,7 +105,10 @@ function summary(views,atomic) {
         const values=[s.id,s.summary.residues,s.summary.atoms,s.summary.covalent_bonds,
             s.summary.atom_contacts,s.summary.residue_contacts,s.summary.tcr_peptide_atom_contacts,view.nodes.filter(view.shown).length,
             view.contacts.reduce((sum,e)=>sum+(atomic?1:e.contact_count),0)];
-        for (const value of values) row.insertCell().textContent=String(value);
+        for (const [index,value] of values.entries()){
+            const cell=row.insertCell();cell.textContent=index===0&&String(value).length>32?String(value).slice(0,12)+'…':String(value);
+            if(index===0)cell.title=s.id;
+        }
         if(s.summary.no_tcr_peptide_interface)row.title='No TCR–peptide atom contacts at this cutoff.';
     }
     $('summary').append(table);
