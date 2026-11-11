@@ -1,0 +1,55 @@
+name: Native Windows end-to-end
+
+on:
+  push:
+    branches: [master, codex/windows-e2e]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      dependency_ref:
+        description: Source dependency branch or tag (master for normal verification)
+        default: master
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: ilammy/msvc-dev-cmd@v1
+      - uses: actions/checkout@v4
+        with:
+          repository: antigenomics/seqtree
+          ref: ${{ inputs.dependency_ref || (github.ref_name == 'codex/windows-e2e' && github.ref_name) || 'master' }}
+          path: .upstream/seqtree
+      - uses: actions/checkout@v4
+        with:
+          repository: antigenomics/arda
+          ref: ${{ inputs.dependency_ref || (github.ref_name == 'codex/windows-e2e' && github.ref_name) || 'master' }}
+          path: .upstream/arda
+      - name: Build source dependencies and package
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m pip install ./.upstream/seqtree
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m pip install ./.upstream/arda
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m pip install ".[test]"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Exercise native search and real annotation
+        shell: pwsh
+        run: |
+          python -c "import tcren; from tcren.runtime import available_cpus; assert 1 <= available_cpus() <= available_cpus(physical=False); print(available_cpus(), available_cpus(physical=False))"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m pytest tests/unit/test_cli_budget.py::test_coarse_workers_are_distinct_and_native_serial tests/regression/test_cli_smoke.py::test_annotate_emits_region_markup tests/regression/test_cli_smoke.py::test_contacts_emits_an_annotated_interface_table -q
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

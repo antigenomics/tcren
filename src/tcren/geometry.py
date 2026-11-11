@@ -14,7 +14,6 @@ These are **feasibility / mode** descriptors, not binder classifiers — backbon
 discriminate binders (every apparent signal was a provenance / epitope confound). Bill them as
 ``structure -> geometry`` featurisation only.
 
-Ported from ``model/src/Feasibility.jl`` of the 2026-tcren-algem monograph.
 """
 
 from __future__ import annotations

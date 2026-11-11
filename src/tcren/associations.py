@@ -72,11 +72,12 @@ def associate(results: pl.DataFrame, features: pl.DataFrame, scores: dict[str, i
     """Compare each score with ipTM on its own matched finite rows, then associate.
 
     ``results`` requires globally unique ``id``, dataset/task/cohort/mhc_class/
-    template_coverage, binary endpoint, iptm and explicit score columns. Classes
+    template_coverage, binary or missing endpoint, iptm and explicit score columns. Classes
     are I/II; missing coverage must be explicitly ``unknown``. ``features`` has
     unique id plus selected numeric columns, one pMHC conformation per input row.
     Missing features never remove classification rows. Cohort feature medians are
-    computed once, label-blind, with finite counts and quartiles. Correlations use
+    computed once using all models, label-blind, with finite counts and quartiles.
+    Missing outcomes are excluded only from classification, with membership flags. Correlations use
     one cohort per observation, separately within each of the four strata keys.
 
     Returns metrics, features, associations and row-level membership tables.
@@ -102,8 +103,8 @@ def associate(results: pl.DataFrame, features: pl.DataFrame, scores: dict[str, i
     if features.join(results.select("id"), on="id", how="anti").height:
         raise ValueError("features contain unexpected IDs")
     labels = np.asarray(results[endpoint], float)
-    if not np.isfinite(labels).all() or not np.isin(labels, [0, 1]).all():
-        raise ValueError("endpoint must contain finite binary labels")
+    if np.isinf(labels).any() or not np.isin(labels[np.isfinite(labels)], [0, 1]).all():
+        raise ValueError("endpoint must contain binary labels or missing values")
     confidence = np.asarray(results["iptm"], float)
     if ((confidence[np.isfinite(confidence)] < 0) | (confidence[np.isfinite(confidence)] > 1)).any():
         raise ValueError("finite iptm values must be in [0, 1]")
@@ -122,9 +123,10 @@ def associate(results: pl.DataFrame, features: pl.DataFrame, scores: dict[str, i
         y, confidence = np.asarray(part[endpoint], float), np.asarray(part["iptm"], float)
         for score, direction in scores.items():
             x = np.asarray(part[score], float) * direction
-            ok = np.isfinite(x) & np.isfinite(confidence)
+            ok = np.isfinite(y) & np.isfinite(x) & np.isfinite(confidence)
             membership.append(part.select("id", *GROUPS).with_columns(
                 pl.lit(score).alias("score"), pl.Series("used", ok),
+                pl.Series("finite_endpoint", np.isfinite(y)),
                 pl.Series("finite_score", np.isfinite(x)), pl.Series("finite_iptm", np.isfinite(confidence))))
             current, baseline = _metrics(y[ok], x[ok]), _metrics(y[ok], confidence[ok])
             for metric, value in current.items():

@@ -437,7 +437,7 @@ from .runtime import resolve_threads, single_threaded
 
 @single_threaded
 def inspect_predictions(
-    manifest: pl.DataFrame, *, cutoff: float = 5.0, organism: str = "human", threads: int = 1,
+    manifest: pl.DataFrame, *, cutoff: float = 5.0, organism: str = "human", threads: int = 0,
     historical_assessment: bool = False,
 ) -> dict[str, pl.DataFrame]:
     """One batch -> model rows, residue markup, descriptors and confidence-bearing contacts.
@@ -632,7 +632,7 @@ def inspect_models_command(
     out: Path,
     cutoff: float = 5.0,
     organism: str = "human",
-    threads: int = 1,
+    threads: int = 0,
     historical_assessment: bool = False,
 ) -> None:
     """Inspect an AF3/TCRmodel2/native TSV manifest; write models, residues and contacts TSVs."""

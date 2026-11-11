@@ -116,6 +116,19 @@ Reproducing them
        --nonred \
        -o TCRen_potential.csv
 
+For an explicit historical recipe, a CSV contact table may carry a numeric
+per-contact weight column. The CLI exposes the existing derivation API:
+
+.. code-block:: console
+
+   $ tcren derive-potential -i weighted_contacts.csv --weight-column vote --keep-cys -o historical_potential.csv
+
+Weights must be finite and nonnegative, with at least one positive value.
+They multiply ``--balance`` weights if both are supplied. ``--keep-cys`` retains
+receptor cysteine entries; ``--drop-cys`` removes them. Omitting both retains
+the variant default (classic drops receptor cysteine; am keeps it).
+These explicit overrides are unavailable with ``--loo``.
+
 ``tcren2``, from the reference crystals — fetch them once with ``tcren fetch-data``, then:
 
 .. code-block:: console

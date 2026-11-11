@@ -165,6 +165,30 @@ tcren.contacts.observations module
    :undoc-members:
    :show-inheritance:
 
+tcren.contacts.engagement module
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: tcren.contacts.engagement
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+tcren.contacts.motif module
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: tcren.contacts.motif
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+tcren.contacts.confidence_proxy module
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: tcren.contacts.confidence_proxy
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 tcren.contactmap module
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 

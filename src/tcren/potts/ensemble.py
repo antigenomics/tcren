@@ -161,12 +161,12 @@ def _body_energy_ensemble(s: int, *, beta: float, anchor: str, chains: int, burn
 
 def _SHARED_PHI():
     from .score import _SHARED
-    return _SHARED["phi"]
+    return _SHARED.get()["phi"]
 
 
 def _SHARED_UNDEF(lo: int, hi: int) -> int:
     from .score import _SHARED
-    return int(_SHARED["undefined"][lo:hi].sum())
+    return int(_SHARED.get()["undefined"][lo:hi].sum())
 
 
 _BODIES["energy_ensemble"] = _body_energy_ensemble
@@ -209,7 +209,8 @@ def energy_ensemble(sites: pl.DataFrame, model: PottsModel, potential: Potential
         particles, steps: Annealed-importance settings for ``log Z``; see
             :func:`tcren.potts.ais_log_z`.
         seed: Seed for the sampler.
-        workers: Processes to split the structures across. Bit-identical either way.
+        workers: Process budget; None uses allocated cores. Batches smaller than two
+            structures per process run in the caller. Bit-identical either way.
 
     Note:
         ``anchor="observed"`` is not a Hamming-ball constraint and deliberately so. An
@@ -241,8 +242,8 @@ def _body_map_ensemble(s: int, *, top_k: int, chains: int, burn: int, draws: int
     from .score import _SHARED
     pid, lo, hi, et, sg, A, cols = _unpack(s)
     phi = _SHARED_PHI()[lo:hi]
-    groups = _SHARED["groups"][lo:hi]
-    labels = _SHARED["group_labels"][s]
+    groups = _SHARED.get()["groups"][lo:hi]
+    labels = _SHARED.get()["group_labels"][s]
     n_groups = len(labels)
     _, _, phi_vals, e_vals, _, packed = _accumulate(
         et, A, cols, _rng_for(seed, pid), phi, sg, chains=chains, burn=burn, draws=draws,

@@ -20,6 +20,10 @@ def summarize_contacts(contacts: pl.DataFrame, accounting: pl.DataFrame) -> pl.D
         raise ValueError("complete contact columns and unique accounting IDs required")
     if not accounting.height or set(accounting["status"]) != {"ok"}:
         raise ValueError("complete successful accounting required")
+    if contacts.is_empty():
+        # A header-only CSV has string columns even for these numeric quantities.
+        contacts = contacts.with_columns(
+            pl.col("four_cycles", "pair_energy", "surface_excess_A").cast(pl.Float64))
     if contacts.select(keys).is_duplicated().any() or contacts.filter(pl.col("four_cycles") < 0).height:
         raise ValueError("unique residue-pair edges with nonnegative cycle counts required")
     ids = sorted(accounting["pdb.id"].to_list())

@@ -1,5 +1,5 @@
 {
-  "_note": "Frozen native moments and AlphaFold reliability bands for tcren.reliability. Q, T and Pi are the block scores z^T C^-1 s over reliability_reference.csv; their native MEAN is 0 by construction, so the outer transform is one divide by `sd`. NOTHING here is fitted against a binding label: the out-of-fold Platt links and the confidence correction were removed on 2026-09-01. Provenance: 2026-tcren2-code bench/scripts/build_reliability_moments.py, assembling bench/eda/blockcov.py and bench/eda/af_bands.py.",
+  "_note": "Frozen native moments and AlphaFold reliability bands for tcren.reliability. Q, T and Pi are the block scores z^T C^-1 s over reliability_reference.csv; their native MEAN is 0 by construction, so the outer transform is one divide by `sd`. NOTHING here is fitted against a binding label: the out-of-fold Platt links and the confidence correction were removed on 2026-09-01. Provenance: build_reliability_moments.py, assembling blockcov.py and af_bands.py.",
   "blocks": {
     "Q": {
       "mean": -1.4441925523579272e-16,

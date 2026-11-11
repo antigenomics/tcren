@@ -175,11 +175,12 @@ read as ``T``, a directional score against the native crystals rather than a han
    row["D2_pep24"], row["fp_b0_r7"], row["L_canon"]
 
    table = footprint_batch("structures/")  # polars frame, one row per structure
-   T = t_score(table)                      # the shape score, fit-free, one row is enough
+   T = t_score(table)                      # historical reference-estimated shape score
 
-The cyclomatic number of the bipartite contact graph (``E - V + C``) is deliberately not offered:
-with of order thirty contacts among of order thirty residues it is dominated by ``E`` and simply
-tracks interface size. The patch count is scale-free instead.
+This historical footprint analysis uses patch counts. The current recognition
+graph separately exposes ``(E - V + C)/E`` over three interfaces, as defined in
+:doc:`screening`. These have different graph definitions and normalizations; do
+not substitute the raw bipartite cyclomatic number for the recognition fraction.
 
 Surface topology: what a TCR meets before it binds
 ----------------------------------------------------

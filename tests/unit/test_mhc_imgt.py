@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from tcren.mhc import imgt
 from tcren.mhc.imgt import _two_field
 
@@ -51,3 +53,134 @@ def test_parse_mouse_roles(tmp_path):
     assert roles["H2-Aa"] == ("MHCII", "MHCa")
     assert roles["B2m"] == ("MHCI", "B2M")
     assert any(a.species == "human" and a.chain_role == "B2M" for a in alleles)
+
+
+def test_download_is_atomic_and_concurrent_callers_share_publication(tmp_path, monkeypatch):
+    import threading
+    import time
+    from types import SimpleNamespace
+
+    dest = tmp_path / 'input.fasta'
+    calls, errors = [], []
+
+    def fetch(*args, **kwargs):
+        calls.append(1)
+        assert not dest.exists()
+        time.sleep(0.05)
+        return SimpleNamespace(text='>synthetic\nACDE\n', raise_for_status=lambda: None)
+
+    monkeypatch.setattr(imgt.requests, 'get', fetch)
+
+    def worker():
+        try:
+            assert imgt._download('synthetic', dest, False).read_text() == '>synthetic\nACDE\n'
+        except Exception as exc:
+            errors.append(exc)
+
+    workers = [threading.Thread(target=worker) for _ in range(4)]
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join(timeout=5)
+    assert not any(worker.is_alive() for worker in workers)
+    assert not errors
+    assert len(calls) == 1
+
+
+def test_bad_download_preserves_previous_reference(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    import pytest
+
+    dest = tmp_path / 'input.fasta'
+    dest.write_text('>previous\nACDE\n')
+    monkeypatch.setattr(imgt.requests, 'get', lambda *a, **k: SimpleNamespace(
+        text='<html>service failure</html>', raise_for_status=lambda: None))
+    with pytest.raises(ValueError, match='not FASTA'):
+        imgt._download('synthetic', dest, True)
+    assert dest.read_text() == '>previous\nACDE\n'
+
+
+def test_reference_build_stages_on_destination_filesystem(tmp_path, monkeypatch):
+    from tcren.mhc import reference
+    import os
+
+    allele = imgt.MhcAllele('HLA-A*01:01', 'A', 'MHCI', 'MHCa', 'human', 'ACDE')
+    monkeypatch.setattr(imgt, 'download_human', lambda *a, **k: tmp_path / 'raw.fasta')
+    monkeypatch.setattr(imgt, 'parse_human', lambda p: [allele])
+    replaced = []
+    real_replace = os.replace
+
+    def replace(source, destination):
+        assert source.parent.parent == tmp_path
+        replaced.append(destination.name)
+        real_replace(source, destination)
+
+    monkeypatch.setattr(reference.os, 'replace', replace)
+    fasta = reference.build(species=('human',), out_dir=tmp_path)
+    assert fasta.read_text() == '>HLA-A*01:01|A|MHCI|MHCa|human\nACDE\n'
+    assert replaced == ['metadata.tsv', 'alleles.aa.fasta']
+    assert not list(tmp_path.glob('.reference-*'))
+
+
+def test_compact_reference_preserves_two_field_proteins_and_full_opt_in(tmp_path, monkeypatch):
+    from tcren.mhc import reference
+
+    def allele(name, sequence):
+        return imgt.MhcAllele(name, name[4:].split('*')[0], 'MHCI', 'MHCa', 'human', sequence)
+
+    alleles = [allele('HLA-A*02:01', 'AC'), allele('HLA-A*02:01', 'ACDE'),
+               allele('HLA-B*27:02', 'ACDF'), allele('HLA-B*27:05', 'ACDG'),
+               allele('HLA-A*99:999', 'ACDH')]
+    monkeypatch.setattr(imgt, 'download_human', lambda *a, **k: tmp_path / 'raw')
+    monkeypatch.setattr(imgt, 'parse_human', lambda p: alleles)
+    compact = reference.build(species=('human',), out_dir=tmp_path / 'compact')
+    assert {h.split('|')[0]: s for h, s in imgt._read_fasta(compact)} == {
+        'HLA-A*02:01': 'ACDE', 'HLA-B*27:02': 'ACDF', 'HLA-B*27:05': 'ACDG'}
+    full = reference.build(species=('human',), out_dir=tmp_path / 'full', all_alleles=True)
+    assert len(list(imgt._read_fasta(full))) == len(alleles)
+
+
+def test_fresh_install_uses_bundled_panel_without_download(tmp_path, monkeypatch):
+    from tcren.mhc import reference
+    import hashlib
+    import json
+
+    monkeypatch.setattr(reference, 'DATABASE_DIR', tmp_path)
+    monkeypatch.setattr(imgt.requests, 'get', lambda *a, **k: pytest.fail('unexpected download'))
+    # A stale raw cache must not replace the pinned offline snapshot.
+    stale = tmp_path / 'raw'
+    stale.mkdir()
+    (stale / 'hla_prot.fasta').write_text('>stale\nACDE\n')
+    assert imgt.download_human(stale).suffix == '.gz'
+    fasta = reference.reference_fasta(tmp_path)
+    assert fasta == tmp_path / 'alleles.aa.fasta'
+    assert len(list(imgt._read_fasta(fasta))) == 174
+    manifest = json.loads((reference._BUNDLED_DIR / 'SOURCES.json').read_text())
+    for row in manifest['curated_files']:
+        assert hashlib.sha256((tmp_path / row['file']).read_bytes()).hexdigest() == row['sha256']
+
+
+@pytest.mark.parametrize('species', [(), ('rabbit',), ('human', 'rabbit')])
+def test_reference_rejects_unsupported_species_before_fetch(tmp_path, monkeypatch, species):
+    from tcren.mhc import reference
+    monkeypatch.setattr(imgt, 'download_human', lambda *a, **k: pytest.fail('unexpected download'))
+    with pytest.raises(ValueError, match='species'):
+        reference.build(species=species, out_dir=tmp_path)
+    assert not list(tmp_path.iterdir())
+
+
+@pytest.mark.parametrize('species', ['human', 'mouse'])
+def test_empty_species_reference_cannot_replace_existing_files(tmp_path, monkeypatch, species):
+    from tcren.mhc import reference
+    fasta, metadata = tmp_path / 'alleles.aa.fasta', tmp_path / 'metadata.tsv'
+    fasta.write_text('previous fasta')
+    metadata.write_text('previous metadata')
+    monkeypatch.setattr(imgt, 'download_human', lambda *a, **k: tmp_path / 'raw')
+    monkeypatch.setattr(imgt, 'download_mouse', lambda *a, **k: (tmp_path / 'raw', tmp_path / 'b2m'))
+    monkeypatch.setattr(imgt, 'parse_human', lambda *a: [])
+    monkeypatch.setattr(imgt, 'parse_mouse', lambda *a: [
+        imgt.MhcAllele('B2M', 'B2M', 'MHCI', 'B2M', 'human', 'ACDE')])
+    with pytest.raises(ValueError, match='no usable ' + species):
+        reference.build(species=(species,), out_dir=tmp_path)
+    assert fasta.read_text() == 'previous fasta'
+    assert metadata.read_text() == 'previous metadata'

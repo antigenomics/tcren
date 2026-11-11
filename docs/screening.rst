@@ -17,15 +17,18 @@ A cohort holds one side fixed: one receptor with varying peptides is epitope
 ranking; one pMHC with varying receptors is TCR ranking. Automatic detection uses
 the annotated peptide sequence and CDR3 pair. Keep the MHC background consistent;
 this identity check does not establish experimental restriction or binding.
-A mixed set, or a set in which neither side varies, is refused with a diagnostic.
-``--task epitope`` or ``--task tcr`` declares a task but does not override that check.
+A mixed set is refused with a diagnostic. Automatic mode also refuses a set in
+which neither side varies. For a single model, explicitly use ``--task tcr`` with
+``--confidence-context nearest-plddt --min-cohort 1``. The
+``nearest-mean-plddt`` option uses the observed mean of a declared small same-pMHC
+set; see :doc:`motif-confidence` for support and missing-value rules.
 
 .. image:: _static/screening-workflow.svg
    :alt: Two ranking tasks select different structural references, followed by component reporting and a scorable-cohort check.
    :width: 100%
 
-The four exposed components
----------------------------
+Components and diagnostics
+--------------------------
 
 **Confidence:** ``iptm`` is the generator's interface predicted TM score, supplied
 from the input set's metadata or a unique ``complex.id``/``iptm`` table passed with
@@ -70,19 +73,62 @@ heights in Å and the bars denote means on those cells. The correlation is
 dimensionless; degenerate or insufficient samples are unavailable, not neutral zero.
 See :mod:`tcren.topology.surface` for grid and contact-plane definitions.
 
-**Topology:** ``g_cyclo_frac`` is the CDR:pMHC residue-graph cycle fraction:
+**Topology:** ``g_recognition_cyclo_frac`` is the recognition contact-graph cycle fraction:
 
 .. math::
 
    g_{\mathrm{cyclo}}=\frac{E-V+C}{E}, \qquad E>0.
 
 :math:`E` counts unique residue-contact edges, :math:`V` contacted vertices and
-:math:`C` connected components. The graph contains CDR:peptide and CDR:MHC edges.
+:math:`C` connected components. The graph contains CDR:peptide, peptide:MHC and CDR:MHC edges at 5 Angstrom.
+CDR1, CDR2 and CDR3 are included; framework, backbone-sequence and internal
+peptide edges are excluded. ``g_cyclo_frac`` retains the older CDR:pMHC definition.
 This dimensionless graph quantity is carried in the TCR-ranking combination;
 topology is excluded from the epitope-ranking combination.
 
-Frozen standardization and combination
---------------------------------------
+Default TCR combination
+-----------------------
+
+The bundled TCR reference uses three bounded components:
+
+.. math::
+
+   S=(1-0.41q-0.22(1-q))I+0.41qB+0.22(1-q)M.
+
+Here :math:`I` is ipTM, :math:`B` is recognition graph beta1/E and :math:`M`
+is empirical whole-mock contact enrichment. The weights are nonnegative and
+sum to one. Energy, geometry and frozen z-scores remain diagnostics.
+
+The gate :math:`q` is the inclusive empirical CDF of the unlabelled cohort mean
+pLDDT/100 against the five frozen means 0.9179320394646805,
+0.92612607434279, 0.9299804672775766, 0.9312745381105264 and
+0.9497418534263323. Comparisons round normalized confidence to twelve decimals
+only to stabilize numerical ties. All supplied feature rows contribute to the
+mean, including rows without binding labels. Supply ``plddt`` on the 0–100 scale
+in metadata or ``--confidence``. Missing components and confidence use the frozen
+training means and are flagged. The default cohort floor still applies.
+
+Local residue probabilities use conditional mock upper tails for added contact
+cycles (atom contacts minus distinct partner residues). Fisher evidence sums
+``-2*ln(p)`` over all six CDR loops and peptide residues. Whole-control empirical
+survival, with inclusive ties and a plus-one correction, converts it to
+``M = 1 - p_mock``. All 2,056 eligible mock graphs have unit weight; each control's
+own model was excluded from its local calibration ranks. The packaged histogram
+and gzipped TSV calibration table are frozen estimated reference dependencies.
+See :doc:`motif-confidence` and :doc:`motif-mixture` for the definitions.
+
+Nothing is fitted when scoring. Cohort composition does affect the measured mean
+and therefore its weights; an isolated model is a different context. The two
+coefficients were selected during labelled development; frozen application is
+not an independent validation. Scores are not calibrated binding probabilities.
+
+Epitope ranking retains Stouffer confidence and energy with equal weights.
+Custom references without ``score_method`` retain Stouffer combination. Historical
+TCR resources ``screen_reference_tcr_v43.json`` and
+``screen_reference_tcr_v44.json`` preserve their original formulas.
+
+Epitope and legacy standardization
+----------------------------------
 
 For each observed component :math:`i`, its frozen mean :math:`\mu_i`, positive
 scale :math:`\sigma_i`, declared direction :math:`d_i\in\{-1,+1\}` and fixed weight
@@ -100,53 +146,20 @@ direction. It is dimensionless and unbounded, not a binding free energy or a
 calibrated probability. Dependence among components is not a claim of independent
 evidence or a calibrated Stouffer significance test.
 
-The bundled references use confidence weight 0.8 for TCR ranking; energy, geometry
-and topology share the remaining 0.2 equally. Epitope ranking uses confidence and
-energy with weights 0.5 each. ``--weight`` explicitly changes the confidence weight
-within [0,1]; the structural components share the remainder.
+Template availability and effective weight
+------------------------------------------
 
-Means and scales are empirical reference dependencies estimated on a held-out pool
-of 729 models over 14 off-panel epitopes, without reading labels for those moments.
-Signs are declared a priori; saved labelled training diagnostics check them.
-The TCR confidence weight is an explicit design choice informed by recorded
-evaluation, not a prospectively validated learned coefficient. See ``SOURCES``
-and :doc:`fit-free` for the dependency contract. Query rows never re-estimate
-these constants, so a row's numerical combination does not depend on its neighbours.
-The cohort governs whether that score is emitted.
+``--template-status present|absent`` or ``--template-metadata inventory.tsv``
+records explicit context. Under the new default, this does not change the shared
+confidence rule. Status and inventory cannot be combined. ``--weight`` overrides
+only the confidence coefficient while retaining the structural Betti:motif ratio.
+Outputs record ``confidence_weight``, ``topology_weight``, ``motif_weight`` and
+``gate_q``. Availability does not establish predicted-pose accuracy.
 
-Experimental template-availability gate
----------------------------------------
-
-For TCR ranking, an explicit native-crystal inventory can gate the structural
-contribution without changing its components or frozen scales:
-
-.. code-block:: console
-
-   $ tcren screen -s models.tar.gz --confidence confidence.tsv \
-       --template-metadata Native2026/metadata.tsv --weight 0.6 -o diagnostic.tsv
-
-``--template-metadata`` requires an ``epitope`` column and an explicit ``--weight``.
-An epitope present in that inventory uses the requested confidence weight; an
-absent epitope uses weight 1 (standardized ipTM alone). Membership strips outer
-whitespace and ignores case. The inventory's SHA256, epitope, membership and
-requested/effective weights are recorded; ``native_template`` and
-``confidence_weight`` accompany the rows. Pin the inventory revision as well as
-its hash when reproducing a result. There is no implicit download or inferred
-template match. Availability is epitope-level: it does not establish matching
-MHC, construct correspondence or an accurate predicted pose.
-
-The example's 0.6 is an evaluation-selected diagnostic, not a bundled default or
-an independently validated coefficient. The unchanged TCR default remains 0.8;
-the gate is opt-in. The epitope-ranking path does not accept this gate.
-No gate is selected from a query's labels or its descriptor distribution.
-
-The observed-channel Stouffer denominator still applies. If ipTM is absent when
-the gate selects confidence alone, the score is null with
-``no weighted component observed``; structural values stay visible but cannot
-silently restore that score. A covered epitope with missing ipTM can still score
-on observed, positively weighted structural channels. Zero-contact discard,
-the cohort floor and reporting-only flags continue to apply. Explicit flag
-responses remain separate user choices and are recorded in the output.
+The historical two-weight reference retains 0.55 present/unspecified and 0.90
+absent confidence weights; older custom references retain their original gate.
+Epitope ranking does not accept template status. Zero-contact rejection, cohort
+floor and reporting-only flags apply to both tasks.
 
 Energy, orientation and target relief
 -------------------------------------
@@ -162,48 +175,28 @@ and receptor-free pMHC topography (surface relief, accessible peptide and surfac
 chemistry) remain distinct toolkit outputs; they are not additional terms in
 this aggregate. ``pitch`` is excluded as generator-confidence leakage.
 The graph topology and surface geometry can both describe packing and interface
-size, so their presence does not establish independent evidence. Near-orthogonal
-confidence and structural directions motivate a standardized sum, but do not
-make its denominator a calibrated significance test. Inspect the individual
+size. Their association does not establish independent evidence; the default
+TCR score is the bounded mixture defined above, not a significance test. Inspect the individual
 channels, their missingness, the target surface and docking geometry with flags
 before interpreting a ranking.
 
-Optional confidence orthogonalization
--------------------------------------
+Zero-contact rejection and cohort floor
+---------------------------------------
 
-A reference may carry a frozen ``confidence_rho`` on a structural component. Where
-it does, that component enters the combination with its confidence-explained part
-removed and an explicit rescaling applied:
+Models with zero TCR:peptide residue contacts at the 5 Å heavy-atom cutoff receive
+``screen_score=0``: no peptide contact means no binding interface in the supplied
+model. They remain in output with ``no_interface`` true and the structural
+rejection reason in ``score_unavailable``. The CLI emits a warning with the exact
+number of zero-contact models. A high ipTM cannot override this rejection;
+downstream exports must retain zero rather than substitute raw ipTM.
 
-.. math::
-
-   z_i^{\perp}=\frac{z_i-\rho_i z_{\mathrm{conf}}}{\sqrt{1-\rho_i^{2}}},
-   \qquad \rho_i\in(-1,1).
-
-:math:`\rho_i` is a caller-supplied frozen coefficient. If both standardized
-variables have unit variance and :math:`\rho_i` is their correlation in the same
-frozen reference population, the residual is uncorrelated with confidence and
-the division restores unit variance in that population. Global frozen scales do
-not ensure unit variance within each cohort, and uncorrelated channels need not
-be independent. Do not estimate this coefficient from query rows.
-
-This is an explicit change of basis, not new evidence. Keeping the same weights
-can change rankings after subtraction or rescaling; neither guarantees predictive
-improvement. The reference must document the coefficient's population and meaning.
-
-Rows whose confidence is missing keep :math:`z_i` unchanged — there is nothing to
-project out of them — and ``confidence_orthogonalized`` reports per row whether the
-correction was applied. The column is emitted only by a reference that carries the
-key. The bundled references do not, so their scores are unchanged.
-
-Discard and cohort floor
-------------------------
-
-Models with zero TCR:peptide contacts remain in output with ``no_interface`` true
-and a reason in ``score_unavailable``, but no score. They do not count toward
-``--min-cohort`` (default 30). Below the floor every row retains its component
-readouts without a combined score. A flag response cannot restore discarded or
-withheld scores or erase their original unavailability reasons.
+Zero-contact models do not count toward ``--min-cohort`` (default 30). Below the
+floor their scores remain zero; other rows retain components without a combined
+score. Explicit flag responses preserve these zeros and their original reasons.
+Zero is the lower bound of the default TCR and raw ipTM/Betti scores. With a
+historical standardized reference it is a rejection marker, not necessarily the
+lowest numerical score. This behavior applies from version 4.4.1 onward; older
+versions withheld the zero-contact score.
 
 Generator confidence reports pose quality; a binder-labelled pair may still have
 an off-groove prediction. Reversing such a score would reward modelling failure.
@@ -243,9 +236,9 @@ flags, ``n_components``, ``screen_score`` and ``score_unavailable``. Cohort flag
 confidence statistics and zero-contact counts accompany each row. The provenance
 sidecar records the task, reference hash, confidence weight, floor and flag response.
 
-For receptor ranking, keep ipTM primary and read the structural components beside
-it. The combination is complementary evidence, not an established universal
-improvement. Report template coverage separately. Peptide-intrinsic surface
+For receptor ranking, sort by ``screen_score`` with higher values first and retain
+ipTM and the structural components for interpretation. Performance depends on
+the evaluation population; the combination is not a binding decision. Report template coverage separately. Peptide-intrinsic surface
 properties and a high CPL ranking alone do not establish receptor specificity.
 Scientific evaluation, figures and historical results belong to the manuscript
 and benchmark records; this page specifies the software's current behavior.

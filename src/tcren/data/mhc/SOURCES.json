@@ -1,0 +1,101 @@
+{
+  "imgt_revision": {
+    "sha": "d972ae287948dc2e5468a40ff3b3d27227541189",
+    "date": "2026-10-14T11:20:40Z",
+    "url": "https://github.com/ANHIG/IMGTHLA/commit/d972ae287948dc2e5468a40ff3b3d27227541189"
+  },
+  "raw_sources": [
+    {
+      "file": "raw/hla_prot.fasta",
+      "url": "https://raw.githubusercontent.com/ANHIG/IMGTHLA/d972ae287948dc2e5468a40ff3b3d27227541189/hla_prot.fasta",
+      "sha256": "d5da882fca6427fb9c27fa4c27045ba8246b117a1d367566b4b35fb79bbbbe3a",
+      "bytes": 14965890,
+      "fetched_utc": "2026-11-03T20:31:06.344192+00:00",
+      "headers": {
+        "ETag": "W/\"e7f51edd7489a15a4176c4ca3c3e42650ae2501b9b21ae8bc19c87a6df428d61\""
+      }
+    },
+    {
+      "file": "raw/mouse_mhc.fasta",
+      "url": "https://rest.uniprot.org/uniprotkb/search?query=%28organism_id%3A10090%29+AND+reviewed%3Atrue+AND+%28gene%3AH2-K1+OR+gene%3AH2-D1+OR+gene%3AH2-L+OR+gene%3AH2-Q1+OR+gene%3AH2-Aa+OR+gene%3AH2-Ab1+OR+gene%3AH2-Ea+OR+gene%3AH2-Eb1+OR+gene%3AB2m%29&format=fasta&size=200",
+      "sha256": "4fdc2cc258cd932cc9f4a34fed42b4f96285fccf6b78318440f7d2c65b1b3092",
+      "bytes": 13178,
+      "fetched_utc": "2026-11-03T20:31:06.891570+00:00",
+      "headers": {
+        "X-UniProt-Release": "2026_03",
+        "X-Total-Results": "32",
+        "X-UniProt-Release-Date": "02-September-2026"
+      }
+    },
+    {
+      "file": "raw/human_b2m.fasta",
+      "url": "https://rest.uniprot.org/uniprotkb/P61769.fasta",
+      "sha256": "0e4ee90a5d0e1bde555a5c13345e83f81d17429ce56764c661693bfc80cbd0dd",
+      "bytes": 205,
+      "fetched_utc": "2026-11-03T20:31:07.269938+00:00",
+      "headers": {
+        "X-UniProt-Release": "2026_03",
+        "X-UniProt-Release-Date": "02-September-2026"
+      }
+    }
+  ],
+  "selection": {
+    "purpose": "Compact reference generated locally from unchanged bundled source snapshots",
+    "source_sha256": "985a7f5f5a1aed7910d9366bc2087f87fff6c4aecef653405e1858d9f555f1a6",
+    "observed_two_field_hla": 128,
+    "native_fine_targets": [
+      "HLA-A*02:233",
+      "HLA-A*02:614",
+      "HLA-A*03:344",
+      "HLA-A*11:110",
+      "HLA-A*24:552",
+      "HLA-C*06:198",
+      "HLA-DRB1*01:91Q"
+    ],
+    "hla_locus_anchors": {
+      "HLA-A": "HLA-A*01:01",
+      "HLA-B": "HLA-B*07:02",
+      "HLA-C": "HLA-C*01:02",
+      "HLA-E": "HLA-E*01:01",
+      "HLA-F": "HLA-F*01:01",
+      "HLA-G": "HLA-G*01:01",
+      "HLA-DRA": "HLA-DRA*01:01",
+      "HLA-DRB1": "HLA-DRB1*01:01",
+      "HLA-DRB3": "HLA-DRB3*01:01",
+      "HLA-DRB4": "HLA-DRB4*01:01",
+      "HLA-DRB5": "HLA-DRB5*01:01",
+      "HLA-DQA1": "HLA-DQA1*01:01",
+      "HLA-DQA2": "HLA-DQA2*01:01",
+      "HLA-DQB1": "HLA-DQB1*02:01",
+      "HLA-DQB2": "HLA-DQB2*01:01",
+      "HLA-DPA1": "HLA-DPA1*01:03",
+      "HLA-DPB1": "HLA-DPB1*01:01"
+    },
+    "hla_search_targets": 141,
+    "mouse_and_b2m_records": 33,
+    "total_records": 174,
+    "curated_bytes": 59758,
+    "curated_sha256": "d159146aa134905a37e8ab3964a861a511462149dc6cbe474d6874ff2fdb5e45",
+    "excluded_unknown_submitted_names": [
+      "HLA-A*08:01",
+      "HLA-A*24:01"
+    ],
+    "note": "Two-field protein alleles remain distinct, including HLA-B*27:02 and HLA-B*27:05. Seven Native-specific sequence targets retain full-reference alignment scores; representative labels are not genotype assignments."
+  },
+  "nomenclature": "https://hla.alleles.org/pages/nomenclature/naming_alleles/",
+  "regeneration": "tcren build-mhc-ref (uses the bundled two-field label set); --all-alleles retains the full downloaded vocabulary",
+  "curated_files": [
+    {
+      "file": "alleles.aa.fasta",
+      "bytes": 59758,
+      "sha256": "d159146aa134905a37e8ab3964a861a511462149dc6cbe474d6874ff2fdb5e45"
+    },
+    {
+      "file": "metadata.tsv",
+      "bytes": 5923,
+      "sha256": "a984e7f80a2e1d4366e552f640eeb2f02041633b5d05809d7ad80ad898a15ca7"
+    }
+  ],
+  "redistribution": "Raw source file contents are unchanged after decompression. Reheadering, selection and protein curation occur locally; the generated FASTA is not distributed in the wheel.",
+  "upstream_licence": "https://hla.alleles.org/pages/other/licence_and_disclaimer/"
+}

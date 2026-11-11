@@ -238,3 +238,23 @@ def alphabeta_ids(contacts: pl.DataFrame) -> list[str]:
         for r in cts.iter_rows(named=True)
         if set(r["x"]) <= {"TRA", "TRB"}
     ]
+
+
+def cluster_table(contacts: pl.DataFrame, markup: pl.DataFrame, *, distance: float = 6.) -> pl.DataFrame:
+    """Expose the unchanged alpha-beta scope and complete-linkage historical clusters."""
+    if not np.isfinite(distance) or distance < 0 or markup["pdb.id"].null_count() or markup["pdb.id"].n_unique() != markup.height:
+        raise ValueError("Finite nonnegative distance and unique nonmissing markup IDs required")
+    eligible = markup.filter(pl.col("pdb.id").is_in(alphabeta_ids(contacts)))
+    ids, labels = _cluster(eligible, distance, ("cdr3a", "cdr3b", "peptide"), "complete")
+    return markup.select("pdb.id").join(pl.DataFrame({"pdb.id": ids, "cluster": labels},
+        schema_overrides={"pdb.id": pl.String, "cluster": pl.Int64}), on="pdb.id", how="left", validate="1:1").with_columns(
+        pl.col("cluster").is_not_null().alias("alpha_beta"))
+
+
+def cluster_command(contacts, markup, output, distance=6.):
+    """Export alpha-beta membership and the existing sequence-distance clusters."""
+    from pathlib import Path
+    from ..associations import read_table
+    if Path(output).exists():
+        raise ValueError("Output exists")
+    cluster_table(read_table(contacts), read_table(markup), distance=distance).write_csv(output, separator="\t")

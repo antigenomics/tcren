@@ -94,7 +94,7 @@ def annotate_mhc(structure: Structure) -> list[MhcCall]:
 
 @single_threaded
 def annotate_mhc_batch(structures: list[Structure], sensitivity: float = 5.7,
-                       threads: int = 1) -> None:
+                       threads: int = 0) -> None:
     """MHC-annotate many (chain-typed) structures with a SINGLE mmseqs search.
 
     Gathers every candidate MHC chain across all structures, runs one ``easy_search`` (mmseqs

@@ -93,6 +93,8 @@ def test_mean_bfactor_reads_the_column_and_respects_the_chain():
 
     p = PDB_DIR / "1ao7.pdb"
     whole, chain_a = mean_bfactor(p), mean_bfactor(p, "A")
+    expected_ca = [float(line[60:66]) for line in p.read_text().splitlines() if line.startswith("ATOM") and line[12:16].strip() == "CA"]
+    assert mean_bfactor(p, atom="CA") == pytest.approx(sum(expected_ca)/len(expected_ca))
     assert 1.0 < whole < 200.0                       # a plausible crystallographic B
     assert chain_a != whole                          # one chain is not the whole file
     assert math.isnan(mean_bfactor(p, "Z"))          # a chain that is not in the file

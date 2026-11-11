@@ -311,6 +311,12 @@ def score_row(result: PipelineResult) -> dict:
         "mhc.class": mhc.mhc_class if mhc else None,
         "allele": mhc.allele if mhc else None,
         "allele_candidates": ";".join(mhc.allele_candidates) if mhc else None,
+        "mhc.representative_allele": mhc.representative_allele if mhc else None,
+        "mhc.allele_source": mhc.allele_source if mhc else None,
+        "mhc.supplied_support": mhc.supplied_support if mhc else None,
+        "mhc.query_coverage": mhc.query_coverage if mhc else None,
+        "mhc.exact_observed_match": mhc.exact_observed_match if mhc else None,
+        "mhc.search_hit_limit_reached": mhc.search_hit_limit_reached if mhc else None,
         "rmsd": result.rmsd,
         # Same names as tcren.recognition.RECOGNITION_FEATURES, so the two tables join and the
         # project has ONE vocabulary for these quantities.

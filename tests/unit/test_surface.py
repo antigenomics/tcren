@@ -22,6 +22,24 @@ from tcren.surface import (
 PDB_DIR = Path(__file__).resolve().parents[1] / "assets" / "pdb"
 
 
+def test_explicit_frame_preserves_map_and_rejects_invalid_basis(annotated, monkeypatch):
+    from tcren.topology import surface
+
+    structure = annotated["1ao7"]
+    frame = _groove_frame(structure)
+    expected = surface_map(structure, side="tcr")
+
+    def forbidden(_):
+        raise AssertionError("explicit frame must not be recomputed")
+
+    monkeypatch.setattr(surface, "_groove_frame", forbidden)
+    actual = surface_map(structure, side="tcr", frame=frame)
+    for key in expected.channels:
+        np.testing.assert_allclose(actual.channels[key], expected.channels[key], equal_nan=True)
+    with pytest.raises(ValueError, match="orthonormal"):
+        surface_map(structure, frame=(frame[0], 2 * frame[1]))
+
+
 def test_surface_tree_refuses_missing_pairwise_distances():
     from tcren.topology.surface import surface_tree
 

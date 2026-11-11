@@ -154,10 +154,11 @@ def run_folder(
     MHC chains across the whole set (mmseqs parallelises internally; never per-structure, never
     Python-threaded). Only the embarrassingly-parallel, mmseqs-free stages — parsing and the
     structural alignment + write — use a thread pool (``threads`` worker threads, default
-    ``os.cpu_count()``).
+    all allocated CPUs).
     """
-    import os
-    from concurrent.futures import ThreadPoolExecutor
+    from multiprocessing.pool import ThreadPool
+    from ..runtime import native_threads, resolve_threads
+    from .align import DEFAULT_REFERENCE, _reference_structure
 
     from ..annotation import classify_chains
     from ..annotation.arda_adapter import _import_arda
@@ -170,7 +171,7 @@ def run_folder(
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
     files = structure_paths(Path(structures))
-    threads = threads or (os.cpu_count() or 1)
+    threads = resolve_threads(0 if threads is None else threads)
 
     # 1. Parse (I/O + gunzip — thread-friendly).
     def _parse(fp):
@@ -180,27 +181,47 @@ def run_folder(
         except Exception as exc:  # noqa: BLE001
             return structure_id_from_path(fp), None, f"error: {type(exc).__name__}: {str(exc)[:80]}"
 
-    with ThreadPoolExecutor(max_workers=threads) as ex:
-        parsed_all = list(ex.map(_parse, files))
+    with ThreadPool(min(threads, max(1, len(files)))) as pool:
+        parsed_all = pool.map(_parse, files, chunksize=max(1, (len(files) + threads - 1) // threads))
     parsed = [(pid, s) for pid, s, err in parsed_all if s is not None]
     rows = [_orient_row(pid, err) for pid, s, err in parsed_all if s is None]
 
     # 2. Batched annotation: one mmseqs pass for TCR chains, one for MHC chains (no threads).
-    records = _batch_annotate([s for _, s in parsed], _import_arda())
+    records = _batch_annotate([s for _, s in parsed], _import_arda(), threads=threads)
     for (_pid, s), recs in zip(parsed, records):
         classify_chains(s, organism=organism, precomputed_records=recs)
-    annotate_mhc_batch([s for _, s in parsed])
+    annotate_mhc_batch([s for _, s in parsed], threads=threads)
+
+    def ref_id(s):
+        cls = next((c.chain_supertype for c in s.chains
+                    if c.chain_type in ("MHCa", "MHCb")), "MHCI")
+        return reference_id or DEFAULT_REFERENCE.get(cls, "1ao7")
+
+    # The fixed class references can trigger annotation too. Warm them before the
+    # geometry pool, so lru_cache's concurrent cold misses cannot launch searches.
+    ref_errors = {}
+    if not force_pca:
+        for rid in sorted({ref_id(s) for _, s in parsed}):
+            try:
+                _reference_structure(rid)
+            except Exception as exc:  # noqa: BLE001 - retain per-query error/fallback behavior
+                ref_errors[rid] = exc
 
     # 3. Structural alignment + write (CPU/SVD + I/O — thread-friendly, mmseqs-free).
     def _orient(item):
         pid, s = item
         try:
-            return _finish_orient(s, pid, out, reference_id, force_pca, mmcif, compress)
+            error = ref_errors.get(ref_id(s)) if not force_pca else None
+            fallback = error is not None and reference_id is None and isinstance(
+                error, (FileNotFoundError, ValueError))
+            if error is not None and not fallback:
+                raise error
+            return _finish_orient(s, pid, out, reference_id, force_pca or fallback, mmcif, compress)
         except Exception as exc:  # noqa: BLE001 - keep the batch resilient
             return _orient_row(pid, f"error: {type(exc).__name__}: {str(exc)[:80]}")
 
-    with ThreadPoolExecutor(max_workers=threads) as ex:
-        rows += list(ex.map(_orient, parsed))
+    with native_threads(), ThreadPool(min(threads, max(1, len(parsed)))) as pool:
+        rows += pool.map(_orient, parsed, chunksize=max(1, (len(parsed) + threads - 1) // threads))
 
     df = pl.DataFrame(rows)
     metadata = Path(metadata) if metadata is not None else out / "orient_metadata.json"
@@ -271,13 +292,14 @@ def run_superimpose(
     mmseqs-free ensemble alignment + write runs on the thread pool (``threads`` workers, default
     all cores). See :func:`tcren.docking.superimpose` for the MHC-ensemble method.
     """
-    import os
-    from concurrent.futures import ThreadPoolExecutor
+    from multiprocessing.pool import ThreadPool
+    from ..runtime import native_threads, resolve_threads
 
     from ..annotation import classify_chains
     from ..annotation.arda_adapter import _import_arda
     from ..mhc import annotate_mhc_batch
-    from ..docking.superimpose import superimpose
+    from ..docking.superimpose import superimpose, _canonical_references, _query_class_species
+    from ..paths import canonical_dir
     from ..annotation.batch import _batch_annotate
     from ..structure.io import structure_output_path, write_structure
 
@@ -285,17 +307,27 @@ def run_superimpose(
     single = _output_target(out, len(parsed), mmcif, compress)
     if single is None:
         Path(out).mkdir(parents=True, exist_ok=True)
-    threads = threads or (os.cpu_count() or 1)
+    threads = resolve_threads(0 if threads is None else threads)
 
     # Batched annotation: one mmseqs pass for TCR chains, one for MHC chains (no threads).
-    records = _batch_annotate([s for _, s in parsed], _import_arda())
+    records = _batch_annotate([s for _, s in parsed], _import_arda(), threads=threads)
     for (_pid, s), recs in zip(parsed, records):
         classify_chains(s, organism=organism, precomputed_records=recs)
-    annotate_mhc_batch([s for _, s in parsed])
+    annotate_mhc_batch([s for _, s in parsed], threads=threads)
+
+    db_dir = Path(db_dir) if db_dir is not None else canonical_dir()
+    ref_errors = {}
+    for cls, species in sorted({_query_class_species(s) for _, s in parsed}):
+        try:
+            _canonical_references(db_dir, cls, species, organism, threads=threads)
+        except Exception as exc:  # noqa: BLE001 - report the shared failure per query
+            ref_errors[cls, species] = exc
 
     def _one(item):
         pid, s = item
         try:
+            if _query_class_species(s) in ref_errors:
+                raise ref_errors[_query_class_species(s)]
             oriented, res = superimpose(s, db_dir=db_dir, organism=organism, annotate=False)
             ok, reason = check_oriented_complex(oriented)
             if ok:
@@ -308,8 +340,8 @@ def run_superimpose(
             return {"pdb.id": pid, "status": f"error: {type(exc).__name__}: {str(exc)[:80]}",
                     "reference.id": None, "rmsd": None, "n.references": None}
 
-    with ThreadPoolExecutor(max_workers=threads) as ex:
-        rows = list(ex.map(_one, parsed))
+    with native_threads(), ThreadPool(min(threads, max(1, len(parsed)))) as pool:
+        rows = pool.map(_one, parsed, chunksize=max(1, (len(parsed) + threads - 1) // threads))
 
     df = pl.DataFrame(rows)
     ok = df.filter(pl.col("status") == "ok").height if df.height else 0

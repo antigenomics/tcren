@@ -116,10 +116,11 @@ def test_an_unknown_interface_or_side_is_refused(structure):
         bg.scan_structure(structure, "tcr_peptide", "to", engine="cuda")
 
 
-def test_native_scan_validates_packed_inputs():
+def test_native_scan_validates_packed_inputs(monkeypatch):
     """Synthetic empty scan tests the binding without structures or scientific reruns."""
     from tcren import _relax
 
+    monkeypatch.setattr("tcren.runtime.available_cpus", lambda **kwargs: 2)
     args = dict(bb=np.empty((0, 4, 3)), n_atom=np.zeros(20, np.int32),
                 n_chi=np.zeros(20, np.int32), chi_vals=np.array([0.0]),
                 env_xyz=np.empty((0, 3)), env_cls=np.empty(0, np.int32),
@@ -135,7 +136,8 @@ def test_native_scan_validates_packed_inputs():
     for key in ('t_bond', 't_ang', 't_off', 't_rad'):
         args[key] = np.zeros((20, 1))
     assert _relax.substitution_scan(**args)['p'].shape == (0, 20)
-    for change in ({'temperature': 0.0}, {'dx': float('nan')},
+    for change in ({'n_threads': 3}, {'n_threads': -1},
+                   {'temperature': 0.0}, {'dx': float('nan')},
                    {'bb': np.empty((0, 3))}, {'n_chi': np.full(20, 5, np.int32)},
                    {'env_ptr': np.array([1], np.int32)},
                    {'pair_i': np.array([0], np.int32), 'pair_j': np.array([0], np.int32)},
@@ -152,6 +154,10 @@ def test_native_scan_validates_packed_inputs():
                 t_chi=np.ones((20, 1), np.int32), t_bond=np.ones((20, 1)),
                 t_ang=np.ones((20, 1)))
     native = _relax.substitution_scan(**args)
+    for threads in (0, 2):
+        parallel = _relax.substitution_scan(**(args | {"n_threads": threads}))
+        for key in native:
+            np.testing.assert_array_equal(parallel[key], native[key])
     reference = bg.scan_numpy(**{k: v for k, v in args.items() if k != 'n_threads'})
     for key in native:
         np.testing.assert_allclose(native[key], reference[key])

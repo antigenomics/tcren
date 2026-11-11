@@ -28,21 +28,13 @@ jobs:
         # subsequent `uv pip install` auto-targets .venv. tcren ships pybind11 extensions (src/_align,
         # _geom, …) built by scikit-build-core, so cmake + ninja + a C++ compiler are required.
         run: uv venv --python ${{ matrix.python-version }} && uv pip install cmake ninja
-      - name: Install package without arda (lean unit suite)
-        # arda (PyPI: arda-mapper) is a real runtime dependency, but the non-slow suite imports it
-        # lazily (importorskip) and CI has no arda reference database — so install tcren --no-deps
-        # and add the runtime deps explicitly, minus arda. The C++ ext is still built and tested.
-        # rapidfuzz is a pure-wheel dep (no external binary, unlike arda) needed by the redundancy
-        # clustering tests, so it is included here.
-        run: |
-          uv pip install -e . --no-deps
-          uv pip install biopython scipy numpy polars typer requests huggingface_hub rapidfuzz \
-                      scikit-learn \
-                      pytest pytest-cov matplotlib
-      - name: Run unit tests (arda/mmseqs-backed tests skip without arda)
-        # Coverage gate: the lean unit suite covers ~58% of src/tcren; fail below 50%
-        # to catch large drops without flaking on which optional (C++/arda) tests run.
-        run: .venv/bin/pytest -m "not slow" -ra --cov=tcren --cov-report=term-missing --cov-fail-under=50
+      - name: Install package with its declared runtime and test dependencies
+        # ARDA owns reference locking and annotation; exercise the installed core dependency.
+        # Its pinned reference/backend bootstrap is small; MHC source snapshots are bundled.
+        run: uv pip install -e ".[test]"
+      - name: Run unit tests
+        # Retain the existing coverage floor across supported Python versions.
+        run: .venv/bin/python -c 'import tcren, pytest, sys; raise SystemExit(pytest.main(sys.argv[1:]))' -m "not slow" -ra --cov=tcren --cov-report=term-missing --cov-fail-under=50
 
   lint:
     # Nothing enforced ruff before, so the tree had drifted to 77 reports. The settings it runs

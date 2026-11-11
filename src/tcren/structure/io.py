@@ -309,7 +309,7 @@ def parse_structure(
     return Structure(pdb_id=pdb_id, chains=chains)
 
 
-def mean_bfactor(path: str | Path, chain: str | None = None) -> float:
+def mean_bfactor(path: str | Path, chain: str | None = None, *, atom: str | None = None) -> float:
     """Mean B-factor over a structure file, or over one chain of it.
 
     **In a model written by AlphaFold or TCRmodel2 the B-factor column IS the per-residue pLDDT**,
@@ -326,6 +326,7 @@ def mean_bfactor(path: str | Path, chain: str | None = None) -> float:
     Args:
         path: a ``.pdb`` / ``.pdb.gz`` file. mmCIF is not supported.
         chain: restrict to one author chain id, or ``None`` for every atom in the file.
+        atom: optional atom name, e.g. ``CA`` for a mean over resolved residues.
 
     Returns:
         The mean, or ``nan`` if the file holds no atom line matching ``chain``.
@@ -340,6 +341,8 @@ def mean_bfactor(path: str | Path, chain: str | None = None) -> float:
             if not line.startswith(("ATOM  ", "HETATM")):
                 continue
             if chain is not None and line[21] != chain:
+                continue
+            if atom is not None and line[12:16].strip() != atom:
                 continue
             try:
                 total += float(line[60:66])

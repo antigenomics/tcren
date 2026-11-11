@@ -629,5 +629,5 @@
  "n_sites": 64064,
  "n_contacts": 7799,
  "pseudo_loglik": -6068.551337058503,
- "notes": "/Users/mikesh/hf/tcren_structures/Native2026 | self-consistent: margin=0.5, damping=0.5, steps=9, converged=True"
+ "notes": "Native2026 reference structures | self-consistent: margin=0.5, damping=0.5, steps=9, converged=True"
 }

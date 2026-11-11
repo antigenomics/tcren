@@ -43,6 +43,12 @@ class MhcCall:
     cigar: str
     # Co-best alleles among returned search hits; not an exhaustive genotype call.
     allele_candidates: tuple[str, ...] = ()
+    representative_allele: str | None = None
+    allele_source: str = "sequence_representative"
+    supplied_support: str | None = None
+    query_coverage: float | None = None
+    exact_observed_match: bool = False
+    search_hit_limit_reached: bool = False
 
 
 def _candidate_chains(structure: Structure):
@@ -63,7 +69,9 @@ def _best_hits(tsv: Path) -> dict[str, dict]:
     """
     if not tsv.exists() or tsv.stat().st_size == 0:
         return {}
-    df = pl.read_csv(tsv, separator="\t", has_header=False, new_columns=_COLUMNS)
+    df = pl.read_csv(tsv, separator="\t", has_header=False, new_columns=_COLUMNS,
+                     schema_overrides={"query": pl.String, "target": pl.String})
+    counts = dict(df.group_by("query").len().iter_rows())
     best = {}
     for row in df.sort(["bits", "target", "tstart", "qstart"],
                        descending=[True, False, False, False]).iter_rows(named=True):
@@ -71,6 +79,7 @@ def _best_hits(tsv: Path) -> dict[str, dict]:
         allele = reference.parse_header(row["target"])["allele"]
         if query not in best:
             row["allele_candidates"] = [allele]
+            row["search_hit_limit_reached"] = counts[query] >= 50
             best[query] = row
         elif row["bits"] == best[query]["bits"]:
             candidates = best[query]["allele_candidates"]
@@ -149,6 +158,13 @@ def calls_from_hits(candidates, best: dict[str, dict], key=None) -> list[MhcCall
                 tend=int(hit["tend"]),
                 cigar=hit["cigar"],
                 allele_candidates=tuple(hit.get("allele_candidates", (meta["allele"],))),
+                representative_allele=meta["allele"],
+                query_coverage=(int(hit["qend"]) - int(hit["qstart"]) + 1) / int(hit["qlen"])
+                if hit.get("qlen") else None,
+                exact_observed_match=(float(hit["pident"]) == 100.0
+                    and int(hit.get("mismatch", 1)) == 0 and int(hit.get("gapopen", 1)) == 0
+                    and int(hit["qstart"]) == 1 and int(hit["qend"]) == int(hit.get("qlen", -1))),
+                search_hit_limit_reached=hit.get("search_hit_limit_reached", False),
             )
         )
     _reconcile_class(calls)
@@ -172,9 +188,16 @@ def _reconcile_class(calls: list[MhcCall]) -> None:
 def apply_mhc_calls(structure: Structure, calls: list[MhcCall]) -> None:
     """Write MHC calls onto the structure's chains in place."""
     by_id = {c.chain_id: c for c in calls}
+    previous = {c.chain_id: c for c in structure.mhc_calls or []}
     for chain in structure.chains:
         call = by_id.get(chain.chain_id)
         if call is not None:
+            old = previous.get(chain.chain_id)
+            supplied = chain.allele_info
+            if supplied and (old is None or old.allele_source == "supplied"
+                             or supplied != old.allele):
+                from .metadata import set_supplied_allele
+                set_supplied_allele(call, supplied, chain.sequence())
             chain.chain_type = call.chain_role
             chain.chain_supertype = call.mhc_class
             chain.allele_info = call.allele

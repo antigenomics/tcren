@@ -37,6 +37,25 @@ def _import_arda():
     return arda
 
 
+def _annotate(arda, pairs, organism: str, threads: int):
+    """One full-allele protein batch, using the public API when it accepts CPU budgets."""
+    from inspect import signature
+
+    annotate = arda.annotate_sequences
+    if "threads" not in signature(annotate).parameters:
+        from arda.annotate.mapper import annotate_records
+        annotate = annotate_records
+    kwargs = {"seqtype": "aa", "organism": organism, "threads": threads}
+    # Older supported ARDA versions already search all alleles and have no selector.
+    if "major_only" in signature(annotate).parameters:
+        kwargs["major_only"] = False
+    from ..runtime import resolve_threads, search_threads
+    threads = resolve_threads(threads)
+    kwargs["threads"] = threads
+    with search_threads(threads):
+        return annotate(pairs, **kwargs)
+
+
 def _apply_record(chain, record: dict) -> dict:
     """Project one arda record onto ``chain`` in place; return the record.
 
@@ -91,9 +110,7 @@ def annotate_chain(chain, organism: str) -> dict | None:
     seq = chain.sequence()
     if not seq:
         return None
-    record = _import_arda().annotate_sequences(
-        [(chain.chain_id, seq)], seqtype="aa", organism=organism
-    )[0]
+    record = _annotate(_import_arda(), [(chain.chain_id, seq)], organism, 0)[0]
     return _apply_record(chain, record)
 
 
@@ -129,7 +146,7 @@ def annotate_chains(chains, organism: str) -> dict[str, dict]:
     items = [(c.chain_id, c.sequence()) for c in chains if c.sequence()]
     if not items:
         return {}
-    records = _import_arda().annotate_sequences(items, seqtype="aa", organism=organism)
+    records = _annotate(_import_arda(), items, organism, 0)
     by_id = {cid: rec for (cid, _), rec in zip(items, records)}
     apply_records(chains, by_id)
     return by_id
