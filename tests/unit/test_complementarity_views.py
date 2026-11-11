@@ -145,3 +145,72 @@ def test_unknown_chemistry_summary_remains_typed(tmp_path):
     assert summary.schema["occupied_cell_mean_hydropathy"] == pl.Float64
     assert summary["occupied_cell_mean_hydropathy"][0] is None
     assert not summary["surface_may_be_clipped"][0]
+
+
+@pytest.mark.parametrize("identity", ["", "  ", None, 3])
+def test_export_refuses_invalid_source_id_before_writing(tmp_path, identity):
+    from tcren.complementarity.view_export import export_views
+
+    source, output = tmp_path / "source", tmp_path / "views"
+    source.mkdir()
+    (source / "index.json").write_text(json.dumps([{"id": identity, "file": "absent.json.gz"}]))
+    with pytest.raises(ValueError, match="unique nonempty"):
+        export_views(source, output)
+    assert not output.exists()
+
+
+def test_views_cli_exports_and_rejects_invalid_grid_before_writing(tmp_path):
+    import typer
+    from typer.testing import CliRunner
+    from tcren.complementarity.dashboard import write_dashboard
+    from tcren.complementarity.view_export import views_command
+
+    source = tmp_path / "source"
+    write_dashboard([example()], source)
+    app = typer.Typer()
+    app.command()(views_command)
+    runner = CliRunner()
+    for arguments in [["--grid", "0"], ["--grid", "257"], ["--probe", "nan"],
+                      ["--extent", "1", "-1", "-1", "1"]]:
+        output = tmp_path / "invalid"
+        result = runner.invoke(app, ["--exports", str(source), "-o", str(output), *arguments])
+        assert result.exit_code != 0
+        assert not output.exists()
+    output = tmp_path / "valid"
+    result = runner.invoke(app, ["--exports", str(source), "-o", str(output),
+                                 "--grid", "3", "--probe", "0", "--extent", "-10", "10", "-10", "10"])
+    assert result.exit_code == 0, result.output
+    assert "1 structures" in result.output
+    assert pl.read_parquet(output / "summary.parquet")["grid_cells"][0] == 9
+    again = runner.invoke(app, ["--exports", str(source), "-o", str(output)])
+    assert again.exit_code != 0
+
+
+def test_static_plot_explains_zero_contact_facets_and_uses_navigation_label(tmp_path, monkeypatch):
+    pytest.importorskip("matplotlib")
+    from matplotlib.figure import Figure
+    from tcren.complementarity.dashboard import write_dashboard
+    from tcren.complementarity.view_export import export_views
+    from tcren.complementarity.view_plot import plot_views
+
+    source, output = tmp_path / "source", tmp_path / "views"
+    scene = example()
+    scene["residue_contacts"] = []
+    write_dashboard([scene], source)
+    index = json.loads((source / "index.json").read_text())
+    index[0]["display_label"] = "Known peptide · native"
+    (source / "index.json").write_text(json.dumps(index))
+    export_views(source, output, grid=(3, 3))
+    captions = []
+    original = Figure.savefig
+
+    def capture(figure, *args, **kwargs):
+        captions.append((figure._suptitle.get_text(),
+                         [text.get_text() for axis in figure.axes for text in axis.texts]))
+        return original(figure, *args, **kwargs)
+
+    monkeypatch.setattr(Figure, "savefig", capture)
+    paths = plot_views(output, "native", tmp_path / "plots", contact_mode="pairs")
+    assert all(path.is_file() for path in paths)
+    assert all("Known peptide · native" in title for title, _ in captions)
+    assert "No contacting pairs" in captions[1][1]

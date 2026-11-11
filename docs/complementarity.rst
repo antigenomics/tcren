@@ -216,3 +216,14 @@ surface ranges computed with Polars from the written tables. Mean hydropathy
 is an occupied-cell mean over known KD values, not a residue mean. Comparisons
 must retain canonical reference groups, endpoint definitions and uncertainty;
 these tables alone do not establish binding or predictive performance.
+
+Heatmap inspection
+------------------
+
+Contact-only filtering can hide every pair in a facet or structure. Empty
+facets explicitly report no contacting pairs; unavailable values and absent
+facets remain distinct. Switch to all-pair C-alpha distances to inspect the
+resolved geometry. No contacts alone does not establish an experimental
+nonbinder. Short display labels preserve full structure identities for joins.
+Static figures and browser values remain consumers of exported Parquet tables.
+Inspect occupied-grid-boundary warnings before interpreting whole surfaces.

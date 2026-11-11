@@ -2,6 +2,7 @@
 const $ = id => document.getElementById(id);
 const [entries, manifest, summaries] = await Promise.all(['index.json','manifest.json','summary.json'].map(p=>fetch(p).then(r=>r.json())));
 const summaryById=new Map(summaries.map(r=>[r.structure_id,r]));
+const shortLabels=new Map(entries.map((e,i)=>[e.id,(e.display_label&&e.display_label!==e.id?e.display_label:null)||`${e.task==='tcr'?'Receptor':'Peptide model'} ${i+1} · ${e.id.length>16?e.id.slice(0,8):e.id}`]));
 let active = null, generation = 0;
 const palette = [[68,1,84],[59,82,139],[33,145,140],[94,201,98],[253,231,37]];
 function color(value, lo, hi, reverse=false) {
@@ -42,6 +43,11 @@ function render(){
     const source=pairs.filter(r=>r.partner_facet===row&&r.loop_facet===column);
     const visible=source.filter(r=>!masked||r.contacting);
     if(!source.length){panel.textContent=`${row} · ${column}: absent facet`;continue;}
+    const note=document.createElement('p');
+    const missing=visible.filter(r=>r[metric]===null).length;
+    note.textContent=!visible.length?`${row} · ${column}: No contacting pairs in this facet`:`${visible.length} pairs shown · ${source.length-visible.length} masked · ${missing} missing ${metric==='ca_distance'?'Cα distances':'values'}`;
+    panel.append(note);
+    if(!visible.length)continue;
     const nx=1+source.reduce((m,r)=>Math.max(m,r.tcr_index),0),ny=1+source.reduce((m,r)=>Math.max(m,r.partner_index),0);
     canvasPanel(panel,`${row} · ${column}`,nx,ny,visible,r=>[r.tcr_index,r.partner_index],r=>r[metric],0,hi,metric==='ca_distance');
   }
@@ -50,16 +56,17 @@ for(const [group,values] of [['rows',manifest.partner_order],['columns',manifest
   const label=document.createElement('label'),input=document.createElement('input');input.type='checkbox';input.value=value;input.checked=true;
   input.onchange=render;label.append(input,document.createTextNode(value));$(group).append(label);
 }
-for(const entry of entries){const option=document.createElement('option');option.value=entry.id;option.textContent=entry.id;$('structure').append(option);}
+for(const entry of entries){const option=document.createElement('option');option.value=entry.id;option.textContent=shortLabels.get(entry.id);option.title=entry.id;$('structure').append(option);}
 async function load(){const current=++generation,entry=entries[$('structure').selectedIndex];
   active=null;$('topography').replaceChildren();$('heatmaps').replaceChildren();
-  $('status').textContent=`Loading ${entry.id}…`;
+  $('status').textContent=`Loading ${shortLabels.get(entry.id)}…`;
   try{const response=await fetch(entry.cache);if(!response.ok)throw Error(response.status);
     const stream=response.body.pipeThrough(new DecompressionStream('gzip'));
     const payload=await new Response(stream).json();if(current!==generation)return;
     active=payload;render();
+    $('structure').title=entry.id;
     const warning=summaryById.get(entry.id)?.surface_may_be_clipped?' · Occupied grid boundary: inspect extent':'';
-    $('status').textContent=`${entry.id} · ${entry.task} ranking · reference ${entry.reference} · ${active.tables.contact_heatmap.length} residue pairs${warning} · source: ${Object.values(payload.sources).join(', ')}`;
+    $('status').textContent=`${shortLabels.get(entry.id)} · ${entry.task} ranking · reference ${shortLabels.get(entry.reference)||entry.reference.slice(0,8)} · ${active.tables.contact_heatmap.length} residue pairs${warning} · source: ${Object.values(payload.sources).join(', ')}`;
     const url=new URL(location);url.searchParams.set('id',entry.id);history.replaceState(null,'',url);
   }catch(error){if(current===generation){active=null;$('topography').replaceChildren();$('heatmaps').replaceChildren();$('status').textContent=`Cannot load ${entry.id}: ${error.message}`;}}
 }

@@ -49,6 +49,9 @@ def plot_views(directory, identity, output, *, contact_mode="all", metric="ca_di
     summary = pl.read_parquet(Path(directory) / "summary.parquet").filter(pl.col("structure_id") == identity)
     clipping = (summary["surface_may_be_clipped"][0]
                 if "surface_may_be_clipped" in summary.columns and summary.height else False)
+    display_label = entry.get("display_label") or identity
+    if display_label == identity and len(identity) > 24:
+        display_label = identity[:8]
     ny, nx = manifest["grid_ny_nx"]
     extent = manifest["extent_xy"]
     paths = [output / "topography.png", output / "contact-heatmaps.png"]
@@ -64,7 +67,7 @@ def plot_views(directory, identity, output, *, contact_mode="all", metric="ca_di
                title="Hydropathy (KD)" if channel == "hydropathy" else "Exposed surface z (Å)")
         fig.colorbar(image, ax=ax, shrink=.8)
     warning = " | occupied grid boundary: inspect extent" if clipping else ""
-    fig.suptitle(f"{identity}\n{entry['task']} ranking: varying partner, {manifest['definitions'][entry['task']]}{warning}", fontsize=10)
+    fig.suptitle(f"{display_label}\n{entry['task']} ranking: varying partner, {manifest['definitions'][entry['task']]}{warning}", fontsize=10)
     fig.savefig(paths[0], dpi=160)
     plt.close(fig)
     pairs = tables["contact_heatmap"]
@@ -86,6 +89,11 @@ def plot_views(directory, identity, output, *, contact_mode="all", metric="ca_di
             for record in selected.iter_rows(named=True):
                 if record[metric] is not None and (contact_mode == "all" or record["contacting"]):
                     values[record["partner_index"], record["tcr_index"]] = record[metric]
+            if not np.isfinite(values).any():
+                explanation = ("No contacting pairs" if contact_mode == "pairs"
+                               and not selected["contacting"].any() else "No available values")
+                ax.text(.5, .5, explanation, ha="center", va="center",
+                        transform=ax.transAxes, fontsize=9, wrap=True)
             image = ax.imshow(np.ma.masked_invalid(values), origin="upper", aspect="auto",
                               vmin=0, vmax=maximum, cmap="viridis_r" if metric == "ca_distance" else "magma")
             tcr = selected.unique("tcr_index").sort("tcr_index")
@@ -103,7 +111,7 @@ def plot_views(directory, identity, output, *, contact_mode="all", metric="ca_di
     scalar = ScalarMappable(norm=Normalize(0, maximum), cmap="viridis_r" if metric == "ca_distance" else "magma")
     fig.colorbar(scalar, ax=axes.ravel().tolist(), shrink=.6,
                  label="Cα distance (Å), saturated at 25" if metric == "ca_distance" else "Heavy-atom contact witnesses")
-    fig.suptitle(f"{identity} | {contact_mode} pairs | grey/blank = missing or masked; within-loop order N → C", fontsize=10)
+    fig.suptitle(f"{display_label} | {contact_mode} pairs | grey = missing or masked; within-loop order N → C", fontsize=10)
     for ax in axes.ravel():
         ax.set_facecolor("#eeeeee")
     fig.savefig(paths[1], dpi=160)

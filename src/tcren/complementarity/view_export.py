@@ -63,7 +63,8 @@ def export_views(exports, output, *, grid=(64, 64), extent=(-40., 40., -40., 40.
     validate_grid(grid, extent, probe)
     exports, output = Path(exports), Path(output)
     entries = json.loads((exports / "index.json").read_text())
-    if not entries or len({e["id"] for e in entries}) != len(entries):
+    if (not entries or any(not isinstance(e.get("id"), str) or not e["id"].strip() for e in entries)
+            or len({e["id"] for e in entries}) != len(entries)):
         raise ValueError("input index must contain unique nonempty structure IDs")
     output.mkdir(parents=True, exist_ok=False)
     (output / "cache").mkdir()
@@ -94,7 +95,7 @@ def export_views(exports, output, *, grid=(64, 64), extent=(-40., 40., -40., 40.
                                                separators=(",", ":")).encode(), mtime=0))
         summaries.append(dict(structure_id=scene["id"], reference=scene["frame"]["reference"],
                               task=scene["task"], **summarize_tables(owning)))
-        records.append(dict(id=scene["id"], reference=scene["frame"]["reference"],
+        records.append(dict(id=scene["id"], display_label=entry.get("display_label", entry.get("label", scene["id"])), reference=scene["frame"]["reference"],
                             task=scene["task"], tables=paths, cache=cache, facets=facets,
                             scene_sha256=_sha(source)))
     summary = pl.DataFrame(summaries, schema=SUMMARY_SCHEMA)

@@ -39,7 +39,11 @@ TCR ranking maps the variable-domain lower face; epitope ranking maps the peptid
 upper face. Signed canonical z, sphere-envelope height and atom-center apex are
 different quantities. Unknown KD and missing CA stay null. Facet order is alpha
 CDR1/2/3, beta CDR3/2/1; loop residue order remains N→C. Contact masking uses original
-heavy-atom witnesses. Static `complementarity-plot --tables NEW_VIEWS --structure-id
+heavy-atom witnesses. Contact-only heatmaps can have zero visible pairs; explicit no-contact messages
+are distinct from absent facets and missing CA values. Inspect all-pair distances
+and the source coordinates before interpreting empty contact maps. Short display
+labels retain full join IDs; occupied grid boundaries require extent review.
+Static `complementarity-plot --tables NEW_VIEWS --structure-id
 ID -o NEW_FIGURES` and the single-structure table browser consume these exact
 tables (browser JSON caches are read back from Parquet). Project Polars descriptors
 must use the exported long tables, retain reference groups and labels separately,
