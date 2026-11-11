@@ -152,6 +152,7 @@ def build_scene(structure, frame: CanonicalFrame, *, cutoff: float = 5.0) -> dic
                             for c in structure.chains if c.chain_type in _ROLES],
                 frame=dict(reference=frame.reference_id, origin=frame.origin,
                            origin_component=frame.origin_component,
+                           anchor_role_positions=[list(key) for key in frame.anchor_role_positions],
                            rotation=frame.rotation.tolist(), translation=frame.translation.tolist(),
                            rmsd=frame.rmsd, anchors=frame.anchor_count),
                 cutoff=cutoff, residues=residues, atoms=atoms, bonds=bonds,

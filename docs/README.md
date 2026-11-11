@@ -152,4 +152,7 @@ See [the browser guide](https://docs.isalgo.dev/tcren/complementarity.html).
 The standalone dashboard uses one atom/bond/contact model for both projections
 and both display levels. Residue mode references Cα atoms and counts the same
 atom-contact witnesses; summaries and inspection distinguish global and visible
-counts. Typed compressed Parquet tables accompany JSON.gz browser scenes.
+counts after filters. Matching Parquet and TSV.gz tables accompany JSON.gz scenes;
+`tcren complementarity-summary browser` independently checks exported row counts
+and contact-incidence sums. Per-structure summaries are also available in all
+three formats. Explicit `--exclude-id` omissions retain their source identities.

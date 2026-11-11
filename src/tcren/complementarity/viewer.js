@@ -6,7 +6,7 @@ const DEFAULT_REGIONS = new Set(['CDR1','CDR2','CDR3','PEPTIDE','HELIX_A1','HELI
 const edgeName = (a,b) => [a,b].sort().join(':');
 let entries = [], generation = 0, currentViews = [], nodePage = 0;
 
-function choices(id, values, initiallyVisible) {
+export function choices(id, values, initiallyVisible) {
     const existing = new Map([...$(id).querySelectorAll('input')].map(n => [n.value,n.checked]));
     $(id).replaceChildren();
     for (const value of [...new Set(values)].sort()) {
@@ -38,7 +38,7 @@ function options() {
     }
 }
 
-async function load(file) {
+export async function loadScene(file) {
     const response = await fetch(file);
     if (!response.ok) throw Error(`${file}: ${response.status}`);
     const scene = JSON.parse(await new Response(response.body.pipeThrough(new DecompressionStream('gzip'))).text());
@@ -47,7 +47,7 @@ async function load(file) {
 }
 
 // Coordinate ownership is exclusively atomic; residue positions resolve their CA.
-function nodesFor(scene, atomic) {
+export function nodesFor(scene, atomic) {
     return atomic ? scene.atoms : scene.residues.map(r => ({...r,
         xyz:r.ca_atom === null ? null : scene.atoms[r.ca_atom].xyz}));
 }
@@ -78,8 +78,8 @@ function inspect(view,node) {
         'Sequence index (0-based)':residue.seq_index,
         'Covalent degree (global)':node.covalent_degree,'Atom-pair contacts (global)':node.contact_count,
         'Contact partner degree (global)':node.contact_degree,'Partner chains (global)':node.partner_chain_count,
-        'Atom-pair contacts (visible)':view.visibleCounts.get(node.id)||0,
-        'Contact partner degree (visible)':view.visiblePartners.get(node.id)?.size||0};
+        'Atom-pair contacts (after filters)':view.visibleCounts.get(node.id)||0,
+        'Contact partner degree (after filters)':view.visiblePartners.get(node.id)?.size||0};
     if(atom)Object.assign(values,{'Atom name':node.name,Element:node.element,
         'Alternate location':node.altloc||'shared','Atom ordinal (0-based)':node.ordinal,
         Backbone:node.backbone,'Partner residues (global)':node.partner_residue_count});
@@ -96,15 +96,16 @@ function summary(views,atomic) {
     $('summary').replaceChildren();
     const table = document.createElement('table');
     const header = table.insertRow();
-    for (const label of ['Structure','Residues','Atoms','Covalent bonds','Atom contacts','Residue contacts','Visible nodes','Visible atom contacts']) {
+    for (const label of ['Structure','Residues','Atoms','Covalent bonds','Atom contacts','Residue contacts','TCR–peptide atom contacts','Nodes after filters','Atom contacts after filters']) {
         const th = document.createElement('th'); th.textContent=label; header.append(th);
     }
     for (const view of views) {
         const s=view.scene, row=table.insertRow();
         const values=[s.id,s.summary.residues,s.summary.atoms,s.summary.covalent_bonds,
-            s.summary.atom_contacts,s.summary.residue_contacts,view.nodes.filter(view.shown).length,
+            s.summary.atom_contacts,s.summary.residue_contacts,s.summary.tcr_peptide_atom_contacts,view.nodes.filter(view.shown).length,
             view.contacts.reduce((sum,e)=>sum+(atomic?1:e.contact_count),0)];
         for (const value of values) row.insertCell().textContent=String(value);
+        if(s.summary.no_tcr_peptide_interface)row.title='No TCR–peptide atom contacts at this cutoff.';
     }
     $('summary').append(table);
 }
@@ -135,15 +136,38 @@ function nodeTable() {
 
 function draw(svg,vertical,views,atomic,scale) {
     svg.replaceChildren();
+    const labelBoxes=[];
+    function labelAt(cx,cy,text,color,title) {
+        if(cx<5||cx>695||cy<5||cy>510)return;
+        const width=text.length*8+4,height=16;
+        let box;
+        for(const dy of [-6,-22,12,-38,28,-54,44,-70,60,-86,76]) {
+            for(const dx of [6,-width-6,22,-width-22]) {
+                const candidate={x:cx+dx,y:cy+dy-height,w:width,h:height};
+                if(candidate.x<5||candidate.x+width>695||candidate.y<5||candidate.y+height>515)continue;
+                if(labelBoxes.some(b=>candidate.x<b.x+b.w+2&&candidate.x+width+2>b.x&&candidate.y<b.y+b.h+2&&candidate.y+height+2>b.y))continue;
+                box=candidate;break;
+            }
+            if(box)break;
+        }
+        box??={x:cx+6,y:cy-22,w:width,h:height};
+        labelBoxes.push(box);
+        if(Math.abs(box.y+height-cy)>12||Math.abs(box.x-cx)>width+8)
+            svgElement(svg,'line',{x1:cx,y1:cy,x2:Math.max(box.x,Math.min(cx,box.x+width)),y2:box.y+height/2,stroke:color,'stroke-width':.5,opacity:.65});
+        svgElement(svg,'text',{x:box.x,y:box.y+height-3,fill:color,'font-size':13,
+            'paint-order':'stroke',stroke:'white','stroke-width':2},title).textContent=text;
+    }
     const position=p=>[350+(p[0]-Number($('panx').value))*scale,
         280-(p[vertical]-Number($('pany').value))*scale];
     const [zeroX,zeroY]=position([0,0,0]);
     for (const axis of [0,1]) svgElement(svg,'line',{x1:axis?zeroX:25,y1:axis?25:zeroY,
         x2:axis?zeroX:675,y2:axis?535:zeroY,stroke:'#d6dce3'});
-    svgElement(svg,'text',{x:660,y:300,'font-size':13}).textContent='+x';
-    svgElement(svg,'text',{x:360,y:30,'font-size':13}).textContent=vertical===2?'+z':'+y';
-    svgElement(svg,'line',{x1:30,y1:525,x2:30+10*scale,y2:525,stroke:'#333','stroke-width':2});
-    svgElement(svg,'text',{x:30,y:545,'font-size':12}).textContent='10 Å';
+    svgElement(svg,'text',{x:660,y:zeroY+18,'font-size':13}).textContent='+x';
+    svgElement(svg,'text',{x:zeroX+8,y:30,'font-size':13}).textContent=vertical===2?'+z':'+y';
+    const maximum=130/scale,power=10**Math.floor(Math.log10(maximum));
+    const bar=[5,2,1].find(value=>value*power<=maximum)*power;
+    svgElement(svg,'line',{x1:30,y1:525,x2:30+bar*scale,y2:525,stroke:'#333','stroke-width':2});
+    svgElement(svg,'text',{x:30,y:545,'font-size':12}).textContent=`${Number(bar.toPrecision(2))} Å`;
     for (const view of views) {
         const {scene,nodes,residue,shown,contacts}=view, opacity=views.length>1?.55:1;
         function line(a,b,attributes,title) {
@@ -174,27 +198,30 @@ function draw(svg,vertical,views,atomic,scale) {
         }
         for (const node of nodes.filter(shown)) {
             const r=residue(node),[cx,cy]=position(node.xyz);
-            const name=`${scene.id} | ${r.chain} ${r.region} ${r.aa}${r.number}${r.insertion}${atomic?' '+node.name+' '+node.altloc:''}\nID ${node.id}; ${node.contact_count} global atom contacts; degree ${node.contact_degree}; covalent degree ${node.covalent_degree}\n${view.visibleCounts.get(node.id)||0} visible atom contacts`;
+            const name=`${scene.id} | ${r.chain} ${r.region} ${r.aa}${r.number}${r.insertion}${atomic?' '+node.name+' '+node.altloc:''}\nID ${node.id}; ${node.contact_count} global atom contacts; degree ${node.contact_degree}; covalent degree ${node.covalent_degree}\n${view.visibleCounts.get(node.id)||0} atom contacts after filters`;
             const point=svgElement(svg,'circle',{cx,cy,r:atomic?2.5:5,fill:COLORS[r.role],
-                stroke:atomic&&node.backbone?'#111':'white','stroke-width':1,opacity,tabindex:0},name);
+                stroke:atomic&&node.backbone?'#111':'white','stroke-width':1,opacity,tabindex:0,
+                'data-structure-id':scene.id,'data-residue-id':r.id},name);
             point.onclick=()=>inspect(view,node);
             point.onkeydown=e=>{if(e.key==='Enter'||e.key===' ')inspect(view,node);};
             const scope=$('labelscope').value;
             const label=scope==='all'||(scope==='contacts'&&node.contact_count>0&&(!atomic||node.name==='CA'))||
                 (r.role==='peptide'&&(!atomic||node.name==='CA'));
-            if ($('labels').checked&&label) svgElement(svg,'text',{
-                x:cx+5,y:cy-5,fill:COLORS[r.role],'font-size':13},name).textContent=
-                atomic&&scope==='all'?node.name:`${r.aa}${r.number}${r.insertion}${atomic?' CA':''}`;
+            if ($('labels').checked&&label) labelAt(cx,cy,
+                atomic&&scope==='all'?node.name:`${r.aa}${r.number}${r.insertion}${atomic?' CA':''}`,COLORS[r.role],name);
         }
     }
 }
 
 async function render() {
     const token=++generation;
+    for(const id of ['side','top'])$(id).setAttribute('aria-busy','true');
+    $('status').textContent='Loading selection…';
     try {
         const selected=[...$('structures').selectedOptions];
-        if(selected.length>16)throw Error('Select at most 16 structures per overlay.');
-        const scenes=await Promise.all(selected.map(o=>load(o.value)));
+        const limit=Math.min(16,Math.max(1,parseInt(document.documentElement.dataset.maxOverlay)||16));
+        if(selected.length>limit)throw Error(`Select at most ${limit} structures per detailed overlay.`);
+        const scenes=await Promise.all(selected.map(o=>loadScene(o.value)));
         if(token!==generation)return;
         choices('chains',scenes.flatMap(s=>s.components.map(c=>c.role+':'+c.chain)),()=>true);
         choices('regions',scenes.flatMap(s=>s.residues.map(r=>r.role+':'+r.region)),v=>DEFAULT_REGIONS.has(v.split(':')[1]));
@@ -203,18 +230,21 @@ async function render() {
         const atomic=$('detail').value==='atom';
         const views=scenes.map(s=>viewFor(s,atomic,visible,groups));
         currentViews=views;nodePage=0;nodeTable();
-        $('inspector').textContent='Click a point to inspect its identity and current global/visible counts.';
+        $('inspector').textContent='Click a point to inspect its identity and global counts and counts after filters.';
         let extent=10;
         for(const view of views)for(const node of view.nodes.filter(view.shown))extent=Math.max(extent,...node.xyz.map(Math.abs));
         const scale=230/extent*Number($('zoom').value);
         summary(views,atomic);
         draw($('side'),2,views,atomic,scale);draw($('top'),1,views,atomic,scale);
+        document.dispatchEvent(new CustomEvent('tcren:render',{detail:{scenes,atomic}}));
         $('status').textContent=scenes.length?scenes.map(s=>`${s.id}\nReference ${s.frame.reference}; fixed origin ${s.frame.origin_component}: ${s.frame.origin}; ${s.frame.anchors} anchors; RMSD ${s.frame.rmsd.toFixed(3)} Å\n${s.warnings.length?s.warnings.join('\n'):'No export warnings'}`).join('\n\n'):'Select a structure to inspect.';
     } catch(error) {
         if(token!==generation)return;
         currentViews=[];nodeTable();summary([],false);
         $('side').replaceChildren();$('top').replaceChildren();
         $('inspector').textContent='Selection unavailable.';$('status').textContent=String(error);
+    } finally {
+        if(token===generation)for(const id of ['side','top'])$(id).setAttribute('aria-busy','false');
     }
 }
 
@@ -228,9 +258,13 @@ try {
     const exported=await fetch('tables/manifest.json');
     if(exported.ok)for(const item of (await exported.json()).files){
         if(!/^[a-z_]+\/part-[0-9]+\.parquet$/.test(item.file))continue;
-        const link=document.createElement('a');link.href='tables/'+item.file;link.download='';
-        link.textContent=`${item.file} (${item.rows} rows)`;
-        const row=document.createElement('div');row.append(link);$('downloads').append(row);
+        const row=document.createElement('div');
+        for(const filename of [item.file,item.tsv_file].filter(Boolean)){
+            if(!/^[a-z_]+\/part-[0-9]+\.(parquet|tsv\.gz)$/.test(filename))continue;
+            const link=document.createElement('a');link.href='tables/'+filename;link.download='';
+            link.textContent=`${filename} (${item.rows} rows) `;row.append(link);
+        }
+        $('downloads').append(row);
     }
     for(const group of new Set(entries.map(e=>e.reference)))$('group').add(new Option(entries.find(e=>e.reference===group).label||group,group));
     options();await render();

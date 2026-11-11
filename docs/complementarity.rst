@@ -15,6 +15,8 @@ selection (at most 16 structures per overlay to bound browser memory). All input
 structures remain individually available. Output must be a new directory. Inputs accept a structure, directory,
 path manifest or tar archive. Archive identities retain member paths.
 ``--scratch`` selects an existing directory for one temporary archive member.
+Repeat ``--exclude-id`` to omit explicitly named inputs; omissions and input
+hashes are recorded in ``excluded.json``. Unknown exclusion IDs fail explicitly.
 Parsing/annotation errors stop the run. Geometric errors are recorded in
 ``errors.json`` and cause a nonzero exit after remaining scenes export.
 
@@ -42,6 +44,9 @@ reference z). Framework and CDR atoms define that variable domain; constant
 domains do not determine its center. Scenes record the origin component explicitly.
 Scenes record reference, transform, origin, anchor
 count and RMSD. Alignment is geometric normalization, not evidence of binding.
+Matched anchors also retain their chain role and resolved-sequence ordinal.
+Execution retains compact reference landmarks rather than whole complexes for
+every group; completed annotation batches are released before loading the next.
 
 Nodes and contacts
 ------------------
@@ -69,8 +74,10 @@ Adjacent peptide C–N bonds require consecutive resolved sequence positions.
 MSE replaces methionine SD with SE. Cysteine SG–SG at 1.7–2.3 Angstroms is an
 explicit disulfide, including between chains. Unknown side-chain templates and
 unavailable named bonds are flagged. Atoms outside the canonical template are
-retained with an explicit untemplated-atom warning rather than invented bonds;
-modified-residue connectivity may therefore be incomplete. Bond orders are not assigned. Residue
+retained with an explicit untemplated-atom warning rather than invented bonds.
+Modified-residue connectivity may therefore be incomplete. Bond orders are not assigned.
+Missing backbone atoms are flagged; reported covalent degrees describe the
+observed, modelled connectivity rather than unseen chemical neighbours. Residue
 backbone traces derive from peptide bonds whose residues both have C-alpha atoms.
 Alternate conformers remain distinguishable and are not simultaneous occupancy
 evidence. Dashed edges are non-covalent inter-chain distance contacts.
@@ -79,21 +86,29 @@ Global atom counts include covalent degree, contact count/degree, partner residu
 and partner chain counts. Residues include atom membership, contacting atoms,
 atom-pair contact count, distinct residue-partner degree, covalent residue degree
 and partner-chain count. Zeros remain explicit. The inspector separately labels
-counts for the visible selection; filters never overwrite global counts.
+counts after chain, region and contact-group filters; zoom and pan do not change
+these counts. Filters never overwrite global counts.
 Hover/click exposes identities, source keys, ordinals and counts. Summary tables,
 chain/region/edge selection, zoom, pan and label scope support inspection.
 
 Compressed data
 ---------------
 
-``tables/`` contains typed Zstandard-compressed Parquet partitions for atoms,
-residues, bonds, atom contacts and aggregated residue contacts. Partitions hold
+``tables/`` contains typed Zstandard-compressed Parquet and matching TSV.gz
+partitions for structures, atoms, residues, bonds, atom contacts and aggregated
+residue contacts. Partitions hold
 at most eight structures. IDs are structure-local; join on ``structure_id`` plus
 the local ID. Residue coordinates resolve ``ca_atom`` in the atom table.
 ``tables/manifest.json`` records schemas and row counts. JSON.gz is the browser
 interchange serialization of the same model; the exporter performs no second
 contact or degree calculation. Small JSON files retain input/reference manifests,
 errors and run parameters. All runtime assets are local; no CDN is required.
+
+``summary.parquet``, ``summary.tsv.gz`` and ``summary.json`` contain per-structure
+counts and export totals. Run ``tcren complementarity-summary browser`` to check
+table row counts and contact-incidence sums and obtain a compact JSON report
+without annotation or contact recomputation. This verifies serialization and
+count consistency; it does not establish biological activity or pose correctness.
 
 Legacy and Python APIs
 ----------------------
@@ -107,3 +122,15 @@ and projection restrictions still apply. Existing APIs remain unchanged.
 structures. ``scene.build_scene`` creates JSON-compatible scenes with schema
 ``tcren.complementarity/2``. ``dashboard.write_dashboard`` streams compressed
 scenes and the viewer into a new directory.
+
+Project-owned extensions
+------------------------
+
+Dataset-specific PWM thresholds, experimental matrices and motif/anchor joins
+belong in consuming projects. They are not computed by this CLI. The browser
+dispatches ``tcren:render`` with ``{scenes, atomic}`` after drawing; plotted points
+carry ``data-structure-id`` and ``data-residue-id``. JavaScript consumers can reuse
+``loadScene``, ``nodesFor`` and ``choices`` from ``viewer.js``. This permits local
+overlays without duplicating molecular coordinate or contact calculations.
+An HTML ``data-max-overlay`` attribute can lower the detailed selection limit;
+the library always caps it at 16. Large overview rendering belongs in consumers.

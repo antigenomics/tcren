@@ -13,8 +13,12 @@ TCR ranking fixes identical peptide/MHC groups. Side/top views inherit a common
 reference origin: peptide COM/apex for TCR ranking, TCR variable-domain COM/CDR
 apex for epitope ranking. One atom/bond/contact model owns both display levels;
 residue mode resolves CA atoms and aggregates the same atom-pair witnesses.
-Use global versus visible counts explicitly. JSON.gz scenes and typed compressed
-Parquet tables share these definitions; the dashboard is independent of vdjdb-web.
+Use global versus filtered counts explicitly; zoom and pan change neither.
+JSON.gz scenes, typed Parquet and matching TSV.gz tables share these definitions;
+the dashboard is independent of vdjdb-web. Run
+`tcren complementarity-summary browser` to check exported row counts and contact
+incidence without recomputation; root summary JSON/TSV.gz/Parquet retain counts.
+Use repeatable `--exclude-id` for explicit omissions; inspect `excluded.json`.
 Inspect reference identity, RMSD, warnings and `errors.json`. Contact multiplicity
 counts atom pairs, not binding evidence. `--legacy` invokes unchanged historical
 SVG maps. See `docs/complementarity.rst` for definitions and limitations.

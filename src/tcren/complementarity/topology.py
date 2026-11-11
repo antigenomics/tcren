@@ -58,6 +58,9 @@ def polymer_bonds(atoms, residues, coordinates):
         named = {}
         for atom in members:
             named.setdefault(atom["name"], []).append(atom)
+        missing_backbone = {"N", "CA", "C", "O"} - named.keys()
+        if missing_backbone:
+            warnings.append(f"missing_backbone_atoms:{residue['id']}:" + ",".join(sorted(missing_backbone)))
         sidechain = _SIDECHAINS.get(residue["aa"])
         if sidechain is None:
             warnings.append(f"unknown_sidechain_template:{residue['id']}:{residue['resname']}")

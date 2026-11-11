@@ -20,9 +20,13 @@ def write_dashboard(scenes, output: str | Path) -> Path:
     output.mkdir(parents=True, exist_ok=False)
     entries = []
     tables = SceneTables(output / "tables")
+    seen = set()
     for i, scene in enumerate(scenes):
         if scene.get("schema") != "tcren.complementarity/2":
             raise ValueError("dashboard requires tcren.complementarity/2 scenes")
+        if scene["id"] in seen:
+            raise ValueError(f"duplicate structure ID: {scene['id']}")
+        seen.add(scene["id"])
         name = f"scene-{i}.json.gz"
         payload = json.dumps(scene, allow_nan=False, separators=(",", ":")).encode()
         (output / name).write_bytes(gzip.compress(payload, mtime=0))

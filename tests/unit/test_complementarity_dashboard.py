@@ -39,10 +39,11 @@ def test_parquet_partitions_preserve_typed_empty_tables(tmp_path):
     out = tmp_path / "browser"
     write_dashboard((empty_scene(f"structure-{i}") for i in range(9)), out)
     manifest = json.loads((out / "tables/manifest.json").read_text())
-    assert len(manifest["files"]) == 10
+    assert len(manifest["files"]) == 12
     for item in manifest["files"]:
         table = pl.read_parquet(out / "tables" / item["file"])
-        assert table.height == 0
+        expected = (8 if '00000' in item['file'] else 1) if item['table'] == 'structures' else 0
+        assert table.height == expected
         assert table.schema["structure_id"] == pl.String
     atoms = pl.scan_parquet(out / "tables/atoms/*.parquet").collect()
     assert atoms.schema["x"] == pl.Float64
@@ -69,3 +70,40 @@ def test_json_and_parquet_share_counts_and_ca_coordinate_owner(tmp_path):
                            on=["structure_id", "ca_atom"], validate="1:1")
     assert joined["x"].to_list() == [0., 3., 30.]
     assert "x" not in residues.columns
+    from polars.testing import assert_frame_equal
+
+    restored = pl.read_csv(out / "tables/atoms/part-00000.tsv.gz", separator="\t", schema_overrides=atoms.schema)
+    assert_frame_equal(atoms, restored)
+    summary = pl.read_parquet(out / "summary.parquet")
+    summary_tsv = pl.read_csv(out / "summary.tsv.gz", separator="\t", schema_overrides=summary.schema)
+    assert_frame_equal(summary, summary_tsv)
+    report = json.loads((out / "summary.json").read_text())
+    assert report["totals"]["atoms"] == 3
+    assert report["totals"]["atom_contacts"] == 1
+    from tcren.complementarity.summary import summarize_exports
+
+    checked = summarize_exports(out)
+    assert checked["row_and_incidence_checks"] == "passed"
+    assert checked["totals"]["atoms"] == 3
+    modified = atoms.with_columns(pl.lit(0).alias("contact_count"))
+    modified.write_parquet(out / "tables/atoms/part-00000.parquet")
+    with pytest.raises(ValueError, match="incidence differs"):
+        summarize_exports(out)
+
+
+def test_duplicate_structure_ids_rejected(tmp_path):
+    with pytest.raises(ValueError, match="duplicate structure ID"):
+        write_dashboard([empty_scene("same"), empty_scene("same")], tmp_path / "browser")
+
+
+def test_summary_checks_peptide_contacts_against_residue_roles(tmp_path):
+    from tcren.complementarity.summary import summarize_exports
+
+    out = tmp_path / "browser"
+    write_dashboard([empty_scene("empty")], out)
+    assert summarize_exports(out)["zero_tcr_peptide_interfaces"] == 1
+    summary = pl.read_parquet(out / "summary.parquet").with_columns(
+        pl.lit(1, dtype=pl.Int64).alias("tcr_peptide_atom_contacts"))
+    summary.write_parquet(out / "summary.parquet")
+    with pytest.raises(ValueError, match="TCR–peptide contacts differ"):
+        summarize_exports(out)

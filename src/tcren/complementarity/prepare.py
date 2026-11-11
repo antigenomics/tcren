@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import numpy as np
-from Bio.Align import PairwiseAligner
+from dataclasses import dataclass, replace
 
 from .frame import CanonicalFrame, canonical_frame, fit_frame
 from .topology import conformer_rank
@@ -81,6 +81,36 @@ def _fixed_chains(structure, task):
     return result
 
 
+@dataclass(frozen=True)
+class FixedComponent:
+    """Execution-owned reference landmarks, without retaining a whole complex."""
+
+    task: str
+    sequences: dict
+    landmarks: dict
+
+
+def fixed_component(structure, task):
+    """Keep only sequence identity and required reference CA landmarks."""
+    if task not in {"tcr", "epitope"}:
+        raise ValueError("task must be tcr or epitope")
+    chains = _fixed_chains(structure, task)
+    regions = _GROOVE if task == "tcr" else _FRAMEWORK
+    sequences = {role: c.sequence() for role, c in chains.items()}
+    if task == "tcr":
+        peptides = structure.by_type("PEPTIDE")
+        if len(peptides) != 1:
+            raise ValueError("receptor-ranking group requires exactly one peptide")
+        sequences["PEPTIDE"] = peptides[0].sequence()
+    landmarks = {}
+    for role, chain in chains.items():
+        allowed = {r.seq_index for reg in chain.regions if reg.region_type in regions for r in reg.residues}
+        for ordinal, residue in enumerate(chain.residues):
+            if residue.seq_index in allowed and residue.ca is not None:
+                landmarks[role, ordinal] = np.array(residue.ca, dtype=float, copy=True)
+    return FixedComponent(task, sequences, landmarks)
+
+
 def ranking_frame(structure, reference, frame, *, task="tcr"):
     """Sequence-match annotated fixed anchors, fit, and inherit reference origin.
 
@@ -91,29 +121,11 @@ def ranking_frame(structure, reference, frame, *, task="tcr"):
     """
     if task not in {"tcr", "epitope"}:
         raise ValueError("task must be tcr or epitope")
-    mobile, fixed = _fixed_chains(structure, task), _fixed_chains(reference, task)
-    if mobile.keys() != fixed.keys():
-        raise ValueError("fixed-component chain roles differ")
-    if task == "tcr":
-        mp, fp = structure.by_type("PEPTIDE"), reference.by_type("PEPTIDE")
-        if len(mp) != 1 or len(fp) != 1 or mp[0].sequence() != fp[0].sequence():
-            raise ValueError("receptor-ranking group requires the same peptide")
-    regions = _GROOVE if task == "tcr" else _FRAMEWORK
-    source, target = [], []
-    aligner = PairwiseAligner(mode="global", match_score=2, mismatch_score=-1,
-                              open_gap_score=-5, extend_gap_score=-0.5)
-    for role, chain in mobile.items():
-        fixed_chain = fixed[role]
-        if chain.sequence() != fixed_chain.sequence():
-            raise ValueError(f"fixed {role} sequence differs; use a separate reference group")
-        allowed = {r.seq_index for reg in chain.regions if reg.region_type in regions for r in reg.residues}
-        fixed_allowed = {r.seq_index for reg in fixed_chain.regions if reg.region_type in regions for r in reg.residues}
-        alignment = aligner.align(chain.sequence(), fixed_chain.sequence())[0]
-        for (a, b), (c, d) in zip(*alignment.aligned):
-            for i, j in zip(range(a, b), range(c, d)):
-                left, right = chain.residues[i], fixed_chain.residues[j]
-                if (left.seq_index in allowed and right.seq_index in fixed_allowed
-                        and left.ca is not None and right.ca is not None):
-                    source.append(left.ca)
-                    target.append(right.ca)
-    return fit_frame(np.asarray(source), np.asarray(target), frame)
+    mobile = fixed_component(structure, task)
+    fixed = reference if isinstance(reference, FixedComponent) else fixed_component(reference, task)
+    if fixed.task != task or mobile.sequences != fixed.sequences:
+        raise ValueError("fixed-component sequences differ; use a separate reference group")
+    keys = sorted(mobile.landmarks.keys() & fixed.landmarks.keys())
+    source = np.array([mobile.landmarks[key] for key in keys], dtype=float).reshape((-1, 3))
+    target = np.array([fixed.landmarks[key] for key in keys], dtype=float).reshape((-1, 3))
+    return replace(fit_frame(source, target, frame), anchor_role_positions=tuple(keys))

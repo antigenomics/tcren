@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from tcren.complementarity.prepare import ranking_frame, reference_frame
+from tcren.complementarity.prepare import fixed_component, ranking_frame, reference_frame
 from tcren.structure.model import Atom, Chain, RegionMarkup, Residue, Structure
 
 
@@ -28,6 +28,7 @@ def test_fixed_components_are_selected_by_task(task, expected):
     frame = reference_frame(fixed)
     aligned = ranking_frame(mobile, fixed, frame, task=task)
     assert aligned.anchor_count == expected
+    assert len(aligned.anchor_role_positions) == expected
     assert aligned.rmsd < 1e-12
 
 
@@ -76,3 +77,14 @@ def test_peptide_required_even_for_epitope_reference():
     source.chains = [c for c in source.chains if c.chain_type != "PEPTIDE"]
     with pytest.raises(ValueError, match="exactly one peptide"):
         reference_frame(source)
+
+
+def test_compact_reference_does_not_retain_mutable_complex_coordinates():
+    fixed = structure()
+    frame = reference_frame(fixed)
+    compact = fixed_component(fixed, "tcr")
+    fixed.chain("M").residues[0].atoms[0].coord[:] += 100
+    aligned = ranking_frame(structure(), compact, frame)
+    assert aligned.rmsd < 1e-12
+    assert len(compact.landmarks) == 4
+    assert not hasattr(compact, "chains")

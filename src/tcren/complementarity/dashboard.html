@@ -10,6 +10,7 @@ label{display:block;margin:10px 0}select,input{font:inherit;max-width:100%}selec
 #status{white-space:pre-wrap;font-size:13px}button{font:inherit;padding:6px 10px}
 table{border-collapse:collapse;width:100%;font-size:13px}th,td{padding:6px;border-bottom:1px solid #ddd;text-align:left;overflow-wrap:anywhere;max-width:180px}
 #inspector{max-height:300px;overflow:auto;white-space:pre-wrap}
+#summary{overflow-x:auto}
 @media(max-width:1600px){.views{grid-template-columns:1fr}}
 @media(max-width:800px){main{grid-template-columns:1fr}}
 </style>
@@ -37,10 +38,10 @@ table{border-collapse:collapse;width:100%;font-size:13px}th,td{padding:6px;borde
 <h2>Selection summary</h2><div id="summary"></div>
 <details open><summary>Atom / residue inspector</summary><div id="inspector">Click a point to inspect its identity and counts.</div></details>
 <p><a href="tables/manifest.json">Compressed table index</a></p>
-<details><summary>Download typed tables (Parquet)</summary><div id="downloads"></div></details>
+<details><summary>Download typed tables (Parquet / TSV.gz)</summary><div id="downloads"></div></details>
 <details><summary>Browse every residue / atom</summary>
 <label>Find node <input id="nodesearch" type="search" placeholder="Chain, name, number, ID"></label>
-<label><input id="visibleonly" type="checkbox" checked> Only currently visible nodes</label>
+<label><input id="visibleonly" type="checkbox" checked> Only nodes passing chain / region filters</label>
 <button id="previous" type="button">Previous</button> <button id="next" type="button">Next</button>
 <span id="pageinfo"></span><div id="nodetable"></div></details>
 <div class="views"><div><h2>Side · x / z</h2><svg id="side" viewBox="0 0 700 560" aria-label="Side contact view"></svg></div><div><h2>Top · x / y</h2><svg id="top" viewBox="0 0 700 560" aria-label="Top contact view"></svg></div></div>

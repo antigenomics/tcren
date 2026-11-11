@@ -11,6 +11,8 @@ All notable changes to `tcren` are recorded here. Format follows
 - Use one normalized molecular graph with named covalent connectivity, CA-based
   residue aggregation, explicit node cardinalities, chain controls and typed
   compressed tables. Center epitope-ranking comparisons on the fixed TCR.
+- Export matching TSV.gz/Parquet tables and JSON summaries; add a table-only
+  summary check, explicit recorded exclusions and peptide label collision handling.
 
 ## [4.2.0] — 2026-10-23
 

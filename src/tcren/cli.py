@@ -3151,6 +3151,9 @@ app.command("rank-epitopes", rich_help_panel=_P_SCORE)(rank_command)
 from .complementarity.command import complementarity_command
 
 app.command("complementarity")(complementarity_command)
+from .complementarity.summary import summary_command
+
+app.command("complementarity-summary")(summary_command)
 
 # The __main__ guard belongs at the VERY END of the module, below the last @app.command.
 # It has been moved twice for the same reason. It first sat just after `main()`, two thirds up,

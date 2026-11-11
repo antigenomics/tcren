@@ -6,12 +6,13 @@ import itertools
 import json
 import tarfile
 import tempfile
+from math import isfinite
 from pathlib import Path
 
 import typer
 
 from .dashboard import write_dashboard
-from .prepare import ranking_frame, reference_frame
+from .prepare import fixed_component, ranking_frame, reference_frame
 from .scene import build_scene
 
 
@@ -56,6 +57,7 @@ def complementarity_command(
     threads: int = typer.Option(0, "--threads", "-t", min=0),
     legacy: bool = typer.Option(False, "--legacy", help="Use unchanged historical SVG maps"),
     scratch: Path = typer.Option(None, help="Existing directory for one temporary archive member"),
+    exclude_id: list[str] = typer.Option(None, "--exclude-id", help="Explicit source ID to omit; repeatable and recorded"),
 ):
     """Export shared-frame side/top contact scenes and a local overlay dashboard."""
     from ..annotation import classify_chains
@@ -64,6 +66,8 @@ def complementarity_command(
 
     if task not in {"tcr", "epitope"} or origin not in {"apex", "center-of-mass"}:
         raise typer.BadParameter("task must be tcr/epitope and origin apex/center-of-mass")
+    if not isfinite(cutoff):
+        raise typer.BadParameter("cutoff must be finite")
     if output.exists():
         raise typer.BadParameter("output must be a new directory")
     if scratch is not None and not scratch.is_dir():
@@ -71,12 +75,24 @@ def complementarity_command(
     if legacy and not 3 <= cutoff <= 6:
         raise typer.BadParameter("legacy cutoff must be within [3, 6] Angstroms")
     references, errors, seen = {}, [], set()
+    excluded, input_count = [], 0
+    requested_exclusions = set(exclude_id or [])
     implementation = {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
                       for p in sorted(Path(__file__).parent.iterdir())
                       if p.suffix in {".py", ".html", ".js"}}
 
+    def selected_sources():
+        nonlocal input_count
+        for structure in _structures(structures, scratch):
+            input_count += 1
+            if structure.pdb_id in requested_exclusions:
+                excluded.append(dict(id=structure.pdb_id, reason="explicit --exclude-id",
+                                     input=structure.annotation_provenance.get("visualization_input")))
+            else:
+                yield structure
+
     def scenes():
-        source = iter(_structures(structures, scratch))
+        source = iter(selected_sources())
         while batch := list(itertools.islice(source, 32)):
             records = annotate_batch(batch, organisms=("human", "mouse"), threads=threads)
             for structure, record in zip(batch, records):
@@ -102,7 +118,7 @@ def complementarity_command(
                         key = hashlib.sha256(json.dumps(identity).encode()).hexdigest()
                         if key not in references:
                             frame = reference_frame(structure, origin=origin, task=task)
-                            references[key] = structure, frame
+                            references[key] = fixed_component(structure, task), frame
                         reference, frame = references[key]
                         current = ranking_frame(structure, reference, frame, task=task)
                         scene = build_scene(structure, current, cutoff=cutoff)
@@ -112,22 +128,31 @@ def complementarity_command(
                         scene["group_label"] = f"{label} · {frame.reference_id}"
                         yield scene
                 except ValueError as exc:
-                    errors.append(dict(id=structure.pdb_id, error=str(exc)))
+                    errors.append(dict(id=structure.pdb_id, error=str(exc),
+                                       input=structure.annotation_provenance.get("visualization_input"),
+                                       chain_roles={c.chain_id: c.chain_type for c in structure.chains}))
+            batch.clear()
+            records.clear()
 
     if legacy:
         output.mkdir(parents=True)
         list(scenes())
     else:
         write_dashboard(scenes(), output)
+    missing_exclusions = requested_exclusions - {row["id"] for row in excluded}
+    if missing_exclusions:
+        errors.append(dict(id=None, error="excluded IDs not found: " + ", ".join(sorted(missing_exclusions))))
     (output / "errors.json").write_text(json.dumps(errors, indent=2), encoding="utf-8")
+    (output / "excluded.json").write_text(json.dumps(excluded, indent=2), encoding="utf-8")
     from importlib.metadata import version
 
     (output / "run.json").write_text(json.dumps(dict(
         version=version("tcren"), source=str(structures), task=task, origin=origin,
         cutoff=cutoff, threads=threads, legacy=legacy, structures=len(seen),
+        input_structures=input_count, excluded_structures=len(excluded),
         errors=len(errors), implementation_sha256=implementation), indent=2), encoding="utf-8")
     if not seen:
         raise typer.BadParameter("no structures found")
-    typer.echo(f"Wrote {output}: {len(seen)} structures, {len(errors)} errors")
+    typer.echo(f"Wrote {output}: {len(seen)} eligible structures, {len(excluded)} excluded, {len(errors)} errors")
     if errors:
         raise typer.Exit(1)

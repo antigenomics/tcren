@@ -38,6 +38,7 @@ class CanonicalFrame:
     rmsd: float = 0.0
     anchor_count: int = 0
     origin_component: str = "peptide"
+    anchor_role_positions: tuple[tuple[str, int], ...] = ()
 
     def transform(self, points) -> np.ndarray:
         """Apply this frame without modifying the source coordinates."""

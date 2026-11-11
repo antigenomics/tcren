@@ -35,6 +35,7 @@ def test_framework_and_unannotated_atoms_are_retained():
     scene = build_scene(Structure("framework", [Chain("A", [residue], "TRA")]), FRAME)
     assert scene["residues"][0]["region"] == "UNANNOTATED"
     assert scene["residues"][0]["ca_atom"] == 0
+    assert any(warning.startswith("missing_backbone_atoms:0:") for warning in scene["warnings"])
 
 
 def test_modified_atoms_are_retained_with_explicit_connectivity_warning():
