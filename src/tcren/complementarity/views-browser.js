@@ -1,6 +1,6 @@
 // All scientific values are serialized table rows. This module only filters and colors them.
 const $ = id => document.getElementById(id);
-const [entries, manifest, summaries] = await Promise.all(['index.json','manifest.json','summary.json'].map(p=>fetch(p).then(r=>r.json())));
+const [entries, manifest, summaries] = await Promise.all(['index.json','manifest.json','summary.json'].map(p=>fetch(p,{cache:'no-cache'}).then(r=>r.json())));
 const summaryById=new Map(summaries.map(r=>[r.structure_id,r]));
 const shortLabels=new Map(entries.map((e,i)=>[e.id,(e.display_label&&e.display_label!==e.id?e.display_label:null)||`${e.task==='tcr'?'Receptor':'Peptide model'} ${i+1} · ${e.id.length>16?e.id.slice(0,8):e.id}`]));
 let active = null, generation = 0;
