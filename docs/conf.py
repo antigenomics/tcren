@@ -60,6 +60,14 @@ autodoc_mock_imports = [
 templates_path = ["_templates"]
 exclude_patterns = ["_build", "**.ipynb_checkpoints", "README.md", "CHANGELOG.md", "OBSOLETE.md", "superpowers/**"]
 
+# Stale generated copies can survive a branch switch. Only root-owned notebooks
+# belong to this build; preserve old local files while excluding their copies.
+exclude_patterns += [
+    f"notebooks/{notebook.name}"
+    for notebook in _NB_DST.glob("*.ipynb")
+    if not (_NB_SRC / notebook.name).is_file()
+]
+
 html_theme = "pydata_sphinx_theme"
 html_static_path = ["_static"]
 html_css_files = ["custom.css"]

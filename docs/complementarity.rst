@@ -227,3 +227,8 @@ resolved geometry. No contacts alone does not establish an experimental
 nonbinder. Short display labels preserve full structure identities for joins.
 Static figures and browser values remain consumers of exported Parquet tables.
 Inspect occupied-grid-boundary warnings before interpreting whole surfaces.
+
+A contact witness records proximity within the extraction envelope; it does not
+certify a physically plausible interaction. Inspect original atom coordinates
+for steric overlaps and displaced poses before interpreting dense contact
+patches or motif localization. Preserve source models and experimental calls.
