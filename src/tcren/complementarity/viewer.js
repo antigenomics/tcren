@@ -38,7 +38,7 @@ async function selectGroup(id) {
         setupOutcomes();
         updateStructureOptions();
         const options = [...$('structures').options];
-        const selected = options.find(option=>option.title===id) ?? options[0];
+        const selected = options.find(option=>option.dataset.modelId===id) ?? options[0];
         if(selected)selected.selected=true;
         await render();
     } catch(error) {
@@ -113,8 +113,9 @@ export function updateStructureOptions() {
             (e.id+' '+(e.display_label||'')+' '+(e.search||'')).toLowerCase().includes(query) &&
             matchesOutcome(e.outcome,kind,filter))) {
         const label = entry.display_label || entry.id;
-        const option = new Option(kind ? label+' | Label '+formatOutcome(entry.outcome) : label,entry.file);
-        option.title = entry.id;
+        const option = new Option(kind ? 'Label '+formatOutcome(entry.outcome)+' | '+label : label,entry.file);
+        option.dataset.modelId = entry.id;
+        option.title = label === entry.id ? label : label+' | '+entry.id;
         select.add(option);
     }
     if ([...select.options].some(option => option.value === selected)) select.value = selected;
@@ -420,9 +421,10 @@ async function render() {
     try {
         const selected=[...$('structures').selectedOptions];
         const candidate=selected[0];
-        if (pinned && pinned.file !== candidate?.value) selected.push({value:pinned.file,title:pinned.id});
+        $('structures').title=candidate?.title ?? '';
+        if (pinned && pinned.file !== candidate?.value) selected.push({value:pinned.file,dataset:{modelId:pinned.id}});
         const loaded = new Map(currentViews.map(view => [view.scene.id,view.scene]));
-        const scenes=await Promise.all(selected.map(o=>loaded.get(o.title) ??
+        const scenes=await Promise.all(selected.map(o=>loaded.get(o.dataset.modelId) ??
             loadScene(o.value,{signal:controller.signal})));
         if(token!==generation)return;
         choices('chains',scenes.flatMap(s=>s.components.map(c=>c.role+':'+c.chain)),()=>true);
@@ -580,7 +582,7 @@ for(const id of ['minimum','maximum']){
 $('pin-model').onclick=()=>{
     const option=$('structures').selectedOptions[0];
     if(!pinned && !option)return;
-    pinned=pinned?null:{file:option.value,id:option.title};
+    pinned=pinned?null:{file:option.value,id:option.dataset.modelId};
     updatePin();
     render();
 };
