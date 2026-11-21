@@ -3,9 +3,42 @@ from __future__ import annotations
 
 import gzip
 import json
+import shutil
 from pathlib import Path
 
 from .tables import SceneTables
+
+
+def write_browser_groups(output, entries, *, manifest=None, summaries=None, fixed=None, ranking=None):
+    """Write a small directory and one metadata file per reference group."""
+    groups = {}
+    for entry in entries:
+        groups.setdefault(entry["reference"], []).append(entry)
+    (output / "groups").mkdir(exist_ok=True)
+    index = []
+    for number, (reference, models) in enumerate(groups.items()):
+        file = f"groups/{number}.json"
+        payload = {"entries": models}
+        if summaries is not None:
+            payload["summaries"] = [summaries[model["id"]] for model in models]
+        if fixed and reference in fixed:
+            payload["fixed"] = fixed[reference]
+        (output / file).write_text(json.dumps(payload, allow_nan=False), encoding="utf-8")
+        label = models[0].get("group_label") or models[0].get("label") or reference
+        index.append(dict(id=reference, label=label, file=file))
+    directory = dict(groups=index, count=len(entries))
+    if manifest is not None:
+        directory["manifest"] = manifest
+        directory["ranking"] = ranking
+    (output / "groups.json").write_text(json.dumps(directory, allow_nan=False), encoding="utf-8")
+
+
+def install_viewer_assets(output: Path, *, tables: bool = False) -> None:
+    """Install the packaged page and scripts into a prepared static site."""
+    output = Path(output)
+    html, script = ("views.html", "views-browser.js") if tables else ("dashboard.html", "viewer.js")
+    for source, target in ((html, "index.html"), (script, script), ("view-controls.js", "view-controls.js")):
+        shutil.copyfile(Path(__file__).with_name(source), output / target)
 
 
 def write_dashboard(scenes, output: str | Path) -> Path:
@@ -15,8 +48,6 @@ def write_dashboard(scenes, output: str | Path) -> Path:
     remote scripts or network service is needed. Scene IDs are labels, never paths.
     """
     output = Path(output)
-    template = Path(__file__).with_name("dashboard.html").read_text(encoding="utf-8")
-    viewer = Path(__file__).with_name("viewer.js").read_text(encoding="utf-8")
     output.mkdir(parents=True, exist_ok=False)
     entries = []
     tables = SceneTables(output / "tables")
@@ -40,7 +71,7 @@ def write_dashboard(scenes, output: str | Path) -> Path:
                             search=" ".join(c["sequence"] for c in scene.get("components", [])),
                             file=name, warnings=scene["warnings"]))
     (output / "index.json").write_text(json.dumps(entries, allow_nan=False), encoding="utf-8")
+    write_browser_groups(output, entries)
     tables.close()
-    (output / "index.html").write_text(template, encoding="utf-8")
-    (output / "viewer.js").write_text(viewer, encoding="utf-8")
+    install_viewer_assets(output)
     return output / "index.html"

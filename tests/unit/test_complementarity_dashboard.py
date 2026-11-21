@@ -24,6 +24,10 @@ def test_streamed_scene_identity_is_never_a_path(tmp_path):
     assert json.loads(gzip.decompress((out / "scene-0.json.gz").read_bytes())) == scene
     assert json.loads((out / "index.json").read_text())[0]["id"] == scene["id"]
     assert "../unsafe" not in path.read_text()
+    group = json.loads((out / "groups.json").read_text())["groups"][0]
+    assert group["id"] == "ref"
+    assert json.loads((out / group["file"]).read_text())["entries"][0]["id"] == scene["id"]
+    assert (out / "view-controls.js").is_file()
     with pytest.raises(FileExistsError):
         write_dashboard([], out)
 

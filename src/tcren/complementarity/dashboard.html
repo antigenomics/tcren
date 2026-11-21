@@ -13,7 +13,15 @@ table{border-collapse:collapse;width:100%;font-size:13px}th,td{padding:6px;borde
 #summary{overflow-x:auto}
 @media(max-width:1600px){.views{grid-template-columns:1fr}}
 @media(max-width:800px){main{grid-template-columns:1fr}}
+#view-controls{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:16px}
+:root[data-theme=dark]{color-scheme:dark}
+:root[data-theme=dark] body{color:#eee;background:#141414}
+:root[data-theme=dark] :is(header,aside,section,#fixed-motif){color:#eee;background:#202020}
+:root[data-theme=dark] :is(canvas,svg,#fixed-trace svg,#candidate-trace svg){background:#000}
+:root[data-theme=dark] a{color:#adcaff}
 </style>
+<nav id="view-controls" aria-label="Viewer controls"></nav>
+<script type="module" src="view-controls.js"></script>
 <h1>TCRen complementarity browser</h1>
 <p>Shared reference coordinates · side and top views · distances in Å. Contacts describe geometry, not verified binding.</p>
 <p id="population" role="status"></p>

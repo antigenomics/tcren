@@ -244,3 +244,25 @@ Consuming overview renderers can call ``loadScene(file, {signal})`` with an
 AbortSignal and dispatch ``tcren:cancel-detail`` when leaving detailed mode.
 Cancelled requests cannot replace the latest selection's status. Cancellation
 bounds obsolete network/decompression work; it is not a measured heap-memory claim.
+
+Static viewer deployment
+------------------------
+
+Both exports include a static viewer and a group directory. Open the viewer
+with ``?group=`` to load just the first reference group's metadata, or supply
+the encoded reference and model ID as ``?group=REFERENCE&id=MODEL``. The original
+index and ungrouped URLs remain available. Serve the directory over HTTP.
+
+For prepared exports, ``install_viewer_assets(directory, tables=...)`` in
+``tcren.complementarity.dashboard`` copies the packaged HTML and scripts into
+a staging directory that already contains the prepared metadata and assets.
+``write_view_groups(directory, fixed=...)`` in
+``tcren.complementarity.view_export`` builds group sidecars from the existing
+table export, retaining optional per-reference fixed surface and motif records.
+Publication annotations belong in those records. The group step reads JSON
+metadata only and leaves the exported scientific tables and scene caches intact.
+
+An optional ``navigation.json`` beside each page contains ``corpora`` and
+``links`` arrays. Each item has ``label`` and ``href``. Set ``current`` on
+the active entry and ``model`` on links that should carry the selected group
+and model ID to another viewer.

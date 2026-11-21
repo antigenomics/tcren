@@ -9,6 +9,7 @@ from pathlib import Path
 import polars as pl
 import typer
 
+from .dashboard import install_viewer_assets, write_browser_groups
 from .tables import write_table_partition
 from .views import LOOPS, PARTNERS, SCHEMAS, validate_grid, view_tables
 
@@ -28,6 +29,41 @@ def _sha(path):
 
 def _json(path, value):
     Path(path).write_text(json.dumps(value, allow_nan=False, indent=2), encoding="utf-8")
+
+
+def write_view_groups(output: Path, *, fixed=None) -> None:
+    """Index an existing table export for group-scoped browsing without rebuilding tables."""
+    output = Path(output)
+    entries = json.loads((output / "index.json").read_text(encoding="utf-8"))
+    summaries = {
+        row["structure_id"]: row
+        for row in json.loads((output / "summary.json").read_text(encoding="utf-8"))
+    }
+    manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
+    fields = ("id", "task", "reference", "group_label", "outcome", "library_response",
+              "model_metrics", "molecular_file", "cache")
+    sizes = dict.fromkeys(manifest["partner_order"], 1)
+    browser_entries = []
+    for ordinal, entry in enumerate(entries, 1):
+        for facet in entry.get("facets", []):
+            partner = facet["partner_facet"]
+            sizes[partner] = max(sizes[partner], facet["tcr_residues"], facet["partner_residues"])
+        identity = entry["id"]
+        display = entry.get("display_label")
+        kind = "Receptor" if entry["task"] == "tcr" else "Peptide model"
+        short = identity[:8] if len(identity) > 16 else identity
+        label = display if display and display != identity else f"{kind} {ordinal} · {short}"
+        projected = {field: entry[field] for field in fields if field in entry}
+        projected["shortLabel"] = label
+        projected["clipped"] = summaries[identity].get("surface_may_be_clipped", False)
+        browser_entries.append(projected)
+    (output / "groups").mkdir(exist_ok=True)
+    manifest.pop("files", None)
+    manifest["sizes"] = sizes
+    path = "groups/manifest.json"
+    _json(output / path, manifest)
+    write_browser_groups(output, browser_entries, manifest=path, fixed=fixed,
+                         ranking=entries[0]["task"] if entries else None)
 
 
 def summarize_tables(tables):
@@ -102,8 +138,7 @@ def export_views(exports, output, *, grid=(64, 64), extent=(-40., 40., -40., 40.
     write_table_partition(summary, output, "summary.parquet")
     _json(output / "summary.json", summaries)
     _json(output / "index.json", records)
-    for source_name, target_name in [("views.html", "index.html"), ("views-browser.js", "views-browser.js")]:
-        (output / target_name).write_text(Path(__file__).with_name(source_name).read_text(), encoding="utf-8")
+    install_viewer_assets(output, tables=True)
     _json(output / "manifest.json", dict(
         schema="tcren.complementarity.views/1", source_index_sha256=_sha(exports / "index.json"),
         grid_ny_nx=grid, extent_xy=extent, probe_angstrom=probe, files=files,
@@ -118,6 +153,7 @@ def export_views(exports, output, *, grid=(64, 64), extent=(-40., 40., -40., 40.
                          contacts="existing heavy-atom noncovalent witnesses; not CA cutoff",
                          sequence_order="N to C within each facet; beta facet order reversed",
                          empty="all grid cells retained; absent facets explicit; unresolved CA null")))
+    write_view_groups(output)
     return records
 
 
