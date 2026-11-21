@@ -72,6 +72,25 @@ and inspect every generated figure; no browser-side geometry or label-based fits
 | Recorded observations and matched comparisons | `evaluate`, `associate` | [Evaluation](https://docs.isalgo.dev/tcren/evaluation.html) |
 | Dynamics and mechanical descriptors | `md`, `mechanics` | [MD](https://docs.isalgo.dev/tcren/md-validation.html) |
 
+## Build a dashboard
+
+Run `tcren dashboard import models.tsv --task tcr --label-kind binary -o dashboard`.
+Use `--task epitope` for one receptor with varying modelled peptides, and
+`--label-kind continuous` for numeric assay measurements. Supply one cohort
+per TSV with `structure_id`, `structure_path`, `iptm`, `plddt`, and `label`.
+IDs are unique, paths resolve relative to the TSV, and confidence ranges are
+[0, 1] for ipTM and [0, 100] for pLDDT. Labels are displayed and exported.
+The default `screen` scoring, cohort floor and diagnostics apply.
+
+Serve the output with `python -m http.server --bind 127.0.0.1 --directory dashboard`.
+Open the score table to inspect each model's molecular and table views.
+The exported bundle includes model IDs, labels and derived structural data.
+See the [browser guide](https://docs.isalgo.dev/tcren/complementarity.html).
+
+The installed package includes the pinned viewer assets for offline imports.
+Use `tcren dashboard bootstrap -o template` to fetch and verify that version.
+Add `--source /path/to/assets` to verify and copy assets from a local checkout.
+
 ## Install and batch inputs
 
 Use the repository `setup.sh` for development, with its `.venv`. Installed wheels

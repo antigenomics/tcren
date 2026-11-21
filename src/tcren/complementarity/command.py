@@ -8,6 +8,7 @@ import tarfile
 import tempfile
 from math import isfinite
 from pathlib import Path
+from typing import Annotated
 
 import typer
 
@@ -93,6 +94,7 @@ def complementarity_command(
     path_column: str = typer.Option("structure_path", help="Metadata path column; relative paths resolve beside metadata"),
     id_column: str = typer.Option("id", help="Metadata structure identity column"),
     member_column: str = typer.Option(None, help="Metadata archive-member column, when paths point to tar files"),
+    portable: Annotated[bool, typer.Option(help="Omit local provenance paths from dashboard assets")] = False,
 ):
     """Export shared-frame side/top contact scenes and a local overlay dashboard."""
     from ..annotation import classify_chains
@@ -173,6 +175,8 @@ def complementarity_command(
                         reference, frame = references[key]
                         current = ranking_frame(structure, reference, frame, task=task)
                         scene = build_scene(structure, current, cutoff=cutoff)
+                        if portable:
+                            scene.pop("provenance", None)
                         scene["task"] = task
                         peptides = structure.by_type("PEPTIDE")
                         label = peptides[0].sequence() if task == "tcr" and peptides else "Fixed TCR"
@@ -198,8 +202,8 @@ def complementarity_command(
     from importlib.metadata import version
 
     (output / "run.json").write_text(json.dumps(dict(
-        version=version("tcren"), source=str(metadata if metadata is not None else structures),
-        metadata=metadata_provenance, task=task, origin=origin,
+        version=version("tcren"), source=None if portable else str(metadata if metadata is not None else structures),
+        metadata=None if portable else metadata_provenance, task=task, origin=origin,
         cutoff=cutoff, threads=threads, legacy=legacy, structures=len(seen),
         input_structures=input_count, excluded_structures=len(excluded),
         errors=len(errors), implementation_sha256=implementation), indent=2), encoding="utf-8")

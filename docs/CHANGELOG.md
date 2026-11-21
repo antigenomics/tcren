@@ -3,6 +3,15 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
+## [4.7.0]
+
+- Build a portable ranking dashboard from a single five-column TSV using
+  `tcren dashboard import`. Both ranking tasks reuse the default screen
+  scores and link each labelled model to its molecular and table views.
+
+- Pin and verify the separately maintained dashboard template. Installed packages
+  include the pinned assets for offline imports.
+
 ## [4.6.0]
 
 - Browse prepared complementarity exports by reference group with stable model

@@ -1,0 +1,10 @@
+{
+  "revision": "d1c046617ace4a062b639628b552f98fb307560d",
+  "sha256": {
+    "dashboard.html": "34fc88494c2ea531d3291de44c9e0be424df30ff63677812b7e316357bd5aad9",
+    "view-controls.js": "8dc69ad8294bba2e76f047d14acf3ce53bac962d5815afba4d5bd151c2413d08",
+    "viewer.js": "39c6f4000f9cbbb1160d4557ad665e02b4912bd5f1facb50bf5f080b228905d4",
+    "views-browser.js": "d14a23649bfba6f8533d2aa835d5f81a6caf17afb6b6185d252cabe6e1350960",
+    "views.html": "8220dfaad1833d6a0aab70463e239eb4cab86b7a56c969bf5572c89bf3ab02ce"
+  }
+}
