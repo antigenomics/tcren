@@ -20,6 +20,42 @@ hashes are recorded in ``excluded.json``. Unknown exclusion IDs fail explicitly.
 Parsing/annotation errors stop the run. Geometric errors are recorded in
 ``errors.json`` and cause a nonzero exit after remaining scenes export.
 
+Build a dashboard from a cohort
+-------------------------------
+
+Use one UTF-8 TSV per scoring cohort, with this header and one row per model.
+
+.. code-block:: text
+
+   structure_id    structure_path    iptm    plddt    label
+
+Separate columns with tabs. IDs must be unique and are used in links. Paths
+point to PDB or mmCIF files, optionally gzip-compressed, and relative paths
+resolve beside the TSV. Supply generator ipTM on [0, 1] and mean model pLDDT
+on [0, 100]. Use numeric 0/1 for binary labels or finite numbers on the assay's
+original scale for continuous labels.
+
+.. code-block:: console
+
+   tcren dashboard import receptors.tsv --task tcr --label-kind binary -o receptor-dashboard
+   tcren dashboard import peptides.tsv --task epitope --label-kind continuous -o peptide-dashboard
+   python -m http.server --bind 127.0.0.1 --directory receptor-dashboard
+
+For TCR ranking, use one fixed peptide–MHC and varying receptors. For epitope
+ranking, use one fixed receptor and varying peptides. The command uses the
+default :doc:`screening` rules, including the cohort floor and unavailable
+score diagnostics. Viewer alignment groups can differ when deposited constructs
+have different observed chain sequences. The entire TSV is scored as one cohort.
+Label values are displayed and exported without entering
+scoring or choosing a metric or threshold.
+
+Open the local HTTP address to browse the score table and follow a model to
+its molecular or topography and heatmap views. The new output directory
+contains a complete static bundle and ``scores.tsv``. The bundle contains
+the supplied IDs, labels, and derived structural data. Share it only with
+readers authorized to see those data. If import fails, the destination
+directory is not published.
+
 Ranking frames
 --------------
 

@@ -3432,6 +3432,10 @@ from .complementarity.view_plot import plot_command as complementarity_plot_comm
 
 app.command("complementarity-plot")(complementarity_plot_command)
 
+from .complementarity.import_command import dashboard_app
+
+app.add_typer(dashboard_app, name="dashboard")
+
 # The __main__ guard belongs at the VERY END of the module, below the last @app.command.
 # It has been moved twice for the same reason. It first sat just after `main()`, two thirds up,
 # so `python -m tcren.cli` ran the app before the `potts` subcommands were registered and
