@@ -55,3 +55,13 @@ def test_shared_style_is_installed_for_a_prepared_viewer(tmp_path):
     assert html.count('href="dashboard.css"') == 1
     assert "<style>body{margin:8px}</style>" in html
     assert 'id="view-controls"' in html
+
+
+def test_reinstalling_prepared_shared_viewer_does_not_duplicate_chrome(tmp_path):
+    from tcren.complementarity.dashboard import install_viewer_assets
+
+    install_viewer_assets(tmp_path)
+    index = tmp_path / "index.html"
+    original = index.read_bytes()
+    install_viewer_assets(tmp_path, template=index)
+    assert index.read_bytes() == original

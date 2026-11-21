@@ -51,11 +51,16 @@ def install_viewer_assets(output: Path, *, tables: bool = False, template: Path 
     page = (assets / html).read_text(encoding="utf-8")
     if template is not None:
         prepared = Path(template).read_text(encoding="utf-8")
-        controls = page[page.index('<nav id="view-controls"'):page.index('</script>') + len('</script>')]
-        if "</style>" not in prepared or "<h1>" not in prepared:
-            raise ValueError("prepared viewer template requires a style block and heading")
-        page = prepared.replace("<style", STYLESHEET_LINK + "<style", 1)
-        page = page.replace("<h1>", controls + "<h1>", 1)
+        if STYLESHEET_LINK not in prepared:
+            if "<style" not in prepared:
+                raise ValueError("prepared viewer template requires viewer styling")
+            prepared = prepared.replace("<style", STYLESHEET_LINK + "<style", 1)
+        if 'id="view-controls"' not in prepared:
+            if "<h1>" not in prepared:
+                raise ValueError("prepared viewer template requires a heading")
+            controls = page[page.index('<nav id="view-controls"'):page.index('</script>') + len('</script>')]
+            prepared = prepared.replace("<h1>", controls + "<h1>", 1)
+        page = prepared
     install_dashboard_style(output)
     (output / "index.html").write_text(page, encoding="utf-8")
     for source in (script, "view-controls.js"):
