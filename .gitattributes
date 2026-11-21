@@ -3,3 +3,4 @@ data/output_TCRen/structures_annotation/cadist.txt filter=lfs diff=lfs merge=lfs
 # The published dashboard template lock hashes the exact LF asset bytes.
 src/tcren/complementarity/*.html text eol=lf
 src/tcren/complementarity/*.js text eol=lf
+src/tcren/complementarity/dashboard.css text eol=lf
