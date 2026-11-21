@@ -1,10 +1,10 @@
 {
-  "revision": "6eb9a40f510b3bace7a0e6028fa5b5de53bd523b",
+  "revision": "621bb797215cfa18bad525d24363c495c3db819a",
   "sha256": {
     "dashboard.css": "2b468083d271fec0a4f3e61091d974fc6f70e3004eb8492d5b4fff92f8c94a94",
     "dashboard.html": "5d799f087db72e575281d32645624badfb8e43c0923523ecd9290fea8097ca2e",
     "view-controls.js": "4f9fbd9252e2413b6210d3ac2316638cb5e4cb7be919afcc1420f1ec6fe3477d",
-    "viewer.js": "0b1cdd4ae7c6941734f3d9b4566d3b5629d3aa07dd1ccec7140aaf5aacc9c876",
+    "viewer.js": "ece507b9a3cc9e983c66d4555e3a00132a6dfa07e0bd0c2e264338fb7b4bc0a0",
     "views-browser.js": "c68808494db25fb8183b68367e73a151abdb2768ec9dbb6ea3320e9c772ec2d8",
     "views.html": "580be97e262781f286bdb6159682cbd7615afab9b772f244a5b3258c579806a3"
   }

@@ -91,7 +91,7 @@ const render = viewer.slice(viewer.indexOf('function redraw()'),
     viewer.indexOf("choices('edges'"));
 vm.runInContext(`const byId=new Map(),outcomeColor=()=>"#ccc",formatOutcome=()=>"Unlabelled";let pinned=null,cameraExtent=null,focusedContact=null,vertical=2,generation=0,renderController=null,groupFiles=null,currentViews=[],nodePage=0;${loader}${render}`, context);
 try {
-    element('structures').selectedOptions = [{value: 'old-scene'}];
+    element('structures').selectedOptions = [{value: 'old-scene', dataset:{modelId:'old'}}];
     const oldRender = vm.runInContext('render()', context);
     await until(() => started === 1);
     element('structures').selectedOptions = [];
@@ -126,9 +126,10 @@ try {
         frame:{reference:'second', origin_component:'peptide', origin:'apex', anchors:3, rmsd:0},
     })));
     element('group').value = 'second';
-    element('structures').selectedOptions = [{value:'model-2.gz'}];
+    element('structures').selectedOptions = [{value:'model-2.gz', dataset:{modelId:'model-2'}, title:'Readable model name'}];
     await vm.runInContext('render()', context);
     assert.deepEqual(observed, ['?id=model-2&group=second']);
+    assert.equal(element('structures').title, 'Readable model name');
     context.fetch = (url, options) => fetch(new URL(url, base), options);
 
     const tableLoad = tables.slice(tables.indexOf('async function load()'),
@@ -150,6 +151,7 @@ try {
     await oldTable;
     await until(() => closed === 2);
     assert.equal(element('status').textContent, 'Cannot load latest: latest selection failure');
+    observed.length = 0;
     context.fetch = async () => new Response(gzipSync(JSON.stringify({
         tables:{contact_heatmap:[]}, sources:{},
     })));

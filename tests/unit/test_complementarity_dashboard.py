@@ -126,7 +126,7 @@ def test_default_selector_label_is_informative_without_changing_identity(tmp_pat
     assert json.loads(gzip.decompress((out / entry["file"]).read_bytes()))["id"] == identity
     viewer = (out / "viewer.js").read_text()
     assert "const label = entry.display_label || entry.id" in viewer
-    assert "option.title = entry.id" in viewer
+    assert "option.dataset.modelId = entry.id" in viewer
 
 
 def test_benchmark_retains_recorded_zero_and_escapes_metadata(tmp_path):
