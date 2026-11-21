@@ -55,7 +55,7 @@ def write_view_groups(output: Path, *, fixed=None) -> None:
         label = display if display and display != identity else f"{kind} {ordinal} · {short}"
         projected = {field: entry[field] for field in fields if field in entry}
         projected["shortLabel"] = label
-        projected["clipped"] = summaries[identity].get("surface_may_be_clipped", False)
+        projected["clipped"] = summaries.get(identity, {}).get("surface_may_be_clipped", False)
         browser_entries.append(projected)
     (output / "groups").mkdir(exist_ok=True)
     manifest.pop("files", None)

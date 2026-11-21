@@ -229,3 +229,29 @@ def test_topography_refuses_unbounded_offset_work_before_sampler(monkeypatch, ex
     monkeypatch.setattr("tcren.complementarity.views._height_candidates", forbidden)
     with pytest.raises(ValueError, match="atom/offset evaluations"):
         topography_tables(example(), grid=(256, 256), extent=extent, probe=probe)
+
+
+def test_group_projection_accepts_legacy_exports_with_partial_summaries(tmp_path):
+    from tcren.complementarity.view_export import write_view_groups
+
+    (tmp_path / "index.json").write_text(json.dumps([
+        {"id": "a", "task": "tcr", "reference": "first", "facets": [
+            {"partner_facet": "peptide", "tcr_residues": 7, "partner_residues": 8},
+        ]},
+        {"id": "b", "task": "tcr", "reference": "second", "facets": [
+            {"partner_facet": "peptide", "tcr_residues": 9, "partner_residues": 6},
+        ]},
+    ]))
+    (tmp_path / "summary.json").write_text(json.dumps([
+        {"structure_id": "b", "surface_may_be_clipped": True},
+    ]))
+    (tmp_path / "manifest.json").write_text(json.dumps({"partner_order": ["peptide"], "files": ["unused"]}))
+    write_view_groups(tmp_path, fixed={"first": {"cells": []}})
+    index = json.loads((tmp_path / "groups.json").read_text())
+    manifest = json.loads((tmp_path / index["manifest"]).read_text())
+    first, second = [json.loads((tmp_path / group["file"]).read_text()) for group in index["groups"]]
+    assert manifest["sizes"] == {"peptide": 9}
+    assert "files" not in manifest
+    assert first["fixed"] == {"cells": []}
+    assert first["entries"][0]["clipped"] is False
+    assert second["entries"][0]["clipped"] is True
