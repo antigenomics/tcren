@@ -46,6 +46,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -m pip install ".[test]"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify the template assets in the Windows build
+        run: python -c "from tcren.complementarity.template import verify_template; verify_template()"
       - name: Exercise native search and real annotation
         shell: pwsh
         run: |
