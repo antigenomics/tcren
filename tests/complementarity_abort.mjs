@@ -41,7 +41,7 @@ const loader = viewer.slice(viewer.indexOf('export async function loadScene('),
     viewer.indexOf('// Coordinate ownership')).replace('export ', '');
 const render = viewer.slice(viewer.indexOf('async function render()'),
     viewer.indexOf("choices('edges'"));
-vm.runInContext(`let generation=0,renderController=null,currentViews=[],nodePage=0;${loader}${render}`, context);
+vm.runInContext(`let generation=0,renderController=null,groupFiles=null,currentViews=[],nodePage=0;${loader}${render}`, context);
 try {
     element('structures').selectedOptions = [{value: 'old-scene'}];
     const oldRender = vm.runInContext('render()', context);
@@ -53,15 +53,17 @@ try {
     assert.equal(element('status').textContent, 'Select a structure to inspect.');
 
     const tableLoad = tables.slice(tables.indexOf('async function load()'),
-        tables.indexOf('const requested='));
+        tables.indexOf('const choices = grouped'));
     vm.runInContext(`generation=0;let loadController=null,active=null;
-        const entries=[{id:'old',cache:'old-table'}];${tableLoad}`, context);
+        let candidateScene=null,motifFocus=null;const grouped=false;
+        function updateCandidateMotif(){}
+        const visibleEntries=[{id:'old',cache:'old-table'}];${tableLoad}`, context);
     element('structure').selectedIndex = 0;
     const oldTable = vm.runInContext('load()', context);
     await until(() => started === 2);
     // The replacement fails promptly; the superseded gzip stream must stop and
     // its AbortError must not replace the latest selection's error status.
-    vm.runInContext("entries.push({id:'latest',cache:'latest-table'});", context);
+    vm.runInContext("visibleEntries.push({id:'latest',cache:'latest-table'});", context);
     context.fetch = (url, options) => url === 'latest-table'
         ? Promise.reject(Error('latest selection failure')) : fetch(new URL(url, base), options);
     element('structure').selectedIndex = 1;

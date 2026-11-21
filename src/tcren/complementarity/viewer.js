@@ -6,6 +6,32 @@ const DEFAULT_REGIONS = new Set(['CDR1','CDR2','CDR3','PEPTIDE','HELIX_A1','HELI
 const edgeName = (a,b) => [a,b].sort().join(':');
 let entries = [], generation = 0, currentViews = [], nodePage = 0;
 let renderController = null;
+let groupController = null;
+const requested = new URL(location).searchParams;
+let groupFiles = null;
+async function selectGroup(id) {
+    groupController?.abort();
+    const controller = groupController = new AbortController();
+    document.dispatchEvent(new CustomEvent('tcren:cancel-detail'));
+    entries = [];
+    $('structures').replaceChildren();
+    for(const panel of ['side','top'])$(panel).replaceChildren();
+    $('status').textContent = 'Loading group…';
+    try {
+        const response = await fetch(groupFiles.get($('group').value), {signal:controller.signal});
+        if(!response.ok)throw Error(`Group HTTP ${response.status}`);
+        const payload = await response.json();
+        if(controller.signal.aborted)return;
+        entries = payload.entries;
+        updateStructureOptions();
+        const options = [...$('structures').options];
+        const selected = options.find(option=>option.title===id) ?? options[0];
+        if(selected)selected.selected=true;
+        await render();
+    } catch(error) {
+        if(!controller.signal.aborted)$('status').textContent=String(error);
+    }
+}
 
 export function choices(id, values, initiallyVisible) {
     const existing = new Map([...$(id).querySelectorAll('input')].map(n => [n.value,n.checked]));
@@ -271,6 +297,14 @@ async function render() {
         const scale=230/extent*Number($('zoom').value);
         summary(views,atomic);
         draw($('side'),2,views,atomic,scale);draw($('top'),1,views,atomic,scale);
+        const url=new URL(location);
+        if(scenes.length || url.searchParams.has('id')) {
+            if(groupFiles)url.searchParams.set('group',$('group').value);
+            if(scenes.length)url.searchParams.set('id',scenes[0].id);
+            else url.searchParams.delete('id');
+            history.replaceState(null,'',url);
+    document.dispatchEvent(new Event('tcren:model'));
+        }
         document.dispatchEvent(new CustomEvent('tcren:render',{detail:{scenes,atomic}}));
         $('status').textContent=scenes.length?scenes.map(s=>`${s.id}\nReference ${s.frame.reference}; fixed origin ${s.frame.origin_component}: ${s.frame.origin}; ${s.frame.anchors} anchors; RMSD ${s.frame.rmsd.toFixed(3)} Å\n${s.warnings.length?s.warnings.join('\n'):'No export warnings'}`).join('\n\n')+`\nCamera offsets x/y/z: ${$('panx').value}/${$('pany').value}/${$('panz').value} Å; zoom ${$('zoom').value}. Molecular reference coordinates remain fixed.`:'Select a structure to inspect.';
     } catch(error) {
@@ -292,13 +326,19 @@ document.addEventListener('tcren:cancel-detail',()=>{
     for(const id of ['side','top'])$(id).setAttribute('aria-busy','false');
 });
 try {
-    const response=await fetch('index.json');if(!response.ok)throw Error(`Index ${response.status}`);
-    entries=await response.json();
-    $('population').textContent=`${entries.length} structures · ${new Set(entries.map(e=>e.reference)).size} compatible reference groups · independent local dashboard`;
+    const response=await fetch(requested.has('group')?'groups.json':'index.json');
+    if(!response.ok)throw Error(`Index ${response.status}`);
+    const index=await response.json();
+    const groups=Array.isArray(index)
+        ? [...new Map(index.map(entry=>[entry.reference,{id:entry.reference,label:entry.label}])).values()]
+        : index.groups;
+    if(Array.isArray(index))entries=index;
+    else groupFiles=new Map(groups.map(group=>[group.id,group.file]));
+    $('population').textContent=`${index.count ?? entries.length} structures · ${groups.length} compatible reference groups · independent local dashboard`;
     const diagnostics=await fetch('errors.json');
     $('errors').textContent=diagnostics.ok?JSON.stringify(await diagnostics.json(),null,2):'No command-level diagnostics supplied.';
-    const exported=await fetch('tables/manifest.json');
-    if(exported.ok)for(const item of (await exported.json()).files){
+    const exported=groupFiles?null:await fetch('tables/manifest.json');
+    if(exported?.ok)for(const item of (await exported.json()).files){
         if(!/^[a-z_]+\/part-[0-9]+\.parquet$/.test(item.file))continue;
         const row=document.createElement('div');
         for(const filename of [item.file,item.tsv_file].filter(Boolean)){
@@ -308,15 +348,23 @@ try {
         }
         $('downloads').append(row);
     }
-    for(const group of new Set(entries.map(e=>e.reference))){
-        const label=entries.find(e=>e.reference===group).label||group;
+    for(const {id:group,label:display} of groups){
+        const label=display||group;
         const text=/^[a-f0-9]{32,}$/i.test(group)?label.replace(group,group.slice(0,8)):label;
         const option=new Option(text,group);option.title=`${label}\nReference ${group}`;
         $('group').add(option);
     }
-    updateStructureOptions();await render();
+    if(groups.some(group=>group.id===requested.get('group')))$('group').value=requested.get('group');
+    if(groupFiles && groups.length)await selectGroup(requested.get('id'));
+    else {
+        const match=entries.find(entry=>entry.id===requested.get('id'));
+        if(match)$('group').value=match.reference;
+        updateStructureOptions();
+        if(match)$('structures').value=match.file;
+        await render();
+    }
 } catch(error) {$('status').textContent=`Serve this directory over localhost. ${error}`;}
-$('group').onchange=()=>{updateStructureOptions();render();};$('search').oninput=()=>{updateStructureOptions();render();};
+$('group').onchange=()=>{if(groupFiles)return selectGroup();updateStructureOptions();return render();};$('search').oninput=()=>{updateStructureOptions();render();};
 for(const id of ['structures','detail','weight','labels','backbone','covalent','regions','chains','edges','zoom','panx','pany','panz','labelscope'])$(id).addEventListener('change',render);
 $('fit-camera').onclick=()=>{
     function* positions(){for(const view of currentViews)for(const node of view.nodes)if(view.shown(node))yield node.xyz;}
