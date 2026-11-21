@@ -3,6 +3,12 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
+## [Unreleased]
+
+- Load the initial molecular group on entry and fetch partition download links
+  when requested. Preserve the selected group when following legacy model links.
+- Update the pinned public dashboard template to v1.1.0.
+
 ## [4.7.0]
 
 - Build a portable ranking dashboard from a single five-column TSV using

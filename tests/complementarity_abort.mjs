@@ -34,7 +34,7 @@ const element = id => {
 const context = vm.createContext({fetch: (url, options) => fetch(new URL(url, base), options),
     Response, DecompressionStream, AbortController, document: {documentElement: {dataset: {}},
         dispatchEvent() {}}, CustomEvent: class {}, $: element, choices() {}, checked: () => new Set(),
-    nodeTable() {}, summary() {}, draw() {}, DEFAULT_REGIONS: new Set(),
+    nodeTable() {}, summary() {}, draw() {}, viewFor: () => ({nodes:[], shown:() => true}), Event, DEFAULT_REGIONS: new Set(),
     location: base, history: {replaceState() {}}, URL,
     shortLabels: new Map([['old', 'old']]), summaryById: new Map(), render() {}});
 const loader = viewer.slice(viewer.indexOf('export async function loadScene('),
@@ -51,6 +51,37 @@ try {
     await oldRender;
     await until(() => closed === 1);
     assert.equal(element('status').textContent, 'Select a structure to inspect.');
+
+    const calls = [];
+    const modelIndex = viewer.slice(viewer.indexOf('async function readModelIndex()'),
+        viewer.indexOf('async function loadDownloads()'));
+    for (const [query, status, expected] of [
+        ['', 200, ['groups.json']], ['?group=second&id=model-2', 200, ['groups.json']],
+        ['?id=model-2', 200, ['index.json']], ['', 404, ['groups.json', 'index.json']],
+    ]) {
+        const requested = new URL(base + query).searchParams;
+        const fetch = async path => {
+            calls.push(path);
+            return {status: path === 'groups.json' ? status : 200};
+        };
+        await vm.runInNewContext(`${modelIndex};readModelIndex()`, {requested, fetch});
+        assert.deepEqual(calls.splice(0), expected);
+    }
+
+    // Successful rendering of a legacy selection must publish its resolved group
+    // before the navigation controls synchronize their cross-view links.
+    const observed = [];
+    context.location = base + '?id=model-2';
+    context.history.replaceState = (_state, _title, url) => observed.push(url.search);
+    context.fetch = async () => new Response(gzipSync(JSON.stringify({
+        schema:'tcren.complementarity/2', id:'model-2', components:[], residues:[], warnings:[],
+        frame:{reference:'second', origin_component:'peptide', origin:'apex', anchors:3, rmsd:0},
+    })));
+    element('group').value = 'second';
+    element('structures').selectedOptions = [{value:'model-2.gz'}];
+    await vm.runInContext('render()', context);
+    assert.deepEqual(observed, ['?id=model-2&group=second']);
+    context.fetch = (url, options) => fetch(new URL(url, base), options);
 
     const tableLoad = tables.slice(tables.indexOf('async function load()'),
         tables.indexOf('const choices = grouped'));
@@ -71,6 +102,13 @@ try {
     await oldTable;
     await until(() => closed === 2);
     assert.equal(element('status').textContent, 'Cannot load latest: latest selection failure');
+    context.fetch = async () => new Response(gzipSync(JSON.stringify({
+        tables:{contact_heatmap:[]}, sources:{},
+    })));
+    vm.runInContext("visibleEntries.push({id:'model-2',reference:'second',cache:'model-2.gz'})", context);
+    element('structure').selectedIndex = 2;
+    await vm.runInContext('load()', context);
+    assert.deepEqual(observed, ['?id=model-2&group=second', '?id=model-2&group=second']);
     console.log('Passed: molecular and table selection abort unfinished gzip bodies; stale errors preserve latest status.');
 } finally {
     server.closeAllConnections();

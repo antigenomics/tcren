@@ -299,11 +299,11 @@ async function render() {
         draw($('side'),2,views,atomic,scale);draw($('top'),1,views,atomic,scale);
         const url=new URL(location);
         if(scenes.length || url.searchParams.has('id')) {
-            if(groupFiles)url.searchParams.set('group',$('group').value);
+            if($('group').value)url.searchParams.set('group',$('group').value);
             if(scenes.length)url.searchParams.set('id',scenes[0].id);
             else url.searchParams.delete('id');
             history.replaceState(null,'',url);
-    document.dispatchEvent(new Event('tcren:model'));
+            document.dispatchEvent(new Event('tcren:model'));
         }
         document.dispatchEvent(new CustomEvent('tcren:render',{detail:{scenes,atomic}}));
         $('status').textContent=scenes.length?scenes.map(s=>`${s.id}\nReference ${s.frame.reference}; fixed origin ${s.frame.origin_component}: ${s.frame.origin}; ${s.frame.anchors} anchors; RMSD ${s.frame.rmsd.toFixed(3)} Å\n${s.warnings.length?s.warnings.join('\n'):'No export warnings'}`).join('\n\n')+`\nCamera offsets x/y/z: ${$('panx').value}/${$('pany').value}/${$('panz').value} Å; zoom ${$('zoom').value}. Molecular reference coordinates remain fixed.`:'Select a structure to inspect.';
@@ -325,8 +325,44 @@ document.addEventListener('tcren:cancel-detail',()=>{
     renderController?.abort();renderController=null;
     for(const id of ['side','top'])$(id).setAttribute('aria-busy','false');
 });
+async function readModelIndex() {
+    // An ID-only bookmark needs the legacy index to discover its group.
+    if(requested.has('group') || !requested.has('id')){
+        const response=await fetch('groups.json');
+        if(response.status!==404)return response;
+    }
+    return fetch('index.json');
+}
+
+async function loadDownloads() {
+    const exported=await fetch('tables/manifest.json');
+    if(!exported.ok)throw Error(`Table index HTTP ${exported.status}`);
+    for(const item of (await exported.json()).files){
+        if(!/^[a-z_]+\/part-[0-9]+\.parquet$/.test(item.file))continue;
+        const row=document.createElement('div');
+        for(const filename of [item.file,item.tsv_file].filter(Boolean)){
+            if(!/^[a-z_]+\/part-[0-9]+\.(parquet|tsv\.gz)$/.test(filename))continue;
+            const link=document.createElement('a');link.href='tables/'+filename;link.download='';
+            link.textContent=`${filename} (${item.rows} rows) `;row.append(link);
+        }
+        $('downloads').append(row);
+    }
+}
+
+const downloads=$('downloads');
+downloads?.closest('details')?.addEventListener('toggle',async function loadWhenOpened() {
+    if(!this.open)return;
+    this.removeEventListener('toggle',loadWhenOpened);
+    try {
+        await loadDownloads();
+    } catch(error) {
+        downloads.textContent=String(error);
+        this.addEventListener('toggle',loadWhenOpened);
+    }
+});
+
 try {
-    const response=await fetch(requested.has('group')?'groups.json':'index.json');
+    const response=await readModelIndex();
     if(!response.ok)throw Error(`Index ${response.status}`);
     const index=await response.json();
     const groups=Array.isArray(index)
@@ -337,17 +373,6 @@ try {
     $('population').textContent=`${index.count ?? entries.length} structures · ${groups.length} compatible reference groups · independent local dashboard`;
     const diagnostics=await fetch('errors.json');
     $('errors').textContent=diagnostics.ok?JSON.stringify(await diagnostics.json(),null,2):'No command-level diagnostics supplied.';
-    const exported=groupFiles?null:await fetch('tables/manifest.json');
-    if(exported?.ok)for(const item of (await exported.json()).files){
-        if(!/^[a-z_]+\/part-[0-9]+\.parquet$/.test(item.file))continue;
-        const row=document.createElement('div');
-        for(const filename of [item.file,item.tsv_file].filter(Boolean)){
-            if(!/^[a-z_]+\/part-[0-9]+\.(parquet|tsv\.gz)$/.test(filename))continue;
-            const link=document.createElement('a');link.href='tables/'+filename;link.download='';
-            link.textContent=`${filename} (${item.rows} rows) `;row.append(link);
-        }
-        $('downloads').append(row);
-    }
     for(const {id:group,label:display} of groups){
         const label=display||group;
         const text=/^[a-f0-9]{32,}$/i.test(group)?label.replace(group,group.slice(0,8)):label;

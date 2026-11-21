@@ -446,7 +446,7 @@ async function load(){const entry=visibleEntries[$('structure').selectedIndex];i
     $('structure').title=entry.id;
     const warning=(entry.clipped ?? summaryById.get(entry.id)?.surface_may_be_clipped)?' · Occupied grid boundary: inspect extent':'';
     $('status').textContent=`${shortLabels.get(entry.id)} · ${entry.task} ranking · reference ${shortLabels.get(entry.reference)||entry.reference.slice(0,8)} · ${active.tables.contact_heatmap.length} residue pairs${warning} · source: ${Object.values(payload.sources).join(', ')}`;
-    const url=new URL(location);url.searchParams.set('id',entry.id);if(grouped)url.searchParams.set('group',entry.reference);history.replaceState(null,'',url);
+    const url=new URL(location);url.searchParams.set('id',entry.id);url.searchParams.set('group',entry.reference);history.replaceState(null,'',url);
     document.dispatchEvent(new Event('tcren:model'));
   }catch(error){controller.abort();if(current===generation){active=null;$('topography').replaceChildren();$('heatmaps').replaceChildren();$('status').textContent=`Cannot load ${entry.id}: ${error.message}`;}}
 }
