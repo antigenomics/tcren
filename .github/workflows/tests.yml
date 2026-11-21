@@ -34,6 +34,9 @@ jobs:
         run: uv pip install -e ".[test]"
       - name: Verify dashboard template in the installed dependency set
         run: .venv/bin/python -c "from tcren.complementarity.template import verify_template; verify_template()"
+      - name: Fetch the exact published template revision
+        if: matrix.python-version == '3.12'
+        run: .venv/bin/python -m tcren dashboard bootstrap -o "$RUNNER_TEMP/tcren-dashboard-template"
       - name: Import both dashboard ranking modes
         if: matrix.python-version == '3.12'
         run: .venv/bin/python tests/dashboard_import_smoke.py
