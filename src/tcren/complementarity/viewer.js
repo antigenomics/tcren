@@ -297,8 +297,8 @@ async function render() {
         const scale=230/extent*Number($('zoom').value);
         summary(views,atomic);
         draw($('side'),2,views,atomic,scale);draw($('top'),1,views,atomic,scale);
-        if(scenes.length || requested.has('id')) {
-            const url=new URL(location);
+        const url=new URL(location);
+        if(scenes.length || url.searchParams.has('id')) {
             if(groupFiles)url.searchParams.set('group',$('group').value);
             if(scenes.length)url.searchParams.set('id',scenes[0].id);
             else url.searchParams.delete('id');

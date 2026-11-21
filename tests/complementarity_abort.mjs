@@ -35,13 +35,13 @@ const context = vm.createContext({fetch: (url, options) => fetch(new URL(url, ba
     Response, DecompressionStream, AbortController, document: {documentElement: {dataset: {}},
         dispatchEvent() {}}, CustomEvent: class {}, $: element, choices() {}, checked: () => new Set(),
     nodeTable() {}, summary() {}, draw() {}, DEFAULT_REGIONS: new Set(),
-    location: base, history: {replaceState() {}}, URL, URLSearchParams,
+    location: base, history: {replaceState() {}}, URL,
     shortLabels: new Map([['old', 'old']]), summaryById: new Map(), render() {}});
 const loader = viewer.slice(viewer.indexOf('export async function loadScene('),
     viewer.indexOf('// Coordinate ownership')).replace('export ', '');
 const render = viewer.slice(viewer.indexOf('async function render()'),
     viewer.indexOf("choices('edges'"));
-vm.runInContext(`let generation=0,renderController=null,groupFiles=null,requested=new URLSearchParams(),currentViews=[],nodePage=0;${loader}${render}`, context);
+vm.runInContext(`let generation=0,renderController=null,groupFiles=null,currentViews=[],nodePage=0;${loader}${render}`, context);
 try {
     element('structures').selectedOptions = [{value: 'old-scene'}];
     const oldRender = vm.runInContext('render()', context);
