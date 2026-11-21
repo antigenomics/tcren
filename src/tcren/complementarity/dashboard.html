@@ -12,7 +12,21 @@
 <main><aside>
 <label>Reference group <select id="group"></select></label>
 <label>Find structure <input id="search" type="search"></label>
-<label>Structures (Ctrl/⌘ to overlay) <select id="structures" multiple></select></label>
+<div id="outcome-controls" hidden>
+<label id="discrete-label">Label <select id="discrete"><option value="">All labels</option><option>0</option><option>1</option><option value="missing">Unlabelled</option></select></label>
+<fieldset id="continuous-label"><legend>Label range</legend>
+<label>Minimum <output id="minimum-value"></output><input id="minimum" type="range" step="any"></label>
+<label>Maximum <output id="maximum-value"></output><input id="maximum" type="range" step="any"></label>
+<label><input id="unlabelled" type="checkbox" checked> Include unlabelled</label>
+</fieldset></div>
+<label>Structure <select id="structures" size="7"></select></label>
+<div class="compare-actions">
+<button id="previous-model" type="button" aria-label="Previous structure">Previous</button>
+<button id="next-model" type="button" aria-label="Next structure">Next</button>
+<button id="pin-model" type="button">Pin reference</button>
+</div>
+<p class="compare-note"><kbd>[</kbd> / <kbd>]</kbd> step through matching structures.</p>
+<p id="reference-model"></p>
 <label>Detail <select id="detail"><option value="residue">Residues (Cα)</option><option value="atom">Heavy atoms</option></select></label>
 <label>Contact multiplicity <select id="weight"><option value="unit">One edge per residue pair</option><option value="weighted">Width by atom-pair count</option><option value="parallel">Parallel atom-pair edges</option></select></label>
 <label><input id="labels" type="checkbox" checked> Residue / atom labels</label>
@@ -28,9 +42,25 @@
 <fieldset><legend>Chains</legend><div id="chains"></div></fieldset>
 <fieldset><legend>Regions</legend><div id="regions"></div></fieldset>
 <fieldset><legend>Contact groups</legend><div id="edges"></div></fieldset>
-</aside><section><div class="key"><span style="--color:#0072b2">α TCR</span><span style="--color:#56b4e9">β TCR</span><span style="--color:#d55e00">Peptide N→C</span><span style="--color:#009e73">MHC</span></div>
-<h2>Selection summary</h2><div id="summary"></div>
-<details open><summary>Atom / residue inspector</summary><div id="inspector">Click a point to inspect its identity and counts.</div></details>
+</aside><section><div class="chain-key" aria-label="Chain shapes">● TCR α &nbsp; ■ TCR β &nbsp; ▲ Peptide &nbsp; ◆ MHC &nbsp; ✚ β2m</div>
+<p id="outcome-key"></p>
+<div class="map-toolbar">
+<div role="group" aria-label="Projection">
+<button type="button" id="side-view" aria-pressed="true">Side (x/z)</button>
+<button type="button" id="top-view" aria-pressed="false">Top (x/y)</button>
+</div>
+<div role="group" aria-label="Zoom">
+<button type="button" id="zoom-out" aria-label="Zoom out">−</button>
+<button type="button" id="zoom-in" aria-label="Zoom in">+</button>
+</div>
+<label><input id="depth" type="checkbox"> <span id="depth-label">Fade by y depth</span></label>
+<label><input id="outlines" type="checkbox"> Point outlines</label>
+</div>
+<div class="views"><svg id="projection" viewBox="0 0 700 560" aria-label="Side contact view"></svg></div>
+<details open class="residue-inspector"><summary>Residue and atom contacts</summary>
+<div id="inspector">Select a residue to see its atoms and interchain contacts.</div></details>
+<p>+x: reference peptide N→C; +z: above groove; +y: toward side-view camera. Overlay members share the reference origin. Hover/click for identities and counts. Dashed edges are contacts; thin solid lines are covalent bonds; solid traces highlight backbone connectivity.</p>
+<details><summary>Selection summary</summary><div id="summary"></div></details>
 <p><a href="tables/manifest.json">Compressed table index</a></p>
 <details><summary>Download typed tables (Parquet / TSV.gz)</summary><div id="downloads"></div></details>
 <details><summary>Browse every residue / atom</summary>
@@ -38,7 +68,5 @@
 <label><input id="visibleonly" type="checkbox" checked> Only nodes passing chain / region filters</label>
 <button id="previous" type="button">Previous</button> <button id="next" type="button">Next</button>
 <span id="pageinfo"></span><div id="nodetable"></div></details>
-<div class="views"><div><h2>Side · x / z</h2><svg id="side" viewBox="0 0 700 560" aria-label="Side contact view"></svg></div><div><h2>Top · x / y</h2><svg id="top" viewBox="0 0 700 560" aria-label="Top contact view"></svg></div></div>
-<p>+x: reference peptide N→C; +z: above groove; +y: toward side-view camera. Overlay members share the reference origin. Hover/click for identities and counts. Dashed edges are contacts; thin solid lines are covalent bonds; colored traces highlight backbone connectivity.</p>
 <pre id="status" role="status"></pre></section></main>
 <script type="module" src="viewer.js"></script></body></html>

@@ -26,11 +26,6 @@ for (const entry of entries) {
 }
 let visibleEntries = [], groupController;
 let summaryById = new Map(summaries.map(row=>[row.structure_id,row]));
-const squareSize = new Map(Object.entries(manifest.sizes ?? {}));
-for (const entry of entries) for (const facet of entry.facets ?? []) {
-  const partner = facet.partner_facet;
-  squareSize.set(partner, Math.max(squareSize.get(partner) ?? 1, facet.tcr_residues, facet.partner_residues));
-}
 const shortLabels = new Map(entries.map((entry,i)=>[entry.id, modelLabel(entry,i)]));
 function modelLabel(entry,i) {
   return entry.shortLabel || (entry.display_label!==entry.id && entry.display_label) ||
@@ -46,12 +41,25 @@ function color(value, lo, hi, reverse=false) {
   const q=t*(palette.length-1), i=Math.min(palette.length-2,Math.floor(q)), f=q-i;
   return `rgb(${palette[i].map((v,k)=>Math.round(v*(1-f)+palette[i+1][k]*f)).join(',')})`;
 }
-function canvasPanel(parent,title,nx,ny,records,coordinates,value,lo,hi,reverse=false,flip=false,highlight=()=>false) {
+function canvasPanel(parent,title,nx,ny,records,coordinates,value,lo,hi,reverse=false,flip=false) {
   const figure=document.createElement('figure'), caption=document.createElement('figcaption'), canvas=document.createElement('canvas');
-  caption.textContent=title; figure.append(caption,canvas); parent.append(figure);
+  caption.textContent=title;
+  const plot=document.createElement('div'), xAxis=document.createElement('div'), yAxis=document.createElement('div');
+  plot.className='surface-grid'; xAxis.className='surface-x'; yAxis.className='surface-y';
+  const [xmin,xmax,ymin,ymax]=manifest.extent_xy;
+  const ticks=(axis,first,last,label)=>{
+    for(let i=0;i<=4;i++){
+      const tick=document.createElement('span');
+      tick.textContent=Number((first+(last-first)*i/4).toPrecision(4));
+      axis.append(tick);
+    }
+    axis.setAttribute('aria-label',label+' coordinate in ångströms');
+  };
+  ticks(xAxis,xmin,xmax,'x');
+  ticks(yAxis,ymax,ymin,'y');
+  plot.append(yAxis,canvas,xAxis); figure.append(caption,plot); parent.append(figure);
   canvas.width=500;canvas.height=canvas.width;
   const context=canvas.getContext('2d'), lookup=new Map();
-  const outlines=[];
   for(const r of records){const [x,y]=coordinates(r);lookup.set(`${x},${y}`,r);
     const measurement=value(r);if(!Number.isFinite(measurement))continue;
     context.fillStyle=color(measurement,lo,hi,reverse);
@@ -59,12 +67,16 @@ function canvasPanel(parent,title,nx,ny,records,coordinates,value,lo,hi,reverse=
     const left = Math.ceil(x*canvas.width/nx), right = Math.ceil((x+1)*canvas.width/nx);
     const top = Math.ceil(plotY*canvas.height/ny), bottom = Math.ceil((plotY+1)*canvas.height/ny);
     context.fillRect(left,top,right-left,bottom-top);
-    if(highlight(r))outlines.push([left+1,top+1,right-left-2,bottom-top-2]);
   }
-  for (const [stroke,width] of [['#172535',4],['#ffae46',2]]) {
-    context.strokeStyle=stroke;context.lineWidth=width;
-    for (const rect of outlines) context.strokeRect(...rect);
+  context.strokeStyle='rgba(155,165,176,.55)';
+  context.lineWidth=1;
+  context.beginPath();
+  for(let i=1;i<4;i++){
+    const tick=canvas.width*i/4;
+    context.moveTo(tick,0); context.lineTo(tick,canvas.height);
+    context.moveTo(0,tick); context.lineTo(canvas.width,tick);
   }
+  context.stroke();
   canvas.onmousemove=event=>{const bounds=canvas.getBoundingClientRect();
     const x=Math.floor((event.clientX-bounds.left)*nx/bounds.width), yp=Math.floor((event.clientY-bounds.top)*ny/bounds.height), y=flip?ny-1-yp:yp;
     $('details').textContent=JSON.stringify(lookup.get(`${x},${y}`)??{missing:true},null,2);};
@@ -76,6 +88,65 @@ function renderSurface(parent, cells) {
   canvasPanel(parent,'Hydropathy KD: −4.5 (purple) → +4.5 (yellow)',nx,ny,cells,r=>[r.ix,r.iy],r=>r.hydropathy,-4.5,4.5,false,true);
   canvasPanel(parent,`Canonical surface z: ${zlo.toFixed(2)} → ${zhi.toFixed(2)} Å`,nx,ny,cells,r=>[r.ix,r.iy],r=>r.surface_z,zlo,zhi,false,true);
 }
+function residueAxis(records, prefix, indexField) {
+  const labels = new Map();
+  for (const row of records) {
+    const number = row[prefix+'_number'];
+    const id = row[prefix+'_aa'] + number + (row[prefix+'_insertion'] || '');
+    labels.set(row[indexField], row[prefix+'_chain'] + ':' + id);
+  }
+  return [...labels].sort(([a], [b]) => a-b);
+}
+
+function heatmapState(row, metric, masked) {
+  if (row && masked && !row.contacting) return 'masked';
+  return Number.isFinite(row?.[metric]) ? 'value' : 'missing';
+}
+
+function heatmapGrid(parent, title, records, metric, hi, masked, highlight) {
+  const scroller = document.createElement('div');
+  scroller.className = 'residue-grid';
+  scroller.tabIndex = 0;
+  scroller.setAttribute('role','region');
+  scroller.setAttribute('aria-label',title);
+  const table = document.createElement('table');
+  table.createCaption().textContent = title;
+  const heading = table.createTHead().insertRow();
+  const columns = residueAxis(records, 'tcr', 'tcr_index');
+  const rows = residueAxis(records, 'partner', 'partner_index');
+  const lookup = new Map(records.map(row => [row.tcr_index + ',' + row.partner_index, row]));
+  function header(parent, text, scope) {
+    const cell = document.createElement('th');
+    cell.scope = scope;
+    cell.textContent = text;
+    parent.append(cell);
+  }
+  header(heading,'Partner / TCR','col');
+  for (const [, label] of columns) header(heading,label,'col');
+  const body = table.createTBody();
+  for (const [y, label] of rows) {
+    const line = body.insertRow();
+    header(line,label,'row');
+    for (const [x, column] of columns) {
+      const pair = lookup.get(x + ',' + y);
+      const cell = line.insertCell(), state = heatmapState(pair, metric, masked);
+      cell.className = 'residue-cell '+state;
+      if (state === 'value') {
+        cell.style.backgroundColor = color(pair[metric],0,hi,metric==='ca_distance');
+        if (highlight(pair)) cell.classList.add('focused');
+      }
+      const value = state === 'value' ? pair[metric] : state;
+      cell.title = column + ' ↔ ' + label + ' | ' + value;
+      cell.setAttribute('aria-label',String(value));
+      cell.onpointerenter = () => {
+        $('details').textContent=JSON.stringify({state,...pair},null,2);
+      };
+    }
+  }
+  scroller.append(table);
+  parent.append(scroller);
+}
+
 function render(){
   if(!active)return;
   $('topography').replaceChildren();$('heatmaps').replaceChildren();
@@ -83,7 +154,7 @@ function render(){
   $('definitions').textContent=`${manifest.definitions[ranking]}. x left→right, y bottom→top; extent ${manifest.extent_xy.join(', ')} Å. ${manifest.definitions.height}. Height colors span this structure; KD colors are fixed.`;
   const rows=selected('rows'),columns=selected('columns'),metric=$('metric').value,masked=$('contacts').checked,pairs=active.tables.contact_heatmap;
   const hi=metric==='ca_distance'?25:pairs.reduce((m,r)=>Math.max(m,r.atom_contact_count),1);
-  $('scale').textContent=`${metric}: 0 → ${hi}${metric==='ca_distance'?' Å (saturated at 25; yellow=near, purple=far)':' witnesses (purple=0, yellow=max)'}. Each panel: TCR N→C left→right; partner N→C top→bottom. Empty space pads each partner row to a fixed square across models. Hover for sequence, author numbering and chain IDs.`;
+  $('scale').textContent=`${metric}: 0 → ${hi}${metric==='ca_distance'?' Å (saturated at 25; yellow=near, purple=far)':' witnesses (purple=0, yellow=max)'}. Each panel: TCR N→C left→right; partner N→C top→bottom. Headers show chain and author residue number. Hatching marks masked cells; gray marks missing values. Hover for pair details.`;
   $('heatmaps').style.setProperty('--columns',Math.max(1,columns.length));
   const focused = new Set(focusedResidues().map(residue => residue.id));
   for(const row of rows)for(const column of columns){
@@ -94,8 +165,7 @@ function render(){
     const missing=visible.filter(r=>r[metric]===null).length;
     note.textContent=!source.length?'Absent facet':!visible.length?`${row} · ${column}: No contacting pairs in this facet`:`${visible.length} pairs shown · ${source.length-visible.length} masked · ${missing} missing ${metric==='ca_distance'?'Cα distances':'values'}`;
     panel.append(note);
-    const size = squareSize.get(row) ?? 1;
-    canvasPanel(panel,`${row} · ${column}`,size,size,visible,r=>[r.tcr_index,r.partner_index],r=>r[metric],0,hi,metric==='ca_distance',false,
+    if (source.length) heatmapGrid(panel,row+' / '+column,source,metric,hi,masked,
       pair=>pair.contacting && focused.has(ranking === 'tcr' ? pair.tcr_residue_id : pair.partner_residue_id));
   }
 }

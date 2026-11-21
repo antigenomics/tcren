@@ -15,7 +15,7 @@ import typer
 from ..screen import MIN_COHORT
 from ..structure.io import structure_stem
 from .command import complementarity_command
-from .dashboard import STYLESHEET_LINK, install_dashboard_style
+from .dashboard import STYLESHEET_LINK, install_dashboard_style, write_browser_groups
 from .inputs import metadata_inputs
 from .template import bootstrap_template, verify_template
 from .view_export import export_views
@@ -164,6 +164,11 @@ def import_dashboard(
         scenes = json.loads((maps / "index.json").read_text(encoding="utf-8"))
         if {scene["id"] for scene in scenes} != set(labels["structure_id"]):
             raise typer.BadParameter("molecular scenes do not cover every metadata model")
+        outcomes = dict(labels.select("structure_id", "label").iter_rows())
+        for scene in scenes:
+            scene.update(outcome=outcomes[scene["id"]], outcome_kind=label_kind)
+        (maps / "index.json").write_text(json.dumps(scenes, allow_nan=False), encoding="utf-8")
+        write_browser_groups(maps, scenes, outcome_domain=[min(outcomes.values()), max(outcomes.values())])
         references = {scene["id"]: scene["reference"] for scene in scenes}
         export_views(maps, bundle / "views")
         _write_index(bundle, observed, task, label_kind, references)

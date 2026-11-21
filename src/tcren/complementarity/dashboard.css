@@ -69,7 +69,7 @@
   border-radius: 8px;
 }
 
-.molecular-view label {
+.molecular-view label:not([hidden]) {
   display: block;
   margin: 10px 0;
 }
@@ -77,34 +77,69 @@
   font: inherit;
   max-width: 100%;
 }
-.molecular-view select[multiple] {
+.molecular-view #structures {
   width: 100%;
-  height: 250px;
+  min-height: 8rem;
 }
 
-.views {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
+.compare-actions { display: flex; flex-wrap: wrap; gap: 4px; }
+.compare-note, #reference-model { font-size: .875rem; overflow-wrap: anywhere; }
+#continuous-label input[type=range] { width: 100%; }
+#outcome-key { display: flex; gap: .5rem 1rem; flex-wrap: wrap; overflow-wrap: anywhere; }
+#outcome-key span { border-inline-start: 5px solid; padding-inline-start: .5rem; }
+.chain-key { font-size: .875rem; }
+.map-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin-bottom: 8px;
 }
+.map-toolbar button[aria-pressed="true"] {
+  font-weight: 700;
+  border-color: currentColor;
+}
+.views {
+  --map-paper: #fff;
+  --map-ink: #253447;
+  --map-grid: #b0bbc6;
+  --map-trace: #657387;
+}
+:root[data-theme=dark] .views {
+  --map-paper: #000;
+  --map-ink: #e2ebf3;
+  --map-grid: #687585;
+  --map-trace: #94a6bc;
+  --map-outline: #fff;
+}
+.views svg text { fill: var(--map-ink); }
+
+.molecular-view { --contact-focus: #ae2864; }
+:root[data-theme=dark] .molecular-view { --contact-focus: #ff8fbe; }
+.residue-inspector { margin-block: 12px; }
+.residue-inspector h3 { margin-block: 8px 4px; }
+.atom-contacts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-height: 12rem;
+  overflow: auto;
+  margin-block: 8px;
+}
+.atom-contacts button { text-align: start; }
+.atom-contacts button[aria-pressed="true"] { outline: 2px solid var(--contact-focus); outline-offset: -2px; }
 .views svg {
   width: 100%;
   height: auto;
   aspect-ratio: 5/4;
+  max-height: 75vh;
   display: block;
   box-sizing: border-box;
   background: #fff;
   border: 1px solid #ddd;
 }
 
-.key {
-  display: flex;
-  gap: 15px;
-  flex-wrap: wrap;
-}
-.key span {
-  border-bottom: 4px solid var(--color);
-}
+
 
 .molecular-view #status {
   white-space: pre-wrap;
@@ -187,18 +222,52 @@
 .table-view figcaption {
   font-weight: 600;
 }
+.surface-grid {
+  display: grid;
+  grid-template-columns: max-content minmax(0,1fr);
+  gap: 3px 6px;
+}
+.surface-grid canvas { width: 100%; display: block; border: 1px solid #8994a0; box-sizing: border-box; }
+.surface-x, .surface-y { display: flex; justify-content: space-between; font-size: .72rem; }
+.surface-x { grid-column: 2; }
+.surface-y { flex-direction: column; text-align: right; }
 .facets {
   display: grid;
-  grid-template-columns: repeat(var(--columns),minmax(145px,1fr));
+  grid-template-columns: repeat(var(--columns),minmax(15rem,1fr));
   gap: 18px;
-  min-width: 900px;
 }
-.facet canvas {
-  display: block;
-  width: 100%;
-  height: auto;
-  aspect-ratio: 1;
+.facet { min-width: 0; }
+.residue-grid {
+  overflow: auto;
+  max-height: 25rem;
+  border: 1px solid #8994a0;
 }
+.residue-grid table { border-spacing: 0; width: max-content; }
+.residue-grid caption { text-align: start; padding: 5px; font-weight: 600; }
+.residue-grid th {
+  background: Canvas;
+  color: CanvasText;
+  white-space: nowrap;
+  font-weight: 600;
+  font-size: .75rem;
+}
+.residue-grid thead th { position: sticky; top: 0; z-index: 1; }
+.residue-grid tr > :first-child { position: sticky; left: 0; }
+.residue-grid thead th:first-child { z-index: 2; }
+.residue-grid :is(th, td) {
+  box-sizing: border-box;
+  border: 0;
+  border-right: 1px solid #81909c;
+  border-bottom: 1px solid #81909c;
+  padding: 3px;
+  height: 1.65rem;
+}
+.residue-grid td { min-width: 2.75rem; }
+.residue-grid .missing { background: #aab1ba; }
+.residue-grid .masked {
+  background: repeating-linear-gradient(135deg,#e8edf0 0 3px,#69727c 3px 4px);
+}
+.residue-grid .focused { box-shadow: inset 0 0 0 2px #ffae46; }
 #details {
   white-space: pre-wrap;
   max-height: 240px;
@@ -428,7 +497,7 @@
     min-width: 0;
   }
 
-  .molecular-view select[multiple] {
+  .molecular-view #structures {
     height: 9rem;
   }
 }

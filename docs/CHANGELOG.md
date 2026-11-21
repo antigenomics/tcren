@@ -3,6 +3,14 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
+## [4.8.0]
+
+- Bundle dashboard template v1.3.0 with switchable projections, depth fading,
+  residue and atom contact inspection, and keyboard comparisons against a
+  pinned reference.
+- Filter and color structures by their supplied label, distinguish chains by
+  point shape, and display labeled residue grids in contact heatmaps.
+
 ## [4.7.2]
 
 - Bundle dashboard template v1.2.0 and its shared stylesheet for ranking,

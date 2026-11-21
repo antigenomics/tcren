@@ -1,4 +1,4 @@
-// Rendering derives both views from the single normalized molecular scene.
+// Both projections use the same normalized molecular scene.
 const $ = id => document.getElementById(id);
 const NS = 'http://www.w3.org/2000/svg';
 const COLORS = {alpha:'#0072b2', beta:'#56b4e9', peptide:'#d55e00', mhc:'#009e73', b2m:'#999999'};
@@ -6,6 +6,17 @@ const DEFAULT_REGIONS = new Set(['CDR1','CDR2','CDR3','PEPTIDE','HELIX_A1','HELI
 const edgeName = (a,b) => [a,b].sort().join(':');
 let entries = [], generation = 0, currentViews = [], nodePage = 0;
 let renderController = null;
+let vertical = 2;
+let focusedContact = null;
+let pinned = null, cameraExtent = null, outcomeDomain = null;
+let byId = new Map();
+const SHAPES = {
+    alpha:'M -1 0 A 1 1 0 1 0 1 0 A 1 1 0 1 0 -1 0 Z',
+    beta:'M -1 -1 H 1 V 1 H -1 Z',
+    peptide:'M 0 -1.2 L 1.15 1 H -1.15 Z',
+    mhc:'M 0 -1.3 L 1.2 0 0 1.3 -1.2 0 Z',
+    b2m:'M -.33 -1 H .33 V -.33 H 1 V .33 H .33 V 1 H -.33 V .33 H -1 V -.33 H -.33 Z',
+};
 let groupController = null;
 const requested = new URL(location).searchParams;
 let groupFiles = null;
@@ -14,8 +25,9 @@ async function selectGroup(id) {
     const controller = groupController = new AbortController();
     document.dispatchEvent(new CustomEvent('tcren:cancel-detail'));
     entries = [];
+    pinned = cameraExtent = null;
     $('structures').replaceChildren();
-    for(const panel of ['side','top'])$(panel).replaceChildren();
+    $('projection').replaceChildren();
     $('status').textContent = 'Loading group…';
     try {
         const response = await fetch(groupFiles.get($('group').value), {signal:controller.signal});
@@ -23,6 +35,7 @@ async function selectGroup(id) {
         const payload = await response.json();
         if(controller.signal.aborted)return;
         entries = payload.entries;
+        setupOutcomes();
         updateStructureOptions();
         const options = [...$('structures').options];
         const selected = options.find(option=>option.title===id) ?? options[0];
@@ -54,16 +67,58 @@ function svgElement(root, tag, attributes = {}, title) {
     root.append(node); return node;
 }
 
-export function updateStructureOptions() {
-    const selected = new Set([...$('structures').selectedOptions].map(o => o.value));
-    $('structures').replaceChildren();
-    const query = $('search').value.toLowerCase();
-    for (const entry of entries.filter(e => e.reference === $('group').value &&
-            (e.id+' '+(e.search||'')).toLowerCase().includes(query))) {
-        const option = new Option(entry.display_label||entry.id,entry.file);
-        option.title=entry.id;option.selected = selected.has(entry.file);
-        $('structures').add(option);
+export function matchesOutcome(value, kind, filter) {
+    if (kind === 'binary')
+        return !filter.discrete || (filter.discrete === 'missing' ? !Number.isFinite(value)
+            : value === Number(filter.discrete));
+    if (kind === 'continuous')
+        return Number.isFinite(value) ? value >= filter.minimum && value <= filter.maximum : filter.unlabelled;
+    return true;
+}
+
+const formatOutcome = value => Number.isFinite(value) ? String(value) : 'Unlabelled';
+
+function setupOutcomes() {
+    byId = new Map(entries.map(entry => [entry.id,entry]));
+    const kind = entries.find(entry => entry.outcome_kind)?.outcome_kind;
+    $('outcome-controls').hidden = !kind;
+    $('discrete-label').hidden = kind !== 'binary';
+    $('continuous-label').hidden = kind !== 'continuous';
+    $('discrete').value = '';
+    const domain = outcomeDomain ?? [0,1];
+    for (const [id,value] of [['minimum',domain[0]],['maximum',domain[1]]]) {
+        const input = $(id);
+        input.min = domain[0]; input.max = domain[1]; input.value = value;
+        $(id+'-value').textContent = value;
     }
+}
+
+function outcomeColor(entry) {
+    if (!Number.isFinite(entry?.outcome)) return '#979da6';
+    if (entry.outcome_kind === 'binary') return entry.outcome === 0 ? '#287bd4' : '#ce6418';
+    const [low,high] = outcomeDomain ?? [0,1];
+    const fraction = high === low ? .5 : (entry.outcome-low)/(high-low);
+    return `hsl(${240-213*fraction} 74% 54%)`;
+}
+
+export function updateStructureOptions() {
+    const select = $('structures');
+    const selected = select.value;
+    select.replaceChildren();
+    const query = $('search').value.toLowerCase(), group = $('group').value;
+    const kind = entries.find(entry => entry.outcome_kind)?.outcome_kind;
+    const filter = {discrete:$('discrete').value, minimum:Number($('minimum').value),
+        maximum:Number($('maximum').value), unlabelled:$('unlabelled').checked};
+    for (const entry of entries.filter(e => e.reference === group &&
+            (e.id+' '+(e.display_label||'')+' '+(e.search||'')).toLowerCase().includes(query) &&
+            matchesOutcome(e.outcome,kind,filter))) {
+        const label = entry.display_label || entry.id;
+        const option = new Option(kind ? label+' | Label '+formatOutcome(entry.outcome) : label,entry.file);
+        option.title = entry.id;
+        select.add(option);
+    }
+    if ([...select.options].some(option => option.value === selected)) select.value = selected;
+    else if (select.options.length) select.selectedIndex = 0;
 }
 
 export async function loadScene(file, {signal} = {}) {
@@ -100,6 +155,22 @@ function viewFor(scene, atomic, visible, groups) {
     return {scene,nodes,residue,shown,contacts,visibleCounts,visiblePartners,atomic};
 }
 
+export function residueAtomDetails(scene, residue) {
+    const atoms = scene.atoms.filter(atom => atom.residue === residue.id);
+    const members = new Set(atoms.map(atom => atom.id));
+    const contacts = [];
+    for (const edge of scene.atom_contacts) {
+        if (!members.has(edge.source) && !members.has(edge.target)) continue;
+        const [source, target] = members.has(edge.source)
+            ? [edge.source, edge.target] : [edge.target, edge.source];
+        const own = scene.atoms[source], partner = scene.atoms[target];
+        if (scene.residues[partner.residue].chain !== residue.chain)
+            contacts.push({own, partner, distance: edge.distance});
+    }
+    contacts.sort((a, b) => a.distance - b.distance);
+    return {atoms, contacts};
+}
+
 function inspect(view,node) {
     const residue = view.residue(node), atom = view.atomic;
     const values={Structure:view.scene.id,Type:atom?'Atom':'Residue',ID:node.id,
@@ -115,11 +186,48 @@ function inspect(view,node) {
         Backbone:node.backbone,'Partner residues (global)':node.partner_residue_count});
     else Object.assign(values,{'Member atoms':node.atom_count,'Contacting atoms':node.contacting_atom_count,
         'Cα atom ID':node.ca_atom});
-    $('inspector').replaceChildren();const table=document.createElement('table');
+    if (focusedContact) {
+        focusedContact = null;
+        $('projection').querySelector('.focused-contact')?.remove();
+    }
+    const panel = $('inspector');
+    panel.replaceChildren();
+    const title = document.createElement('h3');
+    title.textContent = view.scene.id + ' | ' + residue.chain + ' ' + residue.resname + ' ' + residue.number + residue.insertion;
+    panel.append(title);
+    const {atoms, contacts} = residueAtomDetails(view.scene, residue);
+    const atomName = item => item.name + (item.altloc ? ' (' + item.altloc + ')' : '');
+    const members = document.createElement('p');
+    members.textContent = atoms.map(atomName).join(', ') || 'No exported heavy atoms.';
+    panel.append(members);
+    const rows = document.createElement('div');
+    rows.className = 'atom-contacts';
+    rows.textContent = contacts.length ? '' : 'No recorded interchain atom contacts.';
+    for (const contact of contacts) {
+        const partner = view.scene.residues[contact.partner.residue];
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.setAttribute('aria-pressed', 'false');
+        button.textContent = atomName(contact.own) + ' → ' + partner.chain + ' ' +
+            partner.aa + partner.number + partner.insertion + ' ' + atomName(contact.partner) +
+            ' · ' + contact.distance.toFixed(2) + ' Å';
+        button.onclick = () => {
+            rows.querySelector('[aria-pressed="true"]')?.setAttribute('aria-pressed', 'false');
+            focusedContact = focusedContact === contact ? null : contact;
+            button.setAttribute('aria-pressed', String(Boolean(focusedContact)));
+            redraw();
+        };
+        rows.append(button);
+    }
+    const details = document.createElement('details');
+    const caption = document.createElement('summary');
+    caption.textContent = 'Identity and contact counts';
+    const table = document.createElement('table');
     for(const [key,value]of Object.entries(values)){
         const row=table.insertRow();row.insertCell().textContent=key;row.insertCell().textContent=String(value);
     }
-    $('inspector').append(table);
+    details.append(caption, table);
+    panel.append(rows, details);
 }
 
 function summary(views,atomic) {
@@ -192,22 +300,31 @@ function draw(svg,vertical,views,atomic,scale) {
         labelBoxes.push(box);
         if(Math.abs(box.y+height-cy)>12||Math.abs(box.x-cx)>width+8)
             svgElement(svg,'line',{x1:cx,y1:cy,x2:Math.max(box.x,Math.min(cx,box.x+width)),y2:box.y+height/2,stroke:color,'stroke-width':.5,opacity:.65});
-        svgElement(svg,'text',{x:box.x,y:box.y+height-3,fill:color,'font-size':13,
-            'paint-order':'stroke',stroke:'white','stroke-width':2},title).textContent=text;
+        svgElement(svg,'text',{x:box.x,y:box.y+height-3,fill:'var(--map-ink)','font-size':13,
+            'paint-order':'stroke',stroke:'var(--map-paper)','stroke-width':2},title).textContent=text;
     }
     const position=p=>[350+(p[0]-Number($('panx').value))*scale,
         280-(p[vertical]-Number($(vertical===2?'panz':'pany').value))*scale];
     const [zeroX,zeroY]=position([0,0,0]);
     for (const axis of [0,1]) svgElement(svg,'line',{x1:axis?zeroX:25,y1:axis?25:zeroY,
-        x2:axis?zeroX:675,y2:axis?535:zeroY,stroke:'#d6dce3'});
+        x2:axis?zeroX:675,y2:axis?535:zeroY,stroke:'var(--map-grid)'});
     svgElement(svg,'text',{x:660,y:Math.min(540,Math.max(20,zeroY+18)),'font-size':13}).textContent='+x';
     svgElement(svg,'text',{x:Math.min(650,Math.max(10,zeroX+8)),y:30,'font-size':13}).textContent=vertical===2?'+z':'+y';
     const maximum=130/scale,power=10**Math.floor(Math.log10(maximum));
     const bar=[5,2,1].find(value=>value*power<=maximum)*power;
-    svgElement(svg,'line',{x1:30,y1:525,x2:30+bar*scale,y2:525,stroke:'#333','stroke-width':2});
+    svgElement(svg,'line',{x1:30,y1:525,x2:30+bar*scale,y2:525,stroke:'var(--map-ink)','stroke-width':2});
     svgElement(svg,'text',{x:30,y:545,'font-size':12}).textContent=`${Number(bar.toPrecision(2))} Å`;
-    for (const view of views) {
-        const {scene,nodes,residue,shown,contacts}=view, opacity=views.length>1?.55:1;
+    const hiddenAxis=3-vertical;
+    let near=-Infinity,far=Infinity;
+    if($('depth').checked)for(const view of views)for(const node of view.nodes){
+        if(!view.shown(node))continue;
+        near=Math.max(near,node.xyz[hiddenAxis]);
+        far=Math.min(far,node.xyz[hiddenAxis]);
+    }
+    for (const view of [...views].reverse()) {
+        const {scene,nodes,residue,shown,contacts}=view;
+        const opacity=pinned?.id===scene.id && views.length>1?.46:1;
+        const fill=outcomeColor(byId.get(scene.id));
         function line(a,b,attributes,title) {
             if (!shown(a)||!shown(b)) return;
             const [x1,y1]=position(a.xyz),[x2,y2]=position(b.xyz);
@@ -232,13 +349,17 @@ function draw(svg,vertical,views,atomic,scale) {
         if ($('backbone').checked) {
             const links=atomic?scene.bonds.filter(e=>e.kind==='backbone').map(e=>[e.source,e.target]):scene.trace;
             for (const [a,b] of links) line(nodes[a],nodes[b],{
-                stroke:COLORS[residue(nodes[a]).role],'stroke-width':2,opacity},'Backbone');
+                stroke:'var(--map-trace)','stroke-width':2,opacity},'Backbone');
         }
         for (const node of nodes.filter(shown)) {
             const r=residue(node),[cx,cy]=position(node.xyz);
             const name=`${scene.id} | ${r.chain} ${r.region} ${r.aa}${r.number}${r.insertion}${atomic?' '+node.name+' '+node.altloc:''}\nID ${node.id}; ${node.contact_count} global atom contacts; degree ${node.contact_degree}; covalent degree ${node.covalent_degree}\n${view.visibleCounts.get(node.id)||0} atom contacts after filters`;
-            const point=svgElement(svg,'circle',{cx,cy,r:atomic?2.5:5,fill:COLORS[r.role],
-                stroke:atomic&&node.backbone?'#111':'white','stroke-width':1,opacity,tabindex:0,
+            const radius=atomic?2.5:4.7;
+            const point=svgElement(svg,'path',{d:SHAPES[r.role]??SHAPES.alpha,
+                transform:`translate(${cx} ${cy}) scale(${radius})`,fill,
+                'vector-effect':'non-scaling-stroke',
+                stroke:$('outlines').checked?'var(--map-outline, #333)':'none','stroke-width':1,
+                opacity:opacity*(near>far?.22+.78*(node.xyz[hiddenAxis]-far)/(near-far):1),tabindex:0,
                 'data-structure-id':scene.id,'data-residue-id':r.id},name);
             point.onclick=()=>inspect(view,node);
             point.onkeydown=e=>{if(e.key==='Enter'||e.key===' ')inspect(view,node);};
@@ -254,8 +375,16 @@ function draw(svg,vertical,views,atomic,scale) {
         if(labelBoxes.length===labelLimit)break;
         labelAt(...label);
     }
+    if (focusedContact) {
+        const group = svgElement(svg, 'g', {class:'focused-contact', 'pointer-events':'none'});
+        const [x1,y1] = position(focusedContact.own.xyz);
+        const [x2,y2] = position(focusedContact.partner.xyz);
+        svgElement(group,'line',{x1,y1,x2,y2,stroke:'var(--contact-focus)', 'stroke-width':3});
+        for (const [cx,cy] of [[x1,y1],[x2,y2]])
+            svgElement(group,'circle',{cx,cy,r:6,fill:'var(--contact-focus)',stroke:'var(--map-outline, #333)'});
+    }
     if(requestedLabels>labelBoxes.length)svgElement(svg,'text',{
-        x:350,y:556,'font-size':11,'text-anchor':'middle',class:'label-limit',fill:'#6c3c12'
+        x:350,y:556,'font-size':11,'text-anchor':'middle',class:'label-limit',fill:'var(--map-ink)'
     }).textContent=`${requestedLabels-labelBoxes.length} labels omitted (limit ${labelLimit}); filter chains/regions. All points remain inspectable.`;
 }
 
@@ -267,22 +396,34 @@ export function fitCameraCoordinates(positions) {
     if(!count)return false;
     for(const [axis,id]of [[0,'panx'],[1,'pany'],[2,'panz']])$(id).value=String(Math.max(-100,Math.min(100,Math.round((lo[axis]+hi[axis])/2))));
     const radius=Math.max(1,...lo.map((value,i)=>(hi[i]-value)/2))*1.1;
-    $('zoom').value=String(Math.min(5,Math.max(1,Math.round(extent/radius*4)/4)));return true;
+    $('zoom').value=String(Math.min(5,Math.max(1,Math.round((cameraExtent??extent)/radius*4)/4)));return true;
 }
 
 export function resetCameraCoordinates(){for(const id of ['panx','pany','panz'])$(id).value='0';$('zoom').value='1';}
+
+function redraw() {
+    let extent=10;
+    for(const view of currentViews)for(const node of view.nodes){
+        if(view.shown(node))extent=Math.max(extent,...node.xyz.map(Math.abs));
+    }
+    if (currentViews.length) cameraExtent ??= extent;
+    const scale=230/(cameraExtent??extent)*Number($('zoom').value);
+    draw($('projection'),vertical,currentViews,currentViews[0]?.atomic??false,scale);
+}
 
 async function render() {
     const token=++generation;
     renderController?.abort();
     const controller = renderController = new AbortController();
-    for(const id of ['side','top'])$(id).setAttribute('aria-busy','true');
+    $('projection').setAttribute('aria-busy','true');
     $('status').textContent='Loading selection…';
     try {
         const selected=[...$('structures').selectedOptions];
-        const limit=Math.min(16,Math.max(1,parseInt(document.documentElement.dataset.maxOverlay)||16));
-        if(selected.length>limit)throw Error(`Select at most ${limit} structures per detailed overlay.`);
-        const scenes=await Promise.all(selected.map(o=>loadScene(o.value,{signal:controller.signal})));
+        const candidate=selected[0];
+        if (pinned && pinned.file !== candidate?.value) selected.push({value:pinned.file,title:pinned.id});
+        const loaded = new Map(currentViews.map(view => [view.scene.id,view.scene]));
+        const scenes=await Promise.all(selected.map(o=>loaded.get(o.title) ??
+            loadScene(o.value,{signal:controller.signal})));
         if(token!==generation)return;
         choices('chains',scenes.flatMap(s=>s.components.map(c=>c.role+':'+c.chain)),()=>true);
         choices('regions',scenes.flatMap(s=>s.residues.map(r=>r.role+':'+r.region)),v=>DEFAULT_REGIONS.has(v.split(':')[1]));
@@ -291,16 +432,23 @@ async function render() {
         const atomic=$('detail').value==='atom';
         const views=scenes.map(s=>viewFor(s,atomic,visible,groups));
         currentViews=views;nodePage=0;nodeTable();
-        $('inspector').textContent='Click a point to inspect its identity and global counts and counts after filters.';
-        let extent=10;
-        for(const view of views)for(const node of view.nodes.filter(view.shown))extent=Math.max(extent,...node.xyz.map(Math.abs));
-        const scale=230/extent*Number($('zoom').value);
+        const outcomeKey = $('outcome-key');
+        outcomeKey.replaceChildren();
+        for (const [index,scene] of scenes.entries()) {
+            const entry=byId.get(scene.id);
+            const item=document.createElement('span');
+            item.style.borderInlineStartColor=outcomeColor(entry);
+            item.textContent=(index===0 && candidate?'Active: ':'Reference: ')+scene.id+' | Label '+formatOutcome(entry?.outcome);
+            outcomeKey.append(item);
+        }
+        focusedContact = null;
+        $('inspector').textContent='Select a residue to see its atoms and interchain contacts.';
         summary(views,atomic);
-        draw($('side'),2,views,atomic,scale);draw($('top'),1,views,atomic,scale);
+        redraw();
         const url=new URL(location);
-        if(scenes.length || url.searchParams.has('id')) {
+        if(candidate || url.searchParams.has('id')) {
             if($('group').value)url.searchParams.set('group',$('group').value);
-            if(scenes.length)url.searchParams.set('id',scenes[0].id);
+            if(candidate)url.searchParams.set('id',scenes[0].id);
             else url.searchParams.delete('id');
             history.replaceState(null,'',url);
             document.dispatchEvent(new Event('tcren:model'));
@@ -311,11 +459,11 @@ async function render() {
         controller.abort(); // Also stop sibling loads when one selection member fails.
         if(token!==generation)return;
         currentViews=[];nodeTable();summary([],false);
-        $('side').replaceChildren();$('top').replaceChildren();
+        $('projection').replaceChildren();
         $('inspector').textContent='Selection unavailable.';$('status').textContent=String(error);
     } finally {
         if(renderController===controller)renderController=null;
-        if(token===generation)for(const id of ['side','top'])$(id).setAttribute('aria-busy','false');
+        if(token===generation)$('projection').setAttribute('aria-busy','false');
     }
 }
 
@@ -323,7 +471,7 @@ choices('edges',['alpha:peptide','beta:peptide','alpha:mhc','beta:mhc','mhc:pept
 document.addEventListener('tcren:cancel-detail',()=>{
     generation++;
     renderController?.abort();renderController=null;
-    for(const id of ['side','top'])$(id).setAttribute('aria-busy','false');
+    $('projection').setAttribute('aria-busy','false');
 });
 async function readModelIndex() {
     // An ID-only bookmark needs the legacy index to discover its group.
@@ -368,8 +516,20 @@ try {
     const groups=Array.isArray(index)
         ? [...new Map(index.map(entry=>[entry.reference,{id:entry.reference,label:entry.label}])).values()]
         : index.groups;
-    if(Array.isArray(index))entries=index;
-    else groupFiles=new Map(groups.map(group=>[group.id,group.file]));
+    if(Array.isArray(index)){
+        entries=index;
+        for (const entry of entries) {
+            if (!Number.isFinite(entry.outcome)) continue;
+            outcomeDomain ??= [entry.outcome,entry.outcome];
+            outcomeDomain[0]=Math.min(outcomeDomain[0],entry.outcome);
+            outcomeDomain[1]=Math.max(outcomeDomain[1],entry.outcome);
+        }
+        setupOutcomes();
+    }
+    else {
+        outcomeDomain=index.outcome_domain??null;
+        groupFiles=new Map(groups.map(group=>[group.id,group.file]));
+    }
     $('population').textContent=`${index.count ?? entries.length} structures · ${groups.length} compatible reference groups · independent local dashboard`;
     const diagnostics=await fetch('errors.json');
     $('errors').textContent=diagnostics.ok?JSON.stringify(await diagnostics.json(),null,2):'No command-level diagnostics supplied.';
@@ -389,13 +549,88 @@ try {
         await render();
     }
 } catch(error) {$('status').textContent=`Serve this directory over localhost. ${error}`;}
-$('group').onchange=()=>{if(groupFiles)return selectGroup();updateStructureOptions();return render();};$('search').oninput=()=>{updateStructureOptions();render();};
-for(const id of ['structures','detail','weight','labels','backbone','covalent','regions','chains','edges','zoom','panx','pany','panz','labelscope'])$(id).addEventListener('change',render);
+function updatePin() {
+    $('pin-model').textContent=pinned?'Clear reference':'Pin reference';
+    $('reference-model').textContent=pinned?'Pinned reference: '+pinned.id:'';
+}
+function applyFilters() {
+    updateStructureOptions();
+    render();
+}
+$('group').onchange=()=>{
+    pinned = cameraExtent = null;
+    updatePin();
+    if(groupFiles)return selectGroup();
+    setupOutcomes();
+    applyFilters();
+};
+$('search').oninput=applyFilters;
+$('discrete').onchange=$('unlabelled').onchange=applyFilters;
+for(const id of ['minimum','maximum']){
+    $(id).oninput=()=>{
+        const min=$('minimum'),max=$('maximum');
+        if(Number(min.value)>Number(max.value)) {
+            if(id==='minimum')min.value=max.value;
+            else max.value=min.value;
+        }
+        $(id+'-value').textContent=$(id).value;
+    };
+    $(id).onchange=applyFilters;
+}
+$('pin-model').onclick=()=>{
+    const option=$('structures').selectedOptions[0];
+    if(!pinned && !option)return;
+    pinned=pinned?null:{file:option.value,id:option.title};
+    updatePin();
+    render();
+};
+function stepModel(direction) {
+    const select=$('structures');
+    const next=select.selectedIndex+direction;
+    if(next<0 || next>=select.options.length)return;
+    select.selectedIndex=next;
+    render();
+}
+$('previous-model').onclick=()=>stepModel(-1);
+$('next-model').onclick=()=>stepModel(1);
+document.addEventListener('keydown',event=>{
+    if(event.defaultPrevented || event.altKey || event.metaKey || event.ctrlKey ||
+        event.target.closest?.('input, textarea, select, [contenteditable]'))return;
+    if(event.key==='[' || event.key===']'){
+        event.preventDefault();
+        stepModel(event.key==='['?-1:1);
+    }
+});
+for(const id of ['structures','detail','weight','labels','backbone','covalent','regions','chains','edges','labelscope'])$(id).addEventListener('change',render);
 $('fit-camera').onclick=()=>{
     function* positions(){for(const view of currentViews)for(const node of view.nodes)if(view.shown(node))yield node.xyz;}
-    if(fitCameraCoordinates(positions()))render();
+    if(fitCameraCoordinates(positions()))redraw();
 };
-$('reset-camera').onclick=()=>{resetCameraCoordinates();render();};
+$('reset-camera').onclick=()=>{resetCameraCoordinates();redraw();};
 $('nodesearch').oninput=()=>{nodePage=0;nodeTable();};
 $('visibleonly').onchange=()=>{nodePage=0;nodeTable();};
 $('previous').onclick=()=>{nodePage--;nodeTable();};$('next').onclick=()=>{nodePage++;nodeTable();};
+
+for(const id of ['zoom','panx','pany','panz','outlines','depth'])$(id).addEventListener('input',redraw);
+for(const [id,axis] of [['side-view',2],['top-view',1]])$(id).onclick=()=>{
+    vertical=axis;
+    $('side-view').setAttribute('aria-pressed',String(axis===2));
+    $('top-view').setAttribute('aria-pressed',String(axis===1));
+    $('projection').setAttribute('aria-label',axis===2?'Side contact view':'Top contact view');
+    $('depth-label').textContent=axis===2?'Fade by y depth':'Fade by z depth';
+    redraw();
+};
+function stepZoom(delta) {
+    const control=$('zoom');
+    const previous=control.value;
+    control.value=String(Number(previous)+delta);
+    if(control.value===previous)return false;
+    redraw();
+    return true;
+}
+$('zoom-out').onclick=()=>stepZoom(-.25);
+$('zoom-in').onclick=()=>stepZoom(.25);
+$('projection').addEventListener('wheel',event=>{
+    if(!event.deltaY||event.ctrlKey||event.metaKey)return;
+    if(stepZoom(event.deltaY<0?.25:-.25))event.preventDefault();
+},{passive:false});

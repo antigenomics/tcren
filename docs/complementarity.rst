@@ -61,6 +61,18 @@ the supplied IDs, labels, and derived structural data. Share it only with
 readers authorized to see those data. If import fails, the destination
 directory is not published.
 
+In the molecular view, switch between top and side projections and zoom with
+the wheel, buttons, or slider. Enable depth fading to use the omitted axis
+as opacity. Point outlines start off. Point color shows the model label
+and shape identifies the chain role.
+
+Filter binary labels with the label menu or choose an inclusive range for
+continuous labels. Pin a reference and use the bracket keys to step through
+matching candidates in its group. Select a residue to list its heavy atoms
+and interchain contacts. Select a contact to highlight both atom endpoints.
+Heatmap headers show chain and author residue designations. Gray cells are
+missing and hatching marks masked pairs.
+
 The package includes a checksum-verified snapshot of the
 `dashboard template <https://github.com/antigenomics/tcren-dashboard>`_.
 Imports use the packaged files offline. Ranking, molecular and table pages
