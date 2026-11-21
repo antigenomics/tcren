@@ -3,6 +3,13 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
+## [4.7.2]
+
+- Bundle dashboard template v1.2.0 and its shared stylesheet for ranking,
+  molecular, topography, and benchmark pages.
+- Preserve the selected theme across views and improve narrow-viewport fit
+  while retaining the existing model links and prepared layout support.
+
 ## [4.7.1]
 
 - Load the initial molecular group on entry and fetch partition download links
