@@ -210,6 +210,18 @@ Use `--task epitope` to rank peptides for one receptor and
 contact heatmaps. The bundle includes `scores.tsv` and works offline.
 Labels are carried into the dashboard without affecting scores.
 
+In the molecular view, switch between top and side projections and zoom with
+the wheel, buttons, or slider. Enable depth fading to use the omitted axis
+as opacity. Point outlines start off. Point color shows the model label
+and shape identifies the chain role.
+
+Filter binary labels with the label menu or choose an inclusive range for
+continuous labels. Pin a reference and use the bracket keys to step through
+matching candidates in its group. Select a residue to list its heavy atoms
+and interchain contacts. Select a contact to highlight both atom endpoints.
+Heatmap headers show chain and author residue designations. Gray cells are
+missing and hatching marks masked pairs.
+
 The pinned [dashboard template](https://github.com/antigenomics/tcren-dashboard)
 is bundled with TCRen. Retrieve and verify a separate copy with
 `tcren dashboard bootstrap -o template`, or add `--source /path/to/assets`

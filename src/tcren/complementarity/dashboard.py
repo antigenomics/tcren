@@ -9,7 +9,8 @@ from pathlib import Path
 from .tables import SceneTables
 
 
-def write_browser_groups(output, entries, *, manifest=None, summaries=None, fixed=None, ranking=None):
+def write_browser_groups(output, entries, *, manifest=None, summaries=None, fixed=None,
+                         ranking=None, outcome_domain=None):
     """Write a small directory and one metadata file per reference group."""
     groups = {}
     for entry in entries:
@@ -27,6 +28,8 @@ def write_browser_groups(output, entries, *, manifest=None, summaries=None, fixe
         label = models[0].get("group_label") or models[0].get("label") or reference
         index.append(dict(id=reference, label=label, file=file))
     directory = dict(groups=index, count=len(entries))
+    if outcome_domain is not None:
+        directory["outcome_domain"] = outcome_domain
     if manifest is not None:
         directory["manifest"] = manifest
         directory["ranking"] = ranking

@@ -12,9 +12,25 @@ for (const file of ['dashboard.html', 'views.html']) {
     assert.doesNotMatch(page, /<style[ >]/);
     assert.match(page, /<meta name="viewport" content="width=device-width">/);
 }
+const projection = await readFile(new URL('../src/tcren/complementarity/dashboard.html', import.meta.url), 'utf8');
+assert.equal((projection.match(/<svg /g) ?? []).length, 1);
+assert.match(projection, /id="outlines" type="checkbox">/);
+assert.match(projection, /id="depth" type="checkbox">/);
 await readFile(new URL('../src/tcren/complementarity/dashboard.css', import.meta.url), 'utf8');
 const viewer = await readFile(new URL('../src/tcren/complementarity/viewer.js', import.meta.url), 'utf8');
 const tables = await readFile(new URL('../src/tcren/complementarity/views-browser.js', import.meta.url), 'utf8');
+const gridHelpers = tables.slice(tables.indexOf('function residueAxis('),
+    tables.indexOf('function heatmapGrid('));
+const {residueAxis, heatmapState} = vm.runInThisContext(
+    `(() => {${gridHelpers}; return {residueAxis,heatmapState};})()`);
+assert.deepEqual(residueAxis([
+    {tcr_index:3,tcr_chain:'B',tcr_aa:'E',tcr_number:92,tcr_insertion:'A'},
+    {tcr_index:0,tcr_chain:'B',tcr_aa:'G',tcr_number:90,tcr_insertion:''},
+], 'tcr', 'tcr_index'), [[0,'B:G90'], [3,'B:E92A']]);
+assert.equal(heatmapState({count:0,contacting:false},'count',false),'value');
+assert.equal(heatmapState({count:0,contacting:false},'count',true),'masked');
+assert.equal(heatmapState({count:null,contacting:true},'count',true),'missing');
+assert.equal(heatmapState(undefined,'count',true),'missing');
 let started = 0, closed = 0;
 const server = createServer((req, res) => {
     started++;
@@ -35,20 +51,45 @@ const until = async predicate => {
 const elements = new Map();
 const element = id => {
     if (!elements.has(id)) elements.set(id, {selectedOptions: [], value: '1', textContent: '',
-        setAttribute() {}, replaceChildren() {}});
+        setAttribute() {}, replaceChildren() {}, append() {}});
     return elements.get(id);
 };
 const context = vm.createContext({fetch: (url, options) => fetch(new URL(url, base), options),
     Response, DecompressionStream, AbortController, document: {documentElement: {dataset: {}},
-        dispatchEvent() {}}, CustomEvent: class {}, $: element, choices() {}, checked: () => new Set(),
-    nodeTable() {}, summary() {}, draw() {}, viewFor: () => ({nodes:[], shown:() => true}), Event, DEFAULT_REGIONS: new Set(),
+        dispatchEvent() {}, createElement: () => ({style:{}})}, CustomEvent: class {}, $: element, choices() {}, checked: () => new Set(),
+    nodeTable() {}, summary() {}, draw() {}, viewFor: scene => ({scene, nodes:[], shown:() => true}), Event, DEFAULT_REGIONS: new Set(),
     location: base, history: {replaceState() {}}, URL,
     shortLabels: new Map([['old', 'old']]), summaryById: new Map(), render() {}});
+const atomDetails = viewer.slice(viewer.indexOf('export function residueAtomDetails('),
+    viewer.indexOf('function inspect(')).replace('export ', '');
+const inspectResidue = vm.runInContext(atomDetails + '\nresidueAtomDetails', context);
+const residueScene = {
+    residues: [{id:0, chain:'A'}, {id:1, chain:'A'}, {id:2, chain:'B'}],
+    atoms: [{id:0, residue:0}, {id:1, residue:0}, {id:2, residue:1}, {id:3, residue:2}],
+    atom_contacts: [{source:3, target:0, distance:3}, {source:1, target:3, distance:2},
+        {source:1, target:2, distance:1}],
+};
+const inspected = inspectResidue(residueScene, residueScene.residues[0]);
+assert.deepEqual(Array.from(inspected.atoms, atom => atom.id), [0, 1]);
+assert.deepEqual(Array.from(inspected.contacts, edge => [edge.own.id, edge.partner.id, edge.distance]),
+    [[1, 3, 2], [0, 3, 3]]);
+assert.equal(inspectResidue(residueScene, residueScene.residues[1]).contacts.length, 0);
+const outcomes = viewer.slice(viewer.indexOf('export function matchesOutcome('),
+    viewer.indexOf('const formatOutcome')).replace('export ', '');
+const matchesOutcome = vm.runInContext(outcomes + '\nmatchesOutcome', context);
+assert.equal(matchesOutcome(0, 'binary', {discrete:'0'}), true);
+assert.equal(matchesOutcome(1, 'binary', {discrete:'0'}), false);
+assert.equal(matchesOutcome(undefined, 'binary', {discrete:'missing'}), true);
+const range = {minimum:-2.5, maximum:1.25, unlabelled:false};
+assert.equal(matchesOutcome(-2.5, 'continuous', range), true);
+assert.equal(matchesOutcome(1.25, 'continuous', range), true);
+assert.equal(matchesOutcome(1.26, 'continuous', range), false);
+assert.equal(matchesOutcome(undefined, 'continuous', range), false);
 const loader = viewer.slice(viewer.indexOf('export async function loadScene('),
     viewer.indexOf('// Coordinate ownership')).replace('export ', '');
-const render = viewer.slice(viewer.indexOf('async function render()'),
+const render = viewer.slice(viewer.indexOf('function redraw()'),
     viewer.indexOf("choices('edges'"));
-vm.runInContext(`let generation=0,renderController=null,groupFiles=null,currentViews=[],nodePage=0;${loader}${render}`, context);
+vm.runInContext(`const byId=new Map(),outcomeColor=()=>"#ccc",formatOutcome=()=>"Unlabelled";let pinned=null,cameraExtent=null,focusedContact=null,vertical=2,generation=0,renderController=null,groupFiles=null,currentViews=[],nodePage=0;${loader}${render}`, context);
 try {
     element('structures').selectedOptions = [{value: 'old-scene'}];
     const oldRender = vm.runInContext('render()', context);

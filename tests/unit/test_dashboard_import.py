@@ -110,6 +110,18 @@ def test_import_uses_screen_and_exports_the_declared_ids(tmp_path, monkeypatch, 
         assert (output / view / "index.html").is_file()
         index = json.loads((output / view / "index.json").read_text())
         assert [row["id"] for row in index] == ids
+    maps = output / "maps"
+    index = json.loads((maps / "index.json").read_text())
+    assert [(row["outcome_kind"], row["outcome"]) for row in index] == [
+        (kind, label) for label in labels
+    ]
+    groups = json.loads((maps / "groups.json").read_text())
+    assert groups["outcome_domain"] == [min(labels), max(labels)]
+    group_entries = [
+        row for group in groups["groups"]
+        for row in json.loads((maps / group["file"]).read_text())["entries"]
+    ]
+    assert group_entries == index
     for directory in (output, output / "maps", output / "views"):
         assert (directory / "dashboard.css").read_bytes() == (output / "dashboard.css").read_bytes()
         assert (directory / "index.html").read_text().count('href="dashboard.css"') == 1

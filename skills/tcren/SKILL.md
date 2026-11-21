@@ -90,6 +90,18 @@ See the [browser guide](https://docs.isalgo.dev/tcren/complementarity.html).
 The installed package includes the pinned viewer assets for offline imports.
 The molecular viewer loads one group initially. Legacy ID-only bookmarks still
 resolve through the full index and preserve the group when switching views.
+In the molecular view, switch between top and side projections and zoom with
+the wheel, buttons, or slider. Enable depth fading to use the omitted axis
+as opacity. Point outlines start off. Point color shows the model label
+and shape identifies the chain role.
+
+Filter binary labels with the label menu or choose an inclusive range for
+continuous labels. Pin a reference and use the bracket keys to step through
+matching candidates in its group. Select a residue to list its heavy atoms
+and interchain contacts. Select a contact to highlight both atom endpoints.
+Heatmap headers show chain and author residue designations. Gray cells are
+missing and hatching marks masked pairs.
+
 Use `tcren dashboard bootstrap -o template` to fetch and verify that version.
 Add `--source /path/to/assets` to verify and copy assets from a local checkout.
 
