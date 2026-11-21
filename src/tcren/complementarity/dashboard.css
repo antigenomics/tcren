@@ -1,0 +1,434 @@
+/* Shared viewer chrome and theme. Scientific palettes remain in the renderers. */
+#view-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+:root[data-theme="light"] { color-scheme: light; }
+
+:root[data-theme=dark] {
+  color-scheme: dark;
+}
+
+:root[data-theme=dark] body {
+  color: #eee;
+  background: #141414;
+}
+
+:root[data-theme=dark] :is(header,aside,section,#fixed-motif) {
+  color: #eee;
+  background: #202020;
+}
+
+:root[data-theme=dark] :is(canvas,svg,#fixed-trace svg,#candidate-trace svg) {
+  background: #000;
+}
+
+:root[data-theme=dark] a {
+  color: #adcaff;
+}
+
+#view-controls:has(a) {
+  border-bottom: 1px solid #ccd6e0;
+  padding-bottom: 12px;
+}
+
+:root[data-theme=dark] #view-controls {
+  border-color: #545e68;
+}
+
+:where(.molecular-view, .table-view, .ranking-home) :focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 3px;
+}
+
+/* Molecular views */
+.molecular-view {
+  font: 15px system-ui;
+  margin: 24px;
+  color: #203044;
+  background: #f5f7fa;
+}
+.molecular-view h1 {
+  font-size: 24px;
+}
+
+.molecular-view main {
+  display: grid;
+  grid-template-columns: 260px minmax(0,1fr);
+  gap: 20px;
+}
+.molecular-view :is(section,aside) {
+  min-width: 0;
+  background: white;
+  padding: 16px;
+  border: 1px solid #d5dce4;
+  border-radius: 8px;
+}
+
+.molecular-view label {
+  display: block;
+  margin: 10px 0;
+}
+.molecular-view :is(select,input) {
+  font: inherit;
+  max-width: 100%;
+}
+.molecular-view select[multiple] {
+  width: 100%;
+  height: 250px;
+}
+
+.views {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.views svg {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 5/4;
+  display: block;
+  box-sizing: border-box;
+  background: #fff;
+  border: 1px solid #ddd;
+}
+
+.key {
+  display: flex;
+  gap: 15px;
+  flex-wrap: wrap;
+}
+.key span {
+  border-bottom: 4px solid var(--color);
+}
+
+.molecular-view #status {
+  white-space: pre-wrap;
+  font-size: 13px;
+}
+.molecular-view button {
+  font: inherit;
+  padding: 6px 10px;
+}
+
+.molecular-view table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 13px;
+}
+.molecular-view :is(th,td) {
+  padding: 6px;
+  border-bottom: 1px solid #ddd;
+  text-align: left;
+  overflow-wrap: anywhere;
+  max-width: 180px;
+}
+
+#inspector {
+  max-height: 300px;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
+#summary {
+  overflow-x: auto;
+}
+
+@media (max-width: 1100px) {
+  .views {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 800px) {
+  .molecular-view main {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Topography and contact tables */
+.table-view {
+  font: 15px system-ui;
+  margin: 24px;
+  color: #172535;
+}
+.table-view :is(select,button) {
+  font: inherit;
+  padding: 5px;
+}
+.table-view header {
+  background: white;
+  padding: 10px;
+  border-bottom: 1px solid #ccc;
+}
+.table-view fieldset {
+  display: inline-block;
+  vertical-align: top;
+}
+.table-view label {
+  margin-right: 10px;
+}
+#topography {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+.table-view canvas {
+  background: #eee;
+  max-width: 100%;
+  image-rendering: pixelated;
+}
+.table-view figure {
+  margin: 12px 0;
+}
+.table-view figcaption {
+  font-weight: 600;
+}
+.facets {
+  display: grid;
+  grid-template-columns: repeat(var(--columns),minmax(145px,1fr));
+  gap: 18px;
+  min-width: 900px;
+}
+.facet canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1;
+}
+#details {
+  white-space: pre-wrap;
+  max-height: 240px;
+  overflow: auto;
+}
+#status {
+  overflow-wrap: anywhere;
+}
+.table-view small {
+  display: block;
+}
+.ranking {
+  display: grid;
+  grid-template-columns: minmax(230px,19rem) minmax(0,1fr);
+  gap: 24px;
+}
+
+.ranking aside {
+  padding: 16px;
+  background: #f2f5f7;
+  border-radius: 8px;
+  align-self: start;
+}
+
+.ranking h2 {
+  margin: 0 0 12px;
+}
+.ranking select {
+  max-width: 100%;
+}
+
+#topography>figure {
+  flex: 1 1 225px;
+  max-width: 500px;
+}
+
+#fixed-topography canvas {
+  width: 100%;
+  height: auto;
+}
+
+#fixed-trace svg,#candidate-trace svg {
+  width: 100%;
+  max-width: 500px;
+  height: 180px;
+  background: white;
+}
+
+#outcome {
+  font-weight: 600;
+}
+.ranking main {
+  min-width: 0;
+}
+
+@media (max-width: 760px) {
+  .ranking {
+    grid-template-columns: minmax(0,1fr);
+  }
+}
+#fixed-motif {
+  margin: 16px 0;
+  background: white;
+  padding: 12px;
+  border: 1px solid #ced9df;
+  border-radius: 8px;
+}
+
+#fixed-motif h3,#fixed-motif p {
+  margin: 0 0 8px;
+}
+#fixed-motif article+article {
+  margin-top: 14px;
+}
+
+#fixed-motif summary {
+  cursor: pointer;
+  margin-top: 5px;
+}
+
+.motif-strip,.motif-matrix {
+  font: 600 12px ui-monospace,monospace;
+}
+
+.motif-strip {
+  display: grid;
+  grid-template-columns: repeat(var(--positions),minmax(0,1fr));
+  gap: 1px;
+  margin: 8px 0;
+}
+
+.motif-strip span {
+  text-align: center;
+  padding: 4px 0;
+  background: #eef4f4;
+}
+
+.motif-strip .motif-mark {
+  background: #793b17;
+  color: white;
+  outline: 1px solid #793b17;
+}
+
+.motif-matrix {
+  width: 100%;
+  border-spacing: 1px;
+  table-layout: fixed;
+  text-align: center;
+}
+
+.motif-matrix td {
+  font-size: 10px;
+  height: 13px;
+  padding: 0;
+}
+
+.motif-matrix .motif-mark {
+  box-shadow: inset 0 0 0 2px #a34d19;
+}
+
+.motif-source {
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.motif-strip button,.motif-matrix button {
+  display: block;
+  width: 100%;
+  font: inherit;
+  color: inherit;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+}
+
+.motif-matrix button {
+  min-height: 13px;
+}
+
+.motif-strip button:focus-visible,.motif-matrix button:focus-visible,[aria-pressed="true"] {
+  outline: 2px solid #043447;
+  outline-offset: -2px;
+}
+
+#known-motif button {
+  font-weight: 600;
+  text-align: left;
+}
+
+#motif-selection:empty {
+  display: none;
+}
+
+:root[data-theme=dark] .motif-strip span {
+  color: #172535;
+}
+
+:root[data-theme=dark] .motif-strip .motif-mark {
+  color: #fff;
+}
+
+/* Ranked cohort landing page */
+.ranking-home {
+  font: 16px/1.5 system-ui, sans-serif;
+  margin: 2rem auto;
+  max-width: 68rem;
+  padding-inline: 1rem;
+}
+.ranking-home a { color: #165a84; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) .ranking-home a { color: #adcaff; }
+}
+
+.ranking-home h1 {
+  font-size: 1.75rem;
+  line-height: 1.2;
+}
+
+.score-scroll {
+  overflow-x: auto;
+}
+
+.ranking-home table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.ranking-home :is(th, td) {
+  border-bottom: 1px solid color-mix(in srgb, currentColor 22%, transparent);
+  padding: .55rem .65rem;
+  text-align: left;
+  vertical-align: top;
+}
+.ranking-home td:nth-child(2) a {
+  white-space: nowrap;
+}
+
+/* Recorded benchmark table */
+.benchmark-view {
+  font: 15px system-ui, sans-serif;
+  margin: 24px;
+}
+
+.benchmark-view label { margin-right: 12px; }
+.benchmark-view .table-scroll { overflow: auto; }
+
+.benchmark-view table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.benchmark-view :is(th, td) {
+  border-bottom: 1px solid #888;
+  padding: 8px;
+  text-align: left;
+}
+
+@media (max-width: 760px) {
+  :is(.molecular-view, .table-view, .benchmark-view) {
+    margin: 12px;
+  }
+
+  .table-view fieldset {
+    box-sizing: border-box;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .molecular-view select[multiple] {
+    height: 9rem;
+  }
+}

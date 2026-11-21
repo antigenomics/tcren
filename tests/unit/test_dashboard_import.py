@@ -110,6 +110,12 @@ def test_import_uses_screen_and_exports_the_declared_ids(tmp_path, monkeypatch, 
         assert (output / view / "index.html").is_file()
         index = json.loads((output / view / "index.json").read_text())
         assert [row["id"] for row in index] == ids
+    for directory in (output, output / "maps", output / "views"):
+        assert (directory / "dashboard.css").read_bytes() == (output / "dashboard.css").read_bytes()
+        assert (directory / "index.html").read_text().count('href="dashboard.css"') == 1
     home = (output / "index.html").read_text()
+    assert home.index('name="color-scheme"') < home.index('href="dashboard.css"')
+    assert 'data-theme-only' in home
+    assert (output / "view-controls.js").read_bytes() == (output / "maps" / "view-controls.js").read_bytes()
     assert "&lt;model &amp; 2&gt;" in home
     assert "views/?group=reference&amp;id=%3Cmodel+%26+2%3E" in home

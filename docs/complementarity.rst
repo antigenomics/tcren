@@ -63,7 +63,8 @@ directory is not published.
 
 The package includes a checksum-verified snapshot of the
 `dashboard template <https://github.com/antigenomics/tcren-dashboard>`_.
-Imports use the packaged files offline. Run
+Imports use the packaged files offline. Ranking, molecular and table pages
+share the bundled ``dashboard.css`` stylesheet. Run
 ``tcren dashboard bootstrap -o template`` to download the pinned revision into a
 new directory. Add ``--source /path/to/assets`` to verify and copy assets from a
 local checkout of that revision.

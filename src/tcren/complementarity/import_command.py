@@ -5,6 +5,7 @@ import math
 import shutil
 from html import escape
 from pathlib import Path
+from shutil import copyfile
 from tempfile import TemporaryDirectory
 from urllib.parse import urlencode
 
@@ -14,6 +15,7 @@ import typer
 from ..screen import MIN_COHORT
 from ..structure.io import structure_stem
 from .command import complementarity_command
+from .dashboard import STYLESHEET_LINK, install_dashboard_style
 from .inputs import metadata_inputs
 from .template import bootstrap_template, verify_template
 from .view_export import export_views
@@ -48,20 +50,29 @@ def _write_index(output, rows, task, kind, references):
         identity = row["structure_id"]
         query = escape(urlencode({"group": references[identity], "id": identity}), quote=True)
         links = f'<a href="maps/?{query}">Molecular</a> · <a href="views/?{query}">Table views</a>'
-        values = (identity, row["iptm"], row["plddt"], row["label"],
+        values = (row["iptm"], row["plddt"], row["label"],
                   row["screen_score"], row["score_unavailable"])
-        cells.append("<tr>" + "".join(
+        cells.append(f"<tr><td>{escape(identity)}</td><td>{links}</td>" + "".join(
             f"<td>{escape(str(value)) if value is not None else ''}</td>" for value in values
-        ) + f"<td>{links}</td></tr>")
+        ) + "</tr>")
+    install_dashboard_style(output)
+    copyfile(Path(__file__).with_name("view-controls.js"), output / "view-controls.js")
     (output / "index.html").write_text(
         '<!doctype html><html lang="en"><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width">'
-        f"<title>TCRen dashboard</title><h1>TCRen {task} ranking</h1>"
+        '<meta name="color-scheme" content="light dark">'
+        f'<title>TCRen dashboard</title>{STYLESHEET_LINK}'
+        '<body class="ranking-home">'
+        '<nav id="view-controls" aria-label="Viewer controls" data-theme-only></nav>'
+        '<script type="module" src="view-controls.js"></script>'
+        f'<h1>TCRen {task} ranking</h1>'
         f"<p>{rows.height} models · {kind} labels · <a href='scores.tsv'>Download scores</a></p>"
-        '<table><thead><tr><th scope="col">Structure ID</th><th scope="col">ipTM</th>'
+        '<div class="score-scroll" role="region" aria-label="Model scores" tabindex="0">'
+        '<table><thead><tr><th scope="col">Structure ID</th><th scope="col">Views</th>'
+        '<th scope="col">ipTM</th>'
         '<th scope="col">pLDDT</th><th scope="col">Label</th><th scope="col">Score</th>'
-        '<th scope="col">Diagnostic</th><th scope="col">Views</th></tr></thead>'
-        f"<tbody>{''.join(cells)}</tbody></table></html>",
+        '<th scope="col">Diagnostic</th></tr></thead>'
+        f"<tbody>{''.join(cells)}</tbody></table></div></body></html>",
         encoding="utf-8",
     )
     for directory, other, label in (("maps", "views", "Table views"), ("views", "maps", "Molecular")):

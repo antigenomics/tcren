@@ -36,3 +36,32 @@ def test_bootstrap_from_checkout(tmp_path):
     output = tmp_path / "template"
     template.bootstrap_template(output, template.ASSETS)
     template.verify_template(output)
+
+
+def test_shared_style_is_installed_for_a_prepared_viewer(tmp_path):
+    from tcren.complementarity.dashboard import install_viewer_assets
+
+    original = tmp_path / "prepared.html"
+    original.write_text("<style>body{margin:8px}</style><h1>Prepared models</h1>")
+    source_style = tmp_path / "prepared.css"
+    source_style.write_text("/* prepared */")
+    output = tmp_path / "output"
+    output.mkdir()
+    (output / "dashboard.css").symlink_to(source_style)
+    install_viewer_assets(output, template=original)
+    assert source_style.read_text() == "/* prepared */"
+    assert (output / "dashboard.css").read_bytes() == (template.ASSETS / "dashboard.css").read_bytes()
+    html = (output / "index.html").read_text()
+    assert html.count('href="dashboard.css"') == 1
+    assert "<style>body{margin:8px}</style>" in html
+    assert 'id="view-controls"' in html
+
+
+def test_reinstalling_prepared_shared_viewer_does_not_duplicate_chrome(tmp_path):
+    from tcren.complementarity.dashboard import install_viewer_assets
+
+    install_viewer_assets(tmp_path)
+    index = tmp_path / "index.html"
+    original = index.read_bytes()
+    install_viewer_assets(tmp_path, template=index)
+    assert index.read_bytes() == original

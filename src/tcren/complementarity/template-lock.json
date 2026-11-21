@@ -1,10 +1,11 @@
 {
-  "revision": "1e5ff0fbfdad9d2e9ae929f6250478b01330296e",
+  "revision": "14c44d4eab9e6d79aed48d83e53f715f7e112fa1",
   "sha256": {
-    "dashboard.html": "34fc88494c2ea531d3291de44c9e0be424df30ff63677812b7e316357bd5aad9",
-    "view-controls.js": "8dc69ad8294bba2e76f047d14acf3ce53bac962d5815afba4d5bd151c2413d08",
+    "dashboard.css": "98bd2c55e00500e200b9633cc0c9320463fe8e3921af0ce3f95ce7bb63bcc24b",
+    "dashboard.html": "fe33ec47b5225f1cd98a66365116fdaf3f9ac0ea59f815e0e01802fbabaf385f",
+    "view-controls.js": "4f9fbd9252e2413b6210d3ac2316638cb5e4cb7be919afcc1420f1ec6fe3477d",
     "viewer.js": "b7acf29af65b1598872dde921143992b8624939832273e0efb81cdca68b1ca1c",
     "views-browser.js": "c91201a0dfeffd4d914ef8dd11489299e817c99eb9b01c5b113b072f4b889ba4",
-    "views.html": "8220dfaad1833d6a0aab70463e239eb4cab86b7a56c969bf5572c89bf3ab02ce"
+    "views.html": "580be97e262781f286bdb6159682cbd7615afab9b772f244a5b3258c579806a3"
   }
 }

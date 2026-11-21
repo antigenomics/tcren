@@ -1,25 +1,8 @@
 <!doctype html>
 <html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width">
 <title>TCRen complementarity browser</title>
-<style>
-body{font:15px system-ui;margin:24px;color:#203044;background:#f5f7fa}h1{font-size:24px}
-main{display:grid;grid-template-columns:260px 1fr;gap:20px}section,aside{background:white;padding:16px;border:1px solid #d5dce4;border-radius:8px}
-label{display:block;margin:10px 0}select,input{font:inherit;max-width:100%}select[multiple]{width:100%;height:250px}
-.views{display:grid;grid-template-columns:1fr 1fr;gap:12px}svg{width:100%;height:560px;background:#fff;border:1px solid #ddd}
-.key{display:flex;gap:15px;flex-wrap:wrap}.key span{border-bottom:4px solid var(--color)}
-#status{white-space:pre-wrap;font-size:13px}button{font:inherit;padding:6px 10px}
-table{border-collapse:collapse;width:100%;font-size:13px}th,td{padding:6px;border-bottom:1px solid #ddd;text-align:left;overflow-wrap:anywhere;max-width:180px}
-#inspector{max-height:300px;overflow:auto;white-space:pre-wrap}
-#summary{overflow-x:auto}
-@media(max-width:1600px){.views{grid-template-columns:1fr}}
-@media(max-width:800px){main{grid-template-columns:1fr}}
-#view-controls{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:16px}
-:root[data-theme=dark]{color-scheme:dark}
-:root[data-theme=dark] body{color:#eee;background:#141414}
-:root[data-theme=dark] :is(header,aside,section,#fixed-motif){color:#eee;background:#202020}
-:root[data-theme=dark] :is(canvas,svg,#fixed-trace svg,#candidate-trace svg){background:#000}
-:root[data-theme=dark] a{color:#adcaff}
-</style>
+<link rel="stylesheet" href="dashboard.css">
+<body class="molecular-view">
 <nav id="view-controls" aria-label="Viewer controls"></nav>
 <script type="module" src="view-controls.js"></script>
 <h1>TCRen complementarity browser</h1>
@@ -58,4 +41,4 @@ table{border-collapse:collapse;width:100%;font-size:13px}th,td{padding:6px;borde
 <div class="views"><div><h2>Side · x / z</h2><svg id="side" viewBox="0 0 700 560" aria-label="Side contact view"></svg></div><div><h2>Top · x / y</h2><svg id="top" viewBox="0 0 700 560" aria-label="Top contact view"></svg></div></div>
 <p>+x: reference peptide N→C; +z: above groove; +y: toward side-view camera. Overlay members share the reference origin. Hover/click for identities and counts. Dashed edges are contacts; thin solid lines are covalent bonds; colored traces highlight backbone connectivity.</p>
 <pre id="status" role="status"></pre></section></main>
-<script type="module" src="viewer.js"></script></html>
+<script type="module" src="viewer.js"></script></body></html>

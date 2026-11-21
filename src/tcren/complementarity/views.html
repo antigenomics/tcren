@@ -1,37 +1,6 @@
-<!doctype html><html lang="en"><meta charset="utf-8"><title>Complementarity table views</title>
-<style>body{font:15px system-ui;margin:24px;color:#172535}select,button{font:inherit;padding:5px}header{background:white;padding:10px;border-bottom:1px solid #ccc}fieldset{display:inline-block;vertical-align:top}label{margin-right:10px}#topography{display:flex;gap:24px;flex-wrap:wrap}canvas{background:#eee;max-width:100%;image-rendering:pixelated}figure{margin:12px 0}figcaption{font-weight:600}.facets{display:grid;grid-template-columns:repeat(var(--columns),minmax(160px,1fr));gap:18px;min-width:900px}.facet canvas{display:block;width:100%;height:auto;aspect-ratio:1}#details{white-space:pre-wrap;max-height:240px;overflow:auto}#status{overflow-wrap:anywhere}small{display:block}.ranking{display:grid;grid-template-columns:minmax(230px,22rem) minmax(0,1fr);gap:24px}
-.ranking aside{padding:16px;background:#f2f5f7;border-radius:8px;align-self:start}
-.ranking h2{margin:0 0 12px}.ranking select{max-width:100%}
-#topography>figure{flex:1 1 225px;max-width:500px}
-#fixed-topography canvas{width:100%;height:auto}
-#fixed-trace svg,#candidate-trace svg{width:100%;max-width:500px;height:180px;background:white}
-#outcome{font-weight:600}.ranking main{min-width:0}
-@media(max-width:760px){.ranking{grid-template-columns:minmax(0,1fr)}}
-#fixed-motif{margin:16px 0;background:white;padding:12px;border:1px solid #ced9df;border-radius:8px}
-#fixed-motif h3,#fixed-motif p{margin:0 0 8px}#fixed-motif article+article{margin-top:14px}
-#fixed-motif summary{cursor:pointer;margin-top:5px}
-.motif-strip,.motif-matrix{font:600 12px ui-monospace,monospace}
-.motif-strip{display:grid;grid-template-columns:repeat(var(--positions),minmax(0,1fr));gap:1px;margin:8px 0}
-.motif-strip span{text-align:center;padding:4px 0;background:#eef4f4}
-.motif-strip .motif-mark{background:#793b17;color:white;outline:1px solid #793b17}
-.motif-matrix{width:100%;border-spacing:1px;table-layout:fixed;text-align:center}
-.motif-matrix td{font-size:10px;height:13px;padding:0}
-.motif-matrix .motif-mark{box-shadow:inset 0 0 0 2px #a34d19}
-.motif-source{font-size:13px;line-height:1.35}
-.motif-strip button,.motif-matrix button{display:block;width:100%;font:inherit;color:inherit;border:0;background:transparent;padding:0;cursor:pointer}
-.motif-matrix button{min-height:13px}
-.motif-strip button:focus-visible,.motif-matrix button:focus-visible,[aria-pressed="true"]{outline:2px solid #043447;outline-offset:-2px}
-#known-motif button{font-weight:600;text-align:left}
-#motif-selection:empty{display:none}
-#view-controls{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:16px}
-:root[data-theme=dark]{color-scheme:dark}
-:root[data-theme=dark] body{color:#eee;background:#141414}
-:root[data-theme=dark] :is(header,aside,section,#fixed-motif){color:#eee;background:#202020}
-:root[data-theme=dark] :is(canvas,svg,#fixed-trace svg,#candidate-trace svg){background:#000}
-:root[data-theme=dark] a{color:#adcaff}
-:root[data-theme=dark] .motif-strip span{color:#172535}
-:root[data-theme=dark] .motif-strip .motif-mark{color:#fff}
-</style>
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Complementarity table views</title>
+<link rel="stylesheet" href="dashboard.css">
+<body class="table-view">
 <nav id="view-controls" aria-label="Viewer controls"></nav>
 <script type="module" src="view-controls.js"></script>
 <div class="ranking">
@@ -56,4 +25,4 @@
 <fieldset id="rows"><legend>Partner rows</legend></fieldset><fieldset id="columns"><legend>TCR columns</legend></fieldset>
 <p id="scale"></p><div style="overflow:auto"><div class="facets" id="heatmaps"></div></div>
 <pre id="details" aria-live="polite">Hover a cell for residue/atom identifiers and values.</pre>
-</main></div><script type="module" src="views-browser.js?v=table-groups-1"></script></html>
+</main></div><script type="module" src="views-browser.js?v=table-groups-1"></script></body></html>

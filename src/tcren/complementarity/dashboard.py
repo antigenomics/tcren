@@ -33,6 +33,16 @@ def write_browser_groups(output, entries, *, manifest=None, summaries=None, fixe
     (output / "groups.json").write_text(json.dumps(directory, ensure_ascii=False, allow_nan=False, separators=(",", ":")), encoding="utf-8")
 
 
+STYLESHEET_LINK = '<link rel="stylesheet" href="dashboard.css">'
+
+
+def install_dashboard_style(output: Path) -> None:
+    """Copy the shared stylesheet without following a prepared asset symlink."""
+    target = output / "dashboard.css"
+    target.unlink(missing_ok=True)
+    shutil.copyfile(Path(__file__).with_name("dashboard.css"), target)
+
+
 def install_viewer_assets(output: Path, *, tables: bool = False, template: Path | None = None) -> None:
     """Install the packaged page and scripts into a prepared static site."""
     output = Path(output)
@@ -41,11 +51,17 @@ def install_viewer_assets(output: Path, *, tables: bool = False, template: Path 
     page = (assets / html).read_text(encoding="utf-8")
     if template is not None:
         prepared = Path(template).read_text(encoding="utf-8")
-        controls = page[page.index('<nav id="view-controls"'):page.index('</script>') + len('</script>')]
-        styles = page[page.index('#view-controls{'):page.index('</style>')]
-        if "</style>" not in prepared or "<h1>" not in prepared:
-            raise ValueError("prepared viewer template requires a style block and heading")
-        page = prepared.replace("</style>", styles + "</style>", 1).replace("<h1>", controls + "<h1>", 1)
+        if STYLESHEET_LINK not in prepared:
+            if "<style" not in prepared:
+                raise ValueError("prepared viewer template requires viewer styling")
+            prepared = prepared.replace("<style", STYLESHEET_LINK + "<style", 1)
+        if 'id="view-controls"' not in prepared:
+            if "<h1>" not in prepared:
+                raise ValueError("prepared viewer template requires a heading")
+            controls = page[page.index('<nav id="view-controls"'):page.index('</script>') + len('</script>')]
+            prepared = prepared.replace("<h1>", controls + "<h1>", 1)
+        page = prepared
+    install_dashboard_style(output)
     (output / "index.html").write_text(page, encoding="utf-8")
     for source in (script, "view-controls.js"):
         shutil.copyfile(assets / source, output / source)
@@ -119,11 +135,8 @@ def write_benchmark_page(output: Path, rows, *, title: str, description: str,
     (output / "index.html").write_text(f"""<!doctype html><html lang="en"><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{escape(title)}</title>
-<style>
-body{{font:15px system-ui;margin:24px}} label{{margin-right:12px}} nav{{display:flex;gap:12px;flex-wrap:wrap}}
-table{{border-collapse:collapse;width:100%}} th,td{{padding:8px;text-align:left;border-bottom:1px solid #888}}
-:root[data-theme=dark]{{color-scheme:dark}} .table-scroll{{overflow:auto}}
-</style>
+{STYLESHEET_LINK}
+<body class="benchmark-view">
 <nav id="view-controls" aria-label="Viewer controls"></nav>
 <h1>{escape(title)}</h1><p>{escape(description)}</p>
 <label>Find a record <input id="benchmark-search" type="search" placeholder="Epitope or model ID"></label>
@@ -137,8 +150,9 @@ table{{border-collapse:collapse;width:100%}} th,td{{padding:8px;text-align:left;
 <th scope="col" aria-sort="none"><button data-sort="3">ipTM</button></th>
 <th scope="col" aria-sort="none"><button data-sort="4">{escape(score_label)}</button></th>
 <th scope="col">Status</th></tr></thead><tbody>{''.join(cells)}</tbody></table></div>
-<script type="module" src="view-controls.js"></script></html>
+<script type="module" src="view-controls.js"></script></body></html>
 """, encoding="utf-8")
+    install_dashboard_style(output)
     shutil.copyfile(Path(__file__).with_name("view-controls.js"), output / "view-controls.js")
 
 
