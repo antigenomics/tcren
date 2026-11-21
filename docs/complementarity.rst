@@ -248,8 +248,9 @@ bounds obsolete network/decompression work; it is not a measured heap-memory cla
 Static viewer deployment
 ------------------------
 
-Both exports include a static viewer and a group directory. Open the viewer
-with ``?group=`` to load just the first reference group's metadata, or supply
+Both exports include a static viewer and a group directory. The table viewer
+loads just the first group by default when a group directory is available.
+For molecular views use ``?group=`` to request the first group explicitly, or supply
 the encoded reference and model ID as ``?group=REFERENCE&id=MODEL``. The original
 index and ungrouped URLs remain available. Serve the directory over HTTP.
 

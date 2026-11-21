@@ -6,7 +6,12 @@ async function readJSON(path, signal) {
   return response.json();
 }
 const requested = new URL(location).searchParams;
-const index = await readJSON(requested.has('group') ? 'groups.json' : 'index.json');
+const groupIndex = requested.has('group') || !requested.has('id')
+  ? await fetch('groups.json', {cache:'no-cache'}) : null;
+if (groupIndex && !groupIndex.ok && groupIndex.status !== 404) {
+  throw Error(`groups.json: HTTP ${groupIndex.status}`);
+}
+const index = groupIndex?.ok ? await groupIndex.json() : await readJSON('index.json');
 const grouped = !Array.isArray(index);
 const manifest = await readJSON(grouped ? index.manifest : 'manifest.json');
 const entries = grouped ? [] : index;
