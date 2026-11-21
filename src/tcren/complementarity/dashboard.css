@@ -7,6 +7,8 @@
   margin-bottom: 16px;
 }
 
+:root[data-theme="light"] { color-scheme: light; }
+
 :root[data-theme=dark] {
   color-scheme: dark;
 }
@@ -60,6 +62,7 @@
   gap: 20px;
 }
 .molecular-view :is(section,aside) {
+  min-width: 0;
   background: white;
   padding: 16px;
   border: 1px solid #d5dce4;
@@ -142,7 +145,7 @@
 }
 @media (max-width: 800px) {
   .molecular-view main {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -360,7 +363,6 @@
 
 /* Ranked cohort landing page */
 .ranking-home {
-  color-scheme: light dark;
   font: 16px/1.5 system-ui, sans-serif;
   margin: 2rem auto;
   max-width: 68rem;
@@ -368,7 +370,7 @@
 }
 .ranking-home a { color: #165a84; }
 @media (prefers-color-scheme: dark) {
-  .ranking-home a { color: #adcaff; }
+  :root:not([data-theme]) .ranking-home a { color: #adcaff; }
 }
 
 .ranking-home h1 {
@@ -413,4 +415,20 @@
   border-bottom: 1px solid #888;
   padding: 8px;
   text-align: left;
+}
+
+@media (max-width: 760px) {
+  :is(.molecular-view, .table-view, .benchmark-view) {
+    margin: 12px;
+  }
+
+  .table-view fieldset {
+    box-sizing: border-box;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .molecular-view select[multiple] {
+    height: 9rem;
+  }
 }

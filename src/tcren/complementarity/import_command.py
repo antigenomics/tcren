@@ -5,6 +5,7 @@ import math
 import shutil
 from html import escape
 from pathlib import Path
+from shutil import copyfile
 from tempfile import TemporaryDirectory
 from urllib.parse import urlencode
 
@@ -55,11 +56,16 @@ def _write_index(output, rows, task, kind, references):
             f"<td>{escape(str(value)) if value is not None else ''}</td>" for value in values
         ) + "</tr>")
     install_dashboard_style(output)
+    copyfile(Path(__file__).with_name("view-controls.js"), output / "view-controls.js")
     (output / "index.html").write_text(
         '<!doctype html><html lang="en"><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width">'
+        '<meta name="color-scheme" content="light dark">'
         f'<title>TCRen dashboard</title>{STYLESHEET_LINK}'
-        f'<body class="ranking-home"><h1>TCRen {task} ranking</h1>'
+        '<body class="ranking-home">'
+        '<nav id="view-controls" aria-label="Viewer controls" data-theme-only></nav>'
+        '<script type="module" src="view-controls.js"></script>'
+        f'<h1>TCRen {task} ranking</h1>'
         f"<p>{rows.height} models · {kind} labels · <a href='scores.tsv'>Download scores</a></p>"
         '<div class="score-scroll" role="region" aria-label="Model scores" tabindex="0">'
         '<table><thead><tr><th scope="col">Structure ID</th><th scope="col">Views</th>'

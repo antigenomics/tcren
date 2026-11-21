@@ -10,6 +10,7 @@ for (const file of ['dashboard.html', 'views.html']) {
     const page = await readFile(new URL('../src/tcren/complementarity/' + file, import.meta.url), 'utf8');
     assert.match(page, /<link rel="stylesheet" href="dashboard\.css">/);
     assert.doesNotMatch(page, /<style[ >]/);
+    assert.match(page, /<meta name="viewport" content="width=device-width">/);
 }
 await readFile(new URL('../src/tcren/complementarity/dashboard.css', import.meta.url), 'utf8');
 const viewer = await readFile(new URL('../src/tcren/complementarity/viewer.js', import.meta.url), 'utf8');

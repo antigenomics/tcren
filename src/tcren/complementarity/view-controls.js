@@ -60,7 +60,7 @@ if (search) {
   filter();
 }
 
-const response = await fetch('navigation.json').catch(() => null);
+const response = nav.hasAttribute('data-theme-only') ? null : await fetch('navigation.json').catch(() => null);
 if (response?.ok) {
     const {links = [], corpora = []} = await response.json();
     if (corpora.length) {
