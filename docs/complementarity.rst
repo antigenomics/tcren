@@ -17,6 +17,11 @@ path manifest or tar archive. Archive identities retain member paths.
 ``--scratch`` selects an existing directory for one temporary archive member.
 Repeat ``--exclude-id`` to omit explicitly named inputs; omissions and input
 hashes are recorded in ``excluded.json``. Unknown exclusion IDs fail explicitly.
+Opening the molecular browser loads the selected group first. Older exports
+and ID-only bookmarks can resolve models through the full index. The selected
+group and ID then travel together in navigation links. Partition download links
+load when their disclosure is opened.
+
 Parsing/annotation errors stop the run. Geometric errors are recorded in
 ``errors.json`` and cause a nonzero exit after remaining scenes export.
 

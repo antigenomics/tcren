@@ -88,6 +88,8 @@ The exported bundle includes model IDs, labels and derived structural data.
 See the [browser guide](https://docs.isalgo.dev/tcren/complementarity.html).
 
 The installed package includes the pinned viewer assets for offline imports.
+The molecular viewer loads one group initially. Legacy ID-only bookmarks still
+resolve through the full index and preserve the group when switching views.
 Use `tcren dashboard bootstrap -o template` to fetch and verify that version.
 Add `--source /path/to/assets` to verify and copy assets from a local checkout.
 
