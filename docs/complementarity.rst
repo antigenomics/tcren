@@ -266,3 +266,10 @@ An optional ``navigation.json`` beside each page contains ``corpora`` and
 ``links`` arrays. Each item has ``label`` and ``href``. Set ``current`` on
 the active entry and ``model`` on links that should carry the selected group
 and model ID to another viewer.
+
+For a static benchmark page, pass a caller-selected set of recorded rows to
+``write_benchmark_page`` in ``tcren.complementarity.dashboard``. The caller
+supplies the title, descriptive text, score label and pairing labels in binary
+order (0 then 1). The page filters by pairing, epitope and search text, and
+sorts numeric values with missing scores last. It uses the same optional
+navigation and theme controls as the structure viewers.

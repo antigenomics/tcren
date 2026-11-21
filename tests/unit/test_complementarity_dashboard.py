@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from tcren.complementarity.dashboard import write_dashboard
+from tcren.complementarity.dashboard import write_benchmark_page, write_dashboard
 from tcren.complementarity.frame import CanonicalFrame
 from tcren.complementarity.scene import build_scene
 from tcren.structure.model import Atom, Chain, Residue, Structure
@@ -127,3 +127,15 @@ def test_default_selector_label_is_informative_without_changing_identity(tmp_pat
     viewer = (out / "viewer.js").read_text()
     assert "new Option(entry.display_label||entry.id,entry.file)" in viewer
     assert "option.title=entry.id" in viewer
+
+
+def test_benchmark_retains_recorded_zero_and_escapes_metadata(tmp_path):
+    row = dict(epitope="<PEP>", id="id&1", y="0", iptm="0.21", screen_score="0",
+               structural_excluded="false", no_interface="true", score_unavailable="")
+    write_benchmark_page(tmp_path, [row], title="Prepared comparison", description="Stored scores",
+                         score_label="Recorded score", pairing_labels=("Mock", "Recorded"))
+    page = (tmp_path / "index.html").read_text()
+    assert 'data-pairing="0" data-epitope="&lt;PEP&gt;"' in page
+    assert "<td>id&amp;1</td><td>Mock</td><td>0.21</td><td>0</td>" in page
+    assert "No TCR–peptide interface" in page
+    assert (tmp_path / "view-controls.js").is_file()

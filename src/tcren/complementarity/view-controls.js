@@ -20,6 +20,46 @@ theme.addEventListener('change', () => {
     applyTheme();
 });
 
+const search = document.getElementById("benchmark-search");
+if (search) {
+  const label = document.getElementById("benchmark-pairing");
+  const epitope = document.getElementById("benchmark-epitope");
+  const table = document.getElementById("benchmark-table");
+  const rows = [...table.tBodies[0].rows];
+  function filter() {
+    const query = search.value.trim().toLowerCase();
+    const visible = [0, 0];
+    for (const row of rows) {
+      row.hidden = !(row.textContent.toLowerCase().includes(query) &&
+        (!label.value || row.dataset.pairing === label.value) &&
+        (!epitope.value || row.dataset.epitope === epitope.value));
+      if (!row.hidden) visible[Number(row.dataset.pairing)]++;
+    }
+    document.getElementById("benchmark-visible").textContent =
+      `${visible[0] + visible[1]} of ${rows.length} rows · ${visible[1]} ${label.options[1].text} · ${visible[0]} ${label.options[2].text}`;
+  }
+  for (const header of table.querySelectorAll("[data-sort]")) {
+    header.addEventListener("click", () => {
+      const column = Number(header.dataset.sort);
+      const current = header.closest("th");
+      const ascending = current.getAttribute("aria-sort") === "descending";
+      table.querySelectorAll("[aria-sort]").forEach(cell => cell.setAttribute("aria-sort", "none"));
+      current.setAttribute("aria-sort", ascending ? "ascending" : "descending");
+      rows.sort((first, second) => {
+        const a = Number(first.cells[column].textContent), b = Number(second.cells[column].textContent);
+        if (!Number.isFinite(a)) return Number.isFinite(b) ? 1 : 0;
+        if (!Number.isFinite(b)) return -1;
+        return ascending ? a - b : b - a;
+      });
+      table.tBodies[0].append(...rows);
+    });
+  }
+  search.addEventListener("input", filter);
+  label.addEventListener("change", filter);
+  epitope.addEventListener("change", filter);
+  filter();
+}
+
 const response = await fetch('navigation.json').catch(() => null);
 if (response?.ok) {
     const {links = [], corpora = []} = await response.json();
