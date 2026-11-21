@@ -23,22 +23,32 @@ def write_browser_groups(output, entries, *, manifest=None, summaries=None, fixe
             payload["summaries"] = [summaries[model["id"]] for model in models]
         if fixed and reference in fixed:
             payload["fixed"] = fixed[reference]
-        (output / file).write_text(json.dumps(payload, allow_nan=False), encoding="utf-8")
+        (output / file).write_text(json.dumps(payload, ensure_ascii=False, allow_nan=False, separators=(",", ":")), encoding="utf-8")
         label = models[0].get("group_label") or models[0].get("label") or reference
         index.append(dict(id=reference, label=label, file=file))
     directory = dict(groups=index, count=len(entries))
     if manifest is not None:
         directory["manifest"] = manifest
         directory["ranking"] = ranking
-    (output / "groups.json").write_text(json.dumps(directory, allow_nan=False), encoding="utf-8")
+    (output / "groups.json").write_text(json.dumps(directory, ensure_ascii=False, allow_nan=False, separators=(",", ":")), encoding="utf-8")
 
 
-def install_viewer_assets(output: Path, *, tables: bool = False) -> None:
+def install_viewer_assets(output: Path, *, tables: bool = False, template: Path | None = None) -> None:
     """Install the packaged page and scripts into a prepared static site."""
     output = Path(output)
     html, script = ("views.html", "views-browser.js") if tables else ("dashboard.html", "viewer.js")
-    for source, target in ((html, "index.html"), (script, script), ("view-controls.js", "view-controls.js")):
-        shutil.copyfile(Path(__file__).with_name(source), output / target)
+    assets = Path(__file__).parent
+    page = (assets / html).read_text(encoding="utf-8")
+    if template is not None:
+        prepared = Path(template).read_text(encoding="utf-8")
+        controls = page[page.index('<nav id="view-controls"'):page.index('</script>') + len('</script>')]
+        styles = page[page.index('#view-controls{'):page.index('</style>')]
+        if "</style>" not in prepared or "<h1>" not in prepared:
+            raise ValueError("prepared viewer template requires a style block and heading")
+        page = prepared.replace("</style>", styles + "</style>", 1).replace("<h1>", controls + "<h1>", 1)
+    (output / "index.html").write_text(page, encoding="utf-8")
+    for source in (script, "view-controls.js"):
+        shutil.copyfile(assets / source, output / source)
 
 
 def write_dashboard(scenes, output: str | Path) -> Path:
@@ -130,3 +140,32 @@ table{{border-collapse:collapse;width:100%}} th,td{{padding:8px;text-align:left;
 <script type="module" src="view-controls.js"></script></html>
 """, encoding="utf-8")
     shutil.copyfile(Path(__file__).with_name("view-controls.js"), output / "view-controls.js")
+
+
+def serve_static(output: Path, *, port: int = 8772, asset_roots=()) -> None:
+    """Serve a static site with explicitly allowed prepared asset roots on loopback."""
+    from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+
+    output = Path(output).resolve()
+    roots = (output, *(Path(root).resolve() for root in asset_roots))
+
+    class Handler(SimpleHTTPRequestHandler):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, directory=output, **kwargs)
+
+        def translate_path(self, path):
+            target = Path(super().translate_path(path)).resolve()
+            if not any(target.is_relative_to(root) for root in roots):
+                return "/dev/null/unavailable"
+            return str(target)
+
+        def list_directory(self, path):
+            self.send_error(404)
+            return None
+
+    with ThreadingHTTPServer(("127.0.0.1", port), Handler) as server:
+        print(f"TCRen static viewer at http://127.0.0.1:{server.server_port}/", flush=True)
+        try:
+            server.serve_forever()
+        except KeyboardInterrupt:
+            pass

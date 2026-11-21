@@ -273,3 +273,9 @@ supplies the title, descriptive text, score label and pairing labels in binary
 order (0 then 1). The page filters by pairing, epitope and search text, and
 sorts numeric values with missing scores last. It uses the same optional
 navigation and theme controls as the structure viewers.
+
+Prepared molecular pages can pass their HTML as ``template`` to
+``install_viewer_assets`` to retain local extension modules. The installer adds
+the common controls when staging the page. For a site with mounted local asset
+directories, ``serve_static`` binds to loopback and serves only the staging
+directory and explicitly supplied asset roots, with directory listings disabled.
