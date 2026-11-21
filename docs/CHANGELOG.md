@@ -3,7 +3,7 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
-## [Unreleased]
+## [4.7.1]
 
 - Load the initial molecular group on entry and fetch partition download links
   when requested. Preserve the selected group when following legacy model links.
