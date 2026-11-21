@@ -87,6 +87,10 @@ Open the score table to inspect each model's molecular and table views.
 The exported bundle includes model IDs, labels and derived structural data.
 See the [browser guide](https://docs.isalgo.dev/tcren/complementarity.html).
 
+The installed package includes the pinned viewer assets for offline imports.
+Use `tcren dashboard bootstrap -o template` to fetch and verify that version.
+Add `--source /path/to/assets` to verify and copy assets from a local checkout.
+
 ## Install and batch inputs
 
 Use the repository `setup.sh` for development, with its `.venv`. Installed wheels

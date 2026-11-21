@@ -15,6 +15,7 @@ from ..screen import MIN_COHORT
 from ..structure.io import structure_stem
 from .command import complementarity_command
 from .inputs import metadata_inputs
+from .template import bootstrap_template, verify_template
 from .view_export import export_views
 
 dashboard_app = typer.Typer(help="Build a static dashboard from model metadata.")
@@ -70,6 +71,19 @@ def _write_index(output, rows, task, kind, references):
         ]}), encoding="utf-8")
 
 
+@dashboard_app.command("bootstrap")
+def bootstrap_dashboard(
+    output: Path = typer.Option(..., "--output", "-o", help="New template asset directory"),
+    source: Path = typer.Option(None, help="Assets directory from a checkout of the pinned revision"),
+):
+    """Fetch and verify the viewer template pinned by this TCRen version."""
+    try:
+        revision = bootstrap_template(output, source)
+    except (ValueError, OSError) as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    typer.echo(f"Wrote dashboard template {revision} to {output}")
+
+
 @dashboard_app.command("import")
 def import_dashboard(
     metadata: Path,
@@ -88,6 +102,7 @@ def import_dashboard(
     if metadata.suffix != ".tsv":
         raise typer.BadParameter("metadata must be a .tsv file")
     try:
+        verify_template()
         models, labels = _metadata(metadata, label_kind == "binary")
     except (ValueError, OSError, pl.exceptions.PolarsError) as exc:
         raise typer.BadParameter(str(exc)) from exc

@@ -193,6 +193,29 @@ make -C docs html SPHINXOPTS=-W
 [API skill](https://github.com/antigenomics/tcren/blob/master/skills/tcren/SKILL.md) ·
 [Editable splash source](https://github.com/antigenomics/tcren/blob/master/docs/_static/tcren-splash.tex)
 
+## Build a cohort dashboard
+
+Give TCRen one TSV per scoring cohort with `structure_id`, `structure_path`,
+`iptm`, `plddt`, and `label`. Structure paths resolve relative to the TSV.
+Use generator ipTM on [0, 1] and mean model pLDDT on [0, 100].
+
+```sh
+tcren dashboard import models.tsv --task tcr --label-kind binary -o dashboard
+python -m http.server --bind 127.0.0.1 --directory dashboard
+```
+
+Use `--task epitope` to rank peptides for one receptor and
+`--label-kind continuous` for numeric assay measurements. Open
+`http://127.0.0.1:8000` to browse scores, molecular views, topography and
+contact heatmaps. The bundle includes `scores.tsv` and works offline.
+Labels are carried into the dashboard without affecting scores.
+
+The pinned [dashboard template](https://github.com/antigenomics/tcren-dashboard)
+is bundled with TCRen. Retrieve and verify a separate copy with
+`tcren dashboard bootstrap -o template`, or add `--source /path/to/assets`
+to validate a local checkout of the pinned revision.
+See the [browser guide](https://docs.isalgo.dev/tcren/complementarity.html).
+
 ## Extended contact browser
 
 `tcren complementarity -s models.list -o browser --task tcr -t 4` exports

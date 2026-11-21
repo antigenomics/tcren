@@ -32,6 +32,11 @@ jobs:
         # ARDA owns reference locking and annotation; exercise the installed core dependency.
         # Its pinned reference/backend bootstrap is small; MHC source snapshots are bundled.
         run: uv pip install -e ".[test]"
+      - name: Verify dashboard template in the installed dependency set
+        run: .venv/bin/python -c "from tcren.complementarity.template import verify_template; verify_template()"
+      - name: Import both dashboard ranking modes
+        if: matrix.python-version == '3.12'
+        run: .venv/bin/python tests/dashboard_import_smoke.py
       - name: Run unit tests
         # Retain the existing coverage floor across supported Python versions.
         run: .venv/bin/python -c 'import tcren, pytest, sys; raise SystemExit(pytest.main(sys.argv[1:]))' -m "not slow" -ra --cov=tcren --cov-report=term-missing --cov-fail-under=50
