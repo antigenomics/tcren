@@ -3,6 +3,13 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
+## [4.6.0]
+
+- Browse prepared complementarity exports by reference group with stable model
+  links, shared navigation and theme controls, and compact group metadata.
+- Stage packaged viewers and recorded benchmark tables for local static serving.
+  Keep existing scene and table exports usable without recomputing descriptors.
+
 ## [4.5.0] — 2026-11-11
 
 - Show peptide sequence and compact structure IDs in the molecular selector,
