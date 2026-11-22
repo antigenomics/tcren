@@ -66,6 +66,10 @@ the wheel, buttons, or slider. Enable depth fading to use the omitted axis
 as opacity. Point outlines start off. Point color shows the model label
 and shape identifies the chain role.
 
+The structure selector shows the outcome label first, so it stays visible
+when a long model name is clipped. Hover over a model in the list to see
+its full name.
+
 Filter binary labels with the label menu or choose an inclusive range for
 continuous labels. Pin a reference and use the bracket keys to step through
 matching candidates in its group. Select a residue to list its heavy atoms
