@@ -219,6 +219,18 @@ The structure selector shows the outcome label first, so it stays visible
 when a long model name is clipped. Hover over a model in the list to see
 its full name.
 
+Highlight models in one reference group and choose **Add highlighted**
+to save them across label or confidence filters. Use **Add random matches**
+to sample without replacement and **Clear selection** to start over.
+Color molecular overlays by model, label, ipTM or mean pLDDT.
+
+In the table view, open **Compare multiple models**. The binary contrast
+subtracts the label 0 cell mean from the label 1 cell mean where both
+classes have data. For a numeric label, ipTM or pLDDT, the weighted map
+averages the available products of cell value and the model's population
+z-score among selected models with that score. Hover a cell for support.
+Contact grids compare sequence positions within each facet and reference group.
+
 Filter binary labels with the label menu or choose an inclusive range for
 continuous labels. Pin a reference and use the bracket keys to step through
 matching candidates in its group. Select a residue to list its heavy atoms

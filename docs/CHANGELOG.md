@@ -3,6 +3,13 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
+## [4.9.0]
+
+- Compare multiple models across outcome and confidence filters.
+- Color molecular maps by model, outcome, ipTM or pLDDT.
+- Combine prepared topography and heatmaps as class differences or
+  z-score-weighted means.
+
 ## [4.8.1]
 
 - Show outcome labels first in the molecular model selector, with the full

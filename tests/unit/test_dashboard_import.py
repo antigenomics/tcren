@@ -110,6 +110,9 @@ def test_import_uses_screen_and_exports_the_declared_ids(tmp_path, monkeypatch, 
         assert (output / view / "index.html").is_file()
         index = json.loads((output / view / "index.json").read_text())
         assert [row["id"] for row in index] == ids
+        assert [(row["outcome"], row["outcome_kind"], row["iptm"], row["plddt"]) for row in index] == [
+            (labels[0], kind, 0.7, 82.0), (labels[1], kind, 0.8, 94.0),
+        ]
     maps = output / "maps"
     index = json.loads((maps / "index.json").read_text())
     assert [(row["outcome_kind"], row["outcome"]) for row in index] == [

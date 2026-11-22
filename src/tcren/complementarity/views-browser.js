@@ -32,10 +32,17 @@ function modelLabel(entry,i) {
     `${entry.task==='tcr'?'Receptor':'Peptide model'} ${i+1} · ${entry.id.length>16?entry.id.slice(0,8):entry.id}`;
 }
 let active = null, generation = 0;
+let aggregate = null, aggregateController = null;
+const aggregateSelection = new Map();
 let candidateScene = null, motifFocus = null;
 let loadController = null;
 const palette = [[68,1,84],[59,82,139],[33,145,140],[94,201,98],[253,231,37]];
 function color(value, lo, hi, reverse=false) {
+  if (lo < 0 && hi > 0 && -lo === hi && aggregate) {
+    const base = value < 0 ? [38,92,171] : [174,57,41];
+    const t = Math.min(1,Math.abs(value)/hi);
+    return `rgb(${base.map(channel=>Math.round(247+(channel-247)*t)).join(',')})`;
+  }
   let t=Math.min(1,Math.max(0,(value-lo)/(hi-lo||1)));
   if(reverse)t=1-t;
   const q=t*(palette.length-1), i=Math.min(palette.length-2,Math.floor(q)), f=q-i;
@@ -82,18 +89,93 @@ function canvasPanel(parent,title,nx,ny,records,coordinates,value,lo,hi,reverse=
     $('details').textContent=JSON.stringify(lookup.get(`${x},${y}`)??{missing:true},null,2);};
 }
 function selected(group){return [...$(group).querySelectorAll('input:checked')].map(e=>e.value);}
+function extentOf(rows, field) {
+  const extent = rows.reduce((max,row)=>Number.isFinite(row[field])?Math.max(max,Math.abs(row[field])):max,0);
+  return extent > 1e-12 ? extent : 1;
+}
+
 function renderSurface(parent, cells) {
+  if (aggregate) {
+    const [ny,nx]=manifest.grid_ny_nx;
+    for (const [field,label] of [['hydropathy','Hydropathy (KD)'],['surface_z','Canonical surface z (Å)']]) {
+      const extent=extentOf(cells,field);
+      canvasPanel(parent,`${label} · ±${format(extent,2)}`,nx,ny,cells,r=>[r.ix,r.iy],r=>r[field],-extent,extent,false,true);
+    }
+    return;
+  }
   const heights=cells.map(r=>r.surface_z).filter(v=>v!==null);
   const [ny,nx]=manifest.grid_ny_nx, zlo=heights.length?Math.min(...heights):0,zhi=heights.length?Math.max(...heights):1;
   canvasPanel(parent,'Hydropathy KD: −4.5 (purple) → +4.5 (yellow)',nx,ny,cells,r=>[r.ix,r.iy],r=>r.hydropathy,-4.5,4.5,false,true);
   canvasPanel(parent,`Canonical surface z: ${zlo.toFixed(2)} → ${zhi.toFixed(2)} Å`,nx,ny,cells,r=>[r.ix,r.iy],r=>r.surface_z,zlo,zhi,false,true);
 }
+function comparisonWeights(scores, mode) {
+  if (mode === 'binary') {
+    if (!scores.includes(0) || !scores.includes(1)) throw Error('Select models from both labels 0 and 1.');
+    return scores.map(score => score === 1 ? 1 : score === 0 ? -1 : null);
+  }
+  const finite = scores.filter(Number.isFinite);
+  if (finite.length < 2) throw Error('Select at least two models with the chosen score.');
+  const mean = finite.reduce((sum, score) => sum + score, 0) / finite.length;
+  const sd = Math.sqrt(finite.reduce((sum, score) => sum + (score-mean)**2, 0) / finite.length);
+  if (!(sd > 0) || !Number.isFinite(sd)) throw Error('The chosen scores must vary.');
+  return scores.map(score => Number.isFinite(score) ? (score-mean)/sd : null);
+}
+
+function aggregateCells(tables, weights, mode, keyFor, fields) {
+  const cells = new Map();
+  for (const [index, table] of tables.entries()) {
+    const weight = weights[index];
+    if (weight === null) continue;
+    for (const row of table) {
+      const key = keyFor(row);
+      if (!cells.has(key)) cells.set(key, {
+        row:{...row}, counts:Object.fromEntries(fields.map(field=>[field,[0,0]])),
+        sums:Object.fromEntries(fields.map(field=>[field,[0,0]])),
+      });
+      const cell = cells.get(key);
+      if ('contacting' in row) cell.row.contacting ||= row.contacting;
+      for (const [prefix, position] of [['tcr','tcr_index'],['partner','partner_index']]) {
+        if (!(position in row)) continue;
+        const label = prefix+'_axis_label';
+        const identity = residueLabel(row,prefix);
+        cell.row[label] ??= residueLabel(cell.row,prefix);
+        if (identity !== cell.row[label]) cell.row[label] = 'Position '+(row[position]+1);
+      }
+      for (const field of fields) {
+        if (!Number.isFinite(row[field])) continue;
+        const side = mode === 'binary' && weight < 0 ? 1 : 0;
+        cell.counts[field][side]++;
+        cell.sums[field][side] += mode === 'binary' ? row[field] : weight*row[field];
+      }
+    }
+  }
+  return [...cells.values()].map(({row,counts,sums}) => {
+    for (const field of fields) {
+      const [positive, negative] = counts[field];
+      const [a,b] = sums[field];
+      row[field] = mode === 'binary' ? (positive && negative ? a/positive-b/negative : null)
+        : (positive ? a/positive : null);
+    }
+    delete row.structure_id;
+    delete row.tcr_residue_id;
+    delete row.partner_residue_id;
+    row.support = mode === 'binary' ? counts :
+      Object.fromEntries(fields.map(field => [field, counts[field][0]]));
+    return row;
+  });
+}
+
+function residueLabel(row, prefix) {
+  return row[prefix+'_chain'] + ':' + row[prefix+'_aa'] +
+    row[prefix+'_number'] + (row[prefix+'_insertion'] || '');
+}
+
 function residueAxis(records, prefix, indexField) {
   const labels = new Map();
   for (const row of records) {
-    const number = row[prefix+'_number'];
-    const id = row[prefix+'_aa'] + number + (row[prefix+'_insertion'] || '');
-    labels.set(row[indexField], row[prefix+'_chain'] + ':' + id);
+    const label = row[prefix+'_axis_label'] ?? residueLabel(row,prefix);
+    const index = row[indexField];
+    labels.set(index, labels.has(index) && labels.get(index) !== label ? 'Position '+(index+1) : label);
   }
   return [...labels].sort(([a], [b]) => a-b);
 }
@@ -132,7 +214,7 @@ function heatmapGrid(parent, title, records, metric, hi, masked, highlight) {
       const cell = line.insertCell(), state = heatmapState(pair, metric, masked);
       cell.className = 'residue-cell '+state;
       if (state === 'value') {
-        cell.style.backgroundColor = color(pair[metric],0,hi,metric==='ca_distance');
+        cell.style.backgroundColor = color(pair[metric],aggregate?-hi:0,hi,metric==='ca_distance');
         if (highlight(pair)) cell.classList.add('focused');
       }
       const value = state === 'value' ? pair[metric] : state;
@@ -148,15 +230,19 @@ function heatmapGrid(parent, title, records, metric, hi, masked, highlight) {
 }
 
 function render(){
-  if(!active)return;
+  const tables=aggregate??active?.tables;
+  if(!tables)return;
   $('topography').replaceChildren();$('heatmaps').replaceChildren();
-  renderSurface($('topography'), active.tables.topography_cells);
-  $('definitions').textContent=`${manifest.definitions[ranking]}. x left→right, y bottom→top; extent ${manifest.extent_xy.join(', ')} Å. ${manifest.definitions.height}. Height colors span this structure; KD colors are fixed.`;
-  const rows=selected('rows'),columns=selected('columns'),metric=$('metric').value,masked=$('contacts').checked,pairs=active.tables.contact_heatmap;
-  const hi=metric==='ca_distance'?25:pairs.reduce((m,r)=>Math.max(m,r.atom_contact_count),1);
+  renderSurface($('topography'), tables.topography_cells);
+  $('definitions').textContent=`${manifest.definitions[ranking]}. x left→right, y bottom→top; extent ${manifest.extent_xy.join(', ')} Å. ${manifest.definitions.height}. ${aggregate?'Aggregate scales are centered on zero. Blue is negative and red is positive.'
+    :'Height colors span this structure; KD colors are fixed.'}`;
+  const rows=selected('rows'),columns=selected('columns'),metric=$('metric').value,masked=$('contacts').checked,pairs=tables.contact_heatmap;
+  const hi=aggregate?extentOf(pairs,metric):
+    metric==='ca_distance'?25:pairs.reduce((m,r)=>Math.max(m,r.atom_contact_count),1);
   $('scale').textContent=`${metric}: 0 → ${hi}${metric==='ca_distance'?' Å (saturated at 25; yellow=near, purple=far)':' witnesses (purple=0, yellow=max)'}. Each panel: TCR N→C left→right; partner N→C top→bottom. Headers show chain and author residue number. Hatching marks masked cells; gray marks missing values. Hover for pair details.`;
+  if (aggregate) $('scale').textContent = `${metric}: −${format(hi,2)} to +${format(hi,2)}. Blue is negative and red is positive. Hover cells for per-model support.`;
   $('heatmaps').style.setProperty('--columns',Math.max(1,columns.length));
-  const focused = new Set(focusedResidues().map(residue => residue.id));
+  const focused = new Set(aggregate?[]:focusedResidues().map(residue => residue.id));
   for(const row of rows)for(const column of columns){
     const panel=document.createElement('div');panel.className='facet';$('heatmaps').append(panel);
     const source=pairs.filter(r=>r.partner_facet===row&&r.loop_facet===column);
@@ -166,7 +252,7 @@ function render(){
     note.textContent=!source.length?'Absent facet':!visible.length?`${row} · ${column}: No contacting pairs in this facet`:`${visible.length} pairs shown · ${source.length-visible.length} masked · ${missing} missing ${metric==='ca_distance'?'Cα distances':'values'}`;
     panel.append(note);
     if (source.length) heatmapGrid(panel,row+' / '+column,source,metric,hi,masked,
-      pair=>pair.contacting && focused.has(ranking === 'tcr' ? pair.tcr_residue_id : pair.partner_residue_id));
+      pair=>!aggregate && pair.contacting && focused.has(ranking === 'tcr' ? pair.tcr_residue_id : pair.partner_residue_id));
   }
 }
 for(const [group,values] of [['rows',manifest.partner_order],['columns',manifest.loop_order]])for(const value of values){
@@ -328,7 +414,114 @@ function renderMotif(fixed) {
   }
 }
 
+const scoreFor = (entry, field) => entry[field] ?? entry.model_metrics?.[field];
+const comparisonLabel = entry => {
+  const details = [['Label','outcome'],['ipTM','iptm'],['pLDDT','plddt']]
+    .filter(([,field])=>Number.isFinite(scoreFor(entry,field)))
+    .map(([label,field])=>label+' '+scoreFor(entry,field));
+  return [...details,shortLabels.get(entry.id)??entry.id].join(' | ');
+};
+function aggregateOptions() {
+  const minimum=$('aggregate-min').value, maximum=$('aggregate-max').value;
+  const field=$('aggregate-filter').value;
+  const matching=$('aggregate-models'), saved=$('aggregate-saved');
+  matching.replaceChildren();saved.replaceChildren();
+  for (const entry of visibleEntries) {
+    const value=scoreFor(entry,field);
+    if ((minimum!=='' || maximum!=='') && (!Number.isFinite(value) ||
+        (minimum!=='' && value<Number(minimum)) || (maximum!=='' && value>Number(maximum)))) continue;
+    const option=new Option(comparisonLabel(entry),entry.id);
+    option.title=entry.id;
+    matching.add(option);
+  }
+  for (const entry of aggregateSelection.values()) {
+    const option=new Option(comparisonLabel(entry),entry.id);
+    option.title=entry.id;
+    saved.add(option);
+  }
+  $('aggregate-status').textContent=aggregateSelection.size+' saved for comparison (maximum 16).';
+}
+function addAggregate(ids) {
+  const chosen=new Set(ids);
+  for (const entry of visibleEntries) {
+    if (aggregateSelection.size >= 16) break;
+    if (chosen.has(entry.id)) aggregateSelection.set(entry.id,entry);
+  }
+  aggregateOptions();
+}
+async function renderAggregate() {
+  aggregateController?.abort();
+  const controller=aggregateController=new AbortController();
+  const selected=[...aggregateSelection.values()];
+  const mode=$('aggregate-mode').value;
+  const field=mode==='binary'?'outcome':$('aggregate-score').value;
+  try {
+    const weights=comparisonWeights(selected.map(entry=>scoreFor(entry,field)),mode);
+    $('aggregate-status').textContent='Loading comparison…';
+    const models=await Promise.all(selected.map(async (entry,index)=>{
+      if (weights[index]===null) return null;
+      const response=await fetch(entry.cache,{signal:controller.signal});
+      if(!response.ok) throw Error(entry.id+': HTTP '+response.status);
+      const stream=response.body.pipeThrough(new DecompressionStream('gzip'),{signal:controller.signal});
+      const payload=await new Response(stream).json();
+      if(payload.structure_id!==entry.id) throw Error('Model table identity mismatch.');
+      return payload.tables;
+    }));
+    controller.signal.throwIfAborted();
+    aggregate={
+      topography_cells:aggregateCells(models.map(t=>t?.topography_cells??[]),weights,mode,
+        row=>[row.ix,row.iy].join(','),['surface_z','hydropathy']),
+      contact_heatmap:aggregateCells(models.map(t=>t?.contact_heatmap??[]),weights,mode,
+        row=>[row.loop_facet,row.partner_facet,row.tcr_index,row.partner_index].join(','),
+        ['ca_distance','atom_contact_count']),
+    };
+    const contributing=weights.filter(weight=>weight!==null).length;
+    const summary=(mode==='binary'?'Label 1 mean − label 0 mean'
+        :'Mean of z-score × cell value ('+field+')')+' · '+contributing+' models with scores.';
+    $('aggregate-status').textContent=summary;
+    $('active-comparison').textContent=summary;
+    $('active-comparison').hidden=false;
+    render();
+  } catch(error) {
+    if(controller.signal.aborted)return;
+    controller.abort();
+    $('aggregate-status').textContent=error.message;
+  }
+}
+for (const id of ['aggregate-filter','aggregate-min','aggregate-max']) $(id).onchange=aggregateOptions;
+$('aggregate-add').onclick=()=>addAggregate([...$('aggregate-models').selectedOptions].map(o=>o.value));
+$('aggregate-remove').onclick=()=>{
+  for(const option of $('aggregate-saved').selectedOptions) aggregateSelection.delete(option.value);
+  aggregateOptions();
+};
+$('aggregate-clear').onclick=()=>{
+  aggregateSelection.clear();
+  aggregateOptions();
+  $('aggregate-single').click();
+};
+$('aggregate-random').onclick=()=>{
+  const pool=[...$('aggregate-models').options].filter(o=>!aggregateSelection.has(o.value)).map(o=>o.value);
+  const count=Math.min(pool.length,16-aggregateSelection.size,
+    Math.max(1,Math.trunc(Number($('aggregate-random-count').value))||1));
+  for(let i=0;i<count;i++){
+    const j=i+Math.floor(Math.random()*(pool.length-i));
+    [pool[i],pool[j]]=[pool[j],pool[i]];
+  }
+  addAggregate(pool.slice(0,count));
+};
+$('aggregate-run').onclick=renderAggregate;
+$('aggregate-single').onclick=()=>{
+  aggregateController?.abort();
+  aggregate=null;
+  $('active-comparison').hidden=true;
+  render();
+};
+
 async function selectGroup(reference, requested) {
+  aggregateController?.abort();
+  aggregate=null;
+  $('active-comparison').hidden=true;
+  aggregateSelection.clear();
   groupController?.abort();
   loadController?.abort();
   generation++;
@@ -354,6 +547,7 @@ async function selectGroup(reference, requested) {
       return;
     }
   } else visibleEntries = groups.get(reference);
+  aggregateOptions();
   if(!visibleEntries.length)return;
   $('fixed-partner').value = reference;
   $('structure').replaceChildren(...visibleEntries.map(entry => {
@@ -465,7 +659,7 @@ function updateCandidateMotif() {
 async function load(){const entry=visibleEntries[$('structure').selectedIndex];if(!entry)return;
   const current=++generation;
   const outcome = $('outcome');
-  outcome.hidden = !entry.outcome;
+  outcome.hidden = entry.outcome==null;
   outcome.textContent = entry.outcome ?? '';
   if ('library_response' in entry) {
     outcome.textContent += ` · Library response ${format(entry.library_response, 1)}`;

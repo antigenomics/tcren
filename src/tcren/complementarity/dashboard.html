@@ -19,7 +19,24 @@
 <label>Maximum <output id="maximum-value"></output><input id="maximum" type="range" step="any"></label>
 <label><input id="unlabelled" type="checkbox" checked> Include unlabelled</label>
 </fieldset></div>
-<label>Structure <select id="structures" size="7"></select></label>
+<details id="confidence-filters"><summary>Confidence filters</summary>
+<label>ipTM minimum <input id="iptm-min" type="number" min="0" max="1" step="any"></label>
+<label>ipTM maximum <input id="iptm-max" type="number" min="0" max="1" step="any"></label>
+<label>pLDDT minimum <input id="plddt-min" type="number" min="0" max="100" step="any"></label>
+<label>pLDDT maximum <input id="plddt-max" type="number" min="0" max="100" step="any"></label>
+</details>
+<label>Structure <select id="structures" size="7" multiple></select></label>
+<div class="compare-actions">
+<button id="add-models" type="button">Add highlighted</button>
+<button id="clear-models" type="button">Clear selection</button>
+</div>
+<label>Random models <input id="random-count" type="number" min="1" max="16" value="5"></label>
+<button id="random-models" type="button">Add random matches</button>
+<details id="saved-comparison">
+<summary><span id="selection-count" role="status"></span></summary>
+<label>Saved models <select id="saved-models" multiple size="4"></select></label>
+<button id="remove-models" type="button">Remove highlighted</button>
+</details>
 <div class="compare-actions">
 <button id="previous-model" type="button" aria-label="Previous structure">Previous</button>
 <button id="next-model" type="button" aria-label="Next structure">Next</button>
@@ -45,6 +62,10 @@
 </aside><section><div class="chain-key" aria-label="Chain shapes">● TCR α &nbsp; ■ TCR β &nbsp; ▲ Peptide &nbsp; ◆ MHC &nbsp; ✚ β2m</div>
 <p id="outcome-key"></p>
 <div class="map-toolbar">
+<label>Point color <select id="color-by">
+<option value="model">Model</option><option value="outcome" selected>Label</option>
+<option value="iptm">ipTM</option><option value="plddt">pLDDT</option>
+</select></label>
 <div role="group" aria-label="Projection">
 <button type="button" id="side-view" aria-pressed="true">Side (x/z)</button>
 <button type="button" id="top-view" aria-pressed="false">Top (x/y)</button>
