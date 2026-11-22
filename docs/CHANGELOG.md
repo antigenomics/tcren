@@ -3,6 +3,11 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
+## [4.8.1]
+
+- Show outcome labels first in the molecular model selector, with the full
+  model name on hover.
+
 ## [4.8.0]
 
 - Bundle dashboard template v1.3.0 with switchable projections, depth fading,
