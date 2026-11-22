@@ -1,11 +1,11 @@
 {
-  "revision": "621bb797215cfa18bad525d24363c495c3db819a",
+  "revision": "40240a09b01fdc0b1c6e49b990ff8d514152f8fc",
   "sha256": {
-    "dashboard.css": "2b468083d271fec0a4f3e61091d974fc6f70e3004eb8492d5b4fff92f8c94a94",
-    "dashboard.html": "5d799f087db72e575281d32645624badfb8e43c0923523ecd9290fea8097ca2e",
+    "dashboard.css": "2f2ffbbaae5d9caf129bc03ee8207ef870a18e6a66ceface2d54eae13979b317",
+    "dashboard.html": "2c1929ac9a41b4463d3c9408024dbb22b5144a1d69559ecd5041d92726fcff95",
     "view-controls.js": "4f9fbd9252e2413b6210d3ac2316638cb5e4cb7be919afcc1420f1ec6fe3477d",
-    "viewer.js": "ece507b9a3cc9e983c66d4555e3a00132a6dfa07e0bd0c2e264338fb7b4bc0a0",
-    "views-browser.js": "c68808494db25fb8183b68367e73a151abdb2768ec9dbb6ea3320e9c772ec2d8",
-    "views.html": "580be97e262781f286bdb6159682cbd7615afab9b772f244a5b3258c579806a3"
+    "viewer.js": "e40c2cd1d0cc4ec0d2fd485aebc109b53f4176d23e0068de257e5a1dedb28479",
+    "views-browser.js": "912f930d388de028eb07a62f7241170a393dc942793558f037330b1cb4831805",
+    "views.html": "5474fc664597da1152e09c00f1aa28d5ca48c2ac511ff354f71ec9bc12f7eb54"
   }
 }

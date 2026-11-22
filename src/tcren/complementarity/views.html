@@ -20,8 +20,26 @@
 <a id="jump-motif-heatmaps" href="#heatmaps" hidden>View outlined contacts in heatmaps</a>
 <label>Contact map <select id="metric"><option value="ca_distance">Cα distance (Å)</option><option value="atom_contact_count">Atom contact witnesses</option></select></label>
 <label><input id="contacts" type="checkbox">Contacting pairs only</label><p id="status" role="status">Loading tables…</p><p id="model-metrics" aria-live="polite" hidden></p><a id="molecular-view" hidden>Open molecular skeleton</a></header>
-<p>One structure is shown at a time. Values come from exported Parquet tables through their derived JSON cache. Background-colored cells are missing or masked. Hover a cell to inspect its identifiers and values.</p>
-<div id="candidate-trace" hidden></div><div id="topography"></div><p id="definitions"></p>
+<details id="map-comparison">
+<summary>Compare multiple models</summary>
+<label>Filter by <select id="aggregate-filter"><option value="outcome">Label</option><option value="iptm">ipTM</option><option value="plddt">pLDDT</option></select></label>
+<label>Minimum <input id="aggregate-min" type="number" step="any"></label>
+<label>Maximum <input id="aggregate-max" type="number" step="any"></label>
+<label>Matching models <select id="aggregate-models" multiple size="6"></select></label>
+<button type="button" id="aggregate-add">Add highlighted</button>
+<button type="button" id="aggregate-clear">Clear selection</button>
+<label>Random models <input id="aggregate-random-count" type="number" min="1" max="16" value="5"></label>
+<button type="button" id="aggregate-random">Add random matches</button>
+<label>Saved models <select id="aggregate-saved" multiple size="4"></select></label>
+<button type="button" id="aggregate-remove">Remove highlighted</button>
+<label>Combine as <select id="aggregate-mode"><option value="binary">Label 1 (+) minus label 0 (−)</option><option value="weighted">Z-score-weighted mean</option></select></label>
+<label>Weight score <select id="aggregate-score"><option value="outcome">Label</option><option value="iptm">ipTM</option><option value="plddt">pLDDT</option></select></label>
+<button type="button" id="aggregate-run">Show aggregate maps</button>
+<button type="button" id="aggregate-single">Show single model</button>
+<p id="aggregate-status" role="status"></p>
+</details>
+<p>Hover a cell to inspect its value and identifiers or aggregate support. Gray cells are missing and hatched cells are masked.</p>
+<div id="candidate-trace" hidden></div><p id="active-comparison" hidden></p><div id="topography"></div><p id="definitions"></p>
 <fieldset id="rows"><legend>Partner rows</legend></fieldset><fieldset id="columns"><legend>TCR columns</legend></fieldset>
 <p id="scale"></p><div style="overflow:auto"><div class="facets" id="heatmaps"></div></div>
 <pre id="details" aria-live="polite">Hover a cell for residue/atom identifiers and values.</pre>

@@ -82,6 +82,16 @@
   min-height: 8rem;
 }
 
+#confidence-filters input { width: 7rem; }
+#saved-comparison select { width: 100%; }
+#map-comparison {
+  padding: 10px 12px;
+  border: 1px solid GrayText;
+}
+#map-comparison label { display: inline-grid; gap: .2rem; margin: .4rem .6rem .4rem 0; }
+#map-comparison select[multiple] { width: min(30rem, 100%); }
+#map-comparison input[type=number] { width: 7rem; }
+#active-comparison { font-weight: 600; }
 .compare-actions { display: flex; flex-wrap: wrap; gap: 4px; }
 .compare-note, #reference-model { font-size: .875rem; overflow-wrap: anywhere; }
 #continuous-label input[type=range] { width: 100%; }

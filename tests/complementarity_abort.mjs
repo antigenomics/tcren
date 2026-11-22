@@ -19,10 +19,10 @@ assert.match(projection, /id="depth" type="checkbox">/);
 await readFile(new URL('../src/tcren/complementarity/dashboard.css', import.meta.url), 'utf8');
 const viewer = await readFile(new URL('../src/tcren/complementarity/viewer.js', import.meta.url), 'utf8');
 const tables = await readFile(new URL('../src/tcren/complementarity/views-browser.js', import.meta.url), 'utf8');
-const gridHelpers = tables.slice(tables.indexOf('function residueAxis('),
+const gridHelpers = tables.slice(tables.indexOf('function comparisonWeights('),
     tables.indexOf('function heatmapGrid('));
-const {residueAxis, heatmapState} = vm.runInThisContext(
-    `(() => {${gridHelpers}; return {residueAxis,heatmapState};})()`);
+const {residueAxis, heatmapState,comparisonWeights,aggregateCells} = vm.runInThisContext(
+    `(() => {${gridHelpers}; return {residueAxis,heatmapState,comparisonWeights,aggregateCells};})()`);
 assert.deepEqual(residueAxis([
     {tcr_index:3,tcr_chain:'B',tcr_aa:'E',tcr_number:92,tcr_insertion:'A'},
     {tcr_index:0,tcr_chain:'B',tcr_aa:'G',tcr_number:90,tcr_insertion:''},
@@ -31,6 +31,11 @@ assert.equal(heatmapState({count:0,contacting:false},'count',false),'value');
 assert.equal(heatmapState({count:0,contacting:false},'count',true),'masked');
 assert.equal(heatmapState({count:null,contacting:true},'count',true),'missing');
 assert.equal(heatmapState(undefined,'count',true),'missing');
+const sample = [[{ix:0,z:5},{ix:1,z:2}],[{ix:0,z:3},{ix:1,z:null}],[{ix:0,z:1}]];
+const cells = (scores,mode) => aggregateCells(sample,comparisonWeights(scores,mode),mode,r=>r.ix,['z']);
+assert.deepEqual(cells([1,1,0],'binary').map(r=>[r.z,r.support.z]),[[3,[2,1]],[null,[1,0]]]);
+assert.deepEqual(cells([1,0,null],'weighted').map(r=>[r.z,r.support.z]),[[1,2],[2,1]]);
+assert.throws(()=>comparisonWeights([1,1],'weighted'),/must vary/);
 let started = 0, closed = 0;
 const server = createServer((req, res) => {
     started++;
@@ -89,7 +94,7 @@ const loader = viewer.slice(viewer.indexOf('export async function loadScene('),
     viewer.indexOf('// Coordinate ownership')).replace('export ', '');
 const render = viewer.slice(viewer.indexOf('function redraw()'),
     viewer.indexOf("choices('edges'"));
-vm.runInContext(`const byId=new Map(),outcomeColor=()=>"#ccc",formatOutcome=()=>"Unlabelled";let pinned=null,cameraExtent=null,focusedContact=null,vertical=2,generation=0,renderController=null,groupFiles=null,currentViews=[],nodePage=0;${loader}${render}`, context);
+vm.runInContext(`const byId=new Map(),comparison=new Map(),MAX_COMPARISON=16,pointColor=()=>"#ccc",confidence=()=>null,formatOutcome=()=>"Unlabelled";let pinned=null,cameraExtent=null,focusedContact=null,vertical=2,generation=0,renderController=null,groupFiles=null,currentViews=[],nodePage=0;${loader}${render}`, context);
 try {
     element('structures').selectedOptions = [{value: 'old-scene', dataset:{modelId:'old'}}];
     const oldRender = vm.runInContext('render()', context);

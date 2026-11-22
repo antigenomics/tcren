@@ -10,6 +10,8 @@ let vertical = 2;
 let focusedContact = null;
 let pinned = null, cameraExtent = null, outcomeDomain = null;
 let byId = new Map();
+const comparison = new Map();
+const MAX_COMPARISON = 16;
 const SHAPES = {
     alpha:'M -1 0 A 1 1 0 1 0 1 0 A 1 1 0 1 0 -1 0 Z',
     beta:'M -1 -1 H 1 V 1 H -1 Z',
@@ -101,9 +103,27 @@ function outcomeColor(entry) {
     return `hsl(${240-213*fraction} 74% 54%)`;
 }
 
+const confidence = (entry, key) => entry?.[key] ?? entry?.model_metrics?.[key];
+export function matchesConfidence(value, minimum, maximum) {
+    if (minimum === '' && maximum === '') return true;
+    return Number.isFinite(value) &&
+        (minimum === '' || value >= Number(minimum)) &&
+        (maximum === '' || value <= Number(maximum));
+}
+
+function pointColor(entry) {
+    const field = $('color-by').value;
+    if (field === 'model') return `hsl(${(35+Math.max(0,entries.indexOf(entry))*137.508)%360} 76% 59%)`;
+    if (field === 'outcome') return outcomeColor(entry);
+    const value = confidence(entry, field);
+    if (!Number.isFinite(value)) return '#979da6';
+    const normalized = Math.max(0, Math.min(1, field === 'plddt' ? value/100 : value));
+    return `hsl(${245-210*normalized} 74% 54%)`;
+}
+
 export function updateStructureOptions() {
     const select = $('structures');
-    const selected = select.value;
+    const selected = new Set([...select.selectedOptions].map(option => option.value));
     select.replaceChildren();
     const query = $('search').value.toLowerCase(), group = $('group').value;
     const kind = entries.find(entry => entry.outcome_kind)?.outcome_kind;
@@ -111,15 +131,20 @@ export function updateStructureOptions() {
         maximum:Number($('maximum').value), unlabelled:$('unlabelled').checked};
     for (const entry of entries.filter(e => e.reference === group &&
             (e.id+' '+(e.display_label||'')+' '+(e.search||'')).toLowerCase().includes(query) &&
-            matchesOutcome(e.outcome,kind,filter))) {
+            matchesOutcome(e.outcome,kind,filter) &&
+            ['iptm','plddt'].every(key=>matchesConfidence(confidence(e,key),
+                $(key+'-min').value,$(key+'-max').value)))) {
         const label = entry.display_label || entry.id;
         const option = new Option(kind ? 'Label '+formatOutcome(entry.outcome)+' | '+label : label,entry.file);
         option.dataset.modelId = entry.id;
-        option.title = label === entry.id ? label : label+' | '+entry.id;
+        option.title = [label,...(label === entry.id ? [] : [entry.id]),
+            ...[['ipTM','iptm'],['pLDDT','plddt']]
+                .filter(([,key])=>Number.isFinite(confidence(entry,key)))
+                .map(([name,key])=>name+' '+confidence(entry,key))].join(' | ');
+        option.selected = selected.has(entry.file);
         select.add(option);
     }
-    if ([...select.options].some(option => option.value === selected)) select.value = selected;
-    else if (select.options.length) select.selectedIndex = 0;
+    if (select.selectedIndex < 0 && select.options.length) select.selectedIndex = 0;
 }
 
 export async function loadScene(file, {signal} = {}) {
@@ -325,7 +350,7 @@ function draw(svg,vertical,views,atomic,scale) {
     for (const view of [...views].reverse()) {
         const {scene,nodes,residue,shown,contacts}=view;
         const opacity=pinned?.id===scene.id && views.length>1?.46:1;
-        const fill=outcomeColor(byId.get(scene.id));
+        const fill=pointColor(byId.get(scene.id));
         function line(a,b,attributes,title) {
             if (!shown(a)||!shown(b)) return;
             const [x1,y1]=position(a.xyz),[x2,y2]=position(b.xyz);
@@ -419,10 +444,16 @@ async function render() {
     $('projection').setAttribute('aria-busy','true');
     $('status').textContent='Loading selection…';
     try {
-        const selected=[...$('structures').selectedOptions];
-        const candidate=selected[0];
+        const highlighted=[...$('structures').selectedOptions];
+        const candidate=highlighted[0];
+        const reference=pinned?{value:pinned.file,dataset:{modelId:pinned.id}}:null;
+        const requested=[...new Map([...highlighted.slice(0,1),...(reference?[reference]:[]),
+            ...comparison.values(),...highlighted.slice(1)].map(option=>[option.value,option])).values()];
+        const selected=requested.slice(0,MAX_COMPARISON);
+        const count=$('selection-count');
+        count.textContent=comparison.size+' saved · '+selected.length+' visible'+
+            (requested.length>MAX_COMPARISON?' · Up to '+MAX_COMPARISON+' at once':'');
         $('structures').title=candidate?.title ?? '';
-        if (pinned && pinned.file !== candidate?.value) selected.push({value:pinned.file,dataset:{modelId:pinned.id}});
         const loaded = new Map(currentViews.map(view => [view.scene.id,view.scene]));
         const scenes=await Promise.all(selected.map(o=>loaded.get(o.dataset.modelId) ??
             loadScene(o.value,{signal:controller.signal})));
@@ -439,8 +470,12 @@ async function render() {
         for (const [index,scene] of scenes.entries()) {
             const entry=byId.get(scene.id);
             const item=document.createElement('span');
-            item.style.borderInlineStartColor=outcomeColor(entry);
-            item.textContent=(index===0 && candidate?'Active: ':'Reference: ')+scene.id+' | Label '+formatOutcome(entry?.outcome);
+            item.style.borderInlineStartColor=pointColor(entry);
+            const metrics = [['ipTM','iptm'],['pLDDT','plddt']]
+                .filter(([,key])=>Number.isFinite(confidence(entry,key)))
+                .map(([name,key])=>name+' '+confidence(entry,key));
+            item.textContent=[(index===0 && candidate?'Active: ':'')+scene.id,
+                'Label '+formatOutcome(entry?.outcome),...metrics].join(' | ');
             outcomeKey.append(item);
         }
         focusedContact = null;
@@ -561,6 +596,8 @@ function applyFilters() {
 }
 $('group').onchange=()=>{
     pinned = cameraExtent = null;
+    comparison.clear();
+    showSavedModels();
     updatePin();
     if(groupFiles)return selectGroup();
     setupOutcomes();
@@ -568,6 +605,8 @@ $('group').onchange=()=>{
 };
 $('search').oninput=applyFilters;
 $('discrete').onchange=$('unlabelled').onchange=applyFilters;
+for(const key of ['iptm','plddt'])for(const end of ['min','max'])
+    $(key+'-'+end).onchange=applyFilters;
 for(const id of ['minimum','maximum']){
     $(id).oninput=()=>{
         const min=$('minimum'),max=$('maximum');
@@ -579,6 +618,52 @@ for(const id of ['minimum','maximum']){
     };
     $(id).onchange=applyFilters;
 }
+function showSavedModels() {
+    const select=$('saved-models');
+    select.replaceChildren();
+    for(const source of comparison.values()){
+        const option=new Option(source.text,source.value);
+        option.title=source.title;
+        select.add(option);
+    }
+}
+function addModels(options) {
+    for (const option of options) {
+        if (comparison.size >= MAX_COMPARISON) break;
+        comparison.set(option.value,option);
+    }
+    showSavedModels();
+    render();
+}
+$('add-models').onclick=()=>addModels($('structures').selectedOptions);
+$('remove-models').onclick=()=>{
+    const removed=new Set([...$('saved-models').selectedOptions].map(option=>option.value));
+    for (const value of removed) comparison.delete(value);
+    for (const option of $('structures').selectedOptions) {
+        if(removed.has(option.value)) option.selected=false;
+    }
+    showSavedModels();
+    render();
+};
+$('clear-models').onclick=()=>{
+    comparison.clear();
+    showSavedModels();
+    $('structures').selectedIndex=-1;
+    pinned=null;
+    updatePin();
+    render();
+};
+$('random-models').onclick=()=>{
+    const pool=[...$('structures').options].filter(option=>!comparison.has(option.value));
+    const count=Math.min(pool.length,MAX_COMPARISON-comparison.size,
+        Math.max(1,Math.trunc(Number($('random-count').value))||1));
+    for(let index=0;index<count;index++){
+        const other=index+Math.floor(Math.random()*(pool.length-index));
+        [pool[index],pool[other]]=[pool[other],pool[index]];
+    }
+    addModels(pool.slice(0,count));
+};
+$('color-by').onchange=render;
 $('pin-model').onclick=()=>{
     const option=$('structures').selectedOptions[0];
     if(!pinned && !option)return;

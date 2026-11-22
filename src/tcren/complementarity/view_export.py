@@ -31,6 +31,9 @@ def _json(path, value):
     Path(path).write_text(json.dumps(value, allow_nan=False, indent=2), encoding="utf-8")
 
 
+_COMPARISON_FIELDS = ("outcome", "outcome_kind", "iptm", "plddt")
+
+
 def write_view_groups(output: Path, *, fixed=None) -> None:
     """Index an existing table export for group-scoped browsing without rebuilding tables."""
     output = Path(output)
@@ -40,7 +43,7 @@ def write_view_groups(output: Path, *, fixed=None) -> None:
         for row in json.loads((output / "summary.json").read_text(encoding="utf-8"))
     }
     manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
-    fields = ("id", "task", "reference", "group_label", "outcome", "library_response",
+    fields = ("id", "task", "reference", "group_label", *_COMPARISON_FIELDS, "library_response",
               "model_metrics", "molecular_file", "cache")
     sizes = dict.fromkeys(manifest["partner_order"], 1)
     browser_entries = []
@@ -134,6 +137,7 @@ def export_views(exports, output, *, grid=(64, 64), extent=(-40., 40., -40., 40.
         records.append(dict(id=scene["id"], display_label=entry.get("display_label", entry.get("label", scene["id"])), reference=scene["frame"]["reference"],
                             task=scene["task"], tables=paths, cache=cache, facets=facets,
                             scene_sha256=_sha(source)))
+        records[-1].update({key: entry[key] for key in _COMPARISON_FIELDS if key in entry})
     summary = pl.DataFrame(summaries, schema=SUMMARY_SCHEMA)
     write_table_partition(summary, output, "summary.parquet")
     _json(output / "summary.json", summaries)
