@@ -75,6 +75,11 @@ to save them across label or confidence filters. Use **Add random matches**
 to sample without replacement and **Clear selection** to start over.
 Color molecular overlays by model, label, ipTM or mean pLDDT.
 
+Dashboard template v1.4.1 and later carry saved models between molecular
+maps and topography/heatmaps in the same browser tab, within the same
+dataset and reference group. Use **Add highlighted** once. Adding,
+removing, or clearing saved models in either view updates the shared set.
+
 In the table view, open **Compare multiple models**. The binary contrast
 subtracts the label 0 cell mean from the label 1 cell mean where both
 classes have data. For a numeric label, ipTM or pLDDT, the weighted map
@@ -96,6 +101,11 @@ share the bundled ``dashboard.css`` stylesheet. Run
 ``tcren dashboard bootstrap -o template`` to download the pinned revision into a
 new directory. Add ``--source /path/to/assets`` to verify and copy assets from a
 local checkout of that revision.
+
+Viewer-only changes ship as dashboard template releases. A deployment
+that serves a separately pinned template can update its viewer assets
+without changing the TCRen version. Offline CLI imports and the bootstrap
+command use the snapshot pinned by the installed TCRen package.
 
 Ranking frames
 --------------

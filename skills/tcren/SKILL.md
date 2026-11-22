@@ -87,6 +87,10 @@ Open the score table to inspect each model's molecular and table views.
 The exported bundle includes model IDs, labels and derived structural data.
 See the [browser guide](https://docs.isalgo.dev/tcren/complementarity.html).
 
+Viewer-only changes ship as dashboard template releases. Deployments can
+update their separately pinned viewer assets without upgrading TCRen.
+The CLI owns preprocessing, analysis, and data exports.
+
 The installed package includes the pinned viewer assets for offline imports.
 The molecular viewer loads one group initially. Legacy ID-only bookmarks still
 resolve through the full index and preserve the group when switching views.
@@ -103,6 +107,11 @@ Highlight models in one reference group and choose **Add highlighted**
 to save them across label or confidence filters. Use **Add random matches**
 to sample without replacement and **Clear selection** to start over.
 Color molecular overlays by model, label, ipTM or mean pLDDT.
+
+Dashboard template v1.4.1 and later carry saved models between molecular
+maps and topography/heatmaps in the same browser tab, within the same
+dataset and reference group. Use **Add highlighted** once. Adding,
+removing, or clearing saved models in either view updates the shared set.
 
 In the table view, open **Compare multiple models**. The binary contrast
 subtracts the label 0 cell mean from the label 1 cell mean where both
