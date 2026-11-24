@@ -263,6 +263,20 @@ the generator confidence table or a colocated ``metadata.tsv``.
 The command types the structures in a batch and extracts the structural
 alanine reference, interface size and surface complementarity.
 
+For receptor ranking, supply a contact-language reference assembled from
+the saved development effects and coefficients.
+
+.. code-block:: console
+
+   tcren screen --method native387-v1 --structures models/ --task tcr --confidence confidence.tsv --contact-reference contact-reference.json -o scores.tsv
+
+For multiple units, use ``--ranking-unit`` with a column from the confidence
+table or ``metadata.tsv``. Each receptor-ranking unit must share a peptide
+and MHC chain sequences. The ensemble uses the complete supplied structure
+batch for multiplicity normalization and standardizes scores within units.
+The output records the contact reference SHA-256 and the application batch
+size. See :doc:`features` for the reference packing recipe.
+
 Use the named ``native387-v1`` method with a prepared feature table. Supply
 the task and the column that identifies each ranking unit. Receptor ranking
 holds peptide and MHC fixed within a unit. Epitope ranking holds the receptor

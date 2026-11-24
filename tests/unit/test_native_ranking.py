@@ -159,3 +159,51 @@ def test_native_screen_from_peptide_structures_reads_confidence_and_types_once(t
     expected = rank_native_screen(base, task="epitope", ranking_unit="unit", min_cohort=1)
     actual = pl.read_csv(out, separator="\t")
     np.testing.assert_allclose(actual["screen_score"], expected["screen_score"])
+
+
+def test_native_screen_prepares_receptor_terms_with_explicit_reference(tmp_path, monkeypatch):
+    import json
+    from types import SimpleNamespace
+
+    from tcren import cli, native_ranking, screen
+
+    base = _inputs().with_columns(peptide=pl.lit("NOTCOVERED"), plddt=pl.lit(85.),
+                                  contact_language=pl.Series([2., 4., 1., 3.]),
+                                  kept_edge_frac=pl.Series([.3, .5, .1, .2]))
+    structures = [SimpleNamespace(pdb_id=id_, chains=[
+        SimpleNamespace(chain_type="MHCa", sequence=lambda: "MHC")
+    ]) for id_ in base["complex.id"]]
+    monkeypatch.setattr(cli, "_typed_batch", lambda *_args, **_kwargs: structures)
+    monkeypatch.setattr(screen, "identities", lambda _: (["NOTCOVERED"] * 4, list(zip("ABCD", "EFGH"))))
+    provided = []
+
+    def extract(batch, reference, *, threads):
+        provided.append((len(batch), len(reference.models), threads))
+        return base.drop("iptm", "plddt", "unit", "peptide").with_columns(
+            pl.lit(reference.sha256).alias("contact_reference_sha256"))
+
+    monkeypatch.setattr(native_ranking, "native_receptor_features", extract, raising=False)
+    reference = tmp_path / "reference.json"
+    reference.write_text(json.dumps({
+        "format": "tcren-contact-language-1", "version": "native387-contact-language-v1",
+        "models": [{
+            "name": "sample", "coefficients": {"intercept": 0.5},
+            "effects": [["tcr_peptide", "A_engagement", "A|C", 0.3, -0.2]],
+        }],
+        "atom_effects": {"tcr_peptide/CA|O": 0.75},
+        "residue_effects": {"tcr_peptide/A|C": 0.25},
+    }))
+    confidence = tmp_path / "confidence.tsv"
+    base.select("complex.id", "iptm", "plddt", "unit").write_csv(confidence, separator="\t")
+    out = tmp_path / "scores.tsv"
+    result = CliRunner().invoke(app, [
+        "screen", "--method", "native387-v1", "-s", "models", "--task", "tcr",
+        "--confidence", str(confidence), "--ranking-unit", "unit",
+        "--contact-reference", str(reference), "--min-cohort", "1", "-o", str(out), "-t", "1",
+    ])
+    assert result.exit_code == 0, result.output
+    assert provided == [(4, 1, 1)]
+    expected = rank_native_screen(base, task="tcr", ranking_unit="unit", min_cohort=1)
+    actual = pl.read_csv(out, separator="\t")
+    np.testing.assert_allclose(actual["screen_score"], expected["screen_score"])
+    assert actual["contact_reference_sha256"].str.len_chars().to_list() == [64] * 4

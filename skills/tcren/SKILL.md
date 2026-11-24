@@ -199,6 +199,11 @@ For a single fixed-receptor peptide cohort, pass `--structures` and
 `--task epitope`. Supply generator ipTM with `--confidence` or `metadata.tsv`.
 
 
+For receptor structures, pass `--task tcr` and `--contact-reference` with
+the packed development effects and ensemble coefficients. Use
+`--ranking-unit` on the confidence table for multiple units. Keep the full
+application batch together when reproducing contact-language values.
+
 Inspect the versioned native energy, interface-size, geometry and contact
 references with `tcren reference --show`. Record its digest with derived scores.
 

@@ -272,7 +272,9 @@ def _screen_descriptors(structs: list, task, *, organism: str, threads: int, mot
     return energy.join(table, on="complex.id", how="left", validate="1:1", maintain_order="left")
 
 
-def _screen_confidence(confidence: Path | None, structures) -> pl.DataFrame | None:
+def _screen_confidence(
+    confidence: Path | None, structures, *, unit: str | None = None,
+) -> pl.DataFrame | None:
     """ipTM for the set: an explicit table if given, otherwise the set's own metadata.tsv."""
     from .metadata import read_metadata
 
@@ -286,14 +288,16 @@ def _screen_confidence(confidence: Path | None, structures) -> pl.DataFrame | No
         if t["complex.id"].is_duplicated().any():
             raise typer.BadParameter("--confidence has duplicate complex.id values")
         return t.select("complex.id", *[pl.col(c).cast(pl.Float64)
-                        for c in ("iptm", "plddt") if c in t.columns])
+                        for c in ("iptm", "plddt") if c in t.columns],
+                        *([unit] if unit in t.columns else []))
     tables = []
     for spec in (structures if isinstance(structures, list) else [structures]):
         meta = read_metadata(spec)
         if meta is not None and "iptm" in meta.columns:
             tables.append(meta.select(pl.col("id").cast(pl.String).alias("complex.id"),
                                       *[pl.col(c).cast(pl.Float64)
-                                        for c in ("iptm", "plddt") if c in meta.columns]))
+                                        for c in ("iptm", "plddt") if c in meta.columns],
+                                      *([unit] if unit in meta.columns else [])))
     if not tables:
         return None
     merged = pl.concat(tables, how="diagonal_relaxed").unique(maintain_order=True)
@@ -301,6 +305,62 @@ def _screen_confidence(confidence: Path | None, structures) -> pl.DataFrame | No
         raise typer.BadParameter("conflicting confidence metadata for duplicate complex.id")
     return merged
 
+
+
+def _native_screen_table(
+    structures, confidence, task: str, ranking_unit: str | None,
+    contact_reference: Path | None, organism: str, threads: int,
+) -> tuple[pl.DataFrame, str]:
+    from .native_ranking import native_epitope_features, native_receptor_features
+    from .screen import CohortKind, cohort_signature, identities
+
+    if task not in ("tcr", "epitope"):
+        raise ValueError("native structure ranking requires --task tcr or epitope")
+    if (task == "tcr") != (contact_reference is not None):
+        raise ValueError("--contact-reference is required for native TCR structures only")
+    if ranking_unit in {"complex.id", "iptm", "plddt", "peptide"}:
+        raise ValueError("--ranking-unit must name a separate cohort column")
+    iptm = _screen_confidence(confidence, structures, unit=ranking_unit)
+    if iptm is None:
+        raise ValueError("provide ipTM with --confidence or metadata.tsv")
+    single_unit = ranking_unit is None
+    if single_unit:
+        ranking_unit = "cohort"
+    elif ranking_unit not in iptm.columns:
+        raise ValueError(f"confidence metadata needs ranking-unit column {ranking_unit!r}")
+
+    threads = resolve_threads(threads)
+    batch = _typed_batch(structures, organism, threads=threads)
+    if not batch or len({s.pdb_id for s in batch}) != len(batch):
+        raise ValueError("native ranking requires a nonempty set with unique structure IDs")
+    peptides, receptors = identities(batch)
+    keys = pl.DataFrame({"complex.id": [s.pdb_id for s in batch]}).with_row_index("index")
+    members = keys.join(iptm, on="complex.id", how="left", validate="1:1", maintain_order="left")
+    if single_unit:
+        members = members.with_columns(pl.lit("input").alias(ranking_unit))
+    elif members[ranking_unit].null_count():
+        raise ValueError("each structure needs a ranking-unit value in confidence metadata")
+    for (unit,), group in members.group_by(ranking_unit, maintain_order=True):
+        indices = group["index"].to_list()
+        kind, _ = cohort_signature([peptides[i] for i in indices], [receptors[i] for i in indices])
+        if kind is not CohortKind(task):
+            raise ValueError(f"ranking unit {unit!r} does not match declared task {task!r}")
+        if task == "tcr":
+            mhc = {tuple(sorted((c.chain_type, c.sequence()) for c in batch[i].chains
+                                if c.chain_type in {"MHCa", "MHCb"})) for i in indices}
+            if len(mhc) != 1 or not next(iter(mhc)):
+                raise ValueError(f"ranking unit {unit!r} requires matching MHC chain sequences")
+
+    if contact_reference is None:
+        features = native_epitope_features(batch, threads=threads)
+    else:
+        from .contacts.language import load_contact_language_reference
+
+        model = load_contact_language_reference(contact_reference)
+        features = native_receptor_features(batch, model, threads=threads)
+    members = members.drop("index").with_columns(pl.Series("peptide", peptides))
+    return members.join(features, on="complex.id", how="left", validate="1:1",
+                        maintain_order="left"), ranking_unit
 
 
 @app.command(rich_help_panel=_P_MAIN)
@@ -311,6 +371,7 @@ def screen(
     method: Annotated[str, typer.Option("--method", help="legacy or native387-v1")] = "legacy",
     features: Annotated[Path | None, typer.Option("--features", help="prepared native387-v1 feature table")] = None,
     ranking_unit: Annotated[str | None, typer.Option("--ranking-unit", help="column identifying each native ranking unit")] = None,
+    contact_reference: Annotated[Path | None, typer.Option("--contact-reference", help="versioned contact-language reference for native receptor structures")] = None,
     confidence: Path = typer.Option(None, "--confidence", help="table of complex.id, iptm and optional plddt (0–100); defaults to metadata.tsv"),
     confidence_context: str = typer.Option("cohort", "--confidence-context", help="cohort (default) | nearest-plddt (each model) | nearest-mean-plddt (supplied same-pMHC set); proxy modes require --task tcr and keep --min-cohort"),
     reference: Path = typer.Option(None, "--reference", help="frozen reference JSON (default: the bundled one for the detected task)"),
@@ -351,7 +412,7 @@ def screen(
     """
     if method != "legacy":
         from .associations import read_table
-        from .native_ranking import METHOD, native_epitope_features, rank_native_screen
+        from .native_ranking import METHOD, rank_native_screen
         from .provenance import stamp
 
         if method != METHOD:
@@ -362,29 +423,14 @@ def screen(
             raise typer.BadParameter("native ranking uses the bundled native reference for coverage")
         try:
             if structures:
-                if task != "epitope" or features is not None or ranking_unit is not None:
-                    raise typer.BadParameter(
-                        "native structure input requires --task epitope and one ranking cohort"
-                    )
-                from .screen import CohortKind, cohort_signature, identities
-
-                n_threads = resolve_threads(threads)
-                batch = _typed_batch(structures, organism, threads=n_threads)
-                detected, _ = cohort_signature(*identities(batch))
-                if detected is not CohortKind.EPITOPE_RANKING:
-                    raise typer.BadParameter("native epitope ranking requires a fixed receptor")
-                if len({s.pdb_id for s in batch}) != len(batch):
-                    raise typer.BadParameter("native ranking requires unique structure IDs")
-                iptm = _screen_confidence(confidence, structures)
-                if iptm is None:
-                    raise typer.BadParameter("provide ipTM with --confidence or metadata.tsv")
-                ranking_unit = "cohort"
-                table = native_epitope_features(batch, threads=n_threads).join(
-                    iptm, on="complex.id", how="left", validate="1:1", maintain_order="left"
-                ).with_columns(pl.lit("input").alias(ranking_unit))
+                if features is not None:
+                    raise ValueError("choose --structures or --features")
+                table, ranking_unit = _native_screen_table(
+                    structures, confidence, task, ranking_unit, contact_reference, organism, threads,
+                )
             else:
-                if features is None or not ranking_unit or confidence is not None:
-                    raise typer.BadParameter("native table ranking requires --features and --ranking-unit")
+                if features is None or not ranking_unit or confidence is not None or contact_reference is not None:
+                    raise ValueError("native table ranking requires --features and --ranking-unit")
                 table = read_table(features)
             result = rank_native_screen(table, task=task, ranking_unit=ranking_unit,
                                         min_cohort=min_cohort, reference_path=reference)
@@ -394,6 +440,8 @@ def screen(
         stamp(out, command="screen", columns=result.columns, extra={
             "score_method": METHOD, "task": task, "ranking_unit": ranking_unit,
             "reference_sha256": result["native_reference_sha256"][0], "min_cohort": min_cohort,
+            "contact_reference_sha256": (result["contact_reference_sha256"][0]
+                                         if "contact_reference_sha256" in result.columns else None),
         })
         zero = result["no_interface"].sum()
         if zero:
@@ -402,8 +450,8 @@ def screen(
         return
     if not structures:
         raise typer.BadParameter("--structures is required for legacy screening")
-    if features is not None or ranking_unit is not None:
-        raise typer.BadParameter("--features and --ranking-unit require --method native387-v1")
+    if features is not None or ranking_unit is not None or contact_reference is not None:
+        raise typer.BadParameter("--features, --ranking-unit and --contact-reference require --method native387-v1")
 
     from .screen import (
         FLAGS as FLAG_TEXT, CohortKind, FlagResponse, apply_flag_response, bundled_reference,

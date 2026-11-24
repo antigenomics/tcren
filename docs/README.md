@@ -133,6 +133,18 @@ Keep matched populations, component readouts and every cohort gain or loss visib
 [Score definitions](https://docs.isalgo.dev/tcren/screening.html) and
 [reference dependencies](https://docs.isalgo.dev/tcren/fit-free.html) give the full contracts.
 
+## Native-reference ranking and docking diagnostics
+
+Use `screen --method native387-v1` for the explicit receptor and epitope
+formulas. Supply structures with generator confidence or a prepared feature
+table. Receptor structure input also takes a contact-language reference.
+Use `reference --show` to inspect the frozen crystal reference and
+`contacts --typicality` for a size-conditioned contact diagnostic.
+The Python `diagnose_docking` API reports missing contacts by chain and
+lateral poses relative to the MHC groove. See the
+[screening guide](https://docs.isalgo.dev/tcren/screening.html) and
+[pose diagnostics](https://docs.isalgo.dev/tcren/features.html#pose-diagnostics).
+
 ## Explore an application or reproduce a comparison
 
 | Example | What you can reproduce |
