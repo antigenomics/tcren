@@ -194,8 +194,9 @@ for supplied metadata, sequence support and ambiguity fields.
 Inspect the versioned native energy, interface-size, geometry and contact
 references with `tcren reference --show`. Record its digest with derived scores.
 
-Use `scoring --delta --reference-mode structural` for peptide alanine truncation
-and `export --quantity receptor-reference --reference-mode structural` for
+Use `scoring --delta --reference-mode structural` for peptide alanine truncation.
+Add `--reference-side tcr` for the whole TCR or `--reference-side both` for both
+independent references. Use `export --quantity receptor-reference --reference-mode structural` for
 contacted receptor residues. These rebuild the contact map. Fixed-map virtual
 substitution and the historical feature-table dPhi columns are different quantities.
 Do not silently switch them during reproduction.
