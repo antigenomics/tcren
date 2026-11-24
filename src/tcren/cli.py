@@ -616,6 +616,9 @@ def contacts(
     atom_pairs: str = typer.Option(
         "closest", "--atom-pairs", help="closest per residue pair, or all heavy-atom pairs"
     ),
+    typicality: bool = typer.Option(
+        False, "--typicality", help="output one Native387 typicality row per structure"
+    ),
     organism: str = typer.Option("human", "--organism"),
     threads: int = typer.Option(0, "-t", "--threads", help="CPU budget: 1 serial, 0 automatic (all allocated physical cores), or a positive count"),
 ) -> None:
@@ -624,6 +627,26 @@ def contacts(
         raise typer.BadParameter("--regions must be one of all|cdr|cdr+fr")
     if atom_pairs not in ("closest", "all"):
         raise typer.BadParameter("--atom-pairs must be closest or all")
+    if typicality:
+        if cutoff != 5.0 or regions != "all" or interface not in ("all", "tcr_peptide"):
+            raise typer.BadParameter(
+                "--typicality requires a 5 Å cutoff, all regions, and tcr_peptide or all"
+            )
+        from .contact_typicality import contact_typicality, native_contact_observations
+
+        scope = "complex" if interface == "all" else interface
+        alphabet = "atom" if atom_pairs == "all" else "residue"
+        batch = _typed_batch(structures, organism, mhc=scope == "complex", threads=threads)
+        if not batch:
+            raise typer.BadParameter(f"no structures found in {structures!r}")
+        observations = pl.concat([
+            native_contact_observations(s, alphabet=alphabet, scope=scope) for s in batch
+        ])
+        table = contact_typicality(observations, [s.pdb_id for s in batch],
+                                   alphabet=alphabet, scope=scope)
+        table.write_csv(out)
+        typer.echo(f"wrote {out} ({table.height} structures)")
+        return
     all_atoms = atom_pairs == "all"
     # An MHC-side interface selects nothing until annotate_mhc splits "MHC" into MHCa/MHCb, and
     # `ContactMap.interface` now refuses rather than returning an empty frame. `all` needs it too:

@@ -5,6 +5,9 @@ All notable changes to `tcren` are recorded here. Format follows
 
 ## [Unreleased]
 
+- Report size-conditioned Native387 contact typicality and its simulation
+  standard error with `contacts --typicality`.
+
 - Export all heavy-atom pairs with `contacts --atom-pairs all` and include the
   TCR–peptide heavy-atom count in the interface feature table.
 
