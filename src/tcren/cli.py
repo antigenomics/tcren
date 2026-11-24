@@ -304,9 +304,12 @@ def _screen_confidence(confidence: Path | None, structures) -> pl.DataFrame | No
 
 @app.command(rich_help_panel=_P_MAIN)
 def screen(
-    structures: list[str] = typer.Option(..., "-s", "--structures", help="structure file(s), directory, .tar.gz, glob, or a .txt manifest of paths; repeatable and comma-separable"),
+    structures: list[str] = typer.Option(None, "-s", "--structures", help="structure file(s), directory, .tar.gz, glob, or a .txt manifest of paths; repeatable and comma-separable"),
     out: Path = typer.Option("screen.tsv", "-o", "--out", help="per-model score table (TSV)"),
     task: str = typer.Option("auto", "--task", help="auto|epitope|tcr; a declared task is verified against the structures"),
+    method: str = typer.Option("legacy", "--method", help="legacy or native387-v1"),
+    features: Path = typer.Option(None, "--features", help="prepared native387-v1 feature table"),
+    ranking_unit: str = typer.Option(None, "--ranking-unit", help="column identifying each native ranking unit"),
     confidence: Path = typer.Option(None, "--confidence", help="table of complex.id, iptm and optional plddt (0–100); defaults to metadata.tsv"),
     confidence_context: str = typer.Option("cohort", "--confidence-context", help="cohort (default) | nearest-plddt (each model) | nearest-mean-plddt (supplied same-pMHC set); proxy modes require --task tcr and keep --min-cohort"),
     reference: Path = typer.Option(None, "--reference", help="frozen reference JSON (default: the bundled one for the detected task)"),
@@ -345,6 +348,38 @@ def screen(
     contact listing, `superimpose` for canonical orientation, `surface` for pMHC topography,
     `features` for the full descriptor table.
     """
+    if method != "legacy":
+        from .associations import read_table
+        from .native_ranking import METHOD, rank_native_screen
+        from .provenance import stamp
+
+        if method != METHOD:
+            raise typer.BadParameter(f"--method must be legacy or {METHOD}")
+        if features is None or not ranking_unit or structures:
+            raise typer.BadParameter("native ranking requires --features and --ranking-unit")
+        if (confidence is not None or confidence_context != "cohort" or on_flag != "report"
+                or weight is not None or template_metadata is not None or template_status is not None):
+            raise typer.BadParameter("native ranking uses the confidence and coverage in its feature table")
+        try:
+            result = rank_native_screen(read_table(features), task=task, ranking_unit=ranking_unit,
+                                        min_cohort=min_cohort, reference_path=reference)
+        except (OSError, ValueError, pl.exceptions.PolarsError) as exc:
+            raise typer.BadParameter(str(exc)) from exc
+        result.write_csv(out, separator="\t")
+        stamp(out, command="screen", columns=result.columns, extra={
+            "score_method": METHOD, "task": task, "ranking_unit": ranking_unit,
+            "reference_sha256": result["native_reference_sha256"][0], "min_cohort": min_cohort,
+        })
+        zero = result["no_interface"].sum()
+        if zero:
+            typer.echo(f"WARNING: {zero} zero-contact model(s), screen_score=0", err=True)
+        typer.echo(f"wrote {out} ({result.height} rows)")
+        return
+    if not structures:
+        raise typer.BadParameter("--structures is required for legacy screening")
+    if features is not None or ranking_unit is not None:
+        raise typer.BadParameter("--features and --ranking-unit require --method native387-v1")
+
     from .screen import (
         FLAGS as FLAG_TEXT, CohortKind, FlagResponse, apply_flag_response, bundled_reference,
         cohort_flags, cohort_signature, identities, read_reference, screen_scores,
