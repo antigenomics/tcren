@@ -72,6 +72,24 @@ Position exports use ``position_profile``; residue exports use
 Each contact contributes to both residue endpoints, so the sum of endpoint
 contributions is twice the contact sum. Distances and placement are in angstroms.
 
+Versioned native reference
+--------------------------
+
+``tcren reference`` prints the version and SHA-256 of the installed Native387
+reference. Add ``--show`` to inspect its energy anchors, geometry, interface
+size, atom and residue contact probabilities, and source digests. The reference
+is bundled in the wheel and is available before fetching coordinate data.
+
+The energy anchors group by peptide sequence over 387 measured structures.
+Single-crystal groups carry a centre and count with an undefined sample
+standard deviation. The interface-size centre is 174 heavy-atom pairs within
+5 Å, with a scaled median absolute deviation of 59.304 pairs, from 386 native
+structures with observed TCR–peptide contact. Each of the 18 geometry summaries
+uses 387 finite measurements. Contact frequencies are estimated over the
+native structures on an explicit vocabulary that also includes cells from
+unlabelled model contacts. Python callers can inspect the same reference with
+``tcren.native_reference.load_native_reference()``.
+
 Identity and accounting
 -----------------------
 
