@@ -83,3 +83,10 @@ def test_annotate_batch_resolves_the_backend_itself():
     s = import_structure(Path(__file__).resolve().parents[1] / "assets" / "pdb" / "1ao7.pdb")
     records = annotate_batch([s])                       # no explicit arda instance
     assert sorted(records[0]["human"]) == sorted(c.chain_id for c in s.chains)
+
+
+def test_bootstrap_ignores_legacy_keywords_with_deprecation():
+    from tcren.paper import bootstrap
+
+    with pytest.warns(DeprecationWarning, match="legacy option"):
+        assert bootstrap(structures=False, external_inputs=True) == {}

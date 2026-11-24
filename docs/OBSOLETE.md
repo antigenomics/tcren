@@ -9,3 +9,11 @@ conventions; absence from the current estimator does not imply an unused API.
 - `tcren.potential.redundancy.cluster_weights` --- Explicit alternative clustering weights.
 - `tcren.potential.redundancy.epitope_weights` --- Explicit single-axis weighting alias.
 - `tcren.potential.redundancy.nonredundant_ids` --- Explicit cluster-member exclusion.
+
+# Deprecated paper bootstrap options
+
+Remove extra keyword arguments passed to `tcren.paper.bootstrap`. Extra
+keywords are ignored and now raise a `DeprecationWarning`. Use `structures`
+to control the structure download and `canonical=True` to include the
+canonical set. The legacy comparison data remain in the reproduction
+workflow.
