@@ -248,3 +248,54 @@ Library API
 
 .. automodule:: tcren.screen
    :members:
+
+
+Native387 ranking
+-----------------
+
+To rank one fixed-receptor peptide cohort directly from structures, supply
+the generator confidence table or a colocated ``metadata.tsv``.
+
+.. code-block:: console
+
+   tcren screen --method native387-v1 --structures models/ --task epitope --confidence confidence.tsv -o scores.tsv
+
+The command types the structures in a batch and extracts the structural
+alanine reference, interface size and surface complementarity.
+
+Use the named ``native387-v1`` method with a prepared feature table. Supply
+the task and the column that identifies each ranking unit. Receptor ranking
+holds peptide and MHC fixed within a unit. Epitope ranking holds the receptor
+fixed within a unit.
+
+.. code-block:: console
+
+   tcren screen --method native387-v1 --features models.tsv --task tcr --ranking-unit cohort -o scores.tsv
+
+Both tasks read ``iptm``, a probability between zero and one, and
+``n_atom_contacts_tp``, an observed heavy-atom count. Receptor ranking also
+reads ``peptide``, ``plddt`` on the 0–100 scale, and ``contact_language``.
+If the whole unit lacks contact-language values it uses ``pi_atom``. The
+covered branch uses ``interlock_frac`` and the distance of
+``dPhi_peptide_sum`` from the native peptide anchor. The uncovered branch
+uses ``kept_edge_frac``. Both branches use the distance from the native
+contact-count centre. Supply ``mhc`` to check that all recorded MHC values
+agree within each receptor-ranking unit.
+
+Epitope ranking reads ``dPhi_peptide_sum``, ``d_charge`` and ``coverage``.
+Within a unit, let C be standardized logit ipTM and W be negative standardized
+energy. The composite is 0.8 times the standardized mean of C and W, plus
+0.1 times negative standardized charge difference and 0.1 times standardized
+coverage. The receptor branch averages its standardized, oriented terms
+with equal weights. Standardization uses the population SD within each unit.
+Constant terms contribute zero. Receptor pLDDT uses the known unit median
+for null observations. Missing required terms withhold the unit's formula
+score, and ``n_missing_terms`` reports the missing inputs for each row.
+
+The weighted ``term_*`` columns sum to ``workflow_score``, the recorded formula.
+Use ``screen_score`` for policy-aware screening. It gives zero to observed
+zero-contact poses, with a reason, and withholds nonzero-contact scores below
+the cohort floor. Unknown contact counts remain explicit. Each output row
+carries the reference digest, unit counts, energy coverage for receptor
+ranking, and available within-unit Spearman correlations with contact count
+for the formula and its terms.

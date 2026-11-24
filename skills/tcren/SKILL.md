@@ -191,6 +191,14 @@ MHC role/groove annotation is needed by the graph; an exact allele name is not a
 term in the default score. Sequence-equivalent allele names may be unresolved. Read [MHC identity](https://docs.isalgo.dev/tcren/mhc-annotation.html)
 for supplied metadata, sequence support and ambiguity fields.
 
+Use `screen --method native387-v1 --features TABLE --task tcr|epitope
+--ranking-unit COLUMN` for the recorded within-unit formulas. Keep
+`workflow_score` for formula reproduction and `screen_score` for the
+zero-contact and cohort-floor policy.
+For a single fixed-receptor peptide cohort, pass `--structures` and
+`--task epitope`. Supply generator ipTM with `--confidence` or `metadata.tsv`.
+
+
 Inspect the versioned native energy, interface-size, geometry and contact
 references with `tcren reference --show`. Record its digest with derived scores.
 

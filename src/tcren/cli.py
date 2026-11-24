@@ -43,6 +43,7 @@ from __future__ import annotations
 
 
 from pathlib import Path
+from typing import Annotated
 
 import polars as pl
 import typer
@@ -304,9 +305,12 @@ def _screen_confidence(confidence: Path | None, structures) -> pl.DataFrame | No
 
 @app.command(rich_help_panel=_P_MAIN)
 def screen(
-    structures: list[str] = typer.Option(..., "-s", "--structures", help="structure file(s), directory, .tar.gz, glob, or a .txt manifest of paths; repeatable and comma-separable"),
+    structures: list[str] = typer.Option(None, "-s", "--structures", help="structure file(s), directory, .tar.gz, glob, or a .txt manifest of paths; repeatable and comma-separable"),
     out: Path = typer.Option("screen.tsv", "-o", "--out", help="per-model score table (TSV)"),
     task: str = typer.Option("auto", "--task", help="auto|epitope|tcr; a declared task is verified against the structures"),
+    method: Annotated[str, typer.Option("--method", help="legacy or native387-v1")] = "legacy",
+    features: Annotated[Path | None, typer.Option("--features", help="prepared native387-v1 feature table")] = None,
+    ranking_unit: Annotated[str | None, typer.Option("--ranking-unit", help="column identifying each native ranking unit")] = None,
     confidence: Path = typer.Option(None, "--confidence", help="table of complex.id, iptm and optional plddt (0–100); defaults to metadata.tsv"),
     confidence_context: str = typer.Option("cohort", "--confidence-context", help="cohort (default) | nearest-plddt (each model) | nearest-mean-plddt (supplied same-pMHC set); proxy modes require --task tcr and keep --min-cohort"),
     reference: Path = typer.Option(None, "--reference", help="frozen reference JSON (default: the bundled one for the detected task)"),
@@ -345,6 +349,62 @@ def screen(
     contact listing, `superimpose` for canonical orientation, `surface` for pMHC topography,
     `features` for the full descriptor table.
     """
+    if method != "legacy":
+        from .associations import read_table
+        from .native_ranking import METHOD, native_epitope_features, rank_native_screen
+        from .provenance import stamp
+
+        if method != METHOD:
+            raise typer.BadParameter(f"--method must be legacy or {METHOD}")
+        if confidence_context != "cohort" or on_flag != "report" or weight is not None:
+            raise typer.BadParameter("native ranking uses its fixed weights and cohort confidence")
+        if template_metadata is not None or template_status is not None:
+            raise typer.BadParameter("native ranking uses the bundled native reference for coverage")
+        try:
+            if structures:
+                if task != "epitope" or features is not None or ranking_unit is not None:
+                    raise typer.BadParameter(
+                        "native structure input requires --task epitope and one ranking cohort"
+                    )
+                from .screen import CohortKind, cohort_signature, identities
+
+                n_threads = resolve_threads(threads)
+                batch = _typed_batch(structures, organism, threads=n_threads)
+                detected, _ = cohort_signature(*identities(batch))
+                if detected is not CohortKind.EPITOPE_RANKING:
+                    raise typer.BadParameter("native epitope ranking requires a fixed receptor")
+                if len({s.pdb_id for s in batch}) != len(batch):
+                    raise typer.BadParameter("native ranking requires unique structure IDs")
+                iptm = _screen_confidence(confidence, structures)
+                if iptm is None:
+                    raise typer.BadParameter("provide ipTM with --confidence or metadata.tsv")
+                ranking_unit = "cohort"
+                table = native_epitope_features(batch, threads=n_threads).join(
+                    iptm, on="complex.id", how="left", validate="1:1", maintain_order="left"
+                ).with_columns(pl.lit("input").alias(ranking_unit))
+            else:
+                if features is None or not ranking_unit or confidence is not None:
+                    raise typer.BadParameter("native table ranking requires --features and --ranking-unit")
+                table = read_table(features)
+            result = rank_native_screen(table, task=task, ranking_unit=ranking_unit,
+                                        min_cohort=min_cohort, reference_path=reference)
+        except (OSError, ValueError, pl.exceptions.PolarsError) as exc:
+            raise typer.BadParameter(str(exc)) from exc
+        result.write_csv(out, separator="\t")
+        stamp(out, command="screen", columns=result.columns, extra={
+            "score_method": METHOD, "task": task, "ranking_unit": ranking_unit,
+            "reference_sha256": result["native_reference_sha256"][0], "min_cohort": min_cohort,
+        })
+        zero = result["no_interface"].sum()
+        if zero:
+            typer.echo(f"WARNING: {zero} zero-contact model(s), screen_score=0", err=True)
+        typer.echo(f"wrote {out} ({result.height} rows)")
+        return
+    if not structures:
+        raise typer.BadParameter("--structures is required for legacy screening")
+    if features is not None or ranking_unit is not None:
+        raise typer.BadParameter("--features and --ranking-unit require --method native387-v1")
+
     from .screen import (
         FLAGS as FLAG_TEXT, CohortKind, FlagResponse, apply_flag_response, bundled_reference,
         cohort_flags, cohort_signature, identities, read_reference, screen_scores,
