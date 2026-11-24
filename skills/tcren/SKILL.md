@@ -66,7 +66,7 @@ and inspect every generated figure; no browser-side geometry or label-based fits
 | One receptor, separately modelled peptides | `screen` | [Screen contract](https://docs.isalgo.dev/tcren/screening.html) |
 | Candidate peptides threaded on one fixed template | `score` | [Getting started](https://docs.isalgo.dev/tcren/getting-started.html) |
 | Existing structural epitope-energy/ipTM table | `rank-epitopes` | [Epitope ranking](https://docs.isalgo.dev/tcren/ranking.html) |
-| Contacts, atom inventories or score attribution | `contacts`, `export` | [Features](https://docs.isalgo.dev/tcren/features.html) |
+| Contacts, atom inventories or score attribution | `contacts` (`--atom-pairs all` for every heavy-atom pair, `--typicality` for the size-conditioned Native387 diagnostic), `export` | [Features](https://docs.isalgo.dev/tcren/features.html) |
 | Shared-frame atom/residue views and overlays | `complementarity`, `complementarity-views`, `complementarity-plot` | [Complementarity](https://docs.isalgo.dev/tcren/complementarity.html) |
 | Canonical placement and pMHC surface | `superimpose`, `surface` | [Inspection](https://docs.isalgo.dev/tcren/kit.html) |
 | Recorded observations and matched comparisons | `evaluate`, `associate` | [Evaluation](https://docs.isalgo.dev/tcren/evaluation.html) |
@@ -191,8 +191,25 @@ MHC role/groove annotation is needed by the graph; an exact allele name is not a
 term in the default score. Sequence-equivalent allele names may be unresolved. Read [MHC identity](https://docs.isalgo.dev/tcren/mhc-annotation.html)
 for supplied metadata, sequence support and ambiguity fields.
 
-Use `scoring --delta --reference-mode structural` for peptide alanine truncation
-and `export --quantity receptor-reference --reference-mode structural` for
+Use `screen --method native387-v1 --features TABLE --task tcr|epitope
+--ranking-unit COLUMN` for the recorded within-unit formulas. Keep
+`workflow_score` for formula reproduction and `screen_score` for the
+zero-contact and cohort-floor policy.
+For a single fixed-receptor peptide cohort, pass `--structures` and
+`--task epitope`. Supply generator ipTM with `--confidence` or `metadata.tsv`.
+
+
+For receptor structures, pass `--task tcr` and `--contact-reference` with
+the packed development effects and ensemble coefficients. Use
+`--ranking-unit` on the confidence table for multiple units. Keep the full
+application batch together when reproducing contact-language values.
+
+Inspect the versioned native energy, interface-size, geometry and contact
+references with `tcren reference --show`. Record its digest with derived scores.
+
+Use `scoring --delta --reference-mode structural` for peptide alanine truncation.
+Add `--reference-side tcr` for the whole TCR or `--reference-side both` for both
+independent references. Use `export --quantity receptor-reference --reference-mode structural` for
 contacted receptor residues. These rebuild the contact map. Fixed-map virtual
 substitution and the historical feature-table dPhi columns are different quantities.
 Do not silently switch them during reproduction.

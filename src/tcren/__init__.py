@@ -11,7 +11,7 @@ initialize_native_threads()
 
 from . import potential
 from .binder import is_real_interface
-from .paper.helpers import annotate_batch
+from .annotation.batch import annotate_batch
 from .refine.anchors import native_peptide
 from .cohort import (PHI_TERMS, Q_FEATURES_GEOM, coupling, phi_score, q_coupled, q_score,
                      strain_z, zscore)

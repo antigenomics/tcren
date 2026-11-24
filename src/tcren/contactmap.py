@@ -21,6 +21,15 @@ from .contacts.table import tidy_contacts
 from .structure.model import MHC_TYPES, PEPTIDE_TYPE, RECEPTOR_TYPES, Structure
 
 Interface = Literal["tcr_peptide", "tcr_mhc", "peptide_mhc"]
+_INTERFACE_ROLES = {
+    "tcr_peptide": (RECEPTOR_TYPES, (PEPTIDE_TYPE,)),
+    "tcr_mhc": (RECEPTOR_TYPES, MHC_TYPES),
+    "peptide_mhc": ((PEPTIDE_TYPE,), MHC_TYPES),
+}
+
+
+def _has_roles(from_types: tuple[str, ...], to_types: tuple[str, ...]) -> pl.Expr:
+    return pl.col("chain.type.from").is_in(from_types) & pl.col("chain.type.to").is_in(to_types)
 
 #: TCR region sets selectable on the ``from`` (TCR) side of an interface. ``"all"`` (no
 #: filter) is the default and reproduces the legacy behaviour byte-for-byte; ``"cdr"`` keeps
@@ -127,10 +136,7 @@ class ContactMap:
                 "before building the contact map", RuntimeWarning, stacklevel=3)
 
     def _interface(self, from_types: tuple[str, ...], to_types: tuple[str, ...]) -> pl.DataFrame:
-        sel = self.contacts.filter(
-            pl.col("chain.type.from").is_in(list(from_types))
-            & pl.col("chain.type.to").is_in(list(to_types))
-        )
+        sel = self.contacts.filter(_has_roles(from_types, to_types))
         # pos = residue.index - region.start (0-based position within a region).
         return sel.with_columns(
             (pl.col("residue.index.from") - pl.col("region.start.from")).alias("pos.from"),
@@ -156,24 +162,27 @@ class ContactMap:
         cached = self._iface_cache.get(key)
         if cached is not None:
             return cached
-        if which == "tcr_peptide":
-            sel = self._interface(RECEPTOR_TYPES, (PEPTIDE_TYPE,))
-        elif which == "tcr_mhc":
+        if which not in _INTERFACE_ROLES:
+            raise ValueError(f"unknown interface {which!r}")
+        if which != "tcr_peptide":
             self._warn_if_mhc_unannotated(which)
-            sel = self._interface(RECEPTOR_TYPES, MHC_TYPES)
-        elif which == "peptide_mhc":
-            self._warn_if_mhc_unannotated(which)
-            sel = self._interface((PEPTIDE_TYPE,), MHC_TYPES)
+        sel = self._interface(*_INTERFACE_ROLES[which])
+        if which == "peptide_mhc":
             self._iface_cache[key] = sel
             return sel
-        else:
-            raise ValueError(f"unknown interface {which!r}")
 
         keep = TCR_REGIONS[tcr_regions]
         if keep is not None:  # TCR is on the 'from' side for these interfaces
             sel = sel.filter(pl.col("region.type.from").is_in(list(keep)))
         self._iface_cache[key] = sel
         return sel
+
+    def labeled_contacts(self) -> pl.DataFrame:
+        """Label the biological interface of each existing view, in either direction."""
+        return self.contacts.with_columns(pl.coalesce([
+            pl.when(_has_roles(source, target) | _has_roles(target, source)).then(pl.lit(which))
+            for which, (source, target) in _INTERFACE_ROLES.items()
+        ]).alias("interface"))
 
     def tcr_peptide(self) -> pl.DataFrame:
         """Convenience accessor for the TCR↔peptide interface."""
@@ -186,6 +195,60 @@ class ContactMap:
     def to_csv(self, path: str | Path) -> None:
         """Write the full annotated contact table to CSV."""
         self.contacts.write_csv(str(path))
+
+
+# The ContactMap.tcr_peptide() columns the R benchmarks consume, in order.
+_CONTACT_COLS = [
+    "pdb.id", "chain.type.from", "region.type.from",
+    "residue.index.from", "residue.index.to",
+    "pos.from", "pos.to", "residue.aa.from", "residue.aa.to",
+]
+
+
+def contact_table(
+    structure: Structure, cutoff: float = 5.0, count_atoms: bool = False,
+    contact_types: bool = False, *, interface: str = "tcr_peptide",
+) -> pl.DataFrame:
+    """TCR↔peptide contact table for an annotated structure (the mir-replacement).
+
+    ``interface="tcr_mhc"`` selects directed TCR→complete-MHC contacts, retaining
+    physical chain IDs so class-II alpha/beta edges cannot collapse together.
+
+    The structure must already be chain-typed (``classify_chains``) and MHC-annotated
+    (``annotate_mhc``). Returns the columns the R benchmarks use:
+    ``pdb.id, chain.type.from, region.type.from, residue.index.from, residue.index.to,
+    pos.from, pos.to, residue.aa.from, residue.aa.to``.
+
+    When ``count_atoms`` is set, an extra ``n_atom_contacts`` column (the heavy-atom-pair
+    count per residue pair) is carried through for atomic-weighted scoring. Default
+    ``False`` keeps the schema byte-identical to the legacy output.
+
+    ``contact_types`` adds ``contact.type`` from :func:`tcren.contact_types.residue_pair_types`.
+    Without it a cached contact table cannot be typed after the fact — ``atom.from``, ``atom.to``
+    and ``dist`` are all dropped here — which is what blocked a type-aware potential derivation.
+    """
+    if interface not in {"tcr_peptide", "tcr_mhc", "peptide_mhc"}:
+        raise ValueError("derivation interface must be tcr_peptide, tcr_mhc or peptide_mhc")
+    tp = ContactMap.from_structure(
+        structure, cutoff=cutoff, count_atoms=count_atoms
+    ).interface(interface)
+    cols = list(_CONTACT_COLS)
+    if interface != "tcr_peptide":
+        cols += ["chain.id.from", "chain.id.to", "chain.type.to", "region.type.to"]
+    if count_atoms:
+        cols.append("n_atom_contacts")
+    out = tp.select(cols).unique()
+    if contact_types:
+        from .contact_types import residue_pair_types
+        typed = residue_pair_types(structure, interface, cutoff=cutoff).select(
+            "chain.id.from", "residue.index.from", "chain.id.to", "residue.index.to",
+            "contact.type")
+        keys = ["residue.index.from", "residue.index.to"]
+        if interface != "tcr_peptide":
+            keys += ["chain.id.from", "chain.id.to"]
+        out = out.join(typed.select(keys + ["contact.type"]).unique(subset=keys),
+                       on=keys, how="left")
+    return out
 
 
 # --- Graphon featurisation: CDR3xpeptide maps in normalised (x, y) coordinates -----------------

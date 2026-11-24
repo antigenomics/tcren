@@ -44,38 +44,11 @@ T_SIGNS = (1.0, -1.0, 1.0, 1.0, 1.0)
 #: The partition-function-referenced energy S spends. See the module docstring.
 PI_FROZEN = "neg_energy"
 
-#: Columns only the ``potts`` family emits. A feature table carrying ``n_contacts`` alongside none
-#: of these was written by tcren <= 2.19.0 without ``-i potts``, so its ``n_contacts`` is the
-#: footprint's CDR-loop tally (now ``n_loop_contacts``) rather than the engaged-pair count these
-#: moments were estimated on. See :func:`_check_potts_contacts`.
-_POTTS_MARKERS = (PI_FROZEN, "log_z", "log_lik", "psi", "n_sites", "mu_star")
-
-
 def _column_names(table) -> set[str]:
     """The column names of a dict / pandas / polars table, the way :func:`tcren.cohort._col` reads them."""
     if hasattr(table, "columns") and not isinstance(table, dict):
         return set(table.columns)
     return set(table)
-
-
-def _check_potts_contacts(table) -> None:
-    """Raise unless a table's ``n_contacts`` came from :mod:`tcren.potts`.
-
-A ``n_contacts`` read from the footprint rather than from the Potts model differs by a factor of
-    two to four on real structures (1ao7: 66 footprint contacts against 29 Potts ones), so any term
-    standardized against the Potts population would shift by several native sd with no error and no
-    NaN. A table with no
-    ``n_contacts`` column at all is fine — the caller joined the count from somewhere this cannot
-    see, which is the documented path.
-    """
-    cols = _column_names(table)
-    if "n_contacts" in cols and not cols & set(_POTTS_MARKERS):
-        raise ValueError(
-            "this table's 'n_contacts' did not come from the potts family: it carries none of "
-            f"{list(_POTTS_MARKERS)}, so the column is tcren <= 2.19.0's footprint CDR-loop tally "
-            "(renamed 'n_loop_contacts'), which the frozen correction is not standardized on. "
-            "Rebuild with `tcren features -i placement,interface,topology,potts`, or drop the "
-            "column and pass contacts= from `tcren potts score`.")
 
 
 @lru_cache(maxsize=1)

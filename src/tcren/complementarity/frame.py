@@ -11,6 +11,8 @@ from typing import Literal
 
 import numpy as np
 
+from ..docking._transform import kabsch
+
 
 def _points(value, name: str, minimum: int = 3) -> np.ndarray:
     points = np.asarray(value, dtype=float)
@@ -108,16 +110,10 @@ def fit_frame(mobile_anchors, reference_anchors, reference: CanonicalFrame) -> C
     fixed = _points(reference_anchors, "reference anchors")
     if mobile.shape != fixed.shape:
         raise ValueError("anchor arrays must have identical shapes")
-    mc, fc = mobile.mean(axis=0), fixed.mean(axis=0)
-    a, b = mobile - mc, fixed - fc
+    a, b = mobile - mobile.mean(axis=0), fixed - fixed.mean(axis=0)
     if min(np.linalg.matrix_rank(a), np.linalg.matrix_rank(b)) < 2:
         raise ValueError("matched anchors are collinear")
-    u, _, vt = np.linalg.svd(a.T @ b)
-    correction = np.eye(3)
-    correction[-1, -1] = np.linalg.det(u @ vt)
-    rotation = u @ correction @ vt
-    translation = fc - mc @ rotation
-    rmsd = float(np.sqrt(np.mean(np.sum((mobile @ rotation + translation - fixed)**2, axis=1))))
+    rotation, translation, rmsd = kabsch(mobile, fixed)
     return CanonicalFrame(
         rotation @ reference.rotation,
         translation @ reference.rotation + reference.translation,

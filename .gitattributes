@@ -4,3 +4,6 @@ data/output_TCRen/structures_annotation/cadist.txt filter=lfs diff=lfs merge=lfs
 src/tcren/complementarity/*.html text eol=lf
 src/tcren/complementarity/*.js text eol=lf
 src/tcren/complementarity/dashboard.css text eol=lf
+
+# The bundled reference loader checks the exact resource bytes.
+src/tcren/data/native387_v1.json text eol=lf

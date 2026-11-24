@@ -16,7 +16,7 @@ Scoring & prediction
 
 Annotation & contacts
     * ``tcren annotate`` — chain typing + region markup (TCR CDR/FR, MHC groove, peptide; ``--pseudo``).
-    * ``tcren contacts`` — annotated residue-pair contact table for an interface.
+    * ``tcren contacts`` — annotated residue or atom contact table for an interface.
 
 Orientation & refinement
     * ``tcren superimpose`` — orient structure(s) onto the canonical database by MHC.
@@ -43,6 +43,7 @@ from __future__ import annotations
 
 
 from pathlib import Path
+from typing import Annotated
 
 import polars as pl
 import typer
@@ -271,7 +272,9 @@ def _screen_descriptors(structs: list, task, *, organism: str, threads: int, mot
     return energy.join(table, on="complex.id", how="left", validate="1:1", maintain_order="left")
 
 
-def _screen_confidence(confidence: Path | None, structures) -> pl.DataFrame | None:
+def _screen_confidence(
+    confidence: Path | None, structures, *, unit: str | None = None,
+) -> pl.DataFrame | None:
     """ipTM for the set: an explicit table if given, otherwise the set's own metadata.tsv."""
     from .metadata import read_metadata
 
@@ -285,14 +288,16 @@ def _screen_confidence(confidence: Path | None, structures) -> pl.DataFrame | No
         if t["complex.id"].is_duplicated().any():
             raise typer.BadParameter("--confidence has duplicate complex.id values")
         return t.select("complex.id", *[pl.col(c).cast(pl.Float64)
-                        for c in ("iptm", "plddt") if c in t.columns])
+                        for c in ("iptm", "plddt") if c in t.columns],
+                        *([unit] if unit in t.columns else []))
     tables = []
     for spec in (structures if isinstance(structures, list) else [structures]):
         meta = read_metadata(spec)
         if meta is not None and "iptm" in meta.columns:
             tables.append(meta.select(pl.col("id").cast(pl.String).alias("complex.id"),
                                       *[pl.col(c).cast(pl.Float64)
-                                        for c in ("iptm", "plddt") if c in meta.columns]))
+                                        for c in ("iptm", "plddt") if c in meta.columns],
+                                      *([unit] if unit in meta.columns else [])))
     if not tables:
         return None
     merged = pl.concat(tables, how="diagonal_relaxed").unique(maintain_order=True)
@@ -302,11 +307,71 @@ def _screen_confidence(confidence: Path | None, structures) -> pl.DataFrame | No
 
 
 
+def _native_screen_table(
+    structures, confidence, task: str, ranking_unit: str | None,
+    contact_reference: Path | None, organism: str, threads: int,
+) -> tuple[pl.DataFrame, str]:
+    from .native_ranking import native_epitope_features, native_receptor_features
+    from .screen import CohortKind, cohort_signature, identities
+
+    if task not in ("tcr", "epitope"):
+        raise ValueError("native structure ranking requires --task tcr or epitope")
+    if (task == "tcr") != (contact_reference is not None):
+        raise ValueError("--contact-reference is required for native TCR structures only")
+    if ranking_unit in {"complex.id", "iptm", "plddt", "peptide"}:
+        raise ValueError("--ranking-unit must name a separate cohort column")
+    iptm = _screen_confidence(confidence, structures, unit=ranking_unit)
+    if iptm is None:
+        raise ValueError("provide ipTM with --confidence or metadata.tsv")
+    single_unit = ranking_unit is None
+    if single_unit:
+        ranking_unit = "cohort"
+    elif ranking_unit not in iptm.columns:
+        raise ValueError(f"confidence metadata needs ranking-unit column {ranking_unit!r}")
+
+    threads = resolve_threads(threads)
+    batch = _typed_batch(structures, organism, threads=threads)
+    if not batch or len({s.pdb_id for s in batch}) != len(batch):
+        raise ValueError("native ranking requires a nonempty set with unique structure IDs")
+    peptides, receptors = identities(batch)
+    keys = pl.DataFrame({"complex.id": [s.pdb_id for s in batch]}).with_row_index("index")
+    members = keys.join(iptm, on="complex.id", how="left", validate="1:1", maintain_order="left")
+    if single_unit:
+        members = members.with_columns(pl.lit("input").alias(ranking_unit))
+    elif members[ranking_unit].null_count():
+        raise ValueError("each structure needs a ranking-unit value in confidence metadata")
+    for (unit,), group in members.group_by(ranking_unit, maintain_order=True):
+        indices = group["index"].to_list()
+        kind, _ = cohort_signature([peptides[i] for i in indices], [receptors[i] for i in indices])
+        if kind is not CohortKind(task):
+            raise ValueError(f"ranking unit {unit!r} does not match declared task {task!r}")
+        if task == "tcr":
+            mhc = {tuple(sorted((c.chain_type, c.sequence()) for c in batch[i].chains
+                                if c.chain_type in {"MHCa", "MHCb"})) for i in indices}
+            if len(mhc) != 1 or not next(iter(mhc)):
+                raise ValueError(f"ranking unit {unit!r} requires matching MHC chain sequences")
+
+    if contact_reference is None:
+        features = native_epitope_features(batch, threads=threads)
+    else:
+        from .contacts.language import load_contact_language_reference
+
+        model = load_contact_language_reference(contact_reference)
+        features = native_receptor_features(batch, model, threads=threads)
+    members = members.drop("index").with_columns(pl.Series("peptide", peptides))
+    return members.join(features, on="complex.id", how="left", validate="1:1",
+                        maintain_order="left"), ranking_unit
+
+
 @app.command(rich_help_panel=_P_MAIN)
 def screen(
-    structures: list[str] = typer.Option(..., "-s", "--structures", help="structure file(s), directory, .tar.gz, glob, or a .txt manifest of paths; repeatable and comma-separable"),
+    structures: list[str] = typer.Option(None, "-s", "--structures", help="structure file(s), directory, .tar.gz, glob, or a .txt manifest of paths; repeatable and comma-separable"),
     out: Path = typer.Option("screen.tsv", "-o", "--out", help="per-model score table (TSV)"),
     task: str = typer.Option("auto", "--task", help="auto|epitope|tcr; a declared task is verified against the structures"),
+    method: Annotated[str, typer.Option("--method", help="legacy or native387-v1")] = "legacy",
+    features: Annotated[Path | None, typer.Option("--features", help="prepared native387-v1 feature table")] = None,
+    ranking_unit: Annotated[str | None, typer.Option("--ranking-unit", help="column identifying each native ranking unit")] = None,
+    contact_reference: Annotated[Path | None, typer.Option("--contact-reference", help="versioned contact-language reference for native receptor structures")] = None,
     confidence: Path = typer.Option(None, "--confidence", help="table of complex.id, iptm and optional plddt (0–100); defaults to metadata.tsv"),
     confidence_context: str = typer.Option("cohort", "--confidence-context", help="cohort (default) | nearest-plddt (each model) | nearest-mean-plddt (supplied same-pMHC set); proxy modes require --task tcr and keep --min-cohort"),
     reference: Path = typer.Option(None, "--reference", help="frozen reference JSON (default: the bundled one for the detected task)"),
@@ -345,6 +410,49 @@ def screen(
     contact listing, `superimpose` for canonical orientation, `surface` for pMHC topography,
     `features` for the full descriptor table.
     """
+    if method != "legacy":
+        from .associations import read_table
+        from .native_ranking import METHOD, rank_native_screen
+        from .provenance import stamp
+
+        if method != METHOD:
+            raise typer.BadParameter(f"--method must be legacy or {METHOD}")
+        if confidence_context != "cohort" or on_flag != "report" or weight is not None:
+            raise typer.BadParameter("native ranking uses its fixed weights and cohort confidence")
+        if template_metadata is not None or template_status is not None:
+            raise typer.BadParameter("native ranking uses the bundled native reference for coverage")
+        try:
+            if structures:
+                if features is not None:
+                    raise ValueError("choose --structures or --features")
+                table, ranking_unit = _native_screen_table(
+                    structures, confidence, task, ranking_unit, contact_reference, organism, threads,
+                )
+            else:
+                if features is None or not ranking_unit or confidence is not None or contact_reference is not None:
+                    raise ValueError("native table ranking requires --features and --ranking-unit")
+                table = read_table(features)
+            result = rank_native_screen(table, task=task, ranking_unit=ranking_unit,
+                                        min_cohort=min_cohort, reference_path=reference)
+        except (OSError, ValueError, pl.exceptions.PolarsError) as exc:
+            raise typer.BadParameter(str(exc)) from exc
+        result.write_csv(out, separator="\t")
+        stamp(out, command="screen", columns=result.columns, extra={
+            "score_method": METHOD, "task": task, "ranking_unit": ranking_unit,
+            "reference_sha256": result["native_reference_sha256"][0], "min_cohort": min_cohort,
+            "contact_reference_sha256": (result["contact_reference_sha256"][0]
+                                         if "contact_reference_sha256" in result.columns else None),
+        })
+        zero = result["no_interface"].sum()
+        if zero:
+            typer.echo(f"WARNING: {zero} zero-contact model(s), screen_score=0", err=True)
+        typer.echo(f"wrote {out} ({result.height} rows)")
+        return
+    if not structures:
+        raise typer.BadParameter("--structures is required for legacy screening")
+    if features is not None or ranking_unit is not None or contact_reference is not None:
+        raise typer.BadParameter("--features, --ranking-unit and --contact-reference require --method native387-v1")
+
     from .screen import (
         FLAGS as FLAG_TEXT, CohortKind, FlagResponse, apply_flag_response, bundled_reference,
         cohort_flags, cohort_signature, identities, read_reference, screen_scores,
@@ -553,23 +661,55 @@ def contacts(
     cutoff: float = typer.Option(5.0, "--cutoff"),
     interface: str = typer.Option("tcr_peptide", "--interface", help="tcr_peptide|tcr_mhc|peptide_mhc|all"),
     regions: str = typer.Option("all", "--regions", help="TCR regions on the TCR side: all|cdr|cdr+fr (default: all)"),
+    atom_pairs: str = typer.Option(
+        "closest", "--atom-pairs", help="closest per residue pair, or all heavy-atom pairs"
+    ),
+    typicality: bool = typer.Option(
+        False, "--typicality", help="output one Native387 typicality row per structure"
+    ),
     organism: str = typer.Option("human", "--organism"),
     threads: int = typer.Option(0, "-t", "--threads", help="CPU budget: 1 serial, 0 automatic (all allocated physical cores), or a positive count"),
 ) -> None:
     """Compute and emit an annotated contact table."""
     if regions not in TCR_REGIONS:
         raise typer.BadParameter("--regions must be one of all|cdr|cdr+fr")
+    if atom_pairs not in ("closest", "all"):
+        raise typer.BadParameter("--atom-pairs must be closest or all")
+    if typicality:
+        if cutoff != 5.0 or regions != "all" or interface not in ("all", "tcr_peptide"):
+            raise typer.BadParameter(
+                "--typicality requires a 5 Å cutoff, all regions, and tcr_peptide or all"
+            )
+        from .contact_typicality import contact_typicality, native_contact_observations
+
+        scope = "complex" if interface == "all" else interface
+        alphabet = "atom" if atom_pairs == "all" else "residue"
+        batch = _typed_batch(structures, organism, mhc=scope == "complex", threads=threads)
+        if not batch:
+            raise typer.BadParameter(f"no structures found in {structures!r}")
+        observations = pl.concat([
+            native_contact_observations(s, alphabet=alphabet, scope=scope) for s in batch
+        ])
+        table = contact_typicality(observations, [s.pdb_id for s in batch],
+                                   alphabet=alphabet, scope=scope)
+        table.write_csv(out)
+        typer.echo(f"wrote {out} ({table.height} structures)")
+        return
+    all_atoms = atom_pairs == "all"
     # An MHC-side interface selects nothing until annotate_mhc splits "MHC" into MHCa/MHCb, and
     # `ContactMap.interface` now refuses rather than returning an empty frame. `all` needs it too:
     # the unrefined table is missing every MHC-side row without saying so.
     need_mhc = interface in ("tcr_mhc", "peptide_mhc", "all")
     frames = []
     for s in _typed_batch(structures, organism, mhc=need_mhc, threads=threads):
-        cm = ContactMap.from_structure(s, cutoff=cutoff)
-        frames.append(
-            (cm.contacts if interface == "all" else cm.interface(interface, tcr_regions=regions))
-            .with_columns(pl.lit(s.pdb_id).alias("pdb.id"))
-        )
+        cm = ContactMap.from_structure(s, cutoff=cutoff, atom_pairs=all_atoms)
+        if interface == "all":
+            table = cm.labeled_contacts() if all_atoms else cm.contacts
+        else:
+            table = cm.interface(interface, tcr_regions=regions)
+            if all_atoms:
+                table = table.with_columns(pl.lit(interface).alias("interface"))
+        frames.append(table)
     pl.concat(frames).write_csv(str(out))
     typer.echo(f"wrote {out}")
 
@@ -850,6 +990,21 @@ def potential_table(
     pot = _load_potential(potential)
     pot.to_csv(out)
     typer.echo(f"{pot.name}: {pot.matrix.height} pairs over {len(pot.alphabet)} residues -> {out}")
+
+@app.command("reference", rich_help_panel=_P_DATA)
+def native_reference(
+    show: bool = typer.Option(False, "--show", help="print the complete reference and digest"),
+) -> None:
+    """Inspect the bundled, content-verified native reference."""
+    import json
+
+    from .native_reference import load_native_reference
+
+    reference = load_native_reference()
+    keys = ("version", "reference_sha256", "native_structures", "cutoff_A")
+    output = reference if show else {key: reference[key] for key in keys}
+    typer.echo(json.dumps(output, indent=2, sort_keys=True))
+
 
 @app.command("fetch-data", rich_help_panel=_P_DATA)
 def fetch_data(
@@ -1739,8 +1894,9 @@ def scoring(
     regions: str = typer.Option("all", "--regions", help="TCR regions on the TCR side: all|cdr|cdr+fr (default: all)"),
     contact_weight: str = typer.Option("residue", "--contact-weight", help="residue (default, one per contacting pair) or atomic (weight by heavy-atom-pair count)"),
     intra_weight: float = typer.Option(0.0, "--intra-weight", help="weight of the intra-peptide term: report Phi_pep_int and add w x it to Phi_total (0 = off, the default)"),
-    delta: bool = typer.Option(False, "--delta", help="also report the poly-alanine-referenced ΔΦ per interface and ΔΦ total"),
+    delta: bool = typer.Option(False, "--delta", help="report ΔΦ against a same-residue reference for the selected side"),
     reference_aa: str = typer.Option("A", "--reference-aa", help="reference residue for --delta (default: alanine)"),
+    reference_side: str = typer.Option("peptide", "--reference-side", help="peptide (default), tcr, or both independent references"),
     reference_mode: str = typer.Option("virtual", "--reference-mode", help="structural: truncate to alanine and rebuild contacts; virtual: historical fixed-map substitution"),
     geometry: bool = typer.Option(False, "--geometry", help="also report the interface-geometry descriptors and the decorrelated quality score Q"),
     skip_errors: bool = typer.Option(False, "--skip-errors", help="drop structures that fail instead of writing an error row"),
@@ -1758,7 +1914,11 @@ def scoring(
     (ΔΦ_TP, ΔΦ_TM≡0, ΔΦ_PM). ``dPhi_total`` retains those estimated native-scale weights.
     ``dPhi_peptide_sum`` reports the unweighted ΔΦ_TP + ΔΦ_PM in the supplied potential scales;
     it has no fitted combination weights or calibration to binding energy.
-    The names match ``tcren recognize``, so the two tables join on ``pdb.id``.
+    Use ``--reference-side tcr`` to reference the TCR instead. The ``dPhi_tcr_ref_*``
+    columns give the three interface differences (ΔΦ_PM≡0) and the weighted total.
+    ``dPhi_tcr_sum`` is the unweighted ΔΦ_TP + ΔΦ_TM. ``--reference-side both``
+    reports both sets of columns from independent substitutions.
+    The peptide-reference names match ``tcren recognize``, so the two tables join on ``pdb.id``.
     ΔΦ is the score to use across candidates that each carry their **own** generated pose,
     where raw Φ partly reads the pose geometry rather than the peptide sequence.
 
@@ -1794,6 +1954,10 @@ def scoring(
     """
     threads = resolve_threads(threads)
 
+    if reference_side not in ("peptide", "tcr", "both"):
+        raise typer.BadParameter("--reference-side must be peptide, tcr, or both")
+    if reference_side != "peptide" and not delta:
+        raise typer.BadParameter("--reference-side tcr or both requires --delta")
     if reference_mode not in ("virtual", "structural"):
         raise typer.BadParameter("--reference-mode must be virtual or structural")
     if reference_mode == "structural" and (not delta or reference_aa != "A"):
@@ -1810,7 +1974,7 @@ def scoring(
     kw = dict(organism=organism, superimpose=not no_superimpose, db_dir=db, cutoff=cutoff,
               potentials=potentials, tcr_regions=regions, contact_weight=contact_weight,
               reference_aa=reference_aa if delta else None, intra_weight=intra_weight,
-              reference_mode=reference_mode)
+              reference_mode=reference_mode, reference_side=reference_side)
 
     # Chain typing is one mmseqs search per structure and dominated a cohort run. It is done
     # here for the whole cohort in a handful of searches (one per organism) and the scorer is
@@ -1859,7 +2023,9 @@ def scoring(
     table.write_csv(str(out))
     stamp(out, command=f"tcren scoring -s {structures} -o {out}", columns=table.columns,
           extra={"structures": table.height, "searched_indexes": indexes,
-                 "reference_mode": reference_mode if delta else None})
+                 "reference_mode": reference_mode if delta else None,
+                 "reference_side": reference_side if delta else None,
+                 "reference_aa": reference_aa if delta else None})
     typer.echo(f"wrote {out} ({table.height} rows"
                + (f", {failed} failed" if failed else "") + ")")
     if failed:  # an error buried in a column is an error nobody reads

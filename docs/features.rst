@@ -29,6 +29,87 @@ feature is also available programmatically from :func:`tcren.recognition.recogni
 :data:`tcren.recognition.DESCRIPTORS` gives every column's family and whether the receptor enters its
 definition; :func:`tcren.recognition.descriptors` selects on both (see :ref:`descriptor-families`).
 
+Heavy-atom contact export
+-------------------------
+
+.. code-block:: console
+
+   tcren contacts -s structures/ --interface tcr_peptide --regions all --atom-pairs all -o atom-pairs.csv
+
+By default, the contact table keeps the closest heavy-atom pair per residue pair.
+``--atom-pairs all`` emits every observed heavy-atom pair at or below the same
+cutoff in Å, using the same region and chain selection. The extra ``interface``
+column names the biological interface. With ``--interface all``, the export keeps
+both directed endpoint views and leaves the interface blank for other contacts.
+Count one biological direction when using these rows to measure physical contacts.
+The ``interface`` feature family and ``tcren recognize -s`` report the TCR–peptide
+total as ``n_atom_contacts_tp`` at 5 Å. A complex with both partners present and
+no contact has count zero. A missing partner leaves the count undefined.
+
+Native contact typicality
+-------------------------
+
+.. code-block:: console
+
+   tcren contacts -s structures/ --typicality --atom-pairs all -o typicality.csv
+
+This mode emits one row per structure. It compares the atom-name contact
+pattern with the frozen Native387 multinomial at its observed contact count.
+The default ``--atom-pairs closest`` uses residue identities and counts each
+residue pair once. Use ``--interface all`` to include TCR–peptide, TCR–MHC and
+peptide–MHC in their biological directions. The reference uses a 5 Å cutoff,
+all receptor regions, and residues with a resolved Cα or Cβ at both endpoints.
+
+``contact_action`` is the negative log probability of the observed counts.
+``contact_typicality`` is the action minus its simulated mean at the same
+count, divided by its simulated standard deviation. A positive value means
+higher action than the null mean. ``contact_typicality_mcse`` estimates the
+Monte Carlo standard error of that z-score in a fixed 2,000-draw simulation.
+The table includes the reference version, SHA-256 and a reason when the
+z-score is undefined. Typicality is a diagnostic. It does not change the
+screening or ranking score.
+Native residue-pair opportunities
+---------------------------------
+
+``tcren.contacts.opportunities.native_opportunities`` takes a chain-typed,
+MHC-annotated complex and returns a directed row for every 12 Å Cβ-neighbour
+or 5 Å heavy-atom contact across the three biological interfaces. Missing Cβ
+falls back to Cα. Both residues need a resolved anchor. The table includes
+shell membership, contact multiplicity, closest atom names and heavy-atom
+availability, with physical chain IDs for each endpoint.
+
+``tcren.contacts.veto.contact_veto_features`` applies supplied development
+cell effects to the contacting rows. It reports graph components, cycle
+counts and vertex and edge counts for the full, retained and vetoed graphs.
+Positive effects retain edges. Missing effects veto edges and are counted
+separately. The effect reference must use directional interface and residue
+keys such as ``tcr_peptide/A|G``.
+
+``tcren.contacts.mixture.atom_contact_mixture`` takes directed heavy-atom
+pairs from ``tcren.contacts.opportunities.native_contact_table`` and atom
+cell effects. It averages effects within each physical residue pair before
+estimating the per-structure mixture fraction. Structures without contacts
+retain a null fraction, with the count of unsupported atomic observations.
+
+
+Contact-language model replay
+-----------------------------
+
+``tcren.contacts.language.contact_language`` applies the saved cell effects
+and linear coefficients of a contact-language ensemble to a batch of native
+opportunity rows. It combines pooled or chain-specific interface blocks with
+peptide sweep features. The result is the mean of the model logits. The
+multiplicity term uses the mean among supported edges in the supplied batch,
+so reproduce a recorded cohort using its full application batch.
+
+Use ``scripts/build_contact_language_reference.py`` to pack the 36 recorded
+``l2_cell_effects_sv*`` and ``l3_coefficients_sv*`` tables. Supply the
+development-only atom and residue effect TSVs with ``cell`` and ``effect``
+columns. The artifact preserves source digests and contains effect and
+coefficient tables. Load it with
+``tcren.contacts.language.load_contact_language_reference`` and record the
+returned SHA-256 with scores.
+
 Metadata that ships with a structure set
 ----------------------------------------
 
