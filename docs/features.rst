@@ -46,6 +46,16 @@ The ``interface`` feature family and ``tcren recognize -s`` report the TCR–pep
 total as ``n_atom_contacts_tp`` at 5 Å. A complex with both partners present and
 no contact has count zero. A missing partner leaves the count undefined.
 
+Native residue-pair opportunities
+---------------------------------
+
+``tcren.contacts.opportunities.native_opportunities`` takes a chain-typed,
+MHC-annotated complex and returns a directed row for every 12 Å Cβ-neighbour
+or 5 Å heavy-atom contact across the three biological interfaces. Missing Cβ
+falls back to Cα. Both residues need a resolved anchor. The table includes
+shell membership, contact multiplicity, closest atom names and heavy-atom
+availability, with physical chain IDs for each endpoint.
+
 Metadata that ships with a structure set
 ----------------------------------------
 
