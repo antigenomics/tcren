@@ -13,6 +13,43 @@ they are not bundled, they are fetched from Hugging Face, and the benchmark repo
 
 ---
 
+## `native387_v1.json` — derived
+
+Frozen native coordinate reference from the 387-structure Native387 snapshot
+of the `isalgo/tcren_structures` dataset. Its manifest records hashes of the
+coordinate inventory, inputs and searched annotation indexes. Energy comes
+from TCRen 4.9.0 structural peptide-alanine scoring, with residue weighting
+and the default TCRen2 and MJ potentials. The table gives a peptide-keyed
+median, sample SD and count. Single-crystal groups carry a null SD. Geometry
+stores the finite sample count, median and 1.4826-scaled MAD per term. The
+386 crystals with observed 5 Å TCR–peptide contacts define the size reference.
+
+For each contact alphabet and scope, the probability profile averages one
+normalized histogram per native structure. The profile is smoothed by 500
+pseudo-observations from the product of the endpoint marginals within each
+interface. Its frozen vocabulary includes observed cells from the two VDJdb
+model arms and both evaluation panels, without assay outcomes. Frequency
+estimation uses native observations. A key outside the vocabulary is unknown.
+
+Run `tcren reference --show` for the full manifest, summaries and digest. The
+installed package carries the reference. Regenerate from the saved native
+coordinate snapshot and hashed inputs, using the NumPy and Polars versions
+in the manifest:
+
+```bash
+python scripts/build_native_reference.py \
+  --native-coordinates NATIVE387_DIR --markup NATIVE_MARKUP.csv.gz \
+  --scoring NATIVE_SCORING.csv --complementarity NATIVE_COMPLEMENTARITY.csv \
+  --atom NATIVE_ATOMS REAL_ATOMS MOCK_ATOMS TCRVDB_ATOMS CPL_ATOMS \
+  --residue NATIVE_RESIDUES REAL_RESIDUES MOCK_RESIDUES TCRVDB_RESIDUES CPL_RESIDUES \
+  --out src/tcren/data/native387_v1.json
+```
+
+The scoring table requires its original provenance sidecar. Atom inputs are
+the historical all-interface Parquet extracts and residue inputs are the
+matching opportunities extracts. The builder selects contacted residue pairs.
+The frozen analysis inputs retain their existing data ownership.
+
 ## Experimental contact-marginals resource — derived, not bundled
 
 The opt-in `contact-prior-fit` CLI derives a separately versioned JSON resource

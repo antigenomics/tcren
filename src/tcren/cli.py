@@ -851,6 +851,21 @@ def potential_table(
     pot.to_csv(out)
     typer.echo(f"{pot.name}: {pot.matrix.height} pairs over {len(pot.alphabet)} residues -> {out}")
 
+@app.command("reference", rich_help_panel=_P_DATA)
+def native_reference(
+    show: bool = typer.Option(False, "--show", help="print the complete reference and digest"),
+) -> None:
+    """Inspect the bundled, content-verified native reference."""
+    import json
+
+    from .native_reference import load_native_reference
+
+    reference = load_native_reference()
+    keys = ("version", "reference_sha256", "native_structures", "cutoff_A")
+    output = reference if show else {key: reference[key] for key in keys}
+    typer.echo(json.dumps(output, indent=2, sort_keys=True))
+
+
 @app.command("fetch-data", rich_help_panel=_P_DATA)
 def fetch_data(
     canonical: bool = typer.Option(True, "--canonical/--no-canonical", help="also fetch Canonical2026"),
