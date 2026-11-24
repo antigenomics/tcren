@@ -92,6 +92,24 @@ estimating the per-structure mixture fraction. Structures without contacts
 retain a null fraction, with the count of unsupported atomic observations.
 
 
+Contact-language model replay
+-----------------------------
+
+``tcren.contacts.language.contact_language`` applies the saved cell effects
+and linear coefficients of a contact-language ensemble to a batch of native
+opportunity rows. It combines pooled or chain-specific interface blocks with
+peptide sweep features. The result is the mean of the model logits. The
+multiplicity term uses the mean among supported edges in the supplied batch,
+so reproduce a recorded cohort using its full application batch.
+
+Use ``scripts/build_contact_language_reference.py`` to pack the 36 recorded
+``l2_cell_effects_sv*`` and ``l3_coefficients_sv*`` tables. Supply the
+development-only atom and residue effect TSVs with ``cell`` and ``effect``
+columns. The artifact preserves source digests and contains effect and
+coefficient tables. Load it with
+``tcren.contacts.language.load_contact_language_reference`` and record the
+returned SHA-256 with scores.
+
 Metadata that ships with a structure set
 ----------------------------------------
 
