@@ -177,6 +177,7 @@ def test_receptor_reference_scores_both_interfaces_once(monkeypatch, contact_wei
 
 
 def test_scoring_cli_accepts_reference_side_and_records_it(tmp_path, monkeypatch):
+    from click import unstyle
     import polars as pl
     from test_footprint import _full_complex
     from typer.testing import CliRunner
@@ -197,4 +198,4 @@ def test_scoring_cli_accepts_reference_side_and_records_it(tmp_path, monkeypatch
     assert read(out)["reference_side"] == "tcr"
     result = runner.invoke(cli.app, args + ["--reference-side", "tcr"])
     assert result.exit_code == 2
-    assert "--delta" in result.output
+    assert "--delta" in unstyle(result.output)
