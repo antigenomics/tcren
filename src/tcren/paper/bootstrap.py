@@ -14,6 +14,7 @@ import gzip
 import io
 import shutil
 import time
+import warnings
 import zipfile
 from pathlib import Path
 
@@ -338,6 +339,12 @@ def bootstrap(
     baselines are already committed under ``<paper_dir>/data_legacy/``, so they are not
     re-fetched here. Pass ``canonical=True`` to also fetch the re-oriented ``Canonical2026`` set.
     """
+    if _legacy_flags:
+        names = ", ".join(sorted(_legacy_flags))
+        warnings.warn(
+            f"bootstrap ignored legacy option(s): {names}. Remove these keywords from the call.",
+            DeprecationWarning, stacklevel=2,
+        )
     summary: dict = {}
     if structures:
         folders = HF_FOLDERS + ((CANONICAL_FOLDER,) if canonical else ())

@@ -36,7 +36,7 @@ def _atom_arrays(structure: Structure):
     for chain in structure.chains:
         for res in chain.residues:
             for atom in res.atoms:
-                if atom.element == "H":
+                if atom.element in {"H", "D"}:
                     continue
                 coords.append(atom.coord)
                 chain_ids.append(chain.chain_id)

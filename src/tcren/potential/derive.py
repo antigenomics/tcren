@@ -203,7 +203,7 @@ def derive_tcren_by_type(
 
     Args:
         contacts: a contact table carrying ``contact.type`` — from
-            :func:`tcren.paper.helpers.contact_table` with ``contact_types=True``, or
+            :func:`tcren.contactmap.contact_table` with ``contact_types=True``, or
             :func:`tcren.contact_types.residue_pair_types`.
         min_count: observations a cell needs before it counts as populated in the report.
         **kwargs: passed through to :func:`derive_tcren`.
