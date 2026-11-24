@@ -5,6 +5,18 @@ All notable changes to `tcren` are recorded here. Format follows
 
 ## [Unreleased]
 
+- Report missing contacts per receptor chain and lateral docking in the
+  MHC groove frame.
+- Report peptide and receptor alanine references independently, and expose
+  the frozen native contact and geometry reference.
+
+- Add explicit Native387 receptor and epitope ranking, with weighted terms,
+  native reference coverage and within-unit size coupling. Accept typed
+  structure batches through the screening CLI and report frozen reference
+  digests.
+- Reuse shared rigid geometry, preserve the paper contact export, and
+  deprecate ignored paper bootstrap keywords.
+
 - Report size-conditioned Native387 contact typicality and its simulation
   standard error with `contacts --typicality`.
 

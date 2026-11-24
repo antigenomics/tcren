@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 import polars as pl
@@ -10,8 +11,15 @@ from scipy.stats import spearmanr
 
 from .native_reference import VERSION, load_native_reference
 
+if TYPE_CHECKING:
+    from .contacts.language import ContactLanguageReference
+
 METHOD = VERSION
 _ROW = "__native_screen_row"
+_FEATURE_TYPES = {
+    "n_atom_contacts_tp": pl.Int64, "dPhi_peptide_sum": pl.Float64,
+    "d_charge": pl.Float64, "coverage": pl.Float64, "interlock_frac": pl.Float64,
+}
 
 
 def _numeric(group: pl.DataFrame, name: str) -> pl.Series:
@@ -157,8 +165,7 @@ def _native_epitope_row(structure) -> dict:
     from .pipeline import run, score_row
     from .topology.surface import surface_complementarity, surface_map
 
-    row = {"complex.id": structure.pdb_id, "n_atom_contacts_tp": None,
-           "dPhi_peptide_sum": None, "d_charge": None, "coverage": None}
+    row = {"complex.id": structure.pdb_id, **dict.fromkeys(_FEATURE_TYPES)}
     try:
         result = run(structure, typed=True, superimpose=False, reference_aa="A",
                      reference_mode="structural", atom_contact_count=True)
@@ -170,7 +177,7 @@ def _native_epitope_row(structure) -> dict:
     try:
         complementarity = surface_complementarity(
             surface_map(structure, side="pmhc"), surface_map(structure, side="tcr"))
-        row.update({name: complementarity.get(name) for name in ("d_charge", "coverage")})
+        row.update({name: complementarity.get(name) for name in ("d_charge", "coverage", "interlock_frac")})
     except ValueError as exc:
         row["native_surface_error"] = str(exc)
     return row
@@ -184,10 +191,51 @@ def native_epitope_features(structures, *, threads: int = 0) -> pl.DataFrame:
     """
     from .runtime import parallel_map
 
+    batch = _annotated_batch(structures)
+    return pl.DataFrame(parallel_map(_native_epitope_row, batch, threads), schema_overrides=_FEATURE_TYPES)
+
+
+def _annotated_batch(structures) -> list:
     batch = list(structures)
-    if any(s.mhc_calls is None for s in batch):
-        raise ValueError("annotate MHC for the entire structure batch before extracting native terms")
-    return pl.DataFrame(parallel_map(_native_epitope_row, batch, threads),
-                        schema_overrides={"n_atom_contacts_tp": pl.Int64,
-                                          "dPhi_peptide_sum": pl.Float64,
-                                          "d_charge": pl.Float64, "coverage": pl.Float64})
+    if not batch or any(s.mhc_calls is None for s in batch):
+        raise ValueError("provide a nonempty structure batch with MHC annotation")
+    if len({s.pdb_id for s in batch}) != len(batch):
+        raise ValueError("native feature extraction requires unique structure IDs")
+    return batch
+
+
+def _native_receptor_row(structure) -> tuple:
+    from .contacts.opportunities import native_contact_table, native_opportunities
+
+    atoms = native_contact_table(structure).select(
+        "pdb.id", "interface", "chain.id.from", "chain.id.to", "residue.index.from",
+        "residue.index.to", "atom.from", "atom.to",
+    )
+    return _native_epitope_row(structure), native_opportunities(structure), atoms
+
+
+def native_receptor_features(
+    structures, reference: ContactLanguageReference, *, threads: int = 0,
+) -> pl.DataFrame:
+    """Extract all receptor-ranking inputs from one typed application batch."""
+    from .contacts.language import contact_language
+    from .contacts.mixture import atom_contact_mixture
+    from .contacts.veto import contact_veto_features
+    from .runtime import parallel_map
+
+    batch = _annotated_batch(structures)
+    rows, opportunities, atoms = zip(*parallel_map(_native_receptor_row, batch, threads), strict=True)
+    table = pl.DataFrame(rows, schema_overrides=_FEATURE_TYPES)
+    pairs = pl.concat(opportunities)
+    terms = (
+        contact_language(pairs, reference.models, threads=threads),
+        contact_veto_features(pairs, reference.residue_effects),
+        atom_contact_mixture(pl.concat(atoms), reference.atom_effects, table["complex.id"].to_list()),
+    )
+    for part in terms:
+        table = table.join(part, left_on="complex.id", right_on="id", how="left",
+                           validate="1:1", maintain_order="left")
+    return table.with_columns(
+        pl.lit(reference.sha256).alias("contact_reference_sha256"),
+        pl.lit(len(batch)).alias("contact_language_batch_n"),
+    )
