@@ -117,7 +117,9 @@ def _featurise_one(args) -> dict:
     if include is not None:
         return _featurise_families(id_, s, organism, include, radii)
     try:
-        feats = recognition_features(s, organism=organism, full=full, annotate=False)
+        feats = recognition_features(
+            s, organism=organism, full=full, annotate=False, atom_contact_count=True,
+        )
         row = {"complex.id": id_, **feats, **_stability_clash_columns(s), **_symmetry_columns(s)}
         if full:                              # the intra-peptide term costs a second contact map
             row.update(_peptide_internal_columns(s))
@@ -144,7 +146,9 @@ def _featurise_families(id_, s, organism: str, include, radii) -> dict:
     row: dict[str, float] = {}
     try:
         if want & {"placement", "interface", "energetics"}:
-            row.update(recognition_features(s, organism=organism, full=True, annotate=False))
+            row.update(recognition_features(
+                s, organism=organism, full=True, annotate=False, atom_contact_count="interface" in want,
+            ))
             row.update(_symmetry_columns(s), **_peptide_internal_columns(s))
         if want & {"interface", "kinetics"}:                 # clash + contact fragility share a pass
             row.update(_stability_clash_columns(s))

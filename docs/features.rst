@@ -42,6 +42,9 @@ cutoff in Å, using the same region and chain selection. The extra ``interface``
 column names the biological interface. With ``--interface all``, the export keeps
 both directed endpoint views and leaves the interface blank for other contacts.
 Count one biological direction when using these rows to measure physical contacts.
+The ``interface`` feature family and ``tcren recognize -s`` report the TCR–peptide
+total as ``n_atom_contacts_tp`` at 5 Å. A complex with both partners present and
+no contact has count zero. A missing partner leaves the count undefined.
 
 Metadata that ships with a structure set
 ----------------------------------------

@@ -3,6 +3,11 @@
 All notable changes to `tcren` are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
+## [Unreleased]
+
+- Export all heavy-atom pairs with `contacts --atom-pairs all` and include the
+  TCR–peptide heavy-atom count in the interface feature table.
+
 ## [4.9.0]
 
 - Compare multiple models across outcome and confidence filters.
