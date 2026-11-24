@@ -284,8 +284,8 @@ def holdout_model(path: str | None = None) -> ScoreModel:
             f"--manifest {MANIFEST_FILE}`.")
     z = np.load(p, allow_pickle=False)
     meta = json.loads(str(z["meta"]))
-    from ..provenance import StaleTableError, registry_digest
-    if meta.get("catalogue_digest") != registry_digest():
+    from ..provenance import StaleTableError, _matches_registry
+    if not _matches_registry(meta.get("catalogue_digest"), meta["descriptors"]):
         raise StaleTableError(f"{p} was fitted under a different descriptor catalogue; "
                               "regenerate the model with `tcren fit-holdout`.")
     tr = Transformer(names=list(meta["descriptors"]))
