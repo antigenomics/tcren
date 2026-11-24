@@ -5,6 +5,8 @@ All notable changes to `tcren` are recorded here. Format follows
 
 ## [Unreleased]
 
+## [4.10.0]
+
 - Report missing contacts per receptor chain and lateral docking in the
   MHC groove frame.
 - Report peptide and receptor alanine references independently, and expose
