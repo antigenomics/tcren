@@ -34,7 +34,7 @@ def atom_contact_mixture(
 ) -> pl.DataFrame:
     """Estimate the atom mixture after averaging cell effects on each residue pair.
 
-    Supply directed rows from ``native_atom_contacts`` and development effects
+    Supply directed rows from ``native_contact_table`` and development effects
     keyed by interface and atom names, such as ``tcr_peptide/CA|O``. Unsupported
     atoms contribute a zero log ratio and are counted. Structures without
     contacts retain a null mixture estimate.

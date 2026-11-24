@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from typing import Literal
 
 import numpy as np
 import polars as pl
 
-from ..contactmap import ContactMap
+from ..contactmap import ContactMap, Interface
 from ..structure.model import MHC_TYPES, PEPTIDE_TYPE, TCR_TYPES, Structure
 from .geometry import all_atom_contacts, representative_atom_contacts
 from .table import directed_views, residue_annotation
@@ -34,12 +35,18 @@ def _native_structure(structure: Structure) -> Structure:
     return replace(structure, chains=chains)
 
 
-def native_atom_contacts(structure: Structure) -> pl.DataFrame:
-    """Return all directed 5 Å heavy-atom contacts on resolved native-model endpoints."""
-    contacts = ContactMap.from_structure(_native_structure(structure), atom_pairs=True)
+def native_contact_table(
+    structure: Structure, *, atom_pairs: bool = True, interface: Interface | Literal["all"] = "all",
+) -> pl.DataFrame:
+    """Return directed 5 Å contacts on resolved native-model endpoints.
+
+    With `atom_pairs=False`, keep the closest atom of each residue pair.
+    """
+    contacts = ContactMap.from_structure(_native_structure(structure), atom_pairs=atom_pairs)
+    names = _INTERFACES if interface == "all" else (interface,)
     return pl.concat([
-        contacts.interface(interface).with_columns(pl.lit(interface).alias("interface"))
-        for interface in _INTERFACES
+        contacts.interface(name).with_columns(pl.lit(name).alias("interface"))
+        for name in names
     ])
 
 

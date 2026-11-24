@@ -6,7 +6,7 @@ import numpy as np
 import polars as pl
 from scipy.special import gammaln
 
-from .contactmap import ContactMap
+from .contacts.opportunities import native_contact_table
 from .native_reference import load_native_reference
 from .structure.model import Structure
 
@@ -20,31 +20,15 @@ def native_contact_observations(
     """Extract directed 5 Å observations with the Native387 anchor requirement."""
     if alphabet not in {"atom", "residue"} or scope not in {"complex", "tcr_peptide"}:
         raise ValueError(f"unsupported native contact profile {alphabet}/{scope}")
-    anchors = [
-        (chain.chain_id, residue.seq_index)
-        for chain in structure.chains for residue in chain.residues
-        if (anchor := residue.cb_or_ca) is not None and np.isfinite(anchor).all()
-    ]
-    valid = pl.DataFrame(anchors, schema={"chain.id": pl.String, "residue.index": pl.Int64},
-                         orient="row")
-    contact_map = ContactMap.from_structure(structure, atom_pairs=alphabet == "atom")
-    interfaces = ("tcr_peptide", "tcr_mhc", "peptide_mhc") if scope == "complex" else (scope,)
+    contacts = native_contact_table(
+        structure, atom_pairs=alphabet == "atom",
+        interface="all" if scope == "complex" else "tcr_peptide",
+    )
     prefix = "atom" if alphabet == "atom" else "residue.aa"
     cells = pl.concat_str(f"{prefix}.from", f"{prefix}.to", separator="|")
-    return pl.concat([
-        contact_map.interface(interface).join(
-            valid, left_on=["chain.id.from", "residue.index.from"],
-            right_on=valid.columns, how="semi",
-        ).join(
-            valid, left_on=["chain.id.to", "residue.index.to"],
-            right_on=valid.columns, how="semi",
-        ).select(
-            pl.col("pdb.id").alias("id"),
-            (pl.concat_str(pl.lit(interface), cells, separator="/") if scope == "complex"
-             else cells).alias("cell"),
-        )
-        for interface in interfaces
-    ])
+    if scope == "complex":
+        cells = pl.concat_str("interface", cells, separator="/")
+    return contacts.select(pl.col("pdb.id").alias("id"), cells.alias("cell"))
 
 
 def _null_moments(q: np.ndarray, sizes: set[int]) -> dict[int, tuple[float, float, float, float]]:
