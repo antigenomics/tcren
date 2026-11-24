@@ -154,6 +154,7 @@ DESCRIPTORS: dict[str, tuple[str, bool]] = {
     "extent": ("interface", True),
     "chain_balance": ("interface", True),
     "n_contacts_tp": ("interface", True),
+    "n_atom_contacts_tp": ("interface", True),
     "n_contacts_tm": ("interface", True),
     "n_pep_contacted": ("interface", True),
     "n_hbond": ("interface", True),
@@ -268,6 +269,11 @@ DESCRIPTORS: dict[str, tuple[str, bool]] = {
 #: ``"geometric"``, not ``"topological"``, because the H0 barcode's bar lengths *are* the minimum
 #: spanning tree's edge lengths in angstroms -- persistent homology is a metric construction, and
 #: the entropy of a length distribution is not a homeomorphism invariant.
+# Reported features introduced after the frozen holdout training. Excluding these
+# reproduces its descriptor catalogue and its fitting inputs.
+HOLDOUT_AUXILIARY_DESCRIPTORS = ("n_atom_contacts_tp",)
+
+
 INVARIANCE: dict[str, str] = {
     # -- the contact map read as a bipartite graph (`tcren.interface_graph`) ----------------------
     # Topological: each is an invariant of the abstract contact graph, unchanged by any deformation
@@ -339,7 +345,7 @@ INVARIANCE: dict[str, str] = {
     "clash_score": "geometric",         # summed heavy-atom overlap, A
     "mhc_class_bin": "categorical",
     **{d: "compositional" for d in (
-        "extent", "n_contacts_tp", "n_contacts_tm", "n_pep_contacted", "n_hbond",
+        "extent", "n_contacts_tp", "n_atom_contacts_tp", "n_contacts_tm", "n_pep_contacted", "n_hbond",
         "ct_tp_salt_bridge", "ct_tp_aromatic", "ct_tp_hydrophobic", "ct_tp_other",
         "ct_tm_salt_bridge", "ct_tm_hydrogen_bond", "ct_tm_aromatic", "ct_tm_hydrophobic",
         "ct_tm_other", "n_clashes", "n_loop_contacts", "n_pep_contacts", "n_mhc_contacts",
@@ -495,6 +501,7 @@ DETAIL.update({
  "extent": ("count", "Distinct TCR residues contacting the pMHC over both receptor interfaces."),
  "chain_balance": ("fraction", "min(a,b)/(a+b) over TCR:peptide contacts by chain; 0.5 when both chains engage equally, 0 when only one does."),
  "n_contacts_tp": ("count", "TCR-peptide residue-residue contacts."),
+ "n_atom_contacts_tp": ("count", "TCR-peptide heavy-atom pairs within 5 Å."),
  "n_contacts_tm": ("count", "TCR-MHC residue-residue contacts."),
  "n_pep_contacted": ("count", "Distinct peptide residues the TCR contacts."),
  "n_hbond": ("count", "Polar N/O atom pairs within 3.5 A across TCR:peptide."),

@@ -43,7 +43,7 @@ descriptor & class & operator & units & definition \\
 \bottomrule
 \end{longtable}
 
-\subsection{The interface family (26 descriptors)}
+\subsection{The interface family (27 descriptors)}
 \noindent How much contact there is, and of what chemical kind.
 
 \small
@@ -56,6 +56,7 @@ descriptor & class & operator & units & definition \\
 \texttt{extent} & compositional & count or share & count & Distinct TCR residues contacting the pMHC over both receptor interfaces. \\
 \texttt{chain\_\allowbreak{}balance} & compositional & count or share & fraction & min(a,b)/(a+b) over TCR:peptide contacts by chain; 0.5 when both chains engage equally, 0 when only one does. \\
 \texttt{n\_\allowbreak{}contacts\_\allowbreak{}tp}$^{\dagger}$ & compositional & count or share & count & TCR-peptide residue-residue contacts. \\
+\texttt{n\_\allowbreak{}atom\_\allowbreak{}contacts\_\allowbreak{}tp} & compositional & count or share & count & TCR-peptide heavy-atom pairs within 5 Å. \\
 \texttt{n\_\allowbreak{}contacts\_\allowbreak{}tm}$^{\dagger}$ & compositional & count or share & count & TCR-MHC residue-residue contacts. \\
 \texttt{n\_\allowbreak{}pep\_\allowbreak{}contacted} & compositional & count or share & count & Distinct peptide residues the TCR contacts. \\
 \texttt{n\_\allowbreak{}hbond} & compositional & count or share & count & Polar N/O atom pairs within 3.5 A across TCR:peptide. \\

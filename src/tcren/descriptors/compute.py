@@ -119,7 +119,8 @@ def _burial(structure, tcr_ids, pmhc_ids) -> float:
 
 
 def recognition_features(source, *, organism: str = "human", potential=None,
-                         full: bool = False, annotate: bool = True) -> dict[str, float]:
+                         full: bool = False, annotate: bool = True,
+                         atom_contact_count: bool = False) -> dict[str, float]:
     """Extract the core recognition vector from a TCR–pMHC structure (path or parsed).
 
     Returns a dict keyed by :data:`RECOGNITION_FEATURES` (degenerate/undefined terms are ``NaN``):
@@ -130,6 +131,8 @@ def recognition_features(source, *, organism: str = "human", potential=None,
 
     With ``full=True`` the row is extended with the 18 CDR3-frame descriptors
     (:data:`CDR3_FRAME_FEATURES`) — the complete :data:`FULL_FEATURES` vector.
+    Set ``atom_contact_count`` to add the 5 Å heavy-atom count ``n_atom_contacts_tp``
+    alongside the historical feature block.
     """
     import polars as pl
 
@@ -145,6 +148,7 @@ def recognition_features(source, *, organism: str = "human", potential=None,
     from ..potential import mj as _mj
     from ..potential import tcren2 as _tcren2
     from ..structure import Structure, import_structure
+    from ..structure.model import PEPTIDE_TYPE, RECEPTOR_TYPES
 
     s = source if isinstance(source, Structure) else import_structure(source)
     if annotate:                                                      # skip if pre-annotated (batch path)
@@ -154,7 +158,7 @@ def recognition_features(source, *, organism: str = "human", potential=None,
     tcren_pot = potential or _tcren2()
     mj_pot = _mj()
 
-    cm = ContactMap.from_structure(s)
+    cm = ContactMap.from_structure(s, count_atoms=atom_contact_count)
     native = _native_peptide(s)
     row = {k: math.nan for k in (FULL_FEATURES if full else RECOGNITION_FEATURES)}
 
@@ -220,6 +224,11 @@ def recognition_features(source, *, organism: str = "human", potential=None,
     row["extent"] = _extent(cm)                                      # coverage
     row["chain_balance"] = _chain_balance(cm)
     row["n_contacts_tp"] = float(tp.height)
+    if atom_contact_count:
+        has_interface_partners = s.by_type(*RECEPTOR_TYPES) and s.by_type(PEPTIDE_TYPE)
+        row["n_atom_contacts_tp"] = (
+            float(tp["n_atom_contacts"].sum()) if has_interface_partners else math.nan
+        )
     row["n_pep_contacted"] = float(tp.select("residue.index.to").unique().height if tp.height else 0)
     row["n_contacts_tm"] = float(tm.height)
 
