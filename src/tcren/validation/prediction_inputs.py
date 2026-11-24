@@ -238,3 +238,49 @@ def remove_af3_templates(source, target, expected_sequences, *, chains, name):
         "change": "templates removed for explicit chains",
         "chains": list(chains),
     }
+
+
+def prepare_af3_search_input(source, target, sequences, *, name, seeds, reuse_roles=('D',),
+                             single_sequence_roles=('C',)):
+    """Reuse exact-sequence prepared proteins; search changed chains explicitly.
+
+    This prepares a partial-search input, not inference-ready features. New
+    protein chains omit both MSAs/templates so upstream searches them together.
+    Short peptide roles explicitly use a single sequence. Pairing ablation is
+    applied to the completed prepared input using disable_af3_pairing.
+    """
+    import copy
+
+    data = json.loads(Path(source).read_text())
+    proteins = {row['protein']['id']: row['protein'] for row in data['sequences']}
+    audit = audit_af3_input(source, {k:v['sequence'] for k,v in proteins.items()})
+    if (data.get('userCCD') or data.get('bondedAtomPairs') or
+            any(row.get('modifications') for row in proteins.values())):
+        raise ValueError('Partial replay search requires unmodified unbonded proteins')
+    if not sequences or any(not isinstance(v,str) or not v for v in sequences.values()):
+        raise ValueError('Explicit nonempty protein sequences required')
+    if not set(reuse_roles) | set(single_sequence_roles) <= set(sequences):
+        raise ValueError('Unknown reuse/single-sequence role')
+    if set(reuse_roles) & set(single_sequence_roles):
+        raise ValueError('Reuse and single-sequence roles must be disjoint')
+    if Path(target).exists():
+        raise FileExistsError(target)
+    entities, decisions = [], []
+    for role, sequence in sequences.items():
+        if role in single_sequence_roles:
+            protein = dict(id=role,sequence=sequence,unpairedMsa='',pairedMsa='',templates=[])
+            decision = 'explicit_single_sequence'
+        elif role in reuse_roles and role in proteins and proteins[role]['sequence'] == sequence:
+            protein = copy.deepcopy(proteins[role])
+            if any(protein.get(key) is None for key in ('unpairedMsa','pairedMsa','templates')):
+                raise ValueError('Reused protein must have fully prepared MSAs and templates')
+            decision = 'reused_exact_sequence_prepared_chain'
+        else:
+            protein = dict(id=role,sequence=sequence)
+            decision = 'fresh_msa_template_search_required'
+        entities.append(dict(protein=protein))
+        decisions.append(dict(role=role,decision=decision))
+    output = dict(dialect='alphafold3',version=3,name=name,modelSeeds=list(seeds),sequences=entities)
+    Path(target).write_text(json.dumps(output))
+    return dict(source_audit=audit,output_audit=audit_af3_input(target,sequences),decisions=decisions,
+                scope='Partial fresh search with declared exact-sequence prepared-chain reuse; no model coordinates reused')

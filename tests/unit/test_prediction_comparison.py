@@ -48,3 +48,24 @@ def test_empty_complete_complex_differs_from_missing_component():
             chains,
             reference_id="reference",
         )
+
+
+@pytest.mark.parametrize('metadata,expected', [
+    ({'cutoff_A': 5.0}, 5.0),
+    ({'contact_cutoff_A': 4.5}, 4.5),
+    ({'cutoff_A': 5, 'contact_cutoff_A': 5.0}, 5.0),
+])
+def test_contact_cutoff_provenance_compatibility(metadata, expected):
+    from tcren.validation.prediction_comparison import contact_cutoff_from_provenance
+    assert contact_cutoff_from_provenance(metadata) == expected
+
+
+@pytest.mark.parametrize('metadata', [
+    None, {}, {'cutoff_A': 5, 'contact_cutoff_A': 4.5},
+    {'cutoff_A': float('nan')}, {'cutoff_A': float('inf')},
+    {'cutoff_A': 0}, {'cutoff_A': -1}, {'cutoff_A': True}, {'cutoff_A': None},
+])
+def test_contact_cutoff_rejects_unverifiable_provenance(metadata):
+    from tcren.validation.prediction_comparison import contact_cutoff_from_provenance
+    with pytest.raises(ValueError):
+        contact_cutoff_from_provenance(metadata)
