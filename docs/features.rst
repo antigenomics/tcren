@@ -46,6 +46,28 @@ The ``interface`` feature family and ``tcren recognize -s`` report the TCR–pep
 total as ``n_atom_contacts_tp`` at 5 Å. A complex with both partners present and
 no contact has count zero. A missing partner leaves the count undefined.
 
+Native contact typicality
+-------------------------
+
+.. code-block:: console
+
+   tcren contacts -s structures/ --typicality --atom-pairs all -o typicality.csv
+
+This mode emits one row per structure. It compares the atom-name contact
+pattern with the frozen Native387 multinomial at its observed contact count.
+The default ``--atom-pairs closest`` uses residue identities and counts each
+residue pair once. Use ``--interface all`` to include TCR–peptide, TCR–MHC and
+peptide–MHC in their biological directions. The reference uses a 5 Å cutoff,
+all receptor regions, and residues with a resolved Cα or Cβ at both endpoints.
+
+``contact_action`` is the negative log probability of the observed counts.
+``contact_typicality`` is the action minus its simulated mean at the same
+count, divided by its simulated standard deviation. A positive value means
+higher action than the null mean. ``contact_typicality_mcse`` estimates the
+Monte Carlo standard error of that z-score in a fixed 2,000-draw simulation.
+The table includes the reference version, SHA-256 and a reason when the
+z-score is undefined. Typicality is a diagnostic. It does not change the
+screening or ranking score.
 Native residue-pair opportunities
 ---------------------------------
 
