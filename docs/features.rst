@@ -68,6 +68,15 @@ Monte Carlo standard error of that z-score in a fixed 2,000-draw simulation.
 The table includes the reference version, SHA-256 and a reason when the
 z-score is undefined. Typicality is a diagnostic. It does not change the
 screening or ranking score.
+Native residue-pair opportunities
+---------------------------------
+
+``tcren.contacts.opportunities.native_opportunities`` takes a chain-typed,
+MHC-annotated complex and returns a directed row for every 12 Å Cβ-neighbour
+or 5 Å heavy-atom contact across the three biological interfaces. Missing Cβ
+falls back to Cα. Both residues need a resolved anchor. The table includes
+shell membership, contact multiplicity, closest atom names and heavy-atom
+availability, with physical chain IDs for each endpoint.
 
 Metadata that ships with a structure set
 ----------------------------------------
