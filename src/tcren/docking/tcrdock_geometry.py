@@ -38,6 +38,8 @@ from dataclasses import dataclass, asdict
 
 import numpy as np
 
+from ._transform import apply_rigid, kabsch
+
 _TCR_TYPES = ("TRA", "TRB", "TRD", "TRG")
 _AB_PAIR = ("TRA", "TRB")
 _GD_PAIR = ("TRD", "TRG")
@@ -77,16 +79,6 @@ _TCR_CORE_ANCHORS = [
 # =======================================================================================================
 # geometry helpers (ported from TCRdock geom_util / superimpose; pure numpy)
 # =======================================================================================================
-def _kabsch(fix: np.ndarray, mov: np.ndarray) -> np.ndarray:
-    """Return ``mov`` rigidly superimposed onto ``fix`` (least-squares, Kabsch)."""
-    fc, mc = fix.mean(0), mov.mean(0)
-    H = (mov - mc).T @ (fix - fc)
-    U, _, Vt = np.linalg.svd(H)
-    d = np.sign(np.linalg.det(Vt.T @ U.T))
-    R = Vt.T @ np.diag([1.0, 1.0, d]) @ U.T
-    return (R @ (mov - mc).T).T + fc
-
-
 def _stub_from_three_points(a, b, c) -> tuple[np.ndarray, np.ndarray]:
     """Orthonormal axes (rows) from three points: x=a→ (a-a=0 → use a,b,c per TCRdock stub_from_four_points)."""
     ihat = (a - b)
@@ -120,7 +112,8 @@ def _symmetry_stub(coords: np.ndarray, point_towards: np.ndarray) -> dict:
     acom, bcom = coords[:m].mean(0), coords[m:].mean(0)
     swapped = np.vstack([coords[m:], coords[:m]])
     axes1, _ = _stub_from_three_points(coords[0], coords[1], coords[2])
-    moved = _kabsch(swapped, coords)                 # coords onto swapped
+    rot, tran, _ = kabsch(coords, swapped)
+    moved = apply_rigid(coords, rot, tran)
     axes2, _ = _stub_from_three_points(moved[0], moved[1], moved[2])
     x = _rotation_axis(axes1, axes2)                 # symmetry axis
     origin = 0.5 * (acom + bcom)

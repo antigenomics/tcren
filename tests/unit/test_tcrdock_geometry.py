@@ -5,10 +5,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from tcren.docking._transform import apply_rigid, kabsch
 from tcren.docking.tcrdock_geometry import (
     DockingGeometry,
     _dihedral,
-    _kabsch,
     _rotation_axis,
     _stub_from_three_points,
     _symmetry_stub,
@@ -21,7 +21,9 @@ def test_kabsch_recovers_known_rotation():
     theta = 0.7
     R = np.array([[np.cos(theta), -np.sin(theta), 0], [np.sin(theta), np.cos(theta), 0], [0, 0, 1]])
     fix = (R @ mov.T).T + np.array([3.0, -1.0, 2.0])
-    out = _kabsch(fix, mov)
+    rot, tran, rmsd = kabsch(mov, fix)
+    out = apply_rigid(mov, rot, tran)
+    assert rmsd < 1e-8
     assert np.allclose(out, fix, atol=1e-8)
 
 
