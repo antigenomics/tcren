@@ -173,10 +173,12 @@ def read_prediction_confidence(
             }
             if set(ids) != expected:
                 raise ValueError("TCRmodel2 token identities differ from retained chain sequences")
+            from .validation.tcrmodel2 import native_ranking_confidence, native_ranking_metric
+
             if (
-                "ranking_confidence" in result.global_values
-                and detail["scalars"]["ranking_confidence"]
-                != result.global_values["ranking_confidence"]
+                any(key in result.global_values for key in ("ranking_confidence", "model_confidence"))
+                and detail["scalars"][native_ranking_metric(result.global_values)]
+                != native_ranking_confidence(result.global_values)
             ):
                 raise ValueError("TCRmodel2 detail ranking confidence differs from requested rank")
             plddts = np.asarray(detail["residue_plddts"], dtype=float)
@@ -635,7 +637,31 @@ def inspect_models_command(
     threads: int = 0,
     historical_assessment: bool = False,
 ) -> None:
-    """Inspect an AF3/TCRmodel2/native TSV manifest; write models, residues and contacts TSVs."""
+    """Inspect a native TSV manifest, isolating incompatible immutable caller pools.
+
+    Existing Polars pools cannot be resized. File-based calls can safely hand off
+    to a fresh process instead of rejecting an ordinary dataframe-first caller;
+    the caller's own pool and environment remain unchanged.
+    """
+    if pl.thread_pool_size() != 1:
+        import os
+        import subprocess
+        import sys
+
+        from .runtime import resolve_threads
+
+        selected = resolve_threads(threads)
+        env = os.environ.copy()
+        env['POLARS_MAX_THREADS'] = '1'
+        package_root = str(Path(__file__).resolve().parent.parent)
+        env['PYTHONPATH'] = os.pathsep.join(filter(None, (package_root, env.get('PYTHONPATH'))))
+        command = [sys.executable, '-m', 'tcren', 'inspect-models',
+                   str(Path(manifest).resolve()), str(Path(out).resolve()),
+                   '--cutoff', str(cutoff), '--organism', organism, '--threads', str(selected)]
+        if historical_assessment:
+            command.append('--historical-assessment')
+        subprocess.run(command, env=env, check=True)
+        return
     from .provenance import stamp
 
     table = pl.read_csv(manifest, separator="\t", infer_schema_length=None)

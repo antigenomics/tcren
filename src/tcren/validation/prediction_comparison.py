@@ -1,6 +1,32 @@
 """Prediction-to-prediction residue contacts; the comparator is not experimental truth."""
 
+import math
+
 import polars as pl
+
+
+def contact_cutoff_from_provenance(metadata):
+    """Read current/legacy inspection cutoff names, rejecting absent or conflicting evidence."""
+    names = ('cutoff_A', 'contact_cutoff_A')
+    values = []
+    for name in names:
+        if name not in (metadata or {}):
+            continue
+        raw = metadata[name]
+        if isinstance(raw, bool):
+            raise ValueError('Contact cutoff must be finite and positive')
+        try:
+            value = float(raw)
+        except (TypeError, ValueError) as error:
+            raise ValueError('Contact cutoff must be finite and positive') from error
+        if not math.isfinite(value) or value <= 0:
+            raise ValueError('Contact cutoff must be finite and positive')
+        values.append(value)
+    if not values:
+        raise ValueError('Contact cutoff is absent from inspection provenance')
+    if len(set(values)) != 1:
+        raise ValueError('Conflicting contact cutoff aliases in inspection provenance')
+    return values[0]
 
 
 def compare_peptide_contact_sets(contacts, chains, *, reference_id):

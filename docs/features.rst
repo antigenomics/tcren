@@ -443,6 +443,34 @@ Docking geometry
      - y/z components of the MHC stub unit vector.
      - ``orient.tcrdock_geometry``
 
+Pose diagnostics
+~~~~~~~~~~~~~~~~
+
+Use the Python module on a chain-typed complex with MHC groove-floor markup.
+
+.. code-block:: python
+
+   from tcren.docking.diagnostics import diagnose_docking
+
+   pose = diagnose_docking(structure)
+   print(pose.reason_codes, pose.peptide_contacts, pose.pmhc_contacts)
+
+Counts are keyed by observed receptor chain ID. Each count is a distinct residue
+pair with a heavy-atom distance at or below the 5 Å default. The pMHC count
+includes peptide, MHC and β2-microglobulin. The reason codes
+``no_peptide_contact`` and ``no_pmhc_contact`` mean both chains have zero
+contacts to that partner. The corresponding ``chain_no_*`` codes mean one chain
+has zero contacts. The counts identify the affected chain.
+
+The diagnostic fits the groove floor and directs the normal toward the peptide.
+It reports the receptor Cα centroid's height and absolute transverse offset
+relative to the peptide Cα centroid, and the angle from the upward normal in
+that transverse plane. ``side_docking`` flags angles at or above 45° by default,
+including poses below the peptide plane. The cutoff is a geometric heuristic
+for inspecting poses. Along-groove shift falls outside this criterion.
+``groove_geometry_unavailable`` means the angle could not be computed. Contact
+counts are still available when the interface has observed heavy atoms.
+
 Interface energies
 ~~~~~~~~~~~~~~~~~~~
 

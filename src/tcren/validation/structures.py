@@ -28,8 +28,9 @@ def read_chains(path):
 def map_sequence_roles(path, roles, sequences, *, max_terminal_missing=4, allow_extended=False):
     """Match components uniquely, with explicit opt-in for longer reference controls.
 
-    Extended output chains are compared only over the exact requested sequence
-    span. Both reference and output starts are reported; default matching stays
+    Extended output chains are compared over exact requested sequence spans,
+    allowing declared terminal losses even when a constant domain is retained.
+    Both reference and output starts are reported; default matching stays
     strict apart from the existing terminal-missing allowance.
     """
     mapped, identity = {}, []
@@ -52,6 +53,26 @@ def map_sequence_roles(path, roles, sequences, *, max_terminal_missing=4, allow_
                 matches.append(
                     (cid, coords[start : start + len(sequence)], 0, len(sequence), start)
                 )
+        if not matches and allow_extended:
+            # A native chain may contain a constant domain while its variable
+            # domain loses resolved terminal residues. Preserve exact identity
+            # over the longest unique span; never align substitutions internally.
+            from .inventory import compatible_sequence_span
+
+            spans = []
+            limit = min(max_terminal_missing, len(sequence) - 1)
+            for cid, seq, coords in chains:
+                span = compatible_sequence_span(
+                    seq, sequence, terminal_budget=limit, reject_ambiguous=True
+                )
+                if span is not None:
+                    start, length = span["reference_start"], span["length"]
+                    spans.append(
+                        (cid, coords[start : start + length], span["input_start"], length, start)
+                    )
+            if spans:
+                longest = max(item[3] for item in spans)
+                matches = [item for item in spans if item[3] == longest]
         if len(matches) != 1:
             raise ValueError(
                 f"Absent/ambiguous sequence match {path}: {role}, {len(matches)} matches"
@@ -248,3 +269,17 @@ def compatible_reference_models(models, reference_roles, construct_roles):
     if not required:
         raise ValueError("Reference must identify at least one component role")
     return [model for model in models if required <= set(construct_roles[model["construct"]])]
+
+
+def same_atom_coordinates(left, right):
+    """Exact ordered heavy-atom identity and coordinates, ignoring CIF metadata.
+
+    Uses parsed chain IDs, sequence indices, residue identities, atom names and
+    unaligned Cartesian coordinates. Producer timestamps and file names may
+    differ without changing atoms; a rigid transformation is still a difference.
+    This is a producer-selection identity check, not an RMSD comparison.
+    """
+    arrays = [_atom_arrays(parse_structure(path, keep_hydrogens=False)) for path in (left, right)]
+    if not len(arrays[0][0]) or any(not np.isfinite(a[0]).all() for a in arrays):
+        raise ValueError("Require nonempty finite heavy-atom coordinates")
+    return all(np.array_equal(a, b) for a, b in zip(*arrays, strict=True))

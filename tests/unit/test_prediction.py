@@ -301,9 +301,10 @@ def test_no_complete_rows_never_evaluate_gaussian(monkeypatch):
     assert np.isnan(out["confidence_residual"][0])
 
 
-def test_retained_tcrmodel2_pae_remaps_renumbered_chains_by_sequence(tmp_path):
+@pytest.mark.parametrize("score_name", ["ranking_confidence", "model_confidence"])
+def test_retained_tcrmodel2_pae_remaps_renumbered_chains_by_sequence(tmp_path, score_name):
     summary = tmp_path / "statistics.json"
-    summary.write_text(json.dumps({"ranked_0": {"ranking_confidence": 0.8, "iptm": 0.7}}))
+    summary.write_text(json.dumps({"ranked_0": {score_name: 0.8, "iptm": 0.7}}))
     detail = tmp_path / "detail.json"
     detail.write_text(
         json.dumps(
@@ -339,7 +340,8 @@ def test_retained_tcrmodel2_pae_remaps_renumbered_chains_by_sequence(tmp_path):
         )
 
 
-def test_generated_tcrmodel2_retention_and_unique_rank_selection(tmp_path):
+@pytest.mark.parametrize("score_name", ["ranking_confidence", "model_confidence"])
+def test_generated_tcrmodel2_retention_and_unique_rank_selection(tmp_path, score_name):
     import pickle
     from tcren.validation.tcrmodel2 import export_generated_confidence, ranked_detail_file
 
@@ -364,11 +366,11 @@ def test_generated_tcrmodel2_retention_and_unique_rank_selection(tmp_path):
     assert payload["chain_sequences"] == {"B": "A"}
     assert payload["token_res_ids"] == [0]
     assert (
-        ranked_detail_file(out.parent, {"ranked_0": {"ranking_confidence": 0.8}}, "ranked_0") == out
+        ranked_detail_file(out.parent, {"ranked_0": {score_name: 0.8}}, "ranked_0") == out
     )
     (out.parent / "duplicate.json").write_text(out.read_text())
     with pytest.raises(ValueError, match="unique producer identity"):
-        ranked_detail_file(out.parent, {"ranked_0": {"ranking_confidence": 0.8}}, "ranked_0")
+        ranked_detail_file(out.parent, {"ranked_0": {score_name: 0.8}}, "ranked_0")
 
 
 @pytest.mark.parametrize("entrypoint", ["stdin", "ipykernel"])
@@ -454,3 +456,47 @@ def test_native_summary_only_providers_keep_scalar_semantics(tmp_path, generator
     assert confidence.token_mapping_status == "unavailable_unverified_token_mapping"
     with pytest.raises(ValueError, match="token mapping is unverified"):
         read_prediction_confidence(path, generator=generator, detail_path=path)
+
+
+def test_tcrmodel2_ranking_aliases_are_unambiguous():
+    from tcren.validation.tcrmodel2 import native_ranking_confidence
+
+    assert native_ranking_confidence({"ranking_confidence": 0.8, "model_confidence": 0.8}) == 0.8
+    for row in ({}, {"ranking_confidence": 0.8, "model_confidence": 0.7},
+                {"model_confidence": float("nan")}):
+        with pytest.raises(ValueError, match="ranking confidence"):
+            native_ranking_confidence(row)
+
+
+def test_pmhc_retained_confidence_matches_native_ptm_ranking(tmp_path):
+    from tcren.validation.tcrmodel2 import ranked_detail_file
+
+    statistics = {"ranked_0": {"ranking_confidence": "0.94", "ptm": "0.94"}}
+    retained = tmp_path / "model_3.json"
+    retained.write_text(json.dumps({"scalars": {"ranking_confidence": 0.188, "ptm": 0.94}}))
+    assert ranked_detail_file(tmp_path, statistics, "ranked_0") == retained
+    retained.write_text(json.dumps({"scalars": {"ranking_confidence": 0.188, "ptm": 0.93}}))
+    with pytest.raises(ValueError, match="unique producer identity"):
+        ranked_detail_file(tmp_path, statistics, "ranked_0")
+
+
+def test_pmhc_detail_identity_uses_ptm_without_imputing_iptm(tmp_path):
+    summary = tmp_path / "statistics.json"
+    summary.write_text(json.dumps({"ranked_0": {"ranking_confidence": "0.94", "ptm": "0.94"}}))
+    detail = tmp_path / "detail.json"
+    payload = {
+        "generator": "tcrmodel2", "residue_indexing": "sequence_index",
+        "chain_sequences": {"A": "A"}, "token_chain_ids": ["A"], "token_res_ids": [0],
+        "pae": [[0.0]], "residue_plddts": [92.0],
+        "scalars": {"ranking_confidence": 0.188, "ptm": 0.94},
+    }
+    detail.write_text(json.dumps(payload))
+    confidence = read_prediction_confidence(
+        summary, generator="tcrmodel2", model_key="ranked_0", detail_path=detail)
+    assert confidence.global_values["ranking_confidence"] == 0.94
+    assert "iptm" not in confidence.global_values
+    payload["scalars"]["ptm"] = 0.93
+    detail.write_text(json.dumps(payload))
+    with pytest.raises(ValueError, match="requested rank"):
+        read_prediction_confidence(
+            summary, generator="tcrmodel2", model_key="ranked_0", detail_path=detail)
