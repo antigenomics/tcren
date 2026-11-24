@@ -22,6 +22,7 @@ from .arda_adapter import _annotate
 
 import polars as pl
 
+from ..contactmap import contact_table
 from ..structure.model import Structure
 from ..runtime import resolve_threads, search_threads, single_threaded
 
@@ -93,10 +94,6 @@ def annotate_structure_set(
     When ``count_atoms`` is set, each contact row carries an ``n_atom_contacts``
     heavy-atom-pair count (needed for atomic-weighted scoring).
     """
-    # `contact_table` still lives in `paper.helpers`, which re-exports this module, so importing it
-    # at the top would close the cycle this module was split out to open. Local, as everywhere else.
-    from ..paper.helpers import contact_table  # noqa: PLC0415
-
     if interface not in {"tcr_peptide", "tcr_mhc", "peptide_mhc"}:
         raise ValueError("derivation interface must be tcr_peptide, tcr_mhc or peptide_mhc")
     structures = iter_annotated_set(struct_dir, on_error=on_error, threads=threads)

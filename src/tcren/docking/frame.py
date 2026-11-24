@@ -26,6 +26,7 @@ from typing import Literal
 import numpy as np
 
 from .align import DEFAULT_REFERENCE, align_to_native, _reference_structure
+from ..contacts.geometry import _chain_ca
 from ..structure.model import Structure
 
 _GROOVE_FLOOR = "GROOVE_FLOOR"
@@ -46,13 +47,6 @@ class CanonResult:
     frame: Literal["native", "pca"]
     reversed_dock: bool | None = None
     chain_map: dict[str, str] = field(default_factory=dict)
-
-
-def _chain_ca(structure: Structure, types) -> np.ndarray:
-    pts = [r.ca for c in structure.chains if c.chain_type in types
-           for r in c.residues if r.ca is not None]
-    return np.asarray(pts) if pts else np.empty((0, 3))
-
 
 def _peptide_termini(structure: Structure) -> tuple[np.ndarray, np.ndarray] | None:
     """(N-terminal Cα, C-terminal Cα) of the peptide chain, or ``None`` if unavailable."""
