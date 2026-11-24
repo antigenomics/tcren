@@ -23,8 +23,7 @@ def native_contact_observations(
     anchors = [
         (chain.chain_id, residue.seq_index)
         for chain in structure.chains for residue in chain.residues
-        if any(atom.name in {"CA", "CB"} and np.isfinite(atom.coord).all()
-               for atom in residue.atoms)
+        if (anchor := residue.cb_or_ca) is not None and np.isfinite(anchor).all()
     ]
     valid = pl.DataFrame(anchors, schema={"chain.id": pl.String, "residue.index": pl.Int64},
                          orient="row")
@@ -48,8 +47,10 @@ def native_contact_observations(
     ])
 
 
-def _null_moments(q: np.ndarray, sizes: set[int]) -> dict[int, tuple[float, ...]]:
+def _null_moments(q: np.ndarray, sizes: set[int]) -> dict[int, tuple[float, float, float, float]]:
     """Extend the same simulated contact maps across sizes, recording requested moments."""
+    if not sizes:
+        return {}
     rng = np.random.default_rng(SEED)
     logq = np.log(q)
     normalized_q = q / q.sum()
@@ -58,7 +59,7 @@ def _null_moments(q: np.ndarray, sizes: set[int]) -> dict[int, tuple[float, ...]
     surprise = np.zeros(DRAWS)
     log_factorials = np.zeros(DRAWS)
     moments = {}
-    for size in range(1, max(sizes, default=0) + 1):
+    for size in range(1, max(sizes) + 1):
         cell = rng.choice(len(q), size=DRAWS, p=normalized_q)
         counts[rows, cell] += 1
         log_factorials += np.log(counts[rows, cell])
