@@ -113,3 +113,88 @@ def test_structural_reference_reuses_one_map(monkeypatch, contact_weight, region
                  tcr_regions=regions)
     assert len(rebuilds) == 1
     assert {i: result.scores[f"delta_{i}"] for i in expected} == expected
+
+
+@pytest.mark.parametrize("contact_weight", ["residue", "atomic"])
+@pytest.mark.parametrize("mode", ["virtual", "structural"])
+def test_receptor_reference_scores_both_interfaces_once(monkeypatch, contact_weight, mode):
+    import polars as pl
+    from test_footprint import _full_complex
+
+    from tcren.contactmap import ContactMap
+    from tcren.energetics.scoring import _interface_energy
+    from tcren.pipeline import _resolve_potentials
+    from tcren.refine import substitute
+    from tcren.structure.model import TCR_TYPES, RegionMarkup
+
+    structure = _full_complex()
+    structure.mhc_calls = []
+    peptide_chain, = structure.by_type("PEPTIDE")
+    peptide_chain.regions = [
+        RegionMarkup("PEPTIDE", 0, len(peptide_chain.residues) - 1,
+                     peptide_chain.sequence(), peptide_chain.residues)
+    ]
+    native_map = ContactMap.from_structure(structure, count_atoms=contact_weight == "atomic")
+    pots = _resolve_potentials(None)
+    aa = "A" if mode == "structural" else "V"
+    targets = {(chain.chain_id, res.seq_index): aa
+               for chain in structure.by_type(*TCR_TYPES) for res in chain.residues}
+    original = substitute.substitute_residues
+    expected_calls = [targets] if mode == "structural" else []
+    if mode == "structural":
+        reference_map = ContactMap.from_structure(
+            original(structure, targets), count_atoms=contact_weight == "atomic",
+        )
+    calls = []
+
+    def counted(source, changes):
+        calls.append(changes)
+        return original(source, changes)
+
+    monkeypatch.setattr(substitute, "substitute_residues", counted)
+    kwargs = dict(typed=True, superimpose=False, reference_aa=aa, reference_mode=mode,
+                  contact_weight=contact_weight, tcr_regions="cdr")
+    result = score_row(run(structure, reference_side="tcr", **kwargs))
+    assert calls == expected_calls
+    assert "dPhi_peptide_sum" not in result
+    assert result["dPhi_tcr_ref_pep_mhc"] == 0.0
+    for interface, suffix in (("tcr_peptide", "tcr_pep"), ("tcr_mhc", "tcr_mhc")):
+        contacts = native_map.interface(interface, tcr_regions="cdr")
+        reference = (reference_map.interface(interface, tcr_regions="cdr")
+                     if mode == "structural" else
+                     contacts.with_columns(pl.lit(aa).alias("residue.aa.from")))
+        assert result[f"dPhi_tcr_ref_{suffix}"] == pytest.approx(
+            _interface_energy(contacts, pots[interface], contact_weight)
+            - _interface_energy(reference, pots[interface], contact_weight)
+        )
+    assert result["dPhi_tcr_sum"] == pytest.approx(
+        result["dPhi_tcr_ref_tcr_pep"] + result["dPhi_tcr_ref_tcr_mhc"]
+    )
+    peptide = score_row(run(structure, **kwargs))
+    both = score_row(run(structure, reference_side="both", **kwargs))
+    assert {key: both[key] for key in peptide} == peptide
+    assert both["dPhi_tcr_sum"] == result["dPhi_tcr_sum"]
+
+
+def test_scoring_cli_accepts_reference_side_and_records_it(tmp_path, monkeypatch):
+    import polars as pl
+    from test_footprint import _full_complex
+    from typer.testing import CliRunner
+
+    from tcren import cli
+
+    structure = _full_complex()
+    structure.mhc_calls = []
+    monkeypatch.setattr(cli, "_iter_typed", lambda *a, **kw: [structure])
+    monkeypatch.setattr("tcren.mhc.annotate_mhc_batch", lambda *a, **kw: None)
+    out = tmp_path / "scores.csv"
+    args = ["scoring", "-s", "test.pdb", "--no-superimpose", "-t", "1", "-o", str(out)]
+    runner = CliRunner()
+    result = runner.invoke(cli.app, args + ["--delta", "--reference-side", "tcr"])
+    assert result.exit_code == 0, result.output
+    assert "dPhi_tcr_sum" in pl.read_csv(out).columns
+    from tcren.provenance import read
+    assert read(out)["reference_side"] == "tcr"
+    result = runner.invoke(cli.app, args + ["--reference-side", "tcr"])
+    assert result.exit_code == 2
+    assert "--delta" in result.output
