@@ -43,6 +43,7 @@ from __future__ import annotations
 
 
 from pathlib import Path
+from typing import Annotated
 
 import polars as pl
 import typer
@@ -307,9 +308,9 @@ def screen(
     structures: list[str] = typer.Option(None, "-s", "--structures", help="structure file(s), directory, .tar.gz, glob, or a .txt manifest of paths; repeatable and comma-separable"),
     out: Path = typer.Option("screen.tsv", "-o", "--out", help="per-model score table (TSV)"),
     task: str = typer.Option("auto", "--task", help="auto|epitope|tcr; a declared task is verified against the structures"),
-    method: str = typer.Option("legacy", "--method", help="legacy or native387-v1"),
-    features: Path = typer.Option(None, "--features", help="prepared native387-v1 feature table"),
-    ranking_unit: str = typer.Option(None, "--ranking-unit", help="column identifying each native ranking unit"),
+    method: Annotated[str, typer.Option("--method", help="legacy or native387-v1")] = "legacy",
+    features: Annotated[Path | None, typer.Option("--features", help="prepared native387-v1 feature table")] = None,
+    ranking_unit: Annotated[str | None, typer.Option("--ranking-unit", help="column identifying each native ranking unit")] = None,
     confidence: Path = typer.Option(None, "--confidence", help="table of complex.id, iptm and optional plddt (0–100); defaults to metadata.tsv"),
     confidence_context: str = typer.Option("cohort", "--confidence-context", help="cohort (default) | nearest-plddt (each model) | nearest-mean-plddt (supplied same-pMHC set); proxy modes require --task tcr and keep --min-cohort"),
     reference: Path = typer.Option(None, "--reference", help="frozen reference JSON (default: the bundled one for the detected task)"),
