@@ -1786,8 +1786,9 @@ def scoring(
     regions: str = typer.Option("all", "--regions", help="TCR regions on the TCR side: all|cdr|cdr+fr (default: all)"),
     contact_weight: str = typer.Option("residue", "--contact-weight", help="residue (default, one per contacting pair) or atomic (weight by heavy-atom-pair count)"),
     intra_weight: float = typer.Option(0.0, "--intra-weight", help="weight of the intra-peptide term: report Phi_pep_int and add w x it to Phi_total (0 = off, the default)"),
-    delta: bool = typer.Option(False, "--delta", help="also report the poly-alanine-referenced ΔΦ per interface and ΔΦ total"),
+    delta: bool = typer.Option(False, "--delta", help="report ΔΦ against a same-residue reference for the selected side"),
     reference_aa: str = typer.Option("A", "--reference-aa", help="reference residue for --delta (default: alanine)"),
+    reference_side: str = typer.Option("peptide", "--reference-side", help="peptide (default), tcr, or both independent references"),
     reference_mode: str = typer.Option("virtual", "--reference-mode", help="structural: truncate to alanine and rebuild contacts; virtual: historical fixed-map substitution"),
     geometry: bool = typer.Option(False, "--geometry", help="also report the interface-geometry descriptors and the decorrelated quality score Q"),
     skip_errors: bool = typer.Option(False, "--skip-errors", help="drop structures that fail instead of writing an error row"),
@@ -1805,7 +1806,11 @@ def scoring(
     (ΔΦ_TP, ΔΦ_TM≡0, ΔΦ_PM). ``dPhi_total`` retains those estimated native-scale weights.
     ``dPhi_peptide_sum`` reports the unweighted ΔΦ_TP + ΔΦ_PM in the supplied potential scales;
     it has no fitted combination weights or calibration to binding energy.
-    The names match ``tcren recognize``, so the two tables join on ``pdb.id``.
+    Use ``--reference-side tcr`` to reference the TCR instead. The ``dPhi_tcr_ref_*``
+    columns give the three interface differences (ΔΦ_PM≡0) and the weighted total.
+    ``dPhi_tcr_sum`` is the unweighted ΔΦ_TP + ΔΦ_TM. ``--reference-side both``
+    reports both sets of columns from independent substitutions.
+    The peptide-reference names match ``tcren recognize``, so the two tables join on ``pdb.id``.
     ΔΦ is the score to use across candidates that each carry their **own** generated pose,
     where raw Φ partly reads the pose geometry rather than the peptide sequence.
 
@@ -1841,6 +1846,10 @@ def scoring(
     """
     threads = resolve_threads(threads)
 
+    if reference_side not in ("peptide", "tcr", "both"):
+        raise typer.BadParameter("--reference-side must be peptide, tcr, or both")
+    if reference_side != "peptide" and not delta:
+        raise typer.BadParameter("--reference-side tcr or both requires --delta")
     if reference_mode not in ("virtual", "structural"):
         raise typer.BadParameter("--reference-mode must be virtual or structural")
     if reference_mode == "structural" and (not delta or reference_aa != "A"):
@@ -1857,7 +1866,7 @@ def scoring(
     kw = dict(organism=organism, superimpose=not no_superimpose, db_dir=db, cutoff=cutoff,
               potentials=potentials, tcr_regions=regions, contact_weight=contact_weight,
               reference_aa=reference_aa if delta else None, intra_weight=intra_weight,
-              reference_mode=reference_mode)
+              reference_mode=reference_mode, reference_side=reference_side)
 
     # Chain typing is one mmseqs search per structure and dominated a cohort run. It is done
     # here for the whole cohort in a handful of searches (one per organism) and the scorer is
@@ -1906,7 +1915,9 @@ def scoring(
     table.write_csv(str(out))
     stamp(out, command=f"tcren scoring -s {structures} -o {out}", columns=table.columns,
           extra={"structures": table.height, "searched_indexes": indexes,
-                 "reference_mode": reference_mode if delta else None})
+                 "reference_mode": reference_mode if delta else None,
+                 "reference_side": reference_side if delta else None,
+                 "reference_aa": reference_aa if delta else None})
     typer.echo(f"wrote {out} ({table.height} rows"
                + (f", {failed} failed" if failed else "") + ")")
     if failed:  # an error buried in a column is an error nobody reads
