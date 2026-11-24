@@ -29,6 +29,20 @@ feature is also available programmatically from :func:`tcren.recognition.recogni
 :data:`tcren.recognition.DESCRIPTORS` gives every column's family and whether the receptor enters its
 definition; :func:`tcren.recognition.descriptors` selects on both (see :ref:`descriptor-families`).
 
+Heavy-atom contact export
+-------------------------
+
+.. code-block:: console
+
+   tcren contacts -s structures/ --interface tcr_peptide --regions all --atom-pairs all -o atom-pairs.csv
+
+By default, the contact table keeps the closest heavy-atom pair per residue pair.
+``--atom-pairs all`` emits every observed heavy-atom pair at or below the same
+cutoff in Å, using the same region and chain selection. The extra ``interface``
+column names the biological interface. With ``--interface all``, the export keeps
+both directed endpoint views and leaves the interface blank for other contacts.
+Count one biological direction when using these rows to measure physical contacts.
+
 Metadata that ships with a structure set
 ----------------------------------------
 
