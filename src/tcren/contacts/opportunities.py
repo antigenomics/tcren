@@ -18,14 +18,8 @@ _KEYS = [f"{field}.{side}" for side in ("from", "to") for field in ("chain.id", 
 _JOIN_KEYS = [*_KEYS, "residue.aa.from", "residue.aa.to"]
 
 
-def native_opportunities(structure: Structure) -> pl.DataFrame:
-    """Return the union of 12 Å Cβ/Cα neighbours and 5 Å heavy-atom contacts.
-
-    Both residues must have a finite Cβ, or Cα where Cβ is absent. The table
-    keeps one biologically directed row per pair, including non-contacting
-    neighbours and contacts outside the neighbour shell.
-    """
-    chains, anchors, heavy_counts = [], [], []
+def _native_structure(structure: Structure) -> Structure:
+    chains = []
     for chain in structure.chains:
         if chain.chain_type not in _ROLES:
             continue
@@ -36,10 +30,30 @@ def native_opportunities(structure: Structure) -> pl.DataFrame:
             anchor = r.cb_or_ca
             if anchor is not None and np.isfinite(anchor).all():
                 residues.append(r)
-                anchors.append(anchor)
-                heavy_counts.append(len(atoms))
         chains.append(replace(chain, residues=residues))
-    selected = replace(structure, chains=chains)
+    return replace(structure, chains=chains)
+
+
+def native_atom_contacts(structure: Structure) -> pl.DataFrame:
+    """Return all directed 5 Å heavy-atom contacts on resolved native-model endpoints."""
+    contacts = ContactMap.from_structure(_native_structure(structure), atom_pairs=True)
+    return pl.concat([
+        contacts.interface(interface).with_columns(pl.lit(interface).alias("interface"))
+        for interface in _INTERFACES
+    ])
+
+
+def native_opportunities(structure: Structure) -> pl.DataFrame:
+    """Return the union of 12 Å Cβ/Cα neighbours and 5 Å heavy-atom contacts.
+
+    Both residues must have a finite Cβ, or Cα where Cβ is absent. The table
+    keeps one biologically directed row per pair, including non-contacting
+    neighbours and contacts outside the neighbour shell.
+    """
+    selected = _native_structure(structure)
+    observed = [r for c in selected.chains for r in c.residues]
+    anchors = [r.cb_or_ca for r in observed]
+    heavy_counts = [len(r.atoms) for r in observed]
     shell = representative_atom_contacts(selected, kind="cb", cutoff=12.0).select(
         *_JOIN_KEYS, pl.lit(True).alias("within_shell"))
     actual = all_atom_contacts(selected, cutoff=5.0, count_atoms=True).rename({

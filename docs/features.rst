@@ -63,6 +63,13 @@ Positive effects retain edges. Missing effects veto edges and are counted
 separately. The effect reference must use directional interface and residue
 keys such as ``tcr_peptide/A|G``.
 
+``tcren.contacts.mixture.atom_contact_mixture`` takes directed heavy-atom
+pairs from ``tcren.contacts.opportunities.native_atom_contacts`` and atom
+cell effects. It averages effects within each physical residue pair before
+estimating the per-structure mixture fraction. Structures without contacts
+retain a null fraction, with the count of unsupported atomic observations.
+
+
 Metadata that ships with a structure set
 ----------------------------------------
 
