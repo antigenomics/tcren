@@ -43,6 +43,7 @@ from __future__ import annotations
 
 
 from pathlib import Path
+from typing import Annotated
 
 import polars as pl
 import typer
@@ -304,9 +305,12 @@ def _screen_confidence(confidence: Path | None, structures) -> pl.DataFrame | No
 
 @app.command(rich_help_panel=_P_MAIN)
 def screen(
-    structures: list[str] = typer.Option(..., "-s", "--structures", help="structure file(s), directory, .tar.gz, glob, or a .txt manifest of paths; repeatable and comma-separable"),
+    structures: list[str] = typer.Option(None, "-s", "--structures", help="structure file(s), directory, .tar.gz, glob, or a .txt manifest of paths; repeatable and comma-separable"),
     out: Path = typer.Option("screen.tsv", "-o", "--out", help="per-model score table (TSV)"),
     task: str = typer.Option("auto", "--task", help="auto|epitope|tcr; a declared task is verified against the structures"),
+    method: Annotated[str, typer.Option("--method", help="legacy or native387-v1")] = "legacy",
+    features: Annotated[Path | None, typer.Option("--features", help="prepared native387-v1 feature table")] = None,
+    ranking_unit: Annotated[str | None, typer.Option("--ranking-unit", help="column identifying each native ranking unit")] = None,
     confidence: Path = typer.Option(None, "--confidence", help="table of complex.id, iptm and optional plddt (0–100); defaults to metadata.tsv"),
     confidence_context: str = typer.Option("cohort", "--confidence-context", help="cohort (default) | nearest-plddt (each model) | nearest-mean-plddt (supplied same-pMHC set); proxy modes require --task tcr and keep --min-cohort"),
     reference: Path = typer.Option(None, "--reference", help="frozen reference JSON (default: the bundled one for the detected task)"),
@@ -345,6 +349,62 @@ def screen(
     contact listing, `superimpose` for canonical orientation, `surface` for pMHC topography,
     `features` for the full descriptor table.
     """
+    if method != "legacy":
+        from .associations import read_table
+        from .native_ranking import METHOD, native_epitope_features, rank_native_screen
+        from .provenance import stamp
+
+        if method != METHOD:
+            raise typer.BadParameter(f"--method must be legacy or {METHOD}")
+        if confidence_context != "cohort" or on_flag != "report" or weight is not None:
+            raise typer.BadParameter("native ranking uses its fixed weights and cohort confidence")
+        if template_metadata is not None or template_status is not None:
+            raise typer.BadParameter("native ranking uses the bundled native reference for coverage")
+        try:
+            if structures:
+                if task != "epitope" or features is not None or ranking_unit is not None:
+                    raise typer.BadParameter(
+                        "native structure input requires --task epitope and one ranking cohort"
+                    )
+                from .screen import CohortKind, cohort_signature, identities
+
+                n_threads = resolve_threads(threads)
+                batch = _typed_batch(structures, organism, threads=n_threads)
+                detected, _ = cohort_signature(*identities(batch))
+                if detected is not CohortKind.EPITOPE_RANKING:
+                    raise typer.BadParameter("native epitope ranking requires a fixed receptor")
+                if len({s.pdb_id for s in batch}) != len(batch):
+                    raise typer.BadParameter("native ranking requires unique structure IDs")
+                iptm = _screen_confidence(confidence, structures)
+                if iptm is None:
+                    raise typer.BadParameter("provide ipTM with --confidence or metadata.tsv")
+                ranking_unit = "cohort"
+                table = native_epitope_features(batch, threads=n_threads).join(
+                    iptm, on="complex.id", how="left", validate="1:1", maintain_order="left"
+                ).with_columns(pl.lit("input").alias(ranking_unit))
+            else:
+                if features is None or not ranking_unit or confidence is not None:
+                    raise typer.BadParameter("native table ranking requires --features and --ranking-unit")
+                table = read_table(features)
+            result = rank_native_screen(table, task=task, ranking_unit=ranking_unit,
+                                        min_cohort=min_cohort, reference_path=reference)
+        except (OSError, ValueError, pl.exceptions.PolarsError) as exc:
+            raise typer.BadParameter(str(exc)) from exc
+        result.write_csv(out, separator="\t")
+        stamp(out, command="screen", columns=result.columns, extra={
+            "score_method": METHOD, "task": task, "ranking_unit": ranking_unit,
+            "reference_sha256": result["native_reference_sha256"][0], "min_cohort": min_cohort,
+        })
+        zero = result["no_interface"].sum()
+        if zero:
+            typer.echo(f"WARNING: {zero} zero-contact model(s), screen_score=0", err=True)
+        typer.echo(f"wrote {out} ({result.height} rows)")
+        return
+    if not structures:
+        raise typer.BadParameter("--structures is required for legacy screening")
+    if features is not None or ranking_unit is not None:
+        raise typer.BadParameter("--features and --ranking-unit require --method native387-v1")
+
     from .screen import (
         FLAGS as FLAG_TEXT, CohortKind, FlagResponse, apply_flag_response, bundled_reference,
         cohort_flags, cohort_signature, identities, read_reference, screen_scores,
@@ -1786,8 +1846,9 @@ def scoring(
     regions: str = typer.Option("all", "--regions", help="TCR regions on the TCR side: all|cdr|cdr+fr (default: all)"),
     contact_weight: str = typer.Option("residue", "--contact-weight", help="residue (default, one per contacting pair) or atomic (weight by heavy-atom-pair count)"),
     intra_weight: float = typer.Option(0.0, "--intra-weight", help="weight of the intra-peptide term: report Phi_pep_int and add w x it to Phi_total (0 = off, the default)"),
-    delta: bool = typer.Option(False, "--delta", help="also report the poly-alanine-referenced ΔΦ per interface and ΔΦ total"),
+    delta: bool = typer.Option(False, "--delta", help="report ΔΦ against a same-residue reference for the selected side"),
     reference_aa: str = typer.Option("A", "--reference-aa", help="reference residue for --delta (default: alanine)"),
+    reference_side: str = typer.Option("peptide", "--reference-side", help="peptide (default), tcr, or both independent references"),
     reference_mode: str = typer.Option("virtual", "--reference-mode", help="structural: truncate to alanine and rebuild contacts; virtual: historical fixed-map substitution"),
     geometry: bool = typer.Option(False, "--geometry", help="also report the interface-geometry descriptors and the decorrelated quality score Q"),
     skip_errors: bool = typer.Option(False, "--skip-errors", help="drop structures that fail instead of writing an error row"),
@@ -1805,7 +1866,11 @@ def scoring(
     (ΔΦ_TP, ΔΦ_TM≡0, ΔΦ_PM). ``dPhi_total`` retains those estimated native-scale weights.
     ``dPhi_peptide_sum`` reports the unweighted ΔΦ_TP + ΔΦ_PM in the supplied potential scales;
     it has no fitted combination weights or calibration to binding energy.
-    The names match ``tcren recognize``, so the two tables join on ``pdb.id``.
+    Use ``--reference-side tcr`` to reference the TCR instead. The ``dPhi_tcr_ref_*``
+    columns give the three interface differences (ΔΦ_PM≡0) and the weighted total.
+    ``dPhi_tcr_sum`` is the unweighted ΔΦ_TP + ΔΦ_TM. ``--reference-side both``
+    reports both sets of columns from independent substitutions.
+    The peptide-reference names match ``tcren recognize``, so the two tables join on ``pdb.id``.
     ΔΦ is the score to use across candidates that each carry their **own** generated pose,
     where raw Φ partly reads the pose geometry rather than the peptide sequence.
 
@@ -1841,6 +1906,10 @@ def scoring(
     """
     threads = resolve_threads(threads)
 
+    if reference_side not in ("peptide", "tcr", "both"):
+        raise typer.BadParameter("--reference-side must be peptide, tcr, or both")
+    if reference_side != "peptide" and not delta:
+        raise typer.BadParameter("--reference-side tcr or both requires --delta")
     if reference_mode not in ("virtual", "structural"):
         raise typer.BadParameter("--reference-mode must be virtual or structural")
     if reference_mode == "structural" and (not delta or reference_aa != "A"):
@@ -1857,7 +1926,7 @@ def scoring(
     kw = dict(organism=organism, superimpose=not no_superimpose, db_dir=db, cutoff=cutoff,
               potentials=potentials, tcr_regions=regions, contact_weight=contact_weight,
               reference_aa=reference_aa if delta else None, intra_weight=intra_weight,
-              reference_mode=reference_mode)
+              reference_mode=reference_mode, reference_side=reference_side)
 
     # Chain typing is one mmseqs search per structure and dominated a cohort run. It is done
     # here for the whole cohort in a handful of searches (one per organism) and the scorer is
@@ -1906,7 +1975,9 @@ def scoring(
     table.write_csv(str(out))
     stamp(out, command=f"tcren scoring -s {structures} -o {out}", columns=table.columns,
           extra={"structures": table.height, "searched_indexes": indexes,
-                 "reference_mode": reference_mode if delta else None})
+                 "reference_mode": reference_mode if delta else None,
+                 "reference_side": reference_side if delta else None,
+                 "reference_aa": reference_aa if delta else None})
     typer.echo(f"wrote {out} ({table.height} rows"
                + (f", {failed} failed" if failed else "") + ")")
     if failed:  # an error buried in a column is an error nobody reads

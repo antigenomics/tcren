@@ -55,6 +55,14 @@ introduced:
    tcren export -s structures/ --potential tcren2 --quantity contacts -o contacts.tsv
    tcren export -s structures/ --potential tcren2 --quantity placement -o placement.tsv
 
+For a whole-TCR reference, use ``scoring --delta --reference-side tcr``.
+The ``dPhi_tcr_ref_*`` columns give the per-interface differences and native-scale
+weighted total. The peptide–MHC difference is zero because neither partner is
+substituted. ``dPhi_tcr_sum`` is the unweighted sum of the TCR–peptide and
+TCR–MHC differences. Use ``--reference-side both`` to compute both references
+independently and retain the historical peptide columns. Use the receptor export
+for separate CDR and whole-receptor comparisons.
+
 Use ``--reference-mode structural`` explicitly for the manuscript. The default
 ``virtual`` mode remains available for exact historical reproduction. Output rows
 and provenance identify the mode; do not mix modes in a comparison. Structural

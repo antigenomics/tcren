@@ -27,7 +27,7 @@ from .mhc import MhcCall, annotate_mhc
 from .potential import Potential, keskin, mj, tcren, tcren2, tcren2_em
 from .energetics.scoring import _interface_energy, _phi_scale
 from .structure.io import import_structure
-from .structure.model import PEPTIDE_TYPE, Structure
+from .structure.model import PEPTIDE_TYPE, TCR_TYPES, Structure
 
 # Interface → potential family (TCRen for the TCR↔peptide contact map; MJ elsewhere).
 _INTERFACE_POTENTIAL = {"tcr_peptide": "tcren2", "tcr_mhc": "mj", "peptide_mhc": "mj"}
@@ -127,6 +127,8 @@ def run(
     intra_weight: float = 0.0,
     typed: bool = False,
     reference_mode: str = "virtual",
+    reference_side: str = "peptide",
+    atom_contact_count: bool = False,
 ) -> PipelineResult:
     """Run the full pipeline on one structure (path or parsed :class:`Structure`).
 
@@ -155,8 +157,8 @@ def run(
             :func:`tcren.ddg.reference_delta`, i.e. its energy minus the energy of a
             poly-``reference_aa`` peptide using the selected reference mode. Off by
             default, so the default ``scores`` dict is unchanged.
-        reference_mode: ``structural`` truncates the reference peptide to alanine and
-            rebuilds contacts; ``virtual`` preserves the historical fixed-map calculation.
+        reference_mode: ``structural`` truncates the selected side to alanine and
+            rebuilds contacts; ``virtual`` uses fixed-map identity substitution.
             Structural mode requires alanine as the reference residue.
         typed: the structure's chains are already typed, so skip :func:`classify_chains`.
             Chain typing costs one ``mmseqs easy-search`` per structure and a caller scoring a
@@ -169,11 +171,24 @@ def run(
             ``intra_weight *`` that energy into ``scores["total"]``. ``0.0`` (default) computes
             nothing and leaves ``scores`` unchanged. Its potential is MJ unless
             ``potentials["peptide_internal"]`` overrides it.
+        reference_side: ``peptide`` keeps the historical peptide reference. ``tcr``
+            substitutes all TCR residues independently of the peptide. ``both``
+            reports the two independent reference differences.
+
+        atom_contact_count: Include heavy-atom pair counts in the contact table independently
+            of the contact weighting used for energy.
 
     Returns:
         A :class:`PipelineResult` with the markup, contacts, per-interface scores and (if
         requested) the canonical-frame oriented structure.
     """
+    if reference_side not in ("peptide", "tcr", "both"):
+        raise ValueError("reference_side must be peptide, tcr, or both")
+    if reference_side != "peptide":
+        from .potential.model import AA20
+
+        if reference_aa not in AA20:
+            raise ValueError("TCR reference requires a standard reference amino acid")
     if reference_mode not in ("virtual", "structural"):
         raise ValueError("reference_mode must be virtual or structural")
     if reference_mode == "structural" and reference_aa not in (None, "A"):
@@ -201,7 +216,7 @@ def run(
         rmsd = info.rmsd
 
     cm = ContactMap.from_structure(
-        s, cutoff=cutoff, count_atoms=(contact_weight == "atomic"),
+        s, cutoff=cutoff, count_atoms=atom_contact_count or contact_weight == "atomic",
         peptide_internal=bool(intra_weight),
     )
     resolved = _resolve_potentials(potentials)
@@ -235,7 +250,7 @@ def run(
         )
         scores["total"] += intra_weight * scores["peptide_internal"] / resolved["peptide_internal"].scale()
 
-    if reference_aa is not None:
+    if reference_aa is not None and reference_side in ("peptide", "both"):
         # ΔF = F(peptide) − F(poly-reference peptide) per interface. Structural mode
         # truncates the peptide and rebuilds contacts; virtual mode retains native contacts.
         # ΔF_tcr_mhc is identically 0 — the peptide is not in that interface.
@@ -264,6 +279,36 @@ def run(
                 cutoff=cutoff,
             )
         scores["delta_total"] = sum(weights[i] * scores[f"delta_{i}"] for i in _INTERFACE_POTENTIAL)
+
+    if reference_side in ("tcr", "both"):
+        receptors = s.by_type(*TCR_TYPES)
+        if not any(chain.residues for chain in receptors):
+            raise ValueError(f"{s.pdb_id}: no TCR residues, cannot compute a TCR reference")
+        reference_map = cm
+        if reference_mode == "structural":
+            from .refine.substitute import substitute_residues
+
+            targets = {(chain.chain_id, residue.seq_index): reference_aa
+                       for chain in receptors for residue in chain.residues}
+            reference_map = ContactMap.from_structure(
+                substitute_residues(s, targets), cutoff=cutoff,
+                count_atoms=contact_weight == "atomic",
+            )
+        for iface in ("tcr_peptide", "tcr_mhc"):
+            reference_contacts = reference_map.interface(iface, tcr_regions=tcr_regions)
+            if reference_mode == "virtual":
+                reference_contacts = reference_contacts.with_columns(
+                    pl.when(pl.col("chain.type.from").is_in(TCR_TYPES))
+                    .then(pl.lit(reference_aa)).otherwise(pl.col("residue.aa.from"))
+                    .alias("residue.aa.from")
+                )
+            scores[f"delta_tcr_ref_{iface}"] = scores[iface] - _interface_energy(
+                reference_contacts, resolved[iface], contact_weight=contact_weight,
+            )
+        scores["delta_tcr_ref_peptide_mhc"] = 0.0
+        scores["delta_tcr_ref_total"] = sum(
+            weights[i] * scores[f"delta_tcr_ref_{i}"] for i in _INTERFACE_POTENTIAL
+        )
 
     # Interface-sanity (assay-noise) flag: a cheap pre-energy check that the TCR:peptide
     # interface is a plausible dock (enough contacts + in-range docking geometry). The docking
@@ -336,5 +381,15 @@ def score_row(result: PipelineResult) -> dict:
             "dPhi_total": result.scores["delta_total"],
             "dPhi_peptide_sum": (result.scores["delta_tcr_peptide"]
                                   + result.scores["delta_peptide_mhc"]),
+        })
+    if "delta_tcr_ref_total" in result.scores:
+        row.update({
+            "reference_mode": result.extra.get("reference_mode", "virtual"),
+            "dPhi_tcr_ref_tcr_pep": result.scores["delta_tcr_ref_tcr_peptide"],
+            "dPhi_tcr_ref_tcr_mhc": result.scores["delta_tcr_ref_tcr_mhc"],
+            "dPhi_tcr_ref_pep_mhc": result.scores["delta_tcr_ref_peptide_mhc"],
+            "dPhi_tcr_ref_total": result.scores["delta_tcr_ref_total"],
+            "dPhi_tcr_sum": (result.scores["delta_tcr_ref_tcr_peptide"]
+                             + result.scores["delta_tcr_ref_tcr_mhc"]),
         })
     return row
