@@ -350,18 +350,42 @@ def screen(
     """
     if method != "legacy":
         from .associations import read_table
-        from .native_ranking import METHOD, rank_native_screen
+        from .native_ranking import METHOD, native_epitope_features, rank_native_screen
         from .provenance import stamp
 
         if method != METHOD:
             raise typer.BadParameter(f"--method must be legacy or {METHOD}")
-        if features is None or not ranking_unit or structures:
-            raise typer.BadParameter("native ranking requires --features and --ranking-unit")
-        if (confidence is not None or confidence_context != "cohort" or on_flag != "report"
-                or weight is not None or template_metadata is not None or template_status is not None):
-            raise typer.BadParameter("native ranking uses the confidence and coverage in its feature table")
+        if confidence_context != "cohort" or on_flag != "report" or weight is not None:
+            raise typer.BadParameter("native ranking uses its fixed weights and cohort confidence")
+        if template_metadata is not None or template_status is not None:
+            raise typer.BadParameter("native ranking uses the bundled native reference for coverage")
         try:
-            result = rank_native_screen(read_table(features), task=task, ranking_unit=ranking_unit,
+            if structures:
+                if task != "epitope" or features is not None or ranking_unit is not None:
+                    raise typer.BadParameter(
+                        "native structure input requires --task epitope and one ranking cohort"
+                    )
+                from .screen import CohortKind, cohort_signature, identities
+
+                n_threads = resolve_threads(threads)
+                batch = _typed_batch(structures, organism, threads=n_threads)
+                detected, _ = cohort_signature(*identities(batch))
+                if detected is not CohortKind.EPITOPE_RANKING:
+                    raise typer.BadParameter("native epitope ranking requires a fixed receptor")
+                if len({s.pdb_id for s in batch}) != len(batch):
+                    raise typer.BadParameter("native ranking requires unique structure IDs")
+                iptm = _screen_confidence(confidence, structures)
+                if iptm is None:
+                    raise typer.BadParameter("provide ipTM with --confidence or metadata.tsv")
+                ranking_unit = "cohort"
+                table = native_epitope_features(batch, threads=n_threads).join(
+                    iptm, on="complex.id", how="left", validate="1:1", maintain_order="left"
+                ).with_columns(pl.lit("input").alias(ranking_unit))
+            else:
+                if features is None or not ranking_unit or confidence is not None:
+                    raise typer.BadParameter("native table ranking requires --features and --ranking-unit")
+                table = read_table(features)
+            result = rank_native_screen(table, task=task, ranking_unit=ranking_unit,
                                         min_cohort=min_cohort, reference_path=reference)
         except (OSError, ValueError, pl.exceptions.PolarsError) as exc:
             raise typer.BadParameter(str(exc)) from exc

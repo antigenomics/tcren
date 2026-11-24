@@ -150,3 +150,44 @@ def rank_native_screen(
         ))
     results = pl.concat(pieces, how="diagonal_relaxed").sort(_ROW).drop(_ROW)
     return table.with_columns(results.get_columns())
+
+
+def _native_epitope_row(structure) -> dict:
+    from .contactmap import ContactMap
+    from .pipeline import run, score_row
+    from .topology.surface import surface_complementarity, surface_map
+
+    row = {"complex.id": structure.pdb_id, "n_atom_contacts_tp": None,
+           "dPhi_peptide_sum": None, "d_charge": None, "coverage": None}
+    try:
+        result = run(structure, typed=True, superimpose=False, reference_aa="A",
+                     reference_mode="structural", atom_contact_count=True)
+        row["dPhi_peptide_sum"] = score_row(result)["dPhi_peptide_sum"]
+        contacts = ContactMap(structure.pdb_id, result.contacts).tcr_peptide()
+        row["n_atom_contacts_tp"] = contacts["n_atom_contacts"].sum()
+    except ValueError as exc:
+        row["native_energy_error"] = str(exc)
+    try:
+        complementarity = surface_complementarity(
+            surface_map(structure, side="pmhc"), surface_map(structure, side="tcr"))
+        row.update({name: complementarity.get(name) for name in ("d_charge", "coverage")})
+    except ValueError as exc:
+        row["native_surface_error"] = str(exc)
+    return row
+
+
+def native_epitope_features(structures, *, threads: int = 0) -> pl.DataFrame:
+    """Extract the measured peptide ranking terms from a batch of typed complexes.
+
+    Annotate TCR chain roles and MHC in a single batch before calling. Join
+    generator confidence and the ranking-unit key before ranking.
+    """
+    from .runtime import parallel_map
+
+    batch = list(structures)
+    if any(s.mhc_calls is None for s in batch):
+        raise ValueError("annotate MHC for the entire structure batch before extracting native terms")
+    return pl.DataFrame(parallel_map(_native_epitope_row, batch, threads),
+                        schema_overrides={"n_atom_contacts_tp": pl.Int64,
+                                          "dPhi_peptide_sum": pl.Float64,
+                                          "d_charge": pl.Float64, "coverage": pl.Float64})

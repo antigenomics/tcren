@@ -127,6 +127,7 @@ def run(
     intra_weight: float = 0.0,
     typed: bool = False,
     reference_mode: str = "virtual",
+    atom_contact_count: bool = False,
 ) -> PipelineResult:
     """Run the full pipeline on one structure (path or parsed :class:`Structure`).
 
@@ -170,6 +171,9 @@ def run(
             nothing and leaves ``scores`` unchanged. Its potential is MJ unless
             ``potentials["peptide_internal"]`` overrides it.
 
+        atom_contact_count: Include heavy-atom pair counts in the contact table independently
+            of the contact weighting used for energy.
+
     Returns:
         A :class:`PipelineResult` with the markup, contacts, per-interface scores and (if
         requested) the canonical-frame oriented structure.
@@ -201,7 +205,7 @@ def run(
         rmsd = info.rmsd
 
     cm = ContactMap.from_structure(
-        s, cutoff=cutoff, count_atoms=(contact_weight == "atomic"),
+        s, cutoff=cutoff, count_atoms=atom_contact_count or contact_weight == "atomic",
         peptide_internal=bool(intra_weight),
     )
     resolved = _resolve_potentials(potentials)

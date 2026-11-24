@@ -253,6 +253,16 @@ Library API
 Native387 ranking
 -----------------
 
+To rank one fixed-receptor peptide cohort directly from structures, supply
+the generator confidence table or a colocated ``metadata.tsv``.
+
+.. code-block:: console
+
+   tcren screen --method native387-v1 --structures models/ --task epitope --confidence confidence.tsv -o scores.tsv
+
+The command types the structures in a batch and extracts the structural
+alanine reference, interface size and surface complementarity.
+
 Use the named ``native387-v1`` method with a prepared feature table. Supply
 the task and the column that identifies each ranking unit. Receptor ranking
 holds peptide and MHC fixed within a unit. Epitope ranking holds the receptor

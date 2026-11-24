@@ -93,3 +93,69 @@ def test_native_screen_cli_accepts_explicit_table_and_unit(tmp_path):
     scored = pl.read_csv(out, separator="\t")
     assert scored["screen_score"][0] == 0
     assert scored.height == 4
+
+
+def test_peptide_native_features_keep_contact_count_from_residue_weighted_pipeline(monkeypatch):
+    from tcren import pipeline
+    from tcren.native_ranking import native_epitope_features
+    from tcren.structure.model import Atom, Chain, RegionMarkup, Residue, Structure
+    from tcren.topology import surface
+
+    def chain(id_, role, x):
+        ca = Atom("CA", "C", np.asarray([x, 0., 0.]))
+        cb = Atom("CB", "C", np.asarray([x, 1., 0.]))
+        residues = [Residue(0, 0, "", "A", "ALA", (ca, cb))]
+        return Chain(id_, residues, role, regions=[RegionMarkup(role, 0, 0, "A", residues)])
+
+    structure = Structure("pose", [chain("A", "TRA", 0), chain("P", "PEPTIDE", 3)])
+    structure.mhc_calls = []
+    calls = []
+
+    def run_with_count(s, **kwargs):
+        calls.append(kwargs)
+        return original_run(s, **kwargs)
+
+    original_run = pipeline.run
+    monkeypatch.setattr(pipeline, "run", run_with_count)
+    monkeypatch.setattr(surface, "surface_map", lambda s, **kwargs: kwargs["side"])
+    monkeypatch.setattr(surface, "surface_complementarity",
+                        lambda *_: {"d_charge": .3, "coverage": .6})
+    row = native_epitope_features([structure], threads=1).row(0, named=True)
+    assert calls[0]["typed"] and calls[0]["reference_mode"] == "structural"
+    assert row["complex.id"] == "pose"
+    assert row["n_atom_contacts_tp"] == 4, row.get("native_energy_error")
+    assert row["dPhi_peptide_sum"] == pytest.approx(0)
+    assert row["d_charge"] == pytest.approx(.3)
+    assert row["coverage"] == pytest.approx(.6)
+
+
+def test_native_screen_from_peptide_structures_reads_confidence_and_types_once(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from tcren import cli, native_ranking, screen
+
+    base = _inputs()
+    structures = [SimpleNamespace(pdb_id=item) for item in base["complex.id"]]
+    batches = []
+
+    def typed(*args, **kwargs):
+        batches.append(kwargs)
+        return structures
+
+    monkeypatch.setattr(cli, "_typed_batch", typed)
+    monkeypatch.setattr(screen, "identities",
+                        lambda batch: (list("PQRS"), [("A", "B")] * len(batch)))
+    monkeypatch.setattr(native_ranking, "native_epitope_features",
+                        lambda *_args, **_kwargs: base.drop("iptm", "unit"))
+    confidence = tmp_path / "confidence.tsv"
+    base.select("complex.id", "iptm").write_csv(confidence, separator="\t")
+    out = tmp_path / "scores.tsv"
+    result = CliRunner().invoke(app, [
+        "screen", "--method", "native387-v1", "-s", "models", "--task", "epitope",
+        "--confidence", str(confidence), "--min-cohort", "1", "-o", str(out), "-t", "1",
+    ])
+    assert result.exit_code == 0, result.output
+    assert batches == [{"threads": 1}]
+    expected = rank_native_screen(base, task="epitope", ranking_unit="unit", min_cohort=1)
+    actual = pl.read_csv(out, separator="\t")
+    np.testing.assert_allclose(actual["screen_score"], expected["screen_score"])
