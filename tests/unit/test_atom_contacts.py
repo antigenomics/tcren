@@ -74,3 +74,37 @@ def test_count_matches_brute_force():
         if np.linalg.norm(x.coord - y.coord) <= 5.0
     )
     assert df["n_atom_contacts"][0] == brute
+
+
+def test_cli_all_atom_pairs_keep_the_existing_contact_population(tmp_path, monkeypatch):
+    import polars as pl
+    from typer.testing import CliRunner
+
+    from tcren import cli
+
+    structure = _multi_atom_structure()
+    structure.chains[0].chain_type = "TRA"
+    structure.chains[1].chain_type = "PEPTIDE"
+    structure.chains.append(Chain("M", [_res(0, "A", [(7.0, 0.0, 0.0)])], "MHCa"))
+    monkeypatch.setattr(cli, "_typed_batch", lambda *args, **kwargs: [structure])
+    runner = CliRunner()
+
+    def export(interface, *flags):
+        path = tmp_path / "contacts.csv"
+        result = runner.invoke(cli.app, [
+            "contacts", "-s", str(tmp_path), "-o", str(path), "--interface", interface, *flags,
+        ])
+        assert result.exit_code == 0, result.output
+        return pl.read_csv(path)
+
+    for interface, expected in (
+        ("tcr_peptide", {"tcr_peptide": 6}),
+        ("all", {"tcr_peptide": 12, "tcr_mhc": 2, "peptide_mhc": 4}),
+    ):
+        closest = export(interface)
+        pairs = export(interface, "--atom-pairs", "all")
+        counts = pairs.group_by("interface").len()
+        assert dict(counts.iter_rows()) == expected
+        keys = ["pdb.id", "chain.id.from", "residue.index.from", "chain.id.to", "residue.index.to"]
+        collapsed = pairs.sort("dist").unique(subset=keys).select(closest.columns)
+        assert collapsed.sort(keys).equals(closest.sort(keys))

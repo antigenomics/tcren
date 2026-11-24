@@ -21,6 +21,15 @@ from .contacts.table import tidy_contacts
 from .structure.model import MHC_TYPES, PEPTIDE_TYPE, RECEPTOR_TYPES, Structure
 
 Interface = Literal["tcr_peptide", "tcr_mhc", "peptide_mhc"]
+_INTERFACE_ROLES = {
+    "tcr_peptide": (RECEPTOR_TYPES, (PEPTIDE_TYPE,)),
+    "tcr_mhc": (RECEPTOR_TYPES, MHC_TYPES),
+    "peptide_mhc": ((PEPTIDE_TYPE,), MHC_TYPES),
+}
+
+
+def _has_roles(from_types: tuple[str, ...], to_types: tuple[str, ...]) -> pl.Expr:
+    return pl.col("chain.type.from").is_in(from_types) & pl.col("chain.type.to").is_in(to_types)
 
 #: TCR region sets selectable on the ``from`` (TCR) side of an interface. ``"all"`` (no
 #: filter) is the default and reproduces the legacy behaviour byte-for-byte; ``"cdr"`` keeps
@@ -127,10 +136,7 @@ class ContactMap:
                 "before building the contact map", RuntimeWarning, stacklevel=3)
 
     def _interface(self, from_types: tuple[str, ...], to_types: tuple[str, ...]) -> pl.DataFrame:
-        sel = self.contacts.filter(
-            pl.col("chain.type.from").is_in(list(from_types))
-            & pl.col("chain.type.to").is_in(list(to_types))
-        )
+        sel = self.contacts.filter(_has_roles(from_types, to_types))
         # pos = residue.index - region.start (0-based position within a region).
         return sel.with_columns(
             (pl.col("residue.index.from") - pl.col("region.start.from")).alias("pos.from"),
@@ -156,24 +162,27 @@ class ContactMap:
         cached = self._iface_cache.get(key)
         if cached is not None:
             return cached
-        if which == "tcr_peptide":
-            sel = self._interface(RECEPTOR_TYPES, (PEPTIDE_TYPE,))
-        elif which == "tcr_mhc":
+        if which not in _INTERFACE_ROLES:
+            raise ValueError(f"unknown interface {which!r}")
+        if which != "tcr_peptide":
             self._warn_if_mhc_unannotated(which)
-            sel = self._interface(RECEPTOR_TYPES, MHC_TYPES)
-        elif which == "peptide_mhc":
-            self._warn_if_mhc_unannotated(which)
-            sel = self._interface((PEPTIDE_TYPE,), MHC_TYPES)
+        sel = self._interface(*_INTERFACE_ROLES[which])
+        if which == "peptide_mhc":
             self._iface_cache[key] = sel
             return sel
-        else:
-            raise ValueError(f"unknown interface {which!r}")
 
         keep = TCR_REGIONS[tcr_regions]
         if keep is not None:  # TCR is on the 'from' side for these interfaces
             sel = sel.filter(pl.col("region.type.from").is_in(list(keep)))
         self._iface_cache[key] = sel
         return sel
+
+    def labeled_contacts(self) -> pl.DataFrame:
+        """Label the biological interface of each existing view, in either direction."""
+        return self.contacts.with_columns(pl.coalesce([
+            pl.when(_has_roles(source, target) | _has_roles(target, source)).then(pl.lit(which))
+            for which, (source, target) in _INTERFACE_ROLES.items()
+        ]).alias("interface"))
 
     def tcr_peptide(self) -> pl.DataFrame:
         """Convenience accessor for the TCR↔peptide interface."""

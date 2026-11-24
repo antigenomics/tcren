@@ -6,10 +6,10 @@ has since been renamed, redefined or removed. The number is then wrong and irrep
 only symptom is that it does not match a fresh run.
 
 :func:`stamp` writes a sidecar JSON beside every table a command emits. :func:`check` reads it back
-and **raises** unless the installed package would produce the same columns from the same registry.
+and **raises** unless the installed package recognizes their descriptor definitions.
 The registry digest is what makes that work: it changes whenever any descriptor is added, dropped,
-or has its units or definition edited, so a table computed under a different catalogue cannot pass
-silently.
+or has its units or definition edited. The explicit legacy projection accepts tables written
+before the addition of auxiliary reporting columns, provided they contain none of those columns.
 """
 
 from __future__ import annotations
@@ -71,18 +71,31 @@ class StaleTableError(RuntimeError):
 def registry_digest() -> str:
     """SHA-256 over the descriptor catalogue: names, families, invariance classes, units.
 
-    Definitions are included, so editing what a descriptor *means* invalidates every table that
-    carries it even when the number would not change. That is deliberate -- a redefined column is a
-    different quantity under the same name, which is the case a value comparison cannot catch.
+    Definitions are included, so editing a descriptor changes the digest even
+    when its values would stay the same.
     """
+    return _registry_digest(())
+
+
+def _registry_digest(omit: tuple[str, ...]) -> str:
     from .recognition import DESCRIPTORS, DETAIL, INVARIANCE
 
     payload = [
         [name, fam, bool(tcr), INVARIANCE.get(name, ""), *DETAIL.get(name, ("", ""))]
         for name, (fam, tcr) in sorted(DESCRIPTORS.items())
+        if name not in omit
     ]
     blob = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
     return hashlib.sha256(blob).hexdigest()
+
+
+def _matches_registry(digest: str | None, columns) -> bool:
+    from .descriptors.catalogue import HOLDOUT_AUXILIARY_DESCRIPTORS
+
+    return digest == registry_digest() or (
+        not set(HOLDOUT_AUXILIARY_DESCRIPTORS).intersection(columns or ())
+        and digest == _registry_digest(HOLDOUT_AUXILIARY_DESCRIPTORS)
+    )
 
 
 def sidecar_path(table: str | Path) -> Path:
@@ -140,8 +153,8 @@ def check(table: str | Path, *, require: bool = True) -> dict:
                 f"written before this tcren, or by something that does not stamp. Recompute it "
                 f"with the installed {__version__} rather than reading it.")
         return {}
-    want = registry_digest()
-    if meta.get("registry_digest") != want:
+    if not _matches_registry(meta.get("registry_digest"), meta.get("columns")):
+        want = registry_digest()
         raise StaleTableError(
             f"{table} was written under a different descriptor catalogue "
             f"(tcren {meta.get('tcren')}, digest {str(meta.get('registry_digest'))[:12]}; "

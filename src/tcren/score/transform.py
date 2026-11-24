@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from ..descriptors.catalogue import OPERATOR
+from ..descriptors.catalogue import HOLDOUT_AUXILIARY_DESCRIPTORS, OPERATOR
 from ..recognition import DESCRIPTORS, DETAIL
 
 #: operator name -> tuple of descriptors, inverted to descriptor -> operator
@@ -208,7 +208,7 @@ def _yeo(x: np.ndarray, lam: float) -> np.ndarray:
 def working_set(*, receptor_task: bool = True) -> list[str]:
     """The descriptors a model may read: catalogue minus determined, banned, and (optionally)
     the five computed without the receptor."""
-    drop = set(DETERMINED) | set(BANNED)
+    drop = set(DETERMINED) | set(BANNED) | set(HOLDOUT_AUXILIARY_DESCRIPTORS)
     if receptor_task:
         drop |= set(NO_RECEPTOR)
     else:

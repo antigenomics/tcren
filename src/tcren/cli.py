@@ -16,7 +16,7 @@ Scoring & prediction
 
 Annotation & contacts
     * ``tcren annotate`` — chain typing + region markup (TCR CDR/FR, MHC groove, peptide; ``--pseudo``).
-    * ``tcren contacts`` — annotated residue-pair contact table for an interface.
+    * ``tcren contacts`` — annotated residue or atom contact table for an interface.
 
 Orientation & refinement
     * ``tcren superimpose`` — orient structure(s) onto the canonical database by MHC.
@@ -553,23 +553,32 @@ def contacts(
     cutoff: float = typer.Option(5.0, "--cutoff"),
     interface: str = typer.Option("tcr_peptide", "--interface", help="tcr_peptide|tcr_mhc|peptide_mhc|all"),
     regions: str = typer.Option("all", "--regions", help="TCR regions on the TCR side: all|cdr|cdr+fr (default: all)"),
+    atom_pairs: str = typer.Option(
+        "closest", "--atom-pairs", help="closest per residue pair, or all heavy-atom pairs"
+    ),
     organism: str = typer.Option("human", "--organism"),
     threads: int = typer.Option(0, "-t", "--threads", help="CPU budget: 1 serial, 0 automatic (all allocated physical cores), or a positive count"),
 ) -> None:
     """Compute and emit an annotated contact table."""
     if regions not in TCR_REGIONS:
         raise typer.BadParameter("--regions must be one of all|cdr|cdr+fr")
+    if atom_pairs not in ("closest", "all"):
+        raise typer.BadParameter("--atom-pairs must be closest or all")
+    all_atoms = atom_pairs == "all"
     # An MHC-side interface selects nothing until annotate_mhc splits "MHC" into MHCa/MHCb, and
     # `ContactMap.interface` now refuses rather than returning an empty frame. `all` needs it too:
     # the unrefined table is missing every MHC-side row without saying so.
     need_mhc = interface in ("tcr_mhc", "peptide_mhc", "all")
     frames = []
     for s in _typed_batch(structures, organism, mhc=need_mhc, threads=threads):
-        cm = ContactMap.from_structure(s, cutoff=cutoff)
-        frames.append(
-            (cm.contacts if interface == "all" else cm.interface(interface, tcr_regions=regions))
-            .with_columns(pl.lit(s.pdb_id).alias("pdb.id"))
-        )
+        cm = ContactMap.from_structure(s, cutoff=cutoff, atom_pairs=all_atoms)
+        if interface == "all":
+            table = cm.labeled_contacts() if all_atoms else cm.contacts
+        else:
+            table = cm.interface(interface, tcr_regions=regions)
+            if all_atoms:
+                table = table.with_columns(pl.lit(interface).alias("interface"))
+        frames.append(table)
     pl.concat(frames).write_csv(str(out))
     typer.echo(f"wrote {out}")
 
@@ -850,6 +859,21 @@ def potential_table(
     pot = _load_potential(potential)
     pot.to_csv(out)
     typer.echo(f"{pot.name}: {pot.matrix.height} pairs over {len(pot.alphabet)} residues -> {out}")
+
+@app.command("reference", rich_help_panel=_P_DATA)
+def native_reference(
+    show: bool = typer.Option(False, "--show", help="print the complete reference and digest"),
+) -> None:
+    """Inspect the bundled, content-verified native reference."""
+    import json
+
+    from .native_reference import load_native_reference
+
+    reference = load_native_reference()
+    keys = ("version", "reference_sha256", "native_structures", "cutoff_A")
+    output = reference if show else {key: reference[key] for key in keys}
+    typer.echo(json.dumps(output, indent=2, sort_keys=True))
+
 
 @app.command("fetch-data", rich_help_panel=_P_DATA)
 def fetch_data(

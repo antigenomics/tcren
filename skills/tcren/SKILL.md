@@ -66,7 +66,7 @@ and inspect every generated figure; no browser-side geometry or label-based fits
 | One receptor, separately modelled peptides | `screen` | [Screen contract](https://docs.isalgo.dev/tcren/screening.html) |
 | Candidate peptides threaded on one fixed template | `score` | [Getting started](https://docs.isalgo.dev/tcren/getting-started.html) |
 | Existing structural epitope-energy/ipTM table | `rank-epitopes` | [Epitope ranking](https://docs.isalgo.dev/tcren/ranking.html) |
-| Contacts, atom inventories or score attribution | `contacts`, `export` | [Features](https://docs.isalgo.dev/tcren/features.html) |
+| Contacts, atom inventories or score attribution | `contacts` (`--atom-pairs all` for every heavy-atom pair), `export` | [Features](https://docs.isalgo.dev/tcren/features.html) |
 | Shared-frame atom/residue views and overlays | `complementarity`, `complementarity-views`, `complementarity-plot` | [Complementarity](https://docs.isalgo.dev/tcren/complementarity.html) |
 | Canonical placement and pMHC surface | `superimpose`, `surface` | [Inspection](https://docs.isalgo.dev/tcren/kit.html) |
 | Recorded observations and matched comparisons | `evaluate`, `associate` | [Evaluation](https://docs.isalgo.dev/tcren/evaluation.html) |
@@ -190,6 +190,9 @@ MHC identities when joining results; an annotated sequence is not a binding labe
 MHC role/groove annotation is needed by the graph; an exact allele name is not a
 term in the default score. Sequence-equivalent allele names may be unresolved. Read [MHC identity](https://docs.isalgo.dev/tcren/mhc-annotation.html)
 for supplied metadata, sequence support and ambiguity fields.
+
+Inspect the versioned native energy, interface-size, geometry and contact
+references with `tcren reference --show`. Record its digest with derived scores.
 
 Use `scoring --delta --reference-mode structural` for peptide alanine truncation.
 Add `--reference-side tcr` for the whole TCR or `--reference-side both` for both

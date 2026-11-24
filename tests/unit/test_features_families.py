@@ -124,3 +124,33 @@ def test_every_family_dispatches_and_emits_its_columns():
         assert got <= want | {f"fp_{k}_r{r:g}" for r in (7.0, 8.0)
                               for k in ("b0", "b1", "chi", "b0_frac")}, family
         assert any(np.isfinite(v) for v in row.values() if isinstance(v, float)), family
+
+
+def test_atomic_interface_size_uses_the_same_pairs_as_contacts():
+    from dataclasses import replace
+    from math import isnan
+
+    from test_footprint import _full_complex
+
+    from tcren.contactmap import ContactMap
+    from tcren.descriptors.table import _featurise_families
+    from tcren.recognition import RECOGNITION_FEATURES
+
+    structure = _full_complex()
+    row = _featurise_families("probe", structure, "human", ["interface"], (7.0, 8.0))
+    pairs = ContactMap.from_structure(structure, atom_pairs=True).tcr_peptide()
+    assert pairs.height > 0
+    assert row["n_atom_contacts_tp"] == pairs.height
+    assert "n_atom_contacts_tp" not in RECOGNITION_FEATURES
+
+    peptide = structure.by_type("PEPTIDE")[0]
+    peptide.residues = [
+        replace(residue, atoms=tuple(replace(atom, coord=atom.coord + 1000) for atom in residue.atoms))
+        for residue in peptide.residues
+    ]
+    row = _featurise_families("probe", structure, "human", ["interface"], (7.0, 8.0))
+    assert row["n_atom_contacts_tp"] == 0
+
+    structure.chains = structure.by_type("MHCa", "MHCb", "PEPTIDE")
+    row = _featurise_families("probe", structure, "human", ["interface"], (7.0, 8.0))
+    assert isnan(row["n_atom_contacts_tp"])

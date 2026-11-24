@@ -3,7 +3,7 @@
 Every descriptor, with its units
 ================================
 
-All 164 descriptors ``tcren features --all`` emits, in catalogue order, with what each is
+All 165 descriptors ``tcren features --all`` emits, in catalogue order, with what each is
 invariant under and what it is measured in. The *receptor* column says whether the TCR enters the
 definition: a column marked **no** is computed from the peptide and its allele alone, so every
 structure of one epitope on one allele shares its value whatever the receptor, and it carries cohort
@@ -183,7 +183,7 @@ Where the receptor sits on the groove and how it leans. Every column is a length
      - yes
      - End-to-end extension of CDR3beta, the Calpha_N to Calpha_C distance.
 
-interface (26)
+interface (27)
 --------------
 
 How much contact there is and of what chemical kind. Two continuous quantities -- buried surface and clash depth -- and counts for the rest.
@@ -217,6 +217,11 @@ How much contact there is and of what chemical kind. Two continuous quantities -
      - count
      - yes
      - TCR-peptide residue-residue contacts.
+   * - ``n_atom_contacts_tp``
+     - compositional
+     - count
+     - yes
+     - TCR-peptide heavy-atom pairs within 5 Å.
    * - ``n_contacts_tm``
      - compositional
      - count
