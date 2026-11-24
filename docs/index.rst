@@ -50,6 +50,7 @@ Complete a task
 
    getting-started
    reproduction
+   structure-replay
    ranking
    md-validation
    performance

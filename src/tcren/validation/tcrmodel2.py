@@ -80,16 +80,166 @@ def export_generated_confidence(result_pickle, coordinate_file, output):
     return payload
 
 
+def native_ranking_confidence(row):
+    """Read either literal TCRmodel2 score spelling and reject conflicting aliases."""
+    values = [float(row[key]) for key in ("ranking_confidence", "model_confidence") if key in row]
+    if not values:
+        raise ValueError("Missing TCRmodel2 ranking confidence")
+    if not np.isfinite(values).all() or len(set(values)) != 1:
+        raise ValueError("Conflicting or nonfinite TCRmodel2 ranking confidence")
+    return values[0]
+
+
+def native_ranking_metric(row):
+    """The upstream pMHC wrapper replaces its reported ranking score with pTM."""
+    score = native_ranking_confidence(row)
+    if "iptm" not in row and "ptm" in row and float(row["ptm"]) == score:
+        return "ptm"
+    return "ranking_confidence"
+
+
 def ranked_detail_file(directory, statistics, rank):
     """Select retained confidence by the producer's exact ranking scalar, refusing ambiguity."""
-    target = float(statistics[rank]["ranking_confidence"])
+    target = native_ranking_confidence(statistics[rank])
+    metric = native_ranking_metric(statistics[rank])
     matches = [
         path
         for path in Path(directory).glob("*.json")
-        if json.loads(path.read_text()).get("scalars", {}).get("ranking_confidence") == target
+        if json.loads(path.read_text()).get("scalars", {}).get(metric) == target
     ]
     if len(matches) != 1:
         raise ValueError(
             f"{rank}: {len(matches)} retained confidence matches; require unique producer identity"
         )
     return matches[0]
+
+
+def retain_generated_inputs(features, msa, output):
+    """Retain trusted complete producer pickles before upstream cleanup.
+
+    Only locally generated inputs are accepted by this internal workflow. Parsing
+    verifies completed writes and matching token dimensions; the bytes are copied
+    unchanged so later backend/recycle controls use the same producer features.
+    """
+    features, msa, output = map(Path, (features, msa, output))
+    feature_bytes, msa_bytes = features.read_bytes(), msa.read_bytes()
+    feature_data, msa_data = pickle.loads(feature_bytes), pickle.loads(msa_bytes)
+    tokens = np.asarray(feature_data["aatype"]).shape[0]
+    if (
+        tokens <= 0
+        or np.asarray(feature_data["template_aatype"]).shape != (4, tokens)
+        or np.asarray(msa_data["msa"]).ndim != 2
+        or np.asarray(msa_data["msa"]).shape[1] != tokens
+    ):
+        raise ValueError("Producer feature/MSA token dimensions differ")
+    output.mkdir(parents=True, exist_ok=True)
+    record = dict(
+        tokens=tokens,
+        features_source=str(features),
+        msa_source=str(msa),
+        features_sha256=hashlib.sha256(feature_bytes).hexdigest(),
+        msa_sha256=hashlib.sha256(msa_bytes).hexdigest(),
+        trusted_generated_inputs=True,
+    )
+    for name, data in [("producer-features.pkl", feature_bytes), ("producer-msa.pkl", msa_bytes)]:
+        path = output / name
+        if path.exists() and path.read_bytes() != data:
+            raise ValueError("Refuse to replace different retained producer inputs")
+        if not path.exists():
+            temporary = path.with_suffix(path.suffix + ".tmp")
+            temporary.write_bytes(data)
+            temporary.replace(path)
+    receipt = output / "producer-inputs.json"
+    temporary = receipt.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(record, indent=2) + "\n")
+    temporary.replace(receipt)
+    return record
+
+
+def compare_generated_feature_arrays(left, right):
+    """Audit already-decoded trusted producer inputs without exposing sequence values.
+
+    Pickle-byte hashes alone do not establish array identity across Python/numpy
+    versions. Report missing keys, shape/dtype and exact element equality; numeric
+    differences retain their native feature units. This does not infer why a
+    prediction changed or deserialize arbitrary external pickles.
+    """
+    if any(not isinstance(key, str) for key in set(left) | set(right)):
+        raise ValueError("Feature names must be strings")
+    rows = []
+    for key in sorted(set(left) | set(right)):
+        if key not in left or key not in right:
+            rows.append(
+                dict(name=key, missing_from="left" if key not in left else "right", identical=False)
+            )
+            continue
+        a, b = np.asarray(left[key]), np.asarray(right[key])
+        same_shape = a.shape == b.shape
+        equal = bool(same_shape and np.array_equal(a, b))
+        maximum = None
+        if same_shape and a.size and a.dtype.kind in "biuf" and b.dtype.kind in "biuf":
+            af, bf = a.astype(float), b.astype(float)
+            if np.isfinite(af).all() and np.isfinite(bf).all():
+                maximum = float(np.max(np.abs(af - bf)))
+        rows.append(
+            dict(
+                name=key,
+                left_shape=list(a.shape),
+                right_shape=list(b.shape),
+                left_dtype=str(a.dtype),
+                right_dtype=str(b.dtype),
+                values_equal=equal,
+                maximum_absolute_difference=maximum,
+                identical=equal and a.dtype == b.dtype,
+            )
+        )
+    return dict(
+        identical=all(row["identical"] for row in rows),
+        arrays=rows,
+        scope="Exact producer input arrays; hashes/metadata and causal inference remain separate",
+    )
+
+
+def compare_msa_row_inventory(left, right, *, chain_ids):
+    """Distinguish row ordering, sequence inventory and cross-chain pairing changes.
+
+    Encoded MSAs are compared as multisets, including duplicate/padding rows.
+    Equal per-chain inventories but different full rows isolate changed pairing
+    or cross-chain ordering; this does not establish its upstream cause.
+    """
+    from collections import Counter
+
+    arrays = [np.asarray(value) for value in (left, right)]
+    ids = np.asarray(chain_ids)
+    if any(a.ndim != 2 or a.dtype.kind not in "iu" for a in arrays):
+        raise ValueError("Require two integer-encoded MSA matrices")
+    if arrays[0].shape[1] != arrays[1].shape[1] or ids.shape != (arrays[0].shape[1],):
+        raise ValueError("MSA columns and chain IDs must match")
+    if (
+        ids.dtype.kind not in "iuf"
+        or not np.isfinite(ids).all()
+        or not np.equal(ids, np.floor(ids)).all()
+        or (ids < -(2**63)).any()
+        or (ids >= 2**63).any()
+    ):
+        raise ValueError("Require finite integer-valued producer asymmetry IDs")
+    ids = ids.astype(np.int64)
+
+    def inventory(columns):
+        tables = [a[:, columns].astype(np.int64) for a in arrays]
+        counts = [Counter(row.tobytes() for row in table) for table in tables]
+        return dict(
+            order_equal=np.array_equal(*tables),
+            multiset_equal=counts[0] == counts[1],
+            left_rows=len(tables[0]),
+            right_rows=len(tables[1]),
+            left_unique_rows=len(counts[0]),
+            right_unique_rows=len(counts[1]),
+            common_rows_with_multiplicity=sum((counts[0] & counts[1]).values()),
+        )
+
+    return dict(
+        full=inventory(np.ones(len(ids), dtype=bool)),
+        chains={str(chain): inventory(ids == chain) for chain in np.unique(ids)},
+        scope="Literal encoded rows including duplicates/padding; no sequence or pairing repair",
+    )

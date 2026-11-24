@@ -57,7 +57,7 @@ nbsphinx_execute = "never"
 
 # Heavy / optional dependencies mocked at doc-build time.
 autodoc_mock_imports = [
-    "arda", "scipy", "Bio", "matplotlib",
+    "arda", "scipy", "sklearn", "Bio", "matplotlib",
     "py3Dmol", "openmm", "pdbfixer", "promod3", "ost",  # optional viz / refinement engines
 ]
 

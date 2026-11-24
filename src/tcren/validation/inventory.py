@@ -29,12 +29,14 @@ def coordinate_stream(root):
                         yield f"{path}::{member.name}", archive.extractfile(member).read().decode()
 
 
-def compatible_sequence_span(sequence, query, terminal_budget=0):
+def compatible_sequence_span(sequence, query, terminal_budget=0, *, reject_ambiguous=False):
     """Unique exact shared span, allowing only a stated number of missing query termini.
 
     No substitutions or internal deletions; repeated/ambiguous spans return None.
     Ambiguity is rejected at the first matching truncation level, including repeated
     alternatives beside a unique span. Extra reference termini are allowed.
+    Set reject_ambiguous for role assignment that must distinguish ambiguity
+    from absent identity across several candidate coordinate chains.
     """
     if not query or terminal_budget < 0 or terminal_budget >= len(query):
         raise ValueError("nonempty query and terminal budget smaller than query length required")
@@ -46,8 +48,14 @@ def compatible_sequence_span(sequence, query, terminal_budget=0):
             start = sequence.find(fragment)
             if start >= 0:
                 if sequence.find(fragment, start + 1) >= 0:
+                    if reject_ambiguous:
+                        raise ValueError("Ambiguous repeated sequence span")
                     return None
                 matches.append(dict(reference_start=start, input_start=left, length=len(fragment)))
         if matches:
-            return matches[0] if len({tuple(sorted(row.items())) for row in matches}) == 1 else None
+            if len({tuple(sorted(row.items())) for row in matches}) == 1:
+                return matches[0]
+            if reject_ambiguous:
+                raise ValueError("Ambiguous alternative terminal spans")
+            return None
     return None
