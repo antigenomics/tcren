@@ -307,9 +307,12 @@ for null observations. Missing required terms withhold the unit's formula
 score, and ``n_missing_terms`` reports the missing inputs for each row.
 
 The weighted ``term_*`` columns sum to ``workflow_score``, the recorded formula.
-Use ``screen_score`` for policy-aware screening. It gives zero to observed
-zero-contact poses, with a reason, and withholds nonzero-contact scores below
-the cohort floor. Unknown contact counts remain explicit. Each output row
+Order candidates within each unit by ascending ``screen_rank``, with null ranks
+last. Rank 1 is best and tied scores share a rank. A zero-contact pose has
+``screen_score=0`` for compatibility and receives no rank. This keeps it out of
+the ranking even when valid centered scores are negative. Unknown contact
+counts, missing scores and scores withheld by the cohort floor also receive
+no rank. Each output row
 carries the reference digest, unit counts, energy coverage for receptor
 ranking, and available within-unit Spearman correlations with contact count
 for the formula and its terms.

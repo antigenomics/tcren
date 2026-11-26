@@ -40,6 +40,17 @@ def test_peptide_score_keeps_recorded_weights_and_zero_contact_reason():
     np.testing.assert_allclose(r["term_confidence_energy"], .8 * _z(base))
 
 
+def test_opposite_two_peptide_evidence_cancels_exactly():
+    t = _inputs().head(2).with_columns(
+        iptm=pl.Series([.87, .88]), dPhi_peptide_sum=pl.Series([.32, .7]),
+        n_atom_contacts_tp=pl.lit(10), coverage=pl.lit(.5), d_charge=pl.lit(.1),
+    )
+    for rows in (t, t.reverse()):
+        r = rank_native_screen(rows, task="epitope", ranking_unit="unit", min_cohort=1)
+        np.testing.assert_array_equal(r["term_confidence_energy"], [0., 0.])
+        np.testing.assert_array_equal(r["screen_score"], [0., 0.])
+
+
 @pytest.mark.parametrize("covered", [True, False])
 def test_receptor_terms_use_the_correct_native_coverage_branch(covered):
     from tcren.native_reference import load_native_reference

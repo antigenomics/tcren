@@ -31,6 +31,12 @@ def _numeric(group: pl.DataFrame, name: str) -> pl.Series:
 def _z(values: np.ndarray) -> np.ndarray:
     if not np.isfinite(values).all():
         return np.full_like(values, np.nan)
+    if np.all(values == values[0]):
+        return np.zeros_like(values)
+    if values.size == 2:
+        # Population-standardized pairs are exactly +/-1. Preserve cancellation
+        # when confidence and energy order the same two candidates oppositely.
+        return np.array([-1., 1.]) if values[0] < values[1] else np.array([1., -1.])
     sd = values.std()
     return (values - values.mean()) / sd if sd > 0 else np.zeros_like(values)
 
@@ -100,6 +106,7 @@ def rank_native_screen(
 
     ``workflow_score`` is the recorded formula on the supplied unit. ``screen_score``
     applies the cohort floor and the zero-peptide-contact pose policy.
+    For ordering, use ascending ``screen_rank``; unscored poses have no rank.
     """
     if task not in ("tcr", "epitope"):
         raise ValueError("native ranking requires explicit task tcr or epitope")
@@ -148,6 +155,8 @@ def rank_native_screen(
             pl.Series("n_missing_terms", missing_terms),
             pl.Series("workflow_score", workflow, nan_to_null=True),
             pl.Series("screen_score", screen, nan_to_null=True),
+            pl.Series("screen_rank", np.where(contacts, screen, np.nan), nan_to_null=True)
+            .rank(method="dense", descending=True),
             pl.Series("no_interface", zero),
         ).with_columns(
             pl.when("no_interface").then(pl.lit("no_peptide_contact"))
